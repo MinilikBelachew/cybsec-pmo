@@ -1,0 +1,13 @@
+{
+  "Index": {
+    "title": "Project Management",
+    "description": "Professional project management dashboard."
+  },
+  "Table": {
+    "search": "Search...",
+    "columns": "Columns",
+    "next": "Next",
+    "previous": "Previous",
+    "rowsSelected": "{selected} of {total} row(s) selected."
+  }
+}

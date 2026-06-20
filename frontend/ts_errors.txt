@@ -1,0 +1,21 @@
+src/app/[locale]/(dashboard)/dashboard/page.tsx(19,82): error TS2339: Property 'name' does not exist on type 'User'.
+src/app/[locale]/(dashboard)/dashboard/page.tsx(85,20): error TS2322: Type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>' is not assignable to type 'ReactNode'.
+src/domains/auth/components/login-form.tsx(5,25): error TS2307: Cannot find module 'react-hook-form' or its corresponding type declarations.
+src/domains/auth/components/login-form.tsx(6,29): error TS2307: Cannot find module '@hookform/resolvers/zod' or its corresponding type declarations.
+src/domains/auth/components/register-form.tsx(5,25): error TS2307: Cannot find module 'react-hook-form' or its corresponding type declarations.
+src/domains/auth/components/register-form.tsx(6,29): error TS2307: Cannot find module '@hookform/resolvers/zod' or its corresponding type declarations.
+src/shared/components/sidebar-nav.tsx(63,28): error TS2322: Type '{ children: Element[]; delayDuration: number; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.
+  Property 'delayDuration' does not exist on type 'IntrinsicAttributes & Props<unknown>'.
+src/shared/components/sidebar-nav.tsx(64,37): error TS2322: Type '{ children: Element; asChild: true; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.
+  Property 'asChild' does not exist on type 'IntrinsicAttributes & Props<unknown>'.
+src/shared/components/sidebar-nav.tsx(94,23): error TS2322: Type '{ children: Element; asChild: true; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.
+  Property 'asChild' does not exist on type 'IntrinsicAttributes & Props<unknown>'.
+src/shared/components/theme-toggle.tsx(20,28): error TS2322: Type '{ children: Element; asChild: true; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.
+  Property 'asChild' does not exist on type 'IntrinsicAttributes & Props<unknown>'.
+src/shared/components/top-bar.tsx(45,32): error TS2322: Type '{ children: Element; asChild: true; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.
+  Property 'asChild' does not exist on type 'IntrinsicAttributes & Props<unknown>'.
+src/shared/components/top-bar.tsx(48,40): error TS2339: Property 'name' does not exist on type 'User'.
+src/shared/components/top-bar.tsx(48,64): error TS2339: Property 'name' does not exist on type 'User'.
+src/shared/components/top-bar.tsx(52,61): error TS2322: Type '{ children: Element[]; className: string; align: "end"; forceMount: true; }' is not assignable to type 'IntrinsicAttributes & MenuPopupProps & Pick<MenuPositionerProps, "side" | "align" | "alignOffset" | "sideOffset">'.
+  Property 'forceMount' does not exist on type 'IntrinsicAttributes & MenuPopupProps & Pick<MenuPositionerProps, "side" | "align" | "alignOffset" | "sideOffset">'.
+src/shared/components/top-bar.tsx(55,72): error TS2339: Property 'name' does not exist on type 'User'.
