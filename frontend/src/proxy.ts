@@ -18,6 +18,7 @@ const PUBLIC_PATHS = [
 function isPublicPath(pathname: string): boolean {
   // Strip locale prefix for checking public paths
   const pathWithoutLocale = pathname.replace(/^\/(en|ar)/, "") || "/";
+  if (pathWithoutLocale === "/") return true;
   return PUBLIC_PATHS.some((p) => pathWithoutLocale.startsWith(p));
 }
 

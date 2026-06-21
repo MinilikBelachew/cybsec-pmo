@@ -1,74 +1,67 @@
 import { Exclude, Expose } from 'class-transformer';
-import { FileType } from '../../files/domain/file';
 import { Role } from '../../roles/domain/role';
-import { Status } from '../../statuses/domain/status';
 import { ApiProperty } from '@nestjs/swagger';
-
-const idType = Number;
 
 export class User {
   @ApiProperty({
-    type: idType,
+    type: String,
+    example: 'd0b8f103-68d8-4f28-a6b1-3e4b77f98d78',
   })
-  id: number | string;
+  id: string;
+
+  @ApiProperty({
+    type: String,
+    example: 'fed-id-12345',
+  })
+  @Expose({ groups: ['me', 'admin'] })
+  entraObjectId: string;
 
   @ApiProperty({
     type: String,
     example: 'john.doe@example.com',
   })
   @Expose({ groups: ['me', 'admin'] })
-  email: string | null;
-
-  @Exclude({ toPlainOnly: true })
-  password?: string;
+  email: string;
 
   @ApiProperty({
     type: String,
-    example: 'email',
+    example: 'John Doe',
   })
-  @Expose({ groups: ['me', 'admin'] })
-  provider: string;
+  displayName: string;
 
   @ApiProperty({
     type: String,
-    example: '1234567890',
+    example: 'super_admin',
   })
-  @Expose({ groups: ['me', 'admin'] })
-  socialId?: string | null;
+  roleCode: string;
 
   @ApiProperty({
-    type: String,
-    example: 'John',
+    type: Boolean,
+    example: true,
   })
-  firstName: string | null;
+  isActive: boolean;
 
   @ApiProperty({
-    type: String,
-    example: 'Doe',
+    type: Boolean,
+    example: false,
   })
-  lastName: string | null;
+  isExternal: boolean;
 
   @ApiProperty({
-    type: () => FileType,
+    type: Date,
+    nullable: true,
   })
-  photo?: FileType | null;
+  lastLogin: Date | null;
 
   @ApiProperty({
     type: () => Role,
   })
   role?: Role | null;
 
-  @ApiProperty({
-    type: () => Status,
-  })
-  status?: Status;
-
   @ApiProperty()
   createdAt: Date;
 
   @ApiProperty()
   updatedAt: Date;
-
-  @ApiProperty()
-  deletedAt: Date;
 }
+

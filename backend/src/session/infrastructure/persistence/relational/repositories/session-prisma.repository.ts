@@ -13,15 +13,13 @@ export class SessionPrismaRepository implements SessionRepository {
   async findById(id: Session['id']): Promise<NullableType<Session>> {
     const entity = await this.prisma.session.findFirst({
       where: {
-        id: Number(id),
-        deletedAt: null,
+        id: id as string,
+        revokedAt: null,
       },
       include: {
         user: {
           include: {
             role: true,
-            status: true,
-            photo: true,
           },
         },
       },
@@ -39,8 +37,6 @@ export class SessionPrismaRepository implements SessionRepository {
         user: {
           include: {
             role: true,
-            status: true,
-            photo: true,
           },
         },
       },
@@ -52,20 +48,18 @@ export class SessionPrismaRepository implements SessionRepository {
   async update(
     id: Session['id'],
     payload: Partial<
-      Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>
+      Omit<Session, 'id' | 'createdAt' | 'revokedAt'>
     >,
   ): Promise<Session | null> {
     const entity = await this.prisma.session.findFirst({
       where: {
-        id: Number(id),
-        deletedAt: null,
+        id: id as string,
+        revokedAt: null,
       },
       include: {
         user: {
           include: {
             role: true,
-            status: true,
-            photo: true,
           },
         },
       },
@@ -82,14 +76,12 @@ export class SessionPrismaRepository implements SessionRepository {
     });
 
     const updatedEntity = await this.prisma.session.update({
-      where: { id: Number(id) },
+      where: { id: id as string },
       data: updatedData,
       include: {
         user: {
           include: {
             role: true,
-            status: true,
-            photo: true,
           },
         },
       },
@@ -100,18 +92,18 @@ export class SessionPrismaRepository implements SessionRepository {
 
   async deleteById(id: Session['id']): Promise<void> {
     await this.prisma.session.update({
-      where: { id: Number(id) },
-      data: { deletedAt: new Date() },
+      where: { id: id as string },
+      data: { revokedAt: new Date() },
     });
   }
 
   async deleteByUserId(conditions: { userId: User['id'] }): Promise<void> {
     await this.prisma.session.updateMany({
       where: {
-        userId: Number(conditions.userId),
-        deletedAt: null,
+        userId: conditions.userId as string,
+        revokedAt: null,
       },
-      data: { deletedAt: new Date() },
+      data: { revokedAt: new Date() },
     });
   }
 
@@ -121,11 +113,12 @@ export class SessionPrismaRepository implements SessionRepository {
   }): Promise<void> {
     await this.prisma.session.updateMany({
       where: {
-        userId: Number(conditions.userId),
-        id: { not: Number(conditions.excludeSessionId) },
-        deletedAt: null,
+        userId: conditions.userId as string,
+        id: { not: conditions.excludeSessionId as string },
+        revokedAt: null,
       },
-      data: { deletedAt: new Date() },
+      data: { revokedAt: new Date() },
     });
   }
 }
+

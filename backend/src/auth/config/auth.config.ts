@@ -29,6 +29,15 @@ class EnvironmentVariablesValidator {
 
   @IsString()
   AUTH_CONFIRM_EMAIL_TOKEN_EXPIRES_IN: string;
+
+  @IsString()
+  ENTRA_TENANT_ID: string;
+
+  @IsString()
+  ENTRA_CLIENT_ID: string;
+
+  @IsString()
+  ENTRA_CLIENT_SECRET: string;
 }
 
 export default registerAs<AuthConfig>('auth', () => {
@@ -44,5 +53,9 @@ export default registerAs<AuthConfig>('auth', () => {
     confirmEmailSecret: process.env.AUTH_CONFIRM_EMAIL_SECRET,
     confirmEmailExpires: process.env
       .AUTH_CONFIRM_EMAIL_TOKEN_EXPIRES_IN as ms.StringValue,
+    entraTenantId: process.env.ENTRA_TENANT_ID,
+    entraClientId: process.env.ENTRA_CLIENT_ID,
+    entraClientSecret: process.env.ENTRA_CLIENT_SECRET,
   };
 });
+

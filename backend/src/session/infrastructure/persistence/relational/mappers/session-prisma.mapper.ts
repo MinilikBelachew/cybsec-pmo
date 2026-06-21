@@ -3,11 +3,9 @@ import { Session } from '../../../../domain/session';
 import { UserPrismaMapper } from '../../../../../users/infrastructure/persistence/relational/mappers/user-prisma.mapper';
 
 type SessionWithRelations = PrismaSession & {
-  user:
+  user?:
     | (PrismaUser & {
         role?: any;
-        status?: any;
-        photo?: any;
       })
     | null;
 };
@@ -16,10 +14,13 @@ export class SessionPrismaMapper {
   static toDomain(raw: SessionWithRelations): Session {
     const domainEntity = new Session();
     domainEntity.id = raw.id;
-    domainEntity.hash = raw.hash;
+    domainEntity.userId = raw.userId;
+    domainEntity.refreshTokenHash = raw.refreshTokenHash;
+    domainEntity.ipAddress = raw.ipAddress;
+    domainEntity.userAgent = raw.userAgent;
+    domainEntity.expiresAt = raw.expiresAt;
+    domainEntity.revokedAt = raw.revokedAt;
     domainEntity.createdAt = raw.createdAt;
-    domainEntity.updatedAt = raw.updatedAt;
-    domainEntity.deletedAt = raw.deletedAt as any;
     if (raw.user) {
       domainEntity.user = UserPrismaMapper.toDomain(raw.user);
     }
@@ -28,12 +29,15 @@ export class SessionPrismaMapper {
 
   static toPersistence(domainEntity: Session) {
     return {
-      id: typeof domainEntity.id === 'number' ? domainEntity.id : undefined,
-      userId: Number(domainEntity.user.id),
-      hash: domainEntity.hash,
+      id: domainEntity.id || undefined,
+      userId: domainEntity.userId,
+      refreshTokenHash: domainEntity.refreshTokenHash,
+      ipAddress: domainEntity.ipAddress,
+      userAgent: domainEntity.userAgent,
+      expiresAt: domainEntity.expiresAt,
+      revokedAt: domainEntity.revokedAt,
       createdAt: domainEntity.createdAt,
-      updatedAt: domainEntity.updatedAt,
-      deletedAt: domainEntity.deletedAt ?? null,
     };
   }
 }
+

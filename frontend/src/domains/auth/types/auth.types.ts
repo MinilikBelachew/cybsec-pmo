@@ -1,25 +1,22 @@
-export interface LoginRequestDto {
-  email: string;
-  password: string;
-}
-
-export interface RegisterRequestDto {
-  name: string;
-  email: string;
-  password: string;
+export interface EntraLoginRequestDto {
+  idToken: string;
 }
 
 export interface LoginResponseDto {
-  access_token: string;
-  refresh_token: string;
+  token: string;
+  refreshToken: string;
+  tokenExpires: number;
   user: ApiUser;
 }
 
 export interface ApiUser {
   id: string;
-  name: string;
+  displayName: string;
   email: string;
-  roles: string[];
+  roleCode?: string;
+  role?: {
+    code: string;
+  };
 }
 
 export interface User {

@@ -1,7 +1,28 @@
 {
   "Index": {
-    "title": "Project Management",
-    "description": "Professional project management dashboard."
+    "title": "PMO",
+    "footerTitle": "PMO",
+    "description": "Professional project management dashboard.",
+    "login": "Login",
+    "signup": "Sign Up",
+    "locale": "en"
+  },
+  "Auth": {
+    "signInTitle": "Welcome Back",
+    "signInSubtitle": "Enter your credentials to access your account.",
+    "signUpTitle": "Get Started",
+    "signUpSubtitle": "Create an account for your organization.",
+    "microsoftSignIn": "Sign in with Microsoft",
+    "email": "Email Address",
+    "password": "Password",
+    "forgotPassword": "Forgot Password?",
+    "noAccount": "Don't have an account?",
+    "alreadyAccount": "Already have an account?",
+    "resetPassword": "Reset Password",
+    "sendResetLink": "Send Reset Link",
+    "mfaTitle": "MFA Verification",
+    "mfaSubtitle": "Please enter the verification code sent to your device.",
+    "verify": "Verify"
   },
   "Table": {
     "search": "Search...",

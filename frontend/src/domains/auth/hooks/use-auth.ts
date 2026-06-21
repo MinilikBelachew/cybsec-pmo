@@ -21,6 +21,10 @@ export function useAuth() {
     } catch {
       // Always clear local state even if API call fails
     } finally {
+      // Clear MSAL session cache to prevent auto-login
+      sessionStorage.clear();
+      localStorage.clear();
+
       dispatch(logout());
       logger.audit("User logged out", { userId: user?.id });
       router.push("/login");

@@ -5,25 +5,51 @@ import {
   HttpCode,
   HttpStatus,
   Request,
+  Response,
   Post,
   UseGuards,
-  Patch,
-  Delete,
   SerializeOptions,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
-import { AuthEmailLoginDto } from './dto/auth-email-login.dto';
-import { AuthForgotPasswordDto } from './dto/auth-forgot-password.dto';
-import { AuthConfirmEmailDto } from './dto/auth-confirm-email.dto';
-import { AuthResetPasswordDto } from './dto/auth-reset-password.dto';
-import { AuthUpdateDto } from './dto/auth-update.dto';
-import { AuthGuard } from '@nestjs/passport';
-import { AuthRegisterLoginDto } from './dto/auth-register-login.dto';
+import { AuthEntraLoginDto } from './dto/auth-entra-login.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
+import { AuthGuard } from '@nestjs/passport';
 import { NullableType } from '../utils/types/nullable.type';
 import { User } from '../users/domain/user';
 import { RefreshResponseDto } from './dto/refresh-response.dto';
+import { Response as ExpressResponse } from 'express';
+
+// Cookie config shared across login and refresh
+const ACCESS_TOKEN_COOKIE = 'access_token';
+const REFRESH_TOKEN_COOKIE = 'refresh_token';
+
+function setAuthCookies(
+  res: ExpressResponse,
+  token: string,
+  refreshToken: string,
+  tokenExpires: number,
+) {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // access_token — short-lived (15 min), httpOnly so JS cannot touch it
+  res.cookie(ACCESS_TOKEN_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProd,             // HTTPS only in production
+    expires: new Date(tokenExpires),
+    path: '/',
+  });
+
+  // refresh_token — long-lived (10 years), httpOnly
+  res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProd,
+    maxAge: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years in ms
+    path: '/api/v1/auth/refresh',  // only sent to the refresh endpoint
+  });
+}
 
 @ApiTags('Auth')
 @Controller({
@@ -33,120 +59,65 @@ import { RefreshResponseDto } from './dto/refresh-response.dto';
 export class AuthController {
   constructor(private readonly service: AuthService) {}
 
-  @SerializeOptions({
-    groups: ['me'],
-  })
-  @Post('email/login')
-  @ApiOkResponse({
-    type: LoginResponseDto,
-  })
+  @SerializeOptions({ groups: ['me'] })
+  @Post('entra/login')
+  @ApiOkResponse({ type: LoginResponseDto })
   @HttpCode(HttpStatus.OK)
-  public login(@Body() loginDto: AuthEmailLoginDto): Promise<LoginResponseDto> {
-    return this.service.validateLogin(loginDto);
-  }
+  public async login(
+    @Body() loginDto: AuthEntraLoginDto,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ): Promise<LoginResponseDto> {
+    const result = await this.service.validateEntraLogin(loginDto.idToken);
 
-  @Post('email/register')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async register(@Body() createUserDto: AuthRegisterLoginDto): Promise<void> {
-    return this.service.register(createUserDto);
-  }
+    // Set both tokens as httpOnly cookies — JS cannot read these
+    setAuthCookies(res, result.token, result.refreshToken, result.tokenExpires);
 
-  @Post('email/confirm')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async confirmEmail(
-    @Body() confirmEmailDto: AuthConfirmEmailDto,
-  ): Promise<void> {
-    return this.service.confirmEmail(confirmEmailDto.hash);
-  }
-
-  @Post('email/confirm/new')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async confirmNewEmail(
-    @Body() confirmEmailDto: AuthConfirmEmailDto,
-  ): Promise<void> {
-    return this.service.confirmNewEmail(confirmEmailDto.hash);
-  }
-
-  @Post('forgot/password')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async forgotPassword(
-    @Body() forgotPasswordDto: AuthForgotPasswordDto,
-  ): Promise<void> {
-    return this.service.forgotPassword(forgotPasswordDto.email);
-  }
-
-  @Post('reset/password')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  resetPassword(@Body() resetPasswordDto: AuthResetPasswordDto): Promise<void> {
-    return this.service.resetPassword(
-      resetPasswordDto.hash,
-      resetPasswordDto.password,
-    );
+    return result;
   }
 
   @ApiBearerAuth()
-  @SerializeOptions({
-    groups: ['me'],
-  })
+  @SerializeOptions({ groups: ['me'] })
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
-  @ApiOkResponse({
-    type: User,
-  })
+  @ApiOkResponse({ type: User })
   @HttpCode(HttpStatus.OK)
   public me(@Request() request): Promise<NullableType<User>> {
     return this.service.me(request.user);
   }
 
   @ApiBearerAuth()
-  @ApiOkResponse({
-    type: RefreshResponseDto,
-  })
-  @SerializeOptions({
-    groups: ['me'],
-  })
+  @ApiOkResponse({ type: RefreshResponseDto })
+  @SerializeOptions({ groups: ['me'] })
   @Post('refresh')
   @UseGuards(AuthGuard('jwt-refresh'))
   @HttpCode(HttpStatus.OK)
-  public refresh(@Request() request): Promise<RefreshResponseDto> {
-    return this.service.refreshToken({
+  public async refresh(
+    @Request() request,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ): Promise<RefreshResponseDto> {
+    const result = await this.service.refreshToken({
       sessionId: request.user.sessionId,
-      hash: request.user.hash,
+      refreshTokenHash: request.user.refreshTokenHash,
     });
+
+    // Rotate both cookies on every refresh
+    setAuthCookies(res, result.token, result.refreshToken, result.tokenExpires);
+
+    return result;
   }
 
   @ApiBearerAuth()
   @Post('logout')
   @UseGuards(AuthGuard('jwt'))
   @HttpCode(HttpStatus.NO_CONTENT)
-  public async logout(@Request() request): Promise<void> {
-    await this.service.logout({
-      sessionId: request.user.sessionId,
-    });
-  }
-
-  @ApiBearerAuth()
-  @SerializeOptions({
-    groups: ['me'],
-  })
-  @Patch('me')
-  @UseGuards(AuthGuard('jwt'))
-  @HttpCode(HttpStatus.OK)
-  @ApiOkResponse({
-    type: User,
-  })
-  public update(
+  public async logout(
     @Request() request,
-    @Body() userDto: AuthUpdateDto,
-  ): Promise<NullableType<User>> {
-    return this.service.update(request.user, userDto);
-  }
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ): Promise<void> {
+    await this.service.logout({ sessionId: request.user.sessionId });
 
-  @ApiBearerAuth()
-  @Delete('me')
-  @UseGuards(AuthGuard('jwt'))
-  @HttpCode(HttpStatus.NO_CONTENT)
-  public async delete(@Request() request): Promise<void> {
-    return this.service.softDelete(request.user);
+    // Clear both cookies immediately on logout
+    res.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
+    res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/v1/auth/refresh' });
   }
 }

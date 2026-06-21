@@ -1,0 +1,8 @@
+# Ignore everything by default
+/*
+
+# Allow specific files/directories
+!/frontend/
+!/backend/
+!/ecosystem.config.js
+!/.gitignore

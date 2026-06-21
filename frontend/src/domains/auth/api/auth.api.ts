@@ -1,19 +1,11 @@
 import { api } from "@/core/api/api";
-import { type LoginRequestDto, type LoginResponseDto, type RegisterRequestDto } from "../types/auth.types";
+import { type EntraLoginRequestDto, type LoginResponseDto } from "../types/auth.types";
 
 export const authApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    login: builder.mutation<LoginResponseDto, LoginRequestDto>({
+    entraLogin: builder.mutation<LoginResponseDto, EntraLoginRequestDto>({
       query: (body) => ({
-        url: "/auth/login",
-        method: "POST",
-        body,
-      }),
-    }),
-
-    register: builder.mutation<LoginResponseDto, RegisterRequestDto>({
-      query: (body) => ({
-        url: "/auth/register",
+        url: "/auth/entra/login",
         method: "POST",
         body,
       }),
@@ -35,8 +27,7 @@ export const authApi = api.injectEndpoints({
 });
 
 export const {
-  useLoginMutation,
-  useRegisterMutation,
+  useEntraLoginMutation,
   useGetMeQuery,
   useLogoutMutation,
 } = authApi;

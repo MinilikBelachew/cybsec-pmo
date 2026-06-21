@@ -52,6 +52,27 @@ async function main() {
   });
 
   console.log(`First Super Admin user (${adminEmail}) seeded successfully.`);
+
+  console.log('Seeding PM user...');
+  const pmEmail = 'john.pm@bminilik12gmail.onmicrosoft.com';
+  await prisma.user.upsert({
+    where: { email: pmEmail },
+    update: {
+      displayName: 'John Smith',
+      roleCode: 'pm',
+      isActive: true,
+      isExternal: false,
+    },
+    create: {
+      email: pmEmail,
+      displayName: 'John Smith',
+      roleCode: 'pm',
+      isActive: true,
+      isExternal: false,
+      entraObjectId: 'pending-first-login',
+    },
+  });
+  console.log(`PM user (${pmEmail}) seeded successfully.`);
 }
 
 main()

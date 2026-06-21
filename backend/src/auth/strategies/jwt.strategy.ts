@@ -10,7 +10,11 @@ import { AllConfigType } from '../../config/config.type';
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(configService: ConfigService<AllConfigType>) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Read token from httpOnly cookie first, fall back to Bearer header (for Swagger)
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (request) => request?.cookies?.access_token ?? null,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       secretOrKey: configService.getOrThrow('auth.secret', { infer: true }),
     });
   }

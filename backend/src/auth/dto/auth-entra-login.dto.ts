@@ -1,10 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 
-export class RoleDto {
-  @ApiProperty({ example: 'super_admin' })
+export class AuthEntraLoginDto {
+  @ApiProperty({ example: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6...' })
   @IsNotEmpty()
   @IsString()
-  code: string;
+  idToken: string;
 }
-

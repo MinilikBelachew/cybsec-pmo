@@ -14,7 +14,7 @@ export class SessionService {
   }
 
   create(
-    data: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>,
+    data: Omit<Session, 'id' | 'createdAt' | 'revokedAt'>,
   ): Promise<Session> {
     return this.sessionRepository.create(data);
   }
@@ -22,7 +22,7 @@ export class SessionService {
   update(
     id: Session['id'],
     payload: Partial<
-      Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>
+      Omit<Session, 'id' | 'createdAt' | 'revokedAt'>
     >,
   ): Promise<Session | null> {
     return this.sessionRepository.update(id, payload);

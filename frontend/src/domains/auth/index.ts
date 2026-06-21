@@ -13,7 +13,7 @@ export { LoginForm } from "./components/login-form";
 export { RegisterForm } from "./components/register-form";
 
 // Types (for use in other domains if needed)
-export type { User, LoginRequestDto, LoginResponseDto } from "./types/auth.types";
+export type { User, EntraLoginRequestDto, LoginResponseDto } from "./types/auth.types";
 
 // Store actions (for middleware / root store)
 export { setUser, clearUser, logout } from "./store/auth.slice";

@@ -6,7 +6,6 @@ import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AnonymousStrategy } from './strategies/anonymous.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
-import { MailModule } from '../mail/mail.module';
 import { SessionModule } from '../session/session.module';
 import { UsersModule } from '../users/users.module';
 
@@ -15,7 +14,6 @@ import { UsersModule } from '../users/users.module';
     UsersModule,
     SessionModule,
     PassportModule,
-    MailModule,
     JwtModule.register({}),
   ],
   controllers: [AuthController],
@@ -23,3 +21,4 @@ import { UsersModule } from '../users/users.module';
   exports: [AuthService],
 })
 export class AuthModule {}
+

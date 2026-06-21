@@ -1,10 +1,14 @@
 import { User } from '../../users/domain/user';
 
 export class Session {
-  id: number | string;
-  user: User;
-  hash: string;
+  id: string;
+  userId: string;
+  refreshTokenHash: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  expiresAt: Date;
+  revokedAt: Date | null;
   createdAt: Date;
-  updatedAt: Date;
-  deletedAt: Date;
+  user?: User;
 }
+

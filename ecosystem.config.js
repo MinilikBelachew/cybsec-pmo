@@ -15,7 +15,7 @@ module.exports = {
       cwd: "./backend",       // Moves into /var/www/konax/web/backend
       script: "./dist/src/main.js", 
       env: {
-        PORT: 6000,
+        PORT: 6002,
         NODE_ENV: "production"
       }
     }

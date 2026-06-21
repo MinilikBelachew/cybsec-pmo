@@ -19,8 +19,6 @@ export class UsersPrismaRepository implements UserRepository {
       data: persistenceModel,
       include: {
         role: true,
-        status: true,
-        photo: true,
       },
     });
 
@@ -37,12 +35,12 @@ export class UsersPrismaRepository implements UserRepository {
     paginationOptions: IPaginationOptions;
   }): Promise<User[]> {
     const where: Prisma.UserWhereInput = {
-      deletedAt: null,
+      isActive: true,
     };
 
     if (filterOptions?.roles?.length) {
-      where.roleId = {
-        in: filterOptions.roles.map((role) => Number(role.id)),
+      where.roleCode = {
+        in: filterOptions.roles.map((role) => role.code),
       };
     }
 
@@ -58,8 +56,6 @@ export class UsersPrismaRepository implements UserRepository {
       orderBy,
       include: {
         role: true,
-        status: true,
-        photo: true,
       },
     });
 
@@ -69,13 +65,11 @@ export class UsersPrismaRepository implements UserRepository {
   async findById(id: User['id']): Promise<NullableType<User>> {
     const entity = await this.prisma.user.findFirst({
       where: {
-        id: Number(id),
-        deletedAt: null,
+        id: id as string,
+        isActive: true,
       },
       include: {
         role: true,
-        status: true,
-        photo: true,
       },
     });
 
@@ -85,13 +79,11 @@ export class UsersPrismaRepository implements UserRepository {
   async findByIds(ids: User['id'][]): Promise<User[]> {
     const entities = await this.prisma.user.findMany({
       where: {
-        id: { in: ids.map((id) => Number(id)) },
-        deletedAt: null,
+        id: { in: ids.map((id) => id as string) },
+        isActive: true,
       },
       include: {
         role: true,
-        status: true,
-        photo: true,
       },
     });
 
@@ -104,37 +96,10 @@ export class UsersPrismaRepository implements UserRepository {
     const entity = await this.prisma.user.findFirst({
       where: {
         email,
-        deletedAt: null,
+        isActive: true,
       },
       include: {
         role: true,
-        status: true,
-        photo: true,
-      },
-    });
-
-    return entity ? UserPrismaMapper.toDomain(entity) : null;
-  }
-
-  async findBySocialIdAndProvider({
-    socialId,
-    provider,
-  }: {
-    socialId: User['socialId'];
-    provider: User['provider'];
-  }): Promise<NullableType<User>> {
-    if (!socialId || !provider) return null;
-
-    const entity = await this.prisma.user.findFirst({
-      where: {
-        socialId,
-        provider,
-        deletedAt: null,
-      },
-      include: {
-        role: true,
-        status: true,
-        photo: true,
       },
     });
 
@@ -144,13 +109,11 @@ export class UsersPrismaRepository implements UserRepository {
   async update(id: User['id'], payload: Partial<User>): Promise<User> {
     const entity = await this.prisma.user.findFirst({
       where: {
-        id: Number(id),
-        deletedAt: null,
+        id: id as string,
+        isActive: true,
       },
       include: {
         role: true,
-        status: true,
-        photo: true,
       },
     });
 
@@ -165,12 +128,10 @@ export class UsersPrismaRepository implements UserRepository {
     });
 
     const updatedEntity = await this.prisma.user.update({
-      where: { id: Number(id) },
+      where: { id: id as string },
       data: updatedData,
       include: {
         role: true,
-        status: true,
-        photo: true,
       },
     });
 
@@ -179,8 +140,9 @@ export class UsersPrismaRepository implements UserRepository {
 
   async remove(id: User['id']): Promise<void> {
     await this.prisma.user.update({
-      where: { id: Number(id) },
-      data: { deletedAt: new Date() },
+      where: { id: id as string },
+      data: { isActive: false },
     });
   }
 }
+

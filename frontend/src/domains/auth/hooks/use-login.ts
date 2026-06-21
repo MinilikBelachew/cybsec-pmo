@@ -4,22 +4,21 @@ import { useCallback, useState } from "react";
 import { useAppDispatch } from "@/store/hooks";
 import { logger } from "@/core/logger";
 import { normalizeError } from "@/core/errors/normalize-error";
-import { useLoginMutation } from "../api/auth.api";
-import { loginService } from "../services/auth.service";
-import { type LoginFormValues } from "../schemas/auth.schema";
+import { useEntraLoginMutation } from "../api/auth.api";
+import { entraLoginService } from "../services/auth.service";
 
 export function useLogin() {
   const dispatch = useAppDispatch();
-  const [loginMutation, { isLoading }] = useLoginMutation();
+  const [entraLoginMutation, { isLoading }] = useEntraLoginMutation();
   const [error, setError] = useState<string | null>(null);
 
-  const login = useCallback(
-    async (values: LoginFormValues) => {
+  const loginWithToken = useCallback(
+    async (idToken: string) => {
       setError(null);
       try {
-        await loginService(
-          (args) => loginMutation(args).unwrap(),
-          values,
+        await entraLoginService(
+          (args) => entraLoginMutation(args).unwrap(),
+          { idToken },
           dispatch,
           logger
         );
@@ -29,8 +28,8 @@ export function useLogin() {
         throw err;
       }
     },
-    [dispatch, loginMutation]
+    [dispatch, entraLoginMutation]
   );
 
-  return { login, isLoading, error };
+  return { loginWithToken, isLoading, error };
 }

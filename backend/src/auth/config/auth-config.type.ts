@@ -9,4 +9,8 @@ export type AuthConfig = {
   forgotExpires?: ms.StringValue;
   confirmEmailSecret?: string;
   confirmEmailExpires?: ms.StringValue;
+  entraTenantId?: string;
+  entraClientId?: string;
+  entraClientSecret?: string;
 };
+
