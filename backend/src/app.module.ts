@@ -6,6 +6,7 @@ import authConfig from './auth/config/auth.config';
 import appConfig from './config/app.config';
 import mailConfig from './mail/config/mail.config';
 import fileConfig from './files/config/file.config';
+import redisConfig from './config/redis.config';
 import path from 'path';
 import fs from 'fs';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -19,6 +20,8 @@ import { AllConfigType } from './config/config.type';
 import { SessionModule } from './session/session.module';
 import { MailerModule } from './mailer/mailer.module';
 import { FilesModule } from './files/files.module';
+import { BullModule } from '@nestjs/bull';
+
 
 @Module({
   imports: [
@@ -30,8 +33,20 @@ import { FilesModule } from './files/files.module';
         appConfig,
         mailConfig,
         fileConfig,
+        redisConfig,
       ],
       envFilePath: ['.env'],
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService<AllConfigType>) => ({
+        redis: {
+          host: configService.getOrThrow('redis.host', { infer: true }),
+          port: configService.getOrThrow('redis.port', { infer: true }),
+          password: configService.get('redis.password', { infer: true }),
+        },
+      }),
+      inject: [ConfigService],
     }),
     PrismaModule,
     I18nModule.forRootAsync({
