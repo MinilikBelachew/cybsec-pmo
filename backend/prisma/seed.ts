@@ -47,7 +47,7 @@ async function main() {
       roleCode: 'super_admin',
       isActive: true,
       isExternal: false,
-      entraObjectId: 'pending-first-login', // Will be updated on first login
+      entraObjectId: 'pending-first-login-admin', // Will be updated on first login
     },
   });
 
@@ -69,7 +69,7 @@ async function main() {
       roleCode: 'pm',
       isActive: true,
       isExternal: false,
-      entraObjectId: 'pending-first-login',
+      entraObjectId: 'pending-first-login-pm',
     },
   });
   console.log(`PM user (${pmEmail}) seeded successfully.`);
