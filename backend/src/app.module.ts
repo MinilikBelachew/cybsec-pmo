@@ -5,6 +5,7 @@ import databaseConfig from './database/config/database.config';
 import authConfig from './auth/config/auth.config';
 import appConfig from './config/app.config';
 import mailConfig from './mail/config/mail.config';
+import fileConfig from './files/config/file.config';
 import path from 'path';
 import fs from 'fs';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -17,6 +18,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { AllConfigType } from './config/config.type';
 import { SessionModule } from './session/session.module';
 import { MailerModule } from './mailer/mailer.module';
+import { FilesModule } from './files/files.module';
 
 @Module({
   imports: [
@@ -27,6 +29,7 @@ import { MailerModule } from './mailer/mailer.module';
         authConfig,
         appConfig,
         mailConfig,
+        fileConfig,
       ],
       envFilePath: ['.env'],
     }),
@@ -69,7 +72,9 @@ import { MailerModule } from './mailer/mailer.module';
     HomeModule,
     ProjectsModule,
     TasksModule,
+    FilesModule,
   ],
 })
 export class AppModule {}
+
 

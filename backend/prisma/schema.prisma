@@ -1630,3 +1630,11 @@ model ProjectVendor {
   @@index([vendorId], map: "idx_project_vendors_vendor")
   @@map("project_vendors")
 }
+
+model File {
+  id   String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  path String @db.VarChar
+
+  @@map("file")
+}
+
