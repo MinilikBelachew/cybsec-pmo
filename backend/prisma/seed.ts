@@ -73,6 +73,60 @@ async function main() {
     },
   });
   console.log(`PM user (${pmEmail}) seeded successfully.`);
+
+  console.log('Seeding departments...');
+  const departments = [
+    { code: 'SOC', name: 'Security Operations Center' },
+    { code: 'GRC', name: 'Governance, Risk & Compliance' },
+    { code: 'CLOUD', name: 'Cloud Security' },
+    { code: 'APPSEC', name: 'Application Security' },
+  ];
+
+  for (const dept of departments) {
+    await prisma.department.upsert({
+      where: { code: dept.code },
+      update: { name: dept.name, isActive: true },
+      create: { ...dept, isActive: true },
+    });
+  }
+  console.log('Departments seeded successfully.');
+
+  console.log('Seeding customers...');
+  const customers = [
+    {
+      type: 'Company' as const,
+      displayName: 'Acme Financial Services',
+      companyName: 'Acme Financial Services',
+      industry: 'Financial Services',
+      country: 'UAE',
+      primaryEmail: 'contact@acme-finance.example',
+      status: 'Active',
+    },
+    {
+      type: 'Company' as const,
+      displayName: 'Globex Manufacturing',
+      companyName: 'Globex Manufacturing',
+      industry: 'Manufacturing',
+      country: 'KSA',
+      primaryEmail: 'info@globex.example',
+      status: 'Active',
+    },
+  ];
+
+  for (const customer of customers) {
+    await prisma.customer.upsert({
+      where: { primaryEmail: customer.primaryEmail },
+      update: {
+        displayName: customer.displayName,
+        companyName: customer.companyName,
+        industry: customer.industry,
+        country: customer.country,
+        status: customer.status,
+      },
+      create: customer,
+    });
+  }
+  console.log('Customers seeded successfully.');
 }
 
 main()

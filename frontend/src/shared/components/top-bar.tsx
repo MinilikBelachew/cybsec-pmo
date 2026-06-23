@@ -85,7 +85,7 @@ export function TopBar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between h-14 px-5 bg-background/90 backdrop-blur-md border-b border-border/50 shrink-0">
+    <header className="sticky top-0 z-40 flex items-center justify-between h-14 px-5 bg-background/90 backdrop-blur-md border-b border-border/85 shrink-0">
       
       {/* ── Breadcrumbs ── */}
       <div className="flex items-center gap-1 text-sm min-w-0 flex-1">

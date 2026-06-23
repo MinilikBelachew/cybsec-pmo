@@ -26,7 +26,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           
           {/* Main Content Area */}
-          <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-muted/10">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-transparent">
             {children}
           </main>
         </div>

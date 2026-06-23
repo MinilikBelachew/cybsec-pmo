@@ -12,6 +12,8 @@ import { PrismaModule } from './database/prisma.module';
 import { HeaderResolver, I18nModule } from 'nestjs-i18n';
 import { MailModule } from './mail/mail.module';
 import { HomeModule } from './home/home.module';
+import { ProjectsModule } from './projects/projects.module';
+import { TasksModule } from './tasks/tasks.module';
 import { AllConfigType } from './config/config.type';
 import { SessionModule } from './session/session.module';
 import { MailerModule } from './mailer/mailer.module';
@@ -65,6 +67,8 @@ import { MailerModule } from './mailer/mailer.module';
     MailModule,
     MailerModule,
     HomeModule,
+    ProjectsModule,
+    TasksModule,
   ],
 })
 export class AppModule {}
