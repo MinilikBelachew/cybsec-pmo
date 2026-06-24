@@ -42,9 +42,10 @@ const PRIORITY_LABEL: Record<Priority, string> = {
 interface TableViewProps {
   tasks: Task[];
   toggleTask: (id: string) => void;
+  onTaskClick?: (taskId: string) => void;
 }
 
-export function TableView({ tasks, toggleTask }: TableViewProps) {
+export function TableView({ tasks, toggleTask, onTaskClick }: TableViewProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   function toggleSelect(id: string) {
@@ -164,9 +165,16 @@ export function TableView({ tasks, toggleTask }: TableViewProps) {
                         )}
                       </button>
 
-                      <span className={cn("text-sm font-medium truncate", task.done && "line-through text-muted-foreground")}>
+                      <button
+                        type="button"
+                        onClick={() => onTaskClick?.(task.id)}
+                        className={cn(
+                          "text-sm font-medium truncate text-left hover:text-primary transition-colors",
+                          task.done && "line-through text-muted-foreground"
+                        )}
+                      >
                         {task.name}
-                      </span>
+                      </button>
                     </div>
                   </td>
 

@@ -12,6 +12,7 @@ import { randomStringGenerator } from '@nestjs/common/utils/random-string-genera
 import { FilesLocalService } from './files.service';
 import { RelationalFilePersistenceModule } from '../../persistence/relational/relational-persistence.module';
 import { AllConfigType } from '../../../../config/config.type';
+import { isAllowedUploadFilename, LOCAL_FILES_DIR } from './local-file-storage';
 
 const infrastructurePersistenceModule = RelationalFilePersistenceModule;
 
@@ -24,8 +25,7 @@ const infrastructurePersistenceModule = RelationalFilePersistenceModule;
       useFactory: (configService: ConfigService<AllConfigType>) => {
         return {
           fileFilter: (request, file, callback) => {
-            // Allow images and documents
-            if (!file.originalname.match(/\.(jpg|jpeg|png|gif|pdf|doc|docx)$/i)) {
+            if (!isAllowedUploadFilename(file.originalname)) {
               return callback(
                 new UnprocessableEntityException({
                   status: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -40,14 +40,11 @@ const infrastructurePersistenceModule = RelationalFilePersistenceModule;
             callback(null, true);
           },
           storage: diskStorage({
-            destination: './files',
+            destination: LOCAL_FILES_DIR,
             filename: (request, file, callback) => {
               callback(
                 null,
-                `${randomStringGenerator()}.${file.originalname
-                  .split('.')
-                  .pop()
-                  ?.toLowerCase()}`,
+                `${randomStringGenerator()}${file.originalname.match(/\.[^.]+$/)?.[0]?.toLowerCase() ?? ''}`,
               );
             },
           }),

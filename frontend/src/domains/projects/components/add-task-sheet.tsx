@@ -1,675 +1,729 @@
-import React, { useState, useEffect, useRef } from "react";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "react-hot-toast";
 import {
-  X, CheckSquare, FileText, Bell, Layout, BarChart3,
-  ChevronDown, User, Calendar, Flag, Tag, Plus,
-  Sparkles, AlignLeft, Table2, Columns, List,
-  Clock, UserCircle, Lock, Mic, Pencil, AlertCircle
+  CheckSquare,
+  Loader2,
+  Calendar as CalendarIcon,
+  ListTree,
+  MessageSquare,
+  Paperclip,
+  Plus,
+  Trash2,
+  FileText,
+  Lock,
+  Circle,
 } from "lucide-react";
-import { useGetProjectManagersQuery } from "@/domains/projects";
-import { createTaskSchema } from "../schemas/create-task.schema";
+import {
+  useCreateTaskBundleMutation,
+  useGetProjectManagersQuery,
+  createTaskSchema,
+  toCreateTaskPayload,
+  type CreateTaskFormValues,
+} from "@/domains/projects";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/ui/sheet";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { Badge } from "@/shared/ui/badge";
+import { Checkbox } from "@/shared/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { Calendar } from "@/shared/ui/calendar";
+import { cn } from "@/shared/utils/cn";
+import { ADD_TASK_SHEET_CLASS } from "./task-sheet.constants";
+import { defaultTaskDateRange } from "../schemas/task-date-fields";
 
-type Priority = "high" | "medium" | "low" | "critical";
-type Status = "TO DO" | "IN PROGRESS" | "DONE";
-type SheetTab = "task" | "doc" | "reminder" | "whiteboard" | "dashboard";
+type WorkspaceStatus = "TO DO" | "IN PROGRESS" | "DONE";
+type SideTab = "subtasks" | "comments";
 
-const TABS: { id: SheetTab; label: string; icon: React.ElementType }[] = [
-  { id: "task",       label: "Task",       icon: CheckSquare },
-  { id: "doc",        label: "Doc",        icon: FileText    },
-  { id: "reminder",   label: "Reminder",   icon: Bell        },
-  { id: "whiteboard", label: "Whiteboard", icon: Layout      },
-  { id: "dashboard",  label: "Dashboard",  icon: BarChart3   },
-];
-
-const PRIORITY_OPTIONS: { id: Priority; label: string; color: string }[] = [
-  { id: "critical", label: "Critical", color: "text-red-600 dark:text-red-400" },
-  { id: "high",     label: "High",     color: "text-rose-500" },
-  { id: "medium",   label: "Medium",   color: "text-amber-500" },
-  { id: "low",      label: "Low",      color: "text-slate-400 dark:text-white/30" },
-];
-
-const STATUS_OPTIONS: Status[] = ["TO DO", "IN PROGRESS", "DONE"];
-
-const STATUS_STYLE: Record<Status, string> = {
-  "TO DO":       "bg-slate-100 text-slate-600 border border-slate-200 dark:bg-white/5 dark:text-white/60 dark:border-white/5",
-  "IN PROGRESS": "bg-blue-500/10 text-blue-500 border border-blue-500/20",
-  "DONE":        "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20",
-};
-
-const MAP_PRIORITY_FE_TO_API = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-} as const;
-
-const MAP_STATUS_FE_TO_API = {
+const WORKSPACE_STATUS_TO_API: Record<WorkspaceStatus, CreateTaskFormValues["status"]> = {
   "TO DO": "To_Do",
   "IN PROGRESS": "In_Progress",
-  "DONE": "Done",
-} as const;
+  DONE: "Done",
+};
+
+interface DraftComment {
+  id: string;
+  body: string;
+  isInternal: boolean;
+}
+
+interface DraftSubTask {
+  id: string;
+  title: string;
+  description?: string;
+}
 
 interface AddTaskSheetProps {
   open: boolean;
   onClose: () => void;
+  onCreated?: () => void;
   projectId: string;
-  defaultStatus?: Status;
+  parentTaskId?: string | null;
+  defaultStatus?: WorkspaceStatus;
   projectName?: string;
-  onCreateTask?: (task: {
-    title: string;
-    description: string;
-    status: "To_Do" | "In_Progress" | "Done";
-    priority: "Low" | "Medium" | "High" | "Critical";
-    ownerId: string | null;
-    startDate: string | null;
-    endDate: string | null;
-  }) => void;
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="text-[0.8rem] font-medium text-destructive">{message}</p>;
+}
+
+function formatDateLabel(dateVal: string | Date | undefined) {
+  if (!dateVal) return "Pick a date";
+  try {
+    const date = dateVal instanceof Date ? dateVal : new Date(dateVal);
+    if (isNaN(date.getTime())) return "Pick a date";
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "Pick a date";
+  }
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function draftId() {
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export function AddTaskSheet({
   open,
   onClose,
+  onCreated,
   projectId,
+  parentTaskId = null,
   defaultStatus = "TO DO",
   projectName = "Workspace",
-  onCreateTask,
 }: AddTaskSheetProps) {
-  const [tab, setTab] = useState<SheetTab>("task");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sideTab, setSideTab] = useState<SideTab>("subtasks");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    if (open) document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
+  const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
 
-  return (
-    <>
-      {/* Backdrop overlay */}
-      <div
-        className={`fixed inset-0 z-40 bg-slate-950/20 dark:bg-black/60 backdrop-blur-[2px] transition-opacity duration-300 ${
-          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={onClose}
-      />
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentInternal, setCommentInternal] = useState(true);
+  const [subTaskTitle, setSubTaskTitle] = useState("");
+  const [subTaskDescription, setSubTaskDescription] = useState("");
 
-      {/* Sheet panel - slides in from the right */}
-      <div
-        className={`fixed top-0 right-0 bottom-0 z-50 w-[520px] max-w-full bg-white dark:bg-zinc-950 border-l border-slate-200 dark:border-white/[0.08] shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        {/* Header bar */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-200 dark:border-white/[0.05] shrink-0">
-          <div className="flex items-center gap-1.5">
-            <button className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-xs font-semibold text-slate-800 dark:text-white transition-colors">
-              <div className="size-3.5 rounded bg-purple-600/20 text-purple-600 dark:text-purple-400 text-[8px] font-bold flex items-center justify-center">
-                P
-              </div>
-              {projectName}
-              <ChevronDown className="size-3 text-slate-400" />
-            </button>
-            {tab === "task" && (
-              <button className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600/10 text-purple-600 dark:text-purple-400 text-xs font-semibold hover:bg-purple-600/15 transition-colors">
-                <CheckSquare className="size-3" />
-                Task
-                <ChevronDown className="size-3" />
-              </button>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="size-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+  const [createTaskBundle] = useCreateTaskBundleMutation();
+  const { data: users = [], isLoading: loadingUsers } = useGetProjectManagersQuery();
+  const defaultDates = defaultTaskDateRange();
 
-        {/* Tab switcher */}
-        <div className="flex items-center px-6 border-b border-slate-200 dark:border-white/[0.05] shrink-0 bg-slate-50/50 dark:bg-black/10">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors border-b-2 -mb-px ${
-                tab === id
-                  ? "border-purple-600 text-purple-600 dark:border-purple-400 dark:text-purple-400"
-                  : "border-transparent text-slate-400 hover:text-slate-950 dark:text-white/40 dark:hover:text-white"
-              }`}
-            >
-              <Icon className="size-3.5" />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Dynamic content tab body */}
-        <div className="flex-1 overflow-y-auto">
-          {tab === "task" && (
-            <TaskTab
-              projectId={projectId}
-              defaultStatus={defaultStatus}
-              onClose={onClose}
-              onCreateTask={onCreateTask}
-            />
-          )}
-          {tab === "doc" && <DocTab onClose={onClose} />}
-          {tab === "reminder" && <ReminderTab onClose={onClose} />}
-          {tab === "whiteboard" && <WhiteboardTab onClose={onClose} />}
-          {tab === "dashboard" && <DashboardTab onClose={onClose} />}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ─── Task Tab Component ───────────────────────────────────────────────────────
-function TaskTab({
-  projectId,
-  defaultStatus,
-  onClose,
-  onCreateTask,
-}: {
-  projectId: string;
-  defaultStatus: Status;
-  onClose: () => void;
-  onCreateTask?: (task: {
-    title: string;
-    description: string;
-    status: "To_Do" | "In_Progress" | "Done";
-    priority: "Low" | "Medium" | "High" | "Critical";
-    ownerId: string | null;
-    startDate: string | null;
-    endDate: string | null;
-  }) => void;
-}) {
-  const [taskName, setTaskName] = useState("");
-  const [description, setDescription] = useState("");
-  const [showDesc, setShowDesc] = useState(false);
-  const [status, setStatus] = useState<Status>(defaultStatus);
-  const [priority, setPriority] = useState<Priority>("medium");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [ownerId, setOwnerId] = useState<string | null>(null);
-  
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
-  const [showPriorityMenu, setShowPriorityMenu] = useState(false);
-  const [showAssigneeMenu, setShowAssigneeMenu] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-  const nameInputRef = useRef<HTMLInputElement>(null);
-
-  // Fetch project managers/users list
-  const { data: users } = useGetProjectManagersQuery();
-
-  // Force pre-select status update if defaultStatus changes
-  useEffect(() => {
-    setStatus(defaultStatus);
-  }, [defaultStatus]);
-
-  useEffect(() => {
-    nameInputRef.current?.focus();
-  }, []);
-
-  function handleCreate() {
-    const rawValues = {
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    watch,
+    formState: { errors },
+  } = useForm<CreateTaskFormValues>({
+    resolver: zodResolver(createTaskSchema) as import("react-hook-form").Resolver<CreateTaskFormValues>,
+    defaultValues: {
       projectId,
-      title: taskName,
-      description,
-      priority: MAP_PRIORITY_FE_TO_API[priority],
-      status: MAP_STATUS_FE_TO_API[status],
-      ownerId: ownerId || null,
-      startDate: startDate || null,
-      endDate: endDate || null,
-    };
+      parentTaskId: parentTaskId ?? null,
+      title: "",
+      description: "",
+      priority: "Medium",
+      status: WORKSPACE_STATUS_TO_API[defaultStatus],
+      ownerId: null,
+      startDate: defaultDates.startDate,
+      endDate: defaultDates.endDate,
+      effortHours: undefined,
+    },
+  });
 
-    // Zod validation check
-    const result = createTaskSchema.safeParse(rawValues);
-    if (!result.success) {
-      const errors: Record<string, string> = {};
-      result.error.issues.forEach((issue) => {
-        if (issue.path[0]) {
-          errors[issue.path[0].toString()] = issue.message;
-        }
-      });
-      setValidationErrors(errors);
-      return;
-    }
+  const watchedOwnerId = watch("ownerId");
+  const activeOwner = users.find((u) => u.id === watchedOwnerId);
 
-    setValidationErrors({});
-    onCreateTask?.({
-      title: rawValues.title,
-      description: rawValues.description,
-      status: rawValues.status as any,
-      priority: rawValues.priority,
-      ownerId: rawValues.ownerId,
-      startDate: rawValues.startDate,
-      endDate: rawValues.endDate,
+  const resetDrafts = () => {
+    setDraftComments([]);
+    setDraftSubTasks([]);
+    setDraftFiles([]);
+    setCommentDraft("");
+    setCommentInternal(true);
+    setSubTaskTitle("");
+    setSubTaskDescription("");
+    setSideTab("subtasks");
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    resetDrafts();
+    setSideTab(parentTaskId ? "comments" : "subtasks");
+    const dates = defaultTaskDateRange();
+    reset({
+      projectId,
+      parentTaskId: parentTaskId ?? null,
+      title: "",
+      description: "",
+      priority: "Medium",
+      status: WORKSPACE_STATUS_TO_API[defaultStatus],
+      ownerId: null,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+      effortHours: undefined,
     });
+  }, [open, projectId, parentTaskId, defaultStatus, reset]);
+
+  const handleClose = () => {
+    resetDrafts();
     onClose();
+  };
+
+  function addDraftComment() {
+    if (!commentDraft.trim()) return;
+    setDraftComments((prev) => [
+      ...prev,
+      { id: draftId(), body: commentDraft.trim(), isInternal: commentInternal },
+    ]);
+    setCommentDraft("");
   }
 
-  const selectedUser = users?.find(u => u.id === ownerId);
+  function addDraftSubTask() {
+    if (!subTaskTitle.trim()) return;
+    setDraftSubTasks((prev) => [
+      ...prev,
+      {
+        id: draftId(),
+        title: subTaskTitle.trim(),
+        description: subTaskDescription.trim() || undefined,
+      },
+    ]);
+    setSubTaskTitle("");
+    setSubTaskDescription("");
+  }
+
+  function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length) {
+      setDraftFiles((prev) => [...prev, ...files]);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  const onSubmit = handleSubmit(async (values) => {
+    setIsSubmitting(true);
+    try {
+      await createTaskBundle({
+        payload: {
+          ...toCreateTaskPayload(values),
+          comments: draftComments.map((comment) => ({
+            body: comment.body,
+            isInternal: comment.isInternal,
+          })),
+          subTasks: parentTaskId
+            ? []
+            : draftSubTasks.map((sub) => ({
+                title: sub.title,
+                description: sub.description ?? null,
+              })),
+        },
+        files: draftFiles,
+      }).unwrap();
+
+      const parts = ["Task created"];
+      if (draftSubTasks.length) parts.push(`${draftSubTasks.length} sub-task(s)`);
+      if (draftComments.length) parts.push(`${draftComments.length} comment(s)`);
+      if (draftFiles.length) parts.push(`${draftFiles.length} file(s)`);
+      toast.success(parts.join(" · "));
+
+      onCreated?.();
+      handleClose();
+    } catch (err: unknown) {
+      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
+      const fieldErrors = apiError?.data?.errors;
+      if (fieldErrors) {
+        toast.error(Object.values(fieldErrors)[0] ?? "Failed to create task.");
+      } else {
+        toast.error(apiError?.data?.message ?? "Failed to create task. Please try again.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  });
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-slate-900 dark:text-white">
-      <div className="flex-1 px-6 py-5 space-y-5">
-        {/* Name Input */}
-        <div>
-          <input
-            ref={nameInputRef}
-            value={taskName}
-            onChange={(e) => setTaskName(e.target.value)}
-            placeholder="Task Name"
-            className="w-full text-xl font-bold bg-transparent border-none outline-none placeholder:text-slate-400/50 dark:placeholder:text-white/20 text-slate-950 dark:text-white"
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-          />
-          {validationErrors.title && (
-            <p className="text-xs text-red-500 mt-1">{validationErrors.title}</p>
-          )}
-        </div>
+    <Sheet open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
+      <SheetContent side="right" className={ADD_TASK_SHEET_CLASS} showCloseButton>
+        <form onSubmit={onSubmit} className="flex h-full flex-col">
+          <SheetHeader className="shrink-0 border-b border-border px-6 py-4 text-left">
+            <SheetTitle className="flex items-center gap-2 text-lg font-bold">
+              <CheckSquare className="size-5 text-primary" />
+              {parentTaskId ? "New Sub-task" : "New Task"}
+            </SheetTitle>
+            <SheetDescription>
+              {parentTaskId ? (
+                <span className="flex items-center gap-1.5 text-primary">
+                  <ListTree className="size-3.5" />
+                  Sub-task in {projectName}
+                </span>
+              ) : (
+                <>Fill in everything below, then create once — task, sub-tasks, comments & files.</>
+              )}
+            </SheetDescription>
+          </SheetHeader>
 
-        {/* Description Block */}
-        {showDesc ? (
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Add description..."
-            rows={3}
-            className="w-full text-xs bg-slate-50 dark:bg-white/5 rounded-xl px-3 py-2.5 border border-slate-200 dark:border-white/5 outline-none focus:ring-1 focus:ring-purple-500/30 resize-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:white/20"
-          />
-        ) : (
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowDesc(true)}
-              className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-900 dark:text-white/40 dark:hover:text-white transition-colors"
-            >
-              <AlignLeft className="size-4" />
-              Add description
-            </button>
-            <button className="flex items-center gap-2 text-xs text-purple-600 hover:text-purple-500 dark:text-purple-400 dark:hover:text-purple-300 font-semibold transition-colors">
-              <Sparkles className="size-4" />
-              Write with AI
-            </button>
-          </div>
-        )}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+            {/* ── Left: task fields + attachments ── */}
+            <div className="flex-1 overflow-y-auto border-b border-border px-6 py-5 lg:border-b-0 lg:border-r">
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Input
+                    id="title"
+                    placeholder="Task title..."
+                    className="h-11 border-0 border-b border-input rounded-none px-0 text-lg font-semibold shadow-none focus-visible:ring-0"
+                    {...register("title")}
+                  />
+                  <FieldError message={errors.title?.message} />
+                </div>
 
-        <div className="border-t border-slate-200 dark:border-white/5" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Status</Label>
+                    <Controller
+                      control={control}
+                      name="status"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="To_Do">To Do</SelectItem>
+                            <SelectItem value="In_Progress">In Progress</SelectItem>
+                            <SelectItem value="Submitted_for_Review">Submitted for Review</SelectItem>
+                            <SelectItem value="Approved">Approved</SelectItem>
+                            <SelectItem value="Rework">Rework</SelectItem>
+                            <SelectItem value="Done">Done</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Priority</Label>
+                    <Controller
+                      control={control}
+                      name="priority"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Low">Low</SelectItem>
+                            <SelectItem value="Medium">Medium</SelectItem>
+                            <SelectItem value="High">High</SelectItem>
+                            <SelectItem value="Critical">Critical</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                </div>
 
-        {/* Status / Priority / Assignee / Dates Pills */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Status Select */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowStatusMenu(!showStatusMenu);
-                setShowPriorityMenu(false);
-                setShowAssigneeMenu(false);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${STATUS_STYLE[status]}`}
-            >
-              {status}
-              <ChevronDown className="size-3" />
-            </button>
-            {showStatusMenu && (
-              <div className="absolute top-full mt-1 left-0 z-20 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg p-1 min-w-[140px]">
-                {STATUS_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => {
-                      setStatus(s);
-                      setShowStatusMenu(false);
-                    }}
-                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:bg-slate-100 dark:hover:bg-white/5 ${STATUS_STYLE[s]} mb-0.5 last:mb-0`}
-                  >
-                    {s}
-                  </button>
-                ))}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Assignee</Label>
+                  <Controller
+                    control={control}
+                    name="ownerId"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? "none"}
+                        onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                        disabled={loadingUsers}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Unassigned">
+                            {activeOwner ? activeOwner.displayName : "Unassigned"}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Unassigned</SelectItem>
+                          {users.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.displayName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Start date *</Label>
+                    <Controller
+                      control={control}
+                      name="startDate"
+                      render={({ field }) => (
+                        <Popover>
+                          <PopoverTrigger
+                            type="button"
+                            className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm"
+                          >
+                            <span className={field.value ? "" : "text-muted-foreground"}>
+                              {formatDateLabel(field.value)}
+                            </span>
+                            <CalendarIcon className="size-4 text-muted-foreground" />
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value ? new Date(field.value) : undefined}
+                              onSelect={(date) => field.onChange(date ?? undefined)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    />
+                    <FieldError message={errors.startDate?.message as string | undefined} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Due date *</Label>
+                    <Controller
+                      control={control}
+                      name="endDate"
+                      render={({ field }) => (
+                        <Popover>
+                          <PopoverTrigger
+                            type="button"
+                            className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm"
+                          >
+                            <span className={field.value ? "" : "text-muted-foreground"}>
+                              {formatDateLabel(field.value)}
+                            </span>
+                            <CalendarIcon className="size-4 text-muted-foreground" />
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value ? new Date(field.value) : undefined}
+                              onSelect={(date) => field.onChange(date ?? undefined)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    />
+                    <FieldError message={errors.endDate?.message} />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="description" className="text-xs text-muted-foreground">
+                    Description
+                  </Label>
+                  <textarea
+                    id="description"
+                    rows={4}
+                    placeholder="Add a description..."
+                    className="flex min-h-[96px] w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                    {...register("description")}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="effortHours" className="text-xs text-muted-foreground">
+                    Effort (hours)
+                  </Label>
+                  <Input
+                    id="effortHours"
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder="Optional"
+                    {...register("effortHours")}
+                  />
+                </div>
+
+                {/* Attachments — draft files */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2 text-sm font-semibold">
+                      <Paperclip className="size-4 text-primary" />
+                      Attachments
+                      {draftFiles.length > 0 && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {draftFiles.length}
+                        </Badge>
+                      )}
+                    </Label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {draftFiles.map((file, index) => (
+                      <div
+                        key={`${file.name}-${index}`}
+                        className="group relative flex flex-col gap-1 rounded-xl border border-border bg-muted/20 p-3"
+                      >
+                        <FileText className="size-5 text-primary" />
+                        <p className="truncate text-xs font-medium">{file.name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {formatFileSize(file.size)}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftFiles((prev) => prev.filter((_, i) => i !== index))
+                          }
+                          className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border text-muted-foreground transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                    >
+                      <Plus className="size-5" />
+                      <span className="text-[10px] font-medium">Add files</span>
+                    </button>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                    onChange={handleFilesSelected}
+                  />
+                </div>
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Assignee Selection */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowAssigneeMenu(!showAssigneeMenu);
-                setShowStatusMenu(false);
-                setShowPriorityMenu(false);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 text-xs font-medium text-slate-500 dark:text-white/40 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200 dark:border-white/5"
-            >
-              <User className="size-3.5" />
-              {selectedUser ? selectedUser.displayName : "Assignee"}
-              <ChevronDown className="size-3" />
-            </button>
-            {showAssigneeMenu && (
-              <div className="absolute top-full mt-1 left-0 z-20 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg p-1 min-w-[200px] max-h-[220px] overflow-y-auto">
+            {/* ── Right: sub-tasks & comments tabs ── */}
+            <div className="flex w-full shrink-0 flex-col overflow-hidden bg-muted/20 lg:w-[340px]">
+              <div className="flex shrink-0 border-b border-border">
+                {!parentTaskId && (
+                  <button
+                    type="button"
+                    onClick={() => setSideTab("subtasks")}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1.5 px-4 py-3 text-xs font-semibold transition",
+                      sideTab === "subtasks"
+                        ? "border-b-2 border-primary text-primary"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <ListTree className="size-3.5" />
+                    Subtasks
+                    {draftSubTasks.length > 0 && (
+                      <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                        {draftSubTasks.length}
+                      </Badge>
+                    )}
+                  </button>
+                )}
                 <button
-                  onClick={() => {
-                    setOwnerId(null);
-                    setShowAssigneeMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-100 dark:hover:bg-white/5 text-muted-foreground"
+                  type="button"
+                  onClick={() => setSideTab("comments")}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 px-4 py-3 text-xs font-semibold transition",
+                    sideTab === "comments"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
                 >
-                  Unassigned
+                  <MessageSquare className="size-3.5" />
+                  Comments
+                  {draftComments.length > 0 && (
+                    <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                      {draftComments.length}
+                    </Badge>
+                  )}
                 </button>
-                {users?.map((u) => (
-                  <button
-                    key={u.id}
-                    onClick={() => {
-                      setOwnerId(u.id);
-                      setShowAssigneeMenu(false);
-                    }}
-                    className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-100 dark:hover:bg-white/5 block truncate"
-                  >
-                    {u.displayName} ({u.email})
-                  </button>
-                ))}
               </div>
-            )}
-          </div>
 
-          {/* Start Date */}
-          <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 text-xs font-medium text-slate-500 dark:text-white/40 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200 dark:border-white/5 cursor-pointer">
-            <Calendar className="size-3.5" />
-            {startDate ? `Start: ${startDate}` : "Start Date"}
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="sr-only"
-            />
-          </label>
+              <div className="flex-1 overflow-y-auto p-4">
+                {sideTab === "subtasks" && (
+                  <div className="space-y-3">
+                    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+                      <Input
+                        value={subTaskTitle}
+                        onChange={(e) => setSubTaskTitle(e.target.value)}
+                        placeholder="Sub-task title..."
+                        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addDraftSubTask())}
+                      />
+                      <Input
+                        value={subTaskDescription}
+                        onChange={(e) => setSubTaskDescription(e.target.value)}
+                        placeholder="Short description (optional)"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        disabled={!subTaskTitle.trim()}
+                        onClick={addDraftSubTask}
+                      >
+                        <Plus className="mr-1 size-3.5" />
+                        Add to list
+                      </Button>
+                    </div>
 
-          {/* End Date */}
-          <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 text-xs font-medium text-slate-500 dark:text-white/40 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200 dark:border-white/5 cursor-pointer">
-            <Calendar className="size-3.5" />
-            {endDate ? `Due: ${endDate}` : "Due Date"}
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="sr-only"
-            />
-          </label>
+                    {draftSubTasks.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-6">
+                        No sub-tasks yet. They will be created with the main task.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {draftSubTasks.map((sub) => (
+                          <div
+                            key={sub.id}
+                            className="flex gap-2 rounded-xl border border-border bg-background p-3"
+                          >
+                            <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium">{sub.title}</p>
+                              {sub.description && (
+                                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                                  {sub.description}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftSubTasks((prev) => prev.filter((s) => s.id !== sub.id))
+                              }
+                              className="shrink-0 text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-          {/* Priority dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowPriorityMenu(!showPriorityMenu);
-                setShowStatusMenu(false);
-                setShowAssigneeMenu(false);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 text-xs font-medium text-slate-500 dark:text-white/40 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200 dark:border-white/5"
-            >
-              <Flag className={`size-3.5 ${PRIORITY_OPTIONS.find((p) => p.id === priority)?.color}`} />
-              {PRIORITY_OPTIONS.find((p) => p.id === priority)?.label}
-              <ChevronDown className="size-3 ml-1" />
-            </button>
-            {showPriorityMenu && (
-              <div className="absolute top-full mt-1 left-0 z-20 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg p-1 min-w-[120px]">
-                {PRIORITY_OPTIONS.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setPriority(p.id);
-                      setShowPriorityMenu(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-                  >
-                    <Flag className={`size-3.5 ${p.color}`} />
-                    <span className={p.color}>{p.label}</span>
-                  </button>
-                ))}
+                {sideTab === "comments" && (
+                  <div className="space-y-3">
+                    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+                      <textarea
+                        value={commentDraft}
+                        onChange={(e) => setCommentDraft(e.target.value)}
+                        placeholder="Write a comment..."
+                        rows={3}
+                        className="flex w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                      />
+                      <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={commentInternal}
+                          onCheckedChange={(c) => setCommentInternal(c === true)}
+                        />
+                        Internal only
+                      </label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        disabled={!commentDraft.trim()}
+                        onClick={addDraftComment}
+                      >
+                        <Plus className="mr-1 size-3.5" />
+                        Add to list
+                      </Button>
+                    </div>
+
+                    {draftComments.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-6">
+                        No comments yet. They will be posted with the main task.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {draftComments.map((c) => (
+                          <div
+                            key={c.id}
+                            className="rounded-xl border border-border bg-background p-3"
+                          >
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              {c.isInternal && (
+                                <span className="flex items-center gap-0.5 text-[10px] text-amber-600">
+                                  <Lock className="size-3" /> Internal
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraftComments((prev) => prev.filter((x) => x.id !== c.id))
+                                }
+                                className="ml-auto text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </div>
+                            <p className="text-sm">{c.body}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-
-          {/* Tags */}
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 text-xs font-medium text-slate-500 dark:text-white/40 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200 dark:border-white/5">
-            <Tag className="size-3.5" />
-            Tags
-          </button>
-        </div>
-
-        {/* Date Validation Error message */}
-        {validationErrors.endDate && (
-          <div className="flex items-center gap-1.5 text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg">
-            <AlertCircle className="size-3.5" />
-            {validationErrors.endDate}
-          </div>
-        )}
-
-        {/* Fields Panel */}
-        <div className="space-y-3 pt-2">
-          <p className="text-[10px] font-bold text-slate-400 dark:text-white/30 uppercase tracking-widest">Fields</p>
-          <button className="flex items-center gap-2 text-xs text-slate-400 dark:text-white/40 hover:text-purple-600 dark:hover:text-purple-400 transition-colors group">
-            <div className="size-5 rounded-md border-2 border-dashed border-slate-200 dark:border-white/10 group-hover:border-purple-500/40 flex items-center justify-center transition-colors">
-              <Plus className="size-3" />
             </div>
-            Create new field
-          </button>
-        </div>
-      </div>
-
-      {/* Footer bar */}
-      <div className="px-6 py-4 border-t border-slate-200 dark:border-white/5 flex items-center justify-between shrink-0 bg-slate-50 dark:bg-zinc-950">
-        <button className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
-          <Pencil className="size-3.5" />
-          Templates
-        </button>
-        <div className="flex items-center gap-2">
-          <button className="p-2 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
-            <Mic className="size-4" />
-          </button>
-          <span className="text-xs text-slate-400 dark:text-white/30">1</span>
-          <button
-            onClick={handleCreate}
-            disabled={!taskName.trim()}
-            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-5 py-2 rounded-xl text-xs font-bold transition disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-purple-600/20"
-          >
-            Create Task
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Doc Tab Component ────────────────────────────────────────────────────────
-function DocTab({ onClose }: { onClose: () => void }) {
-  const [docName, setDocName] = useState("");
-
-  return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-slate-900 dark:text-white p-6 space-y-6">
-      <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-400 dark:bg-white/5 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition self-start">
-        <FileText className="size-3.5" />
-        My Docs
-        <ChevronDown className="size-3" />
-      </button>
-
-      <input
-        value={docName}
-        onChange={(e) => setDocName(e.target.value)}
-        placeholder="Name this Doc..."
-        className="w-full text-xl font-bold bg-transparent border-none outline-none placeholder:text-slate-400/50 dark:placeholder:text-white/20 text-slate-950 dark:text-white"
-      />
-
-      <div className="border-t border-slate-200 dark:border-white/5" />
-
-      <div className="space-y-2">
-        <button className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group text-left">
-          <div className="size-8 rounded-lg bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0 group-hover:bg-purple-600/10 transition-colors">
-            <Pencil className="size-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
           </div>
-          <div>
-            <p className="text-xs font-semibold">Start writing</p>
-            <p className="text-[10px] text-slate-400 dark:text-white/30">Open a blank document</p>
-          </div>
-        </button>
 
-        <button className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group text-left">
-          <div className="size-8 rounded-lg bg-purple-600/10 flex items-center justify-center shrink-0">
-            <Sparkles className="size-4 text-purple-600 dark:text-purple-400" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-purple-600 dark:text-purple-400">Write with AI</p>
-            <p className="text-[10px] text-slate-400 dark:text-white/30">Generate content from a prompt</p>
-          </div>
-        </button>
-      </div>
-
-      <div className="border-t border-slate-200 dark:border-white/5" />
-
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold text-slate-400 dark:text-white/30 uppercase tracking-widest">Add new</p>
-        {[
-          { icon: Table2,  label: "Table",       sub: "Insert a structured table" },
-          { icon: Columns, label: "Column",      sub: "Multi-column layout" },
-          { icon: List,    label: "PMO List",    sub: "Linked task list" },
-        ].map(({ icon: Icon, label, sub }) => (
-          <button key={label} className="flex items-center gap-3 w-full px-3 py-2 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group text-left">
-            <div className="size-7 rounded-lg bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
-              <Icon className="size-3.5 text-slate-400" />
+          <SheetFooter className="shrink-0 flex-row justify-between gap-2 border-t border-border px-6 py-4">
+            <p className="text-xs text-muted-foreground self-center">
+              {draftSubTasks.length + draftComments.length + draftFiles.length > 0
+                ? `${draftSubTasks.length} sub-task(s) · ${draftComments.length} comment(s) · ${draftFiles.length} file(s) ready`
+                : "All items save together on create"}
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : parentTaskId ? (
+                  "Create Sub-task"
+                ) : (
+                  "Create Task"
+                )}
+              </Button>
             </div>
-            <div>
-              <p className="text-xs font-medium">{label}</p>
-              <p className="text-[10px] text-slate-400 dark:text-white/30">{sub}</p>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Reminder Tab Component ──────────────────────────────────────────────────
-function ReminderTab({ onClose }: { onClose: () => void }) {
-  const [name, setName] = useState("");
-  const [when, setWhen] = useState<"today" | "tomorrow" | "custom">("today");
-
-  return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-slate-900 dark:text-white p-6 space-y-6">
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Reminder name..."
-        className="w-full text-lg font-bold bg-transparent border-none outline-none placeholder:text-slate-400/50 dark:placeholder:text-white/20 text-slate-950 dark:text-white"
-      />
-
-      <div className="border-t border-slate-200 dark:border-white/5" />
-
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold text-slate-400 dark:text-white/30 uppercase tracking-widest">When</p>
-        <div className="flex items-center gap-2 flex-wrap">
-          {(["today", "tomorrow", "custom"] as const).map((w) => (
-            <button
-              key={w}
-              onClick={() => setWhen(w)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors capitalize ${
-                when === w
-                  ? "bg-purple-600/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
-                  : "bg-slate-50 dark:bg-white/5 text-slate-400 border-slate-200 dark:border-white/5 hover:text-slate-950 dark:hover:text-white"
-              }`}
-            >
-              <Calendar className="size-3.5" />
-              {w === "today" ? "Today" : w === "tomorrow" ? "Tomorrow" : "Pick date"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-purple-600/10 text-purple-600 dark:text-purple-400 border-purple-500/20">
-          <UserCircle className="size-3.5" />
-          For me
-        </button>
-        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-slate-50 dark:bg-white/5 text-slate-400 border-slate-200 dark:border-white/5">
-          <Bell className="size-3.5" />
-          Notify me
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Whiteboard Tab Component ────────────────────────────────────────────────
-function WhiteboardTab({ onClose }: { onClose: () => void }) {
-  const [name, setName] = useState("");
-
-  return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-slate-900 dark:text-white p-6 space-y-6">
-      <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-400 dark:bg-white/5 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition self-start">
-        <Layout className="size-3.5" />
-        My Whiteboards
-        <ChevronDown className="size-3" />
-      </button>
-
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name this Whiteboard..."
-        className="w-full text-xl font-bold bg-transparent border-none outline-none placeholder:text-slate-400/50 dark:placeholder:text-white/20 text-slate-950 dark:text-white"
-      />
-
-      <div className="border-t border-slate-200 dark:border-white/5" />
-
-      <div className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] flex flex-col items-center justify-center py-16 gap-3 text-center">
-        <div className="size-12 rounded-2xl bg-slate-100 dark:bg-white/5 flex items-center justify-center">
-          <Layout className="size-6 text-slate-400 dark:text-white/40" />
-        </div>
-        <p className="text-xs font-semibold">Infinite canvas</p>
-        <p className="text-[10px] text-slate-400 dark:text-white/30 max-w-[200px]">
-          Sketch, diagram, and brainstorm with your team in real time.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Dashboard Tab Component ─────────────────────────────────────────────────
-function DashboardTab({ onClose }: { onClose: () => void }) {
-  const [name, setName] = useState("");
-
-  const WIDGETS = [
-    { label: "KPI Cards",        desc: "Track key metrics at a glance" },
-    { label: "Project Health",   desc: "Status across all projects" },
-    { label: "Burn Rate Chart",  desc: "Budget vs actual spend" },
-    { label: "Risk Heatmap",     desc: "Likelihood × impact matrix" },
-  ];
-
-  return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-slate-900 dark:text-white p-6 space-y-6">
-      <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-400 dark:bg-white/5 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition self-start">
-        <BarChart3 className="size-3.5" />
-        My Dashboards
-        <ChevronDown className="size-3" />
-      </button>
-
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name this Dashboard..."
-        className="w-full text-xl font-bold bg-transparent border-none outline-none placeholder:text-slate-400/50 dark:placeholder:text-white/20 text-slate-950 dark:text-white"
-      />
-
-      <div className="border-t border-slate-200 dark:border-white/5" />
-
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold text-slate-400 dark:text-white/30 uppercase tracking-widest">Add widgets</p>
-        <div className="grid grid-cols-2 gap-2">
-          {WIDGETS.map(({ label, desc }) => (
-            <button
-              key={label}
-              className="flex flex-col p-3 rounded-xl border border-slate-200 dark:border-white/5 hover:border-purple-500/30 hover:bg-purple-500/5 transition text-left"
-            >
-              <span className="text-xs font-semibold leading-tight">{label}</span>
-              <span className="text-[9px] text-slate-400 dark:text-white/30 mt-1 leading-tight">{desc}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+          </SheetFooter>
+        </form>
+      </SheetContent>
+    </Sheet>
   );
 }

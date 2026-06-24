@@ -26,6 +26,7 @@ interface ListViewProps {
   toggleGroup: (status: Status) => void;
   toggleTask: (taskId: string) => void;
   onAddTask?: (status: Status) => void;
+  onTaskClick?: (taskId: string) => void;
 }
 
 const PRIORITY_STYLES: Record<Priority, string> = {
@@ -60,6 +61,7 @@ export function ListView({
   toggleGroup,
   toggleTask,
   onAddTask,
+  onTaskClick,
 }: ListViewProps) {
   return (
     <div className="h-full overflow-y-auto bg-transparent">
@@ -140,14 +142,16 @@ export function ListView({
                         <Circle className="size-4 text-muted-foreground shrink-0" />
                       )}
                     </button>
-                    <span
+                    <button
+                      type="button"
+                      onClick={() => onTaskClick?.(task.id)}
                       className={cn(
-                        "flex-1 text-sm min-w-0 truncate",
+                        "flex-1 text-sm min-w-0 truncate text-left hover:text-purple-600 dark:hover:text-purple-400 transition-colors",
                         task.done ? "line-through text-muted-foreground" : "text-foreground"
                       )}
                     >
                       {task.name}
-                    </span>
+                    </button>
                     <div className="shrink-0 w-20 flex items-center justify-center">
                       <span
                         className={cn(

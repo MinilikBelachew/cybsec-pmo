@@ -15,12 +15,16 @@ export const createProjectSchema = z
     value: z.coerce.number().positive("Value must be greater than zero"),
     currency: z.enum(["USD", "EUR", "AED", "SAR"]),
     primaryPmId: z.string().uuid("Please assign a primary PM"),
-    secondaryPmId: z.string().uuid().nullable().optional(),
+    secondaryPmId: z.string().uuid().or(z.literal("")).nullable().optional(),
     status: z.enum(["Draft", "Active", "OnHold", "PendingClosure", "Closed"]),
   })
   .refine((data) => data.endDate > data.startDate, {
     message: "End date must be after the start date",
     path: ["endDate"],
+  })
+  .refine((data) => !data.secondaryPmId || data.secondaryPmId !== data.primaryPmId, {
+    message: "Secondary PM must differ from Primary PM",
+    path: ["secondaryPmId"],
   });
 
 export type CreateProjectFormValues = z.infer<typeof createProjectSchema>;
@@ -40,7 +44,7 @@ export function toCreateProjectPayload(values: CreateProjectFormValues) {
     value: values.value,
     currency: values.currency,
     primaryPmId: values.primaryPmId,
-    secondaryPmId: values.secondaryPmId ?? null,
+    secondaryPmId: values.secondaryPmId && values.secondaryPmId !== "" ? values.secondaryPmId : null,
     status: values.status,
   };
 }

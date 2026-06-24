@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   useGetProjectByIdQuery,
   useGetTasksQuery,
-  useCreateTaskMutation,
   useUpdateTaskMutation,
 } from "@/domains/projects";
 import { useRole } from "@/shared/providers/role-provider";
@@ -39,6 +38,7 @@ import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
 import { AddTaskSheet } from "./add-task-sheet";
+import { TaskDetailPanel } from "./task-detail-panel";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "TO DO" | "IN PROGRESS" | "DONE";
@@ -172,9 +172,9 @@ export function ProjectWorkspace() {
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
 
   // Fetch tasks
-  const { data: tasksResponse, isLoading: isTasksLoading } = useGetTasksQuery({ projectId: id });
+  const { data: tasksResponse, isLoading: isTasksLoading, refetch: refetchTasks } =
+    useGetTasksQuery({ projectId: id, limit: 50 });
   
-  const [createTask] = useCreateTaskMutation();
   const [updateTask] = useUpdateTaskMutation();
 
   const tasks = useMemo(() => {
@@ -232,9 +232,11 @@ export function ProjectWorkspace() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
 
-  // Side Sheet states
+// Side Sheet states
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<Status>("TO DO");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [parentTaskId, setParentTaskId] = useState<string | null>(null);
 
   // Gantt Zoom state
   const [ganttZoom, setGanttZoom] = useState(1);
@@ -470,6 +472,7 @@ export function ProjectWorkspace() {
           <Button
             size="sm"
             onClick={() => {
+              setParentTaskId(null);
               setNewTaskStatus("TO DO");
               setIsSheetOpen(true);
             }}
@@ -489,7 +492,9 @@ export function ProjectWorkspace() {
             openGroups={openGroups}
             toggleGroup={toggleGroup}
             toggleTask={toggleTask}
+            onTaskClick={setSelectedTaskId}
             onAddTask={(status) => {
+              setParentTaskId(null);
               setNewTaskStatus(status);
               setIsSheetOpen(true);
             }}
@@ -500,7 +505,9 @@ export function ProjectWorkspace() {
           <BoardView
             tasks={filteredTasks}
             toggleTask={toggleTask}
+            onTaskClick={setSelectedTaskId}
             onAddTask={(status) => {
+              setParentTaskId(null);
               setNewTaskStatus(status);
               setIsSheetOpen(true);
             }}
@@ -522,6 +529,7 @@ export function ProjectWorkspace() {
           <TableView
             tasks={filteredTasks}
             toggleTask={toggleTask}
+            onTaskClick={setSelectedTaskId}
           />
         )}
       </div>
@@ -529,17 +537,29 @@ export function ProjectWorkspace() {
       {/* Add Task Side Sheet */}
       <AddTaskSheet
         open={isSheetOpen}
-        onClose={() => setIsSheetOpen(false)}
+        onClose={() => {
+          setIsSheetOpen(false);
+          setParentTaskId(null);
+        }}
+        onCreated={() => {
+          refetchTasks();
+          setSearchQuery("");
+          setStatusFilter("ALL");
+          setPriorityFilter("ALL");
+        }}
         projectId={id}
+        parentTaskId={parentTaskId}
         defaultStatus={newTaskStatus}
         projectName={project.name}
-        onCreateTask={async (task) => {
-          try {
-            await createTask({ ...task, projectId: id }).unwrap();
-          } catch (err) {
-            console.error("Failed to create task:", err);
-          }
-        }}
+      />
+
+      <TaskDetailPanel
+        taskId={selectedTaskId}
+        projectId={id}
+        open={!!selectedTaskId}
+        onClose={() => setSelectedTaskId(null)}
+        onOpenSubTask={(subId) => setSelectedTaskId(subId)}
+        onUpdated={() => refetchTasks()}
       />
     </div>
   );

@@ -9,6 +9,8 @@ export { useLogin } from "./hooks/use-login";
 export { useAuth } from "./hooks/use-auth";
 
 // Components
+export { AuthLayoutShell } from "./components/auth-layout-shell";
+export { LoginPage } from "./components/login-page";
 export { LoginForm } from "./components/login-form";
 export { RegisterForm } from "./components/register-form";
 

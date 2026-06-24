@@ -40,44 +40,26 @@ export class ProjectsService {
   async create(dto: CreateProjectDto, actorId: string) {
     await this.validateReferences(dto);
 
-    const project = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.project.create({
-        data: {
-          name: dto.name,
-          objective: dto.objective,
-          departmentId: dto.departmentId,
-          customerId: dto.customerId,
-          engagementType: toPrismaEngagementType(dto.engagementType),
-          methodology: dto.methodology ?? ApiMethodology.Hybrid,
-          billingModel: toPrismaBillingModel(dto.billingModel),
-          priority: dto.priority ?? ApiPriorityLevel.Medium,
-          startDate: dto.startDate,
-          endDate: dto.endDate,
-          value: dto.value,
-          currency: toPrismaCurrency(dto.currency ?? ApiCurrencyCode.USD),
-          primaryPmId: dto.primaryPmId,
-          secondaryPmId: dto.secondaryPmId ?? null,
-          status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),
-          createdBy: actorId,
-        },
-        include: PROJECT_INCLUDE,
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: 'CREATE_PROJECT',
-          objectType: 'Project',
-          objectId: created.id,
-          newValue: {
-            projectId: created.id,
-            name: created.name,
-            status: created.status,
-          },
-        },
-      });
-
-      return created;
+    const project = await this.prisma.project.create({
+      data: {
+        name: dto.name,
+        objective: dto.objective,
+        departmentId: dto.departmentId,
+        customerId: dto.customerId,
+        engagementType: toPrismaEngagementType(dto.engagementType),
+        methodology: dto.methodology ?? ApiMethodology.Hybrid,
+        billingModel: toPrismaBillingModel(dto.billingModel),
+        priority: dto.priority ?? ApiPriorityLevel.Medium,
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+        value: dto.value,
+        currency: toPrismaCurrency(dto.currency ?? ApiCurrencyCode.USD),
+        primaryPmId: dto.primaryPmId,
+        secondaryPmId: dto.secondaryPmId ?? null,
+        status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),
+        createdBy: actorId,
+      },
+      include: PROJECT_INCLUDE,
     });
 
     return toApiProject(project as ProjectWithRelations);
@@ -151,49 +133,34 @@ export class ProjectsService {
       await this.validateReferences(merged);
     }
 
-    const project = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.project.update({
-        where: { id },
-        data: {
-          ...(dto.name !== undefined && { name: dto.name }),
-          ...(dto.objective !== undefined && { objective: dto.objective }),
-          ...(dto.departmentId !== undefined && { departmentId: dto.departmentId }),
-          ...(dto.customerId !== undefined && { customerId: dto.customerId }),
-          ...(dto.engagementType !== undefined && {
-            engagementType: toPrismaEngagementType(dto.engagementType),
-          }),
-          ...(dto.methodology !== undefined && { methodology: dto.methodology }),
-          ...(dto.billingModel !== undefined && {
-            billingModel: toPrismaBillingModel(dto.billingModel),
-          }),
-          ...(dto.priority !== undefined && { priority: dto.priority }),
-          ...(dto.startDate !== undefined && { startDate: dto.startDate }),
-          ...(dto.endDate !== undefined && { endDate: dto.endDate }),
-          ...(dto.value !== undefined && { value: dto.value }),
-          ...(dto.currency !== undefined && {
-            currency: toPrismaCurrency(dto.currency),
-          }),
-          ...(dto.primaryPmId !== undefined && { primaryPmId: dto.primaryPmId }),
-          ...(dto.secondaryPmId !== undefined && {
-            secondaryPmId: dto.secondaryPmId,
-          }),
-          ...(dto.status !== undefined && { status: toPrismaStatus(dto.status) }),
-        },
-        include: PROJECT_INCLUDE,
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: 'UPDATE_PROJECT',
-          objectType: 'Project',
-          objectId: updated.id,
-          oldValue: { status: existing.status, name: existing.name },
-          newValue: { status: updated.status, name: updated.name },
-        },
-      });
-
-      return updated;
+    const project = await this.prisma.project.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.objective !== undefined && { objective: dto.objective }),
+        ...(dto.departmentId !== undefined && { departmentId: dto.departmentId }),
+        ...(dto.customerId !== undefined && { customerId: dto.customerId }),
+        ...(dto.engagementType !== undefined && {
+          engagementType: toPrismaEngagementType(dto.engagementType),
+        }),
+        ...(dto.methodology !== undefined && { methodology: dto.methodology }),
+        ...(dto.billingModel !== undefined && {
+          billingModel: toPrismaBillingModel(dto.billingModel),
+        }),
+        ...(dto.priority !== undefined && { priority: dto.priority }),
+        ...(dto.startDate !== undefined && { startDate: dto.startDate }),
+        ...(dto.endDate !== undefined && { endDate: dto.endDate }),
+        ...(dto.value !== undefined && { value: dto.value }),
+        ...(dto.currency !== undefined && {
+          currency: toPrismaCurrency(dto.currency),
+        }),
+        ...(dto.primaryPmId !== undefined && { primaryPmId: dto.primaryPmId }),
+        ...(dto.secondaryPmId !== undefined && {
+          secondaryPmId: dto.secondaryPmId,
+        }),
+        ...(dto.status !== undefined && { status: toPrismaStatus(dto.status) }),
+      },
+      include: PROJECT_INCLUDE,
     });
 
     return toApiProject(project as ProjectWithRelations);
@@ -209,19 +176,7 @@ export class ProjectsService {
       });
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.project.delete({ where: { id } });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: 'DELETE_PROJECT',
-          objectType: 'Project',
-          objectId: id,
-          oldValue: { name: existing.name, status: existing.status },
-        },
-      });
-    });
+    await this.prisma.project.delete({ where: { id } });
   }
 
   async findDepartments() {

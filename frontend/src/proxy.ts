@@ -2,24 +2,14 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
+import { PUBLIC_PATH_PREFIXES } from "./config/routes.config";
 
 const intlMiddleware = createMiddleware(routing);
 
-// ---------------------------------------------------------------------------
-// Routes that do NOT require authentication
-// ---------------------------------------------------------------------------
-const PUBLIC_PATHS = [
-  "/login",
-  "/register",
-  "/api/auth",
-  "/api/health",
-];
-
 function isPublicPath(pathname: string): boolean {
-  // Strip locale prefix for checking public paths
   const pathWithoutLocale = pathname.replace(/^\/(en|ar)/, "") || "/";
   if (pathWithoutLocale === "/") return true;
-  return PUBLIC_PATHS.some((p) => pathWithoutLocale.startsWith(p));
+  return PUBLIC_PATH_PREFIXES.some((p) => pathWithoutLocale.startsWith(p));
 }
 
 // ---------------------------------------------------------------------------

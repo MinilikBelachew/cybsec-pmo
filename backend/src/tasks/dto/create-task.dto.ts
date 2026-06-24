@@ -77,18 +77,18 @@ export class CreateTaskDto {
   @IsUUID()
   ownerId?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-06-01' })
-  @IsOptional()
+  @ApiProperty({ example: '2026-06-01' })
   @Type(() => Date)
   @IsDate()
-  startDate?: Date;
+  @IsNotEmpty()
+  startDate: Date;
 
-  @ApiPropertyOptional({ example: '2026-06-15' })
-  @IsOptional()
+  @ApiProperty({ example: '2026-06-15' })
   @Type(() => Date)
   @IsDate()
+  @IsNotEmpty()
   @Validate(TaskEndDateAfterStartDateConstraint)
-  endDate?: Date;
+  endDate: Date;
 
   @ApiPropertyOptional({ example: 40 })
   @IsOptional()

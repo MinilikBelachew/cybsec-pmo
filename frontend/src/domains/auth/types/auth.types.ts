@@ -3,9 +3,6 @@ export interface EntraLoginRequestDto {
 }
 
 export interface LoginResponseDto {
-  token: string;
-  refreshToken: string;
-  tokenExpires: number;
   user: ApiUser;
 }
 

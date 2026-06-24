@@ -192,9 +192,10 @@ interface BoardViewProps {
   tasks: Task[];
   toggleTask: (id: string) => void;
   onAddTask?: (status: Status) => void;
+  onTaskClick?: (taskId: string) => void;
 }
 
-export function BoardView({ tasks: externalTasks, toggleTask, onAddTask }: BoardViewProps) {
+export function BoardView({ tasks: externalTasks, toggleTask, onAddTask, onTaskClick }: BoardViewProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => {
@@ -326,6 +327,7 @@ export function BoardView({ tasks: externalTasks, toggleTask, onAddTask }: Board
                     task={task}
                     isDragging={dragging === task.id}
                     onToggle={toggleTask}
+                    onTaskClick={onTaskClick}
                     onDragStart={(e) => handleDragStart(e, task.id, col.id)}
                     onDragEnd={handleDragEnd}
                     onDragOver={(e) => handleTaskDragOver(e, task.id, col.id)}
@@ -372,13 +374,14 @@ interface BoardCardProps {
   task: Task;
   isDragging: boolean;
   onToggle: (id: string) => void;
+  onTaskClick?: (id: string) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
 }
 
-function BoardCard({ task, isDragging, onToggle, onDragStart, onDragEnd, onDragOver, onDrop }: BoardCardProps) {
+function BoardCard({ task, isDragging, onToggle, onTaskClick, onDragStart, onDragEnd, onDragOver, onDrop }: BoardCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
   const dueSoon = task.dueDate && !task.dueDate.includes("-") ? !overdue && isDueSoon(task.dueDate) : false;
@@ -453,9 +456,19 @@ function BoardCard({ task, isDragging, onToggle, onDragStart, onDragEnd, onDragO
         </div>
 
         {/* Task name */}
-        <p className={cn("text-sm font-semibold leading-snug", task.done ? "line-through text-muted-foreground" : "text-foreground")}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTaskClick?.(task.id);
+          }}
+          className={cn(
+            "text-sm font-semibold leading-snug text-left w-full hover:text-primary transition-colors",
+            task.done ? "line-through text-muted-foreground" : "text-foreground"
+          )}
+        >
           {task.name}
-        </p>
+        </button>
 
         {/* Description snippet */}
         {task.description && <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{task.description}</p>}

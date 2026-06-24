@@ -9,13 +9,13 @@ import { useAuth } from "@/domains/auth";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { Button } from "@/shared/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/shared/ui/sheet";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Menu, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  Menu,
   ChevronDown,
   Pin,
-  PinOff
+  PinOff,
 } from "lucide-react";
 import { APP_NAME } from "@/shared/constants";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";

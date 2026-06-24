@@ -7,6 +7,8 @@ import { ThemeProvider } from "./theme-provider";
 import { MsalProvider } from "@azure/msal-react";
 import { msalInstance } from "@/config/msal.config";
 
+import { Toaster } from "react-hot-toast";
+
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <MsalProvider instance={msalInstance}>
@@ -18,6 +20,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           disableTransitionOnChange
         >
           {children}
+          <Toaster position="top-right" reverseOrder={false} />
         </ThemeProvider>
       </Provider>
     </MsalProvider>

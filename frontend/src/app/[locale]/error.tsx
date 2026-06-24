@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { APP_NAME } from "@/shared/constants";
 
 export default function Error({
   error,

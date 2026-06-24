@@ -1,5 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 import { TaskPriorityEnum, TaskStatusEnum } from './create-task.dto';
 
@@ -40,4 +47,25 @@ export class QueryTaskDto {
   @IsUUID()
   @IsOptional()
   ownerId?: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Filter by parent task (sub-tasks of this task)',
+  })
+  @IsUUID()
+  @IsOptional()
+  parentTaskId?: string;
+
+  @ApiPropertyOptional({
+    default: true,
+    description: 'When true, only return top-level tasks (no sub-tasks)',
+  })
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return true;
+    if (value === 'false' || value === false) return false;
+    return true;
+  })
+  @IsBoolean()
+  @IsOptional()
+  topLevelOnly?: boolean;
 }

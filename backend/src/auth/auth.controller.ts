@@ -9,6 +9,7 @@ import {
   Post,
   UseGuards,
   SerializeOptions,
+  UseFilters,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
@@ -17,10 +18,13 @@ import { LoginResponseDto } from './dto/login-response.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { NullableType } from '../utils/types/nullable.type';
 import { User } from '../users/domain/user';
-import { RefreshResponseDto } from './dto/refresh-response.dto';
-import { Response as ExpressResponse } from 'express';
+import { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import {
+  extractClientIp,
+  extractUserAgent,
+} from './utils/request-context.util';
+import { LoginSecurityExceptionFilter } from './filters/login-security-exception.filter';
 
-// Cookie config shared across login and refresh
 const ACCESS_TOKEN_COOKIE = 'access_token';
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
@@ -32,22 +36,20 @@ function setAuthCookies(
 ) {
   const isProd = process.env.NODE_ENV === 'production';
 
-  // access_token — short-lived (15 min), httpOnly so JS cannot touch it
   res.cookie(ACCESS_TOKEN_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: isProd,             // HTTPS only in production
+    secure: isProd,
     expires: new Date(tokenExpires),
     path: '/',
   });
 
-  // refresh_token — long-lived (10 years), httpOnly
   res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
     httpOnly: true,
     sameSite: 'lax',
     secure: isProd,
-    maxAge: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years in ms
-    path: '/api/v1/auth/refresh',  // only sent to the refresh endpoint
+    maxAge: 10 * 365 * 24 * 60 * 60 * 1000,
+    path: '/api/v1/auth/refresh',
   });
 }
 
@@ -61,18 +63,22 @@ export class AuthController {
 
   @SerializeOptions({ groups: ['me'] })
   @Post('entra/login')
+  @UseFilters(LoginSecurityExceptionFilter)
   @ApiOkResponse({ type: LoginResponseDto })
   @HttpCode(HttpStatus.OK)
   public async login(
     @Body() loginDto: AuthEntraLoginDto,
+    @Request() req: ExpressRequest,
     @Response({ passthrough: true }) res: ExpressResponse,
   ): Promise<LoginResponseDto> {
-    const result = await this.service.validateEntraLogin(loginDto.idToken);
+    const result = await this.service.validateEntraLogin(loginDto.idToken, {
+      ipAddress: extractClientIp(req),
+      userAgent: extractUserAgent(req),
+    });
 
-    // Set both tokens as httpOnly cookies — JS cannot read these
     setAuthCookies(res, result.token, result.refreshToken, result.tokenExpires);
 
-    return result;
+    return { user: result.user };
   }
 
   @ApiBearerAuth()
@@ -86,24 +92,20 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @ApiOkResponse({ type: RefreshResponseDto })
   @SerializeOptions({ groups: ['me'] })
   @Post('refresh')
   @UseGuards(AuthGuard('jwt-refresh'))
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.NO_CONTENT)
   public async refresh(
     @Request() request,
     @Response({ passthrough: true }) res: ExpressResponse,
-  ): Promise<RefreshResponseDto> {
+  ): Promise<void> {
     const result = await this.service.refreshToken({
       sessionId: request.user.sessionId,
       refreshTokenHash: request.user.refreshTokenHash,
     });
 
-    // Rotate both cookies on every refresh
     setAuthCookies(res, result.token, result.refreshToken, result.tokenExpires);
-
-    return result;
   }
 
   @ApiBearerAuth()
@@ -116,7 +118,6 @@ export class AuthController {
   ): Promise<void> {
     await this.service.logout({ sessionId: request.user.sessionId });
 
-    // Clear both cookies immediately on logout
     res.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
     res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/v1/auth/refresh' });
   }

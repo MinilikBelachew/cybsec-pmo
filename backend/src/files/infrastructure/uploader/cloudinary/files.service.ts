@@ -10,7 +10,13 @@ import { FileType } from '../../../domain/file';
 export class FilesCloudinaryService {
   constructor(private readonly fileRepository: FileRepository) {}
 
-  async create(file: any): Promise<{ file: FileType }> {
+  async create(file: any): Promise<{
+    file: FileType;
+    filename: string;
+    mimeType: string;
+    sizeBytes: number;
+    storageKey: string;
+  }> {
     if (!file) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -20,10 +26,16 @@ export class FilesCloudinaryService {
       });
     }
 
+    const stored = await this.fileRepository.create({
+      path: file.path,
+    });
+
     return {
-      file: await this.fileRepository.create({
-        path: file.path,
-      }),
+      file: stored,
+      filename: file.originalname ?? 'upload',
+      mimeType: file.mimetype ?? 'application/octet-stream',
+      sizeBytes: file.size ?? 0,
+      storageKey: file.path ?? stored.path,
     };
   }
 }

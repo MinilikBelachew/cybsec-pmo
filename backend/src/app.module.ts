@@ -21,6 +21,9 @@ import { SessionModule } from './session/session.module';
 import { MailerModule } from './mailer/mailer.module';
 import { FilesModule } from './files/files.module';
 import { BullModule } from '@nestjs/bull';
+import loginSecurityConfig from './auth/config/login-security.config';
+import { RedisModule } from './redis/redis.module';
+import { AuditLogsModule } from './audit/audit-logs.module';
 
 
 @Module({
@@ -34,6 +37,7 @@ import { BullModule } from '@nestjs/bull';
         mailConfig,
         fileConfig,
         redisConfig,
+        loginSecurityConfig,
       ],
       envFilePath: ['.env'],
     }),
@@ -48,6 +52,7 @@ import { BullModule } from '@nestjs/bull';
       }),
       inject: [ConfigService],
     }),
+    RedisModule,
     PrismaModule,
     I18nModule.forRootAsync({
       useFactory: (configService: ConfigService<AllConfigType>) => {
@@ -88,6 +93,7 @@ import { BullModule } from '@nestjs/bull';
     ProjectsModule,
     TasksModule,
     FilesModule,
+    AuditLogsModule,
   ],
 })
 export class AppModule {}

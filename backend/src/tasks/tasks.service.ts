@@ -9,13 +9,30 @@ import { PrismaService } from '../database/prisma.service';
 import { CreateTaskDto, TaskStatusEnum } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTaskDto } from './dto/query-task.dto';
+import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
+import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
+import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
+import { FilesUploadService, UploadedFileResult } from '../files/files-upload.service';
 import { TaskStatus, PriorityLevel } from '@prisma/client';
+import { RoleEnum } from '../roles/roles.enum';
+
+const EXTERNAL_ROLES = [RoleEnum.client, RoleEnum.vendor];
 
 const TASK_INCLUDE = {
   project: { select: { id: true, name: true } },
   owner: { select: { id: true, displayName: true, email: true } },
   parentTask: { select: { id: true, title: true } },
-  subTasks: { select: { id: true, title: true, status: true } },
+  subTasks: {
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      priority: true,
+      owner: { select: { id: true, displayName: true, email: true } },
+      endDate: true,
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
   comments: {
     include: {
       author: { select: { id: true, displayName: true, email: true } },
@@ -30,24 +47,21 @@ const TASK_INCLUDE = {
   },
 } as const;
 
-// Transition Map according to implementation guide:
-// - To_Do <=> In_Progress
-// - In_Progress -> Submitted_for_Review
-// - Submitted_for_Review -> Approved | Rework
-// - Rework -> In_Progress | Submitted_for_Review
-// - Approved -> Done
 const LEGAL_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   To_Do: [TaskStatus.In_Progress],
   In_Progress: [TaskStatus.To_Do, TaskStatus.Submitted_for_Review],
   Submitted_for_Review: [TaskStatus.Approved, TaskStatus.Rework],
   Approved: [TaskStatus.Done],
   Rework: [TaskStatus.In_Progress, TaskStatus.Submitted_for_Review],
-  Done: [], // Done is terminal or can transition back only via PM action (keep simple for now)
+  Done: [],
 };
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly filesUploadService: FilesUploadService,
+  ) {}
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
     const map: Record<TaskStatusEnum, TaskStatus> = {
@@ -73,6 +87,66 @@ export class TasksService {
     return map[status];
   }
 
+  private isExternalRole(roleCode?: string | null): boolean {
+    return !!roleCode && EXTERNAL_ROLES.includes(roleCode as RoleEnum);
+  }
+
+  private resolveRoleCode(user: { role?: { code?: string }; roleCode?: string }): string | undefined {
+    return user.role?.code || user.roleCode;
+  }
+
+  private mapAttachment(attachment: {
+    id: string;
+    taskId: string;
+    uploadedBy: string;
+    s3Key: string;
+    filename: string;
+    mimeType: string | null;
+    sizeBytes: bigint | null;
+    createdAt: Date;
+    uploader: { id: string; displayName: string; email: string };
+  }) {
+    return {
+      ...attachment,
+      sizeBytes: attachment.sizeBytes != null ? Number(attachment.sizeBytes) : null,
+      url: this.resolveStorageUrl(attachment.s3Key),
+    };
+  }
+
+  private resolveStorageUrl(storageKey: string): string {
+    if (storageKey.startsWith('http://') || storageKey.startsWith('https://')) {
+      return storageKey;
+    }
+    if (storageKey.startsWith('/')) {
+      const backendDomain =
+        process.env.BACKEND_DOMAIN?.replace(/\/$/, '') ?? 'http://localhost:6002';
+      return `${backendDomain}${storageKey}`;
+    }
+    return storageKey;
+  }
+
+  private filterCommentsForRole<T extends { isInternal: boolean }>(
+    comments: T[],
+    roleCode?: string | null,
+  ): T[] {
+    if (this.isExternalRole(roleCode)) {
+      return comments.filter((c) => !c.isInternal);
+    }
+    return comments;
+  }
+
+  private formatTask(
+    task: Awaited<ReturnType<typeof this.prisma.task.findUnique>> & object,
+    roleCode?: string | null,
+  ) {
+    const { comments, attachments, ...rest } = task as any;
+    return {
+      ...rest,
+      comments: this.filterCommentsForRole(comments ?? [], roleCode),
+      attachments: (attachments ?? []).map((a: any) => this.mapAttachment(a)),
+    };
+  }
+
   private validateTransition(oldStatus: TaskStatus, newStatus: TaskStatus) {
     if (oldStatus === newStatus) return;
     const allowed = LEGAL_TRANSITIONS[oldStatus] || [];
@@ -91,7 +165,6 @@ export class TasksService {
     ownerId?: string | null,
     parentTaskId?: string | null,
   ) {
-    // 1. Verify Project
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
     });
@@ -102,7 +175,6 @@ export class TasksService {
       });
     }
 
-    // 2. Verify Owner/Assignee
     if (ownerId) {
       const user = await this.prisma.user.findUnique({
         where: { id: ownerId },
@@ -115,7 +187,6 @@ export class TasksService {
       }
     }
 
-    // 3. Verify Parent Task
     if (parentTaskId) {
       const parent = await this.prisma.task.findUnique({
         where: { id: parentTaskId },
@@ -132,11 +203,62 @@ export class TasksService {
           errors: { parentTask: 'parentTaskMustBeInSameProject' },
         });
       }
+      if (parent.parentTaskId) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { parentTask: 'subTasksCannotBeNestedDeeperThanOneLevel' },
+        });
+      }
     }
   }
 
-  async create(dto: CreateTaskDto, actorId: string) {
+  async create(dto: CreateTaskDto, actorId: string, viewerRoleCode?: string) {
     await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId);
+
+    const task = await this.prisma.task.create({
+      data: {
+        projectId: dto.projectId,
+        parentTaskId: dto.parentTaskId ?? null,
+        title: dto.title,
+        description: dto.description ?? null,
+        priority: (dto.priority as PriorityLevel) ?? PriorityLevel.Medium,
+        ownerId: dto.ownerId ?? null,
+        startDate: dto.startDate ?? null,
+        endDate: dto.endDate ?? null,
+        effortHours: dto.effortHours ?? null,
+        status: dto.status ? this.mapStatusToPrisma(dto.status) : TaskStatus.To_Do,
+      },
+      include: TASK_INCLUDE,
+    });
+
+    return this.formatTask(task, viewerRoleCode);
+  }
+
+  async createBundle(
+    dto: CreateTaskBundleDto,
+    files: Express.Multer.File[],
+    actorId: string,
+    viewerRoleCode?: string,
+  ) {
+    await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId);
+
+    const comments = dto.comments ?? [];
+    for (const comment of comments) {
+      const isInternal = comment.isInternal ?? true;
+      if (this.isExternalRole(viewerRoleCode) && isInternal) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { isInternal: 'externalUsersCannotPostInternalComments' },
+        });
+      }
+    }
+
+    const subTasks = dto.parentTaskId ? [] : (dto.subTasks ?? []);
+
+    const uploadedFiles: UploadedFileResult[] = [];
+    for (const file of files) {
+      uploadedFiles.push(await this.filesUploadService.upload(file));
+    }
 
     const task = await this.prisma.$transaction(async (tx) => {
       const created = await tx.task.create({
@@ -152,30 +274,64 @@ export class TasksService {
           effortHours: dto.effortHours ?? null,
           status: dto.status ? this.mapStatusToPrisma(dto.status) : TaskStatus.To_Do,
         },
+      });
+
+      for (const sub of subTasks) {
+        await tx.task.create({
+          data: {
+            projectId: dto.projectId,
+            parentTaskId: created.id,
+            title: sub.title,
+            description: sub.description ?? null,
+            priority: PriorityLevel.Medium,
+            status: TaskStatus.To_Do,
+            startDate: dto.startDate ?? null,
+            endDate: dto.endDate ?? null,
+          },
+        });
+      }
+
+      for (const comment of comments) {
+        await tx.taskComment.create({
+          data: {
+            taskId: created.id,
+            authorId: actorId,
+            body: comment.body.trim(),
+            isInternal: comment.isInternal ?? true,
+          },
+        });
+      }
+
+      for (const uploaded of uploadedFiles) {
+        await tx.taskAttachment.create({
+          data: {
+            taskId: created.id,
+            uploadedBy: actorId,
+            s3Key: uploaded.storageKey,
+            filename: uploaded.filename,
+            mimeType: uploaded.mimeType ?? null,
+            sizeBytes: uploaded.sizeBytes != null ? BigInt(uploaded.sizeBytes) : null,
+          },
+        });
+      }
+
+      return tx.task.findUnique({
+        where: { id: created.id },
         include: TASK_INCLUDE,
       });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: 'CREATE_TASK',
-          objectType: 'Task',
-          objectId: created.id,
-          newValue: {
-            taskId: created.id,
-            title: created.title,
-            status: created.status,
-          },
-        },
-      });
-
-      return created;
     });
 
-    return task;
+    if (!task) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { task: 'taskCreationFailed' },
+      });
+    }
+
+    return this.formatTask(task, viewerRoleCode);
   }
 
-  async findManyWithPagination(query: QueryTaskDto) {
+  async findManyWithPagination(query: QueryTaskDto, viewerRoleCode?: string) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const where: any = {};
@@ -192,6 +348,11 @@ export class TasksService {
     if (query.priority) {
       where.priority = query.priority;
     }
+    if (query.parentTaskId) {
+      where.parentTaskId = query.parentTaskId;
+    } else if (query.topLevelOnly !== false) {
+      where.parentTaskId = null;
+    }
     if (query.search) {
       where.OR = [
         { title: { contains: query.search, mode: 'insensitive' } },
@@ -207,10 +368,10 @@ export class TasksService {
       include: TASK_INCLUDE,
     });
 
-    return tasks;
+    return tasks.map((task) => this.formatTask(task, viewerRoleCode));
   }
 
-  async findById(id: string) {
+  async findById(id: string, viewerRoleCode?: string) {
     const task = await this.prisma.task.findUnique({
       where: { id },
       include: TASK_INCLUDE,
@@ -223,10 +384,15 @@ export class TasksService {
       });
     }
 
-    return task;
+    return this.formatTask(task, viewerRoleCode);
   }
 
-  async update(id: string, dto: UpdateTaskDto, actorId: string) {
+  async update(
+    id: string,
+    dto: UpdateTaskDto,
+    actorId: string,
+    viewerRoleCode?: string,
+  ) {
     const existing = await this.prisma.task.findUnique({
       where: { id },
     });
@@ -238,63 +404,42 @@ export class TasksService {
       });
     }
 
-    // Validate references if they change
     const projectId = dto.projectId ?? existing.projectId;
     const ownerId = dto.ownerId !== undefined ? dto.ownerId : existing.ownerId;
-    const parentTaskId = dto.parentTaskId !== undefined ? dto.parentTaskId : existing.parentTaskId;
-    
+    const parentTaskId =
+      dto.parentTaskId !== undefined ? dto.parentTaskId : existing.parentTaskId;
+
     if (dto.projectId || dto.ownerId || dto.parentTaskId) {
       await this.validateReferences(projectId, ownerId, parentTaskId);
     }
 
-    // Validate transition if status changes
     if (dto.status) {
       const nextStatus = this.mapStatusToPrisma(dto.status);
       this.validateTransition(existing.status, nextStatus);
     }
 
-    const task = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.task.update({
-        where: { id },
-        data: {
-          title: dto.title ?? undefined,
-          description: dto.description ?? undefined,
-          priority: (dto.priority as PriorityLevel) ?? undefined,
-          ownerId: dto.ownerId !== undefined ? dto.ownerId : undefined,
-          startDate: dto.startDate !== undefined ? dto.startDate : undefined,
-          endDate: dto.endDate !== undefined ? dto.endDate : undefined,
-          effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
-          status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
-        },
-        include: TASK_INCLUDE,
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: 'UPDATE_TASK',
-          objectType: 'Task',
-          objectId: updated.id,
-          oldValue: {
-            status: existing.status,
-            title: existing.title,
-          },
-          newValue: {
-            status: updated.status,
-            title: updated.title,
-          },
-        },
-      });
-
-      return updated;
+    const task = await this.prisma.task.update({
+      where: { id },
+      data: {
+        title: dto.title ?? undefined,
+        description: dto.description ?? undefined,
+        priority: (dto.priority as PriorityLevel) ?? undefined,
+        ownerId: dto.ownerId !== undefined ? dto.ownerId : undefined,
+        startDate: dto.startDate !== undefined ? dto.startDate : undefined,
+        endDate: dto.endDate !== undefined ? dto.endDate : undefined,
+        effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
+        status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
+      },
+      include: TASK_INCLUDE,
     });
 
-    return task;
+    return this.formatTask(task, viewerRoleCode);
   }
 
   async remove(id: string, actorId: string) {
     const existing = await this.prisma.task.findUnique({
       where: { id },
+      include: { subTasks: { select: { id: true } } },
     });
 
     if (!existing) {
@@ -304,49 +449,122 @@ export class TasksService {
       });
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      // Delete any comments and attachments first
-      await tx.taskComment.deleteMany({ where: { taskId: id } });
-      await tx.taskAttachment.deleteMany({ where: { taskId: id } });
-
-      await tx.task.delete({
-        where: { id },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: 'DELETE_TASK',
-          objectType: 'Task',
-          objectId: id,
-          oldValue: {
-            title: existing.title,
-          },
-        },
-      });
-    });
-  }
-
-  // --- Comments ---
-  async addComment(taskId: string, body: string, isInternal: boolean, authorId: string) {
-    const task = await this.prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) {
-      throw new NotFoundException({
-        status: HttpStatus.NOT_FOUND,
-        errors: { task: 'taskNotFound' },
+    if (existing.subTasks.length > 0) {
+      throw new ConflictException({
+        status: HttpStatus.CONFLICT,
+        errors: { task: 'cannotDeleteTaskWithSubTasks' },
       });
     }
 
-    return this.prisma.taskComment.create({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.taskComment.deleteMany({ where: { taskId: id } });
+      await tx.taskAttachment.deleteMany({ where: { taskId: id } });
+      await tx.task.delete({ where: { id } });
+    });
+  }
+
+  async getComments(taskId: string, viewerRoleCode?: string) {
+    await this.findById(taskId, viewerRoleCode);
+
+    const comments = await this.prisma.taskComment.findMany({
+      where: { taskId },
+      include: {
+        author: { select: { id: true, displayName: true, email: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return this.filterCommentsForRole(comments, viewerRoleCode);
+  }
+
+  async addComment(
+    taskId: string,
+    dto: CreateTaskCommentDto,
+    authorId: string,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, viewerRoleCode);
+
+    const isInternal = dto.isInternal ?? true;
+    if (this.isExternalRole(viewerRoleCode) && isInternal) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { isInternal: 'externalUsersCannotPostInternalComments' },
+      });
+    }
+
+    const comment = await this.prisma.taskComment.create({
       data: {
         taskId,
         authorId,
-        body,
+        body: dto.body.trim(),
         isInternal,
       },
       include: {
         author: { select: { id: true, displayName: true, email: true } },
       },
     });
+
+    return comment;
+  }
+
+  async getAttachments(taskId: string, viewerRoleCode?: string) {
+    await this.findById(taskId, viewerRoleCode);
+
+    const attachments = await this.prisma.taskAttachment.findMany({
+      where: { taskId },
+      include: {
+        uploader: { select: { id: true, displayName: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return attachments.map((a) => this.mapAttachment(a));
+  }
+
+  async addAttachment(
+    taskId: string,
+    dto: CreateTaskAttachmentDto,
+    uploaderId: string,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, viewerRoleCode);
+
+    const attachment = await this.prisma.taskAttachment.create({
+      data: {
+        taskId,
+        uploadedBy: uploaderId,
+        s3Key: dto.storageKey,
+        filename: dto.filename,
+        mimeType: dto.mimeType ?? null,
+        sizeBytes: dto.sizeBytes != null ? BigInt(dto.sizeBytes) : null,
+      },
+      include: {
+        uploader: { select: { id: true, displayName: true, email: true } },
+      },
+    });
+
+    return this.mapAttachment(attachment);
+  }
+
+  async removeAttachment(
+    taskId: string,
+    attachmentId: string,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, viewerRoleCode);
+
+    const attachment = await this.prisma.taskAttachment.findFirst({
+      where: { id: attachmentId, taskId },
+    });
+
+    if (!attachment) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { attachment: 'attachmentNotFound' },
+      });
+    }
+
+    await this.prisma.taskAttachment.delete({ where: { id: attachmentId } });
   }
 }

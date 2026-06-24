@@ -1,15 +1,13 @@
 import {
-  HttpStatus,
   Injectable,
   UnauthorizedException,
-  UnprocessableEntityException,
 } from '@nestjs/common';
 import ms from 'ms';
 import crypto from 'crypto';
 import { randomStringGenerator } from '@nestjs/common/utils/random-string-generator.util';
 import { JwtService } from '@nestjs/jwt';
 import { NullableType } from '../utils/types/nullable.type';
-import { LoginResponseDto } from './dto/login-response.dto';
+import { AuthSessionResult } from './types/auth-session-result.type';
 import { ConfigService } from '@nestjs/config';
 import { JwtRefreshPayloadType } from './strategies/types/jwt-refresh-payload.type';
 import { JwtPayloadType } from './strategies/types/jwt-payload.type';
@@ -20,6 +18,10 @@ import { SessionService } from '../session/session.service';
 import { User } from '../users/domain/user';
 import jwksClient from 'jwks-rsa';
 import * as jwt from 'jsonwebtoken';
+import { AuthFailureService } from './auth-failure.service';
+import { AuthLoginContext } from './types/auth-login-context.type';
+import { extractEmailHintFromIdToken } from './utils/id-token.util';
+import { LoginSecurityException } from './exceptions/login-security.exception';
 
 @Injectable()
 export class AuthService {
@@ -28,13 +30,130 @@ export class AuthService {
     private usersService: UsersService,
     private sessionService: SessionService,
     private configService: ConfigService<AllConfigType>,
+    private authFailureService: AuthFailureService,
   ) {}
 
-  async validateEntraLogin(idToken: string): Promise<LoginResponseDto> {
-    const tenantId = this.configService.getOrThrow('auth.entraTenantId', { infer: true });
-    const clientId = this.configService.getOrThrow('auth.entraClientId', { infer: true });
+  async validateEntraLogin(
+    idToken: string,
+    context: AuthLoginContext,
+  ): Promise<AuthSessionResult> {
+    const emailHint = extractEmailHintFromIdToken(idToken);
 
-    const decoded = await new Promise<any>((resolve, reject) => {
+    await this.authFailureService.assertLoginAllowed(context, emailHint);
+
+    try {
+      const tenantId = this.configService.getOrThrow('auth.entraTenantId', {
+        infer: true,
+      });
+      const clientId = this.configService.getOrThrow('auth.entraClientId', {
+        infer: true,
+      });
+
+      const decoded = await this.verifyEntraIdToken(
+        idToken,
+        tenantId,
+        clientId,
+      );
+
+      const email = decoded.email || decoded.preferred_username || decoded.upn;
+      if (!email) {
+        await this.authFailureService.recordLoginFailure(
+          context,
+          'MISSING_EMAIL',
+          emailHint,
+        );
+        throw new UnauthorizedException('Authentication failed');
+      }
+
+      let user = await this.usersService.findByEmail(email.toLowerCase());
+      if (!user) {
+        user = await this.usersService.create({
+          entraObjectId: decoded.oid,
+          email: email.toLowerCase(),
+          displayName: decoded.name || email.split('@')[0],
+          role: {
+            code: 'engineer',
+          },
+          isActive: true,
+          isExternal: false,
+        });
+      }
+
+      if (!user.isActive) {
+        await this.authFailureService.recordLoginFailure(
+          context,
+          'INACTIVE_USER',
+          email.toLowerCase(),
+        );
+        throw new UnauthorizedException('Authentication failed');
+      }
+
+      const entraObjectId = decoded.oid;
+      await this.usersService.updateInternal(user.id, {
+        entraObjectId,
+        lastLogin: new Date(),
+      });
+
+      const refreshTokenHash = crypto
+        .createHash('sha256')
+        .update(randomStringGenerator())
+        .digest('hex');
+
+      const session = await this.sessionService.create({
+        userId: user.id,
+        refreshTokenHash,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        expiresAt: new Date(
+          Date.now() +
+            ms(this.configService.getOrThrow('auth.refreshExpires', { infer: true })),
+        ),
+      });
+
+      const { token, refreshToken, tokenExpires } = await this.getTokensData({
+        id: user.id,
+        role: {
+          code: user.role?.code || user.roleCode,
+        },
+        sessionId: session.id,
+        refreshTokenHash,
+      });
+
+      await this.authFailureService.recordLoginSuccess(
+        context,
+        email.toLowerCase(),
+      );
+
+      return {
+        refreshToken,
+        token,
+        tokenExpires,
+        user,
+      };
+    } catch (error) {
+      if (error instanceof LoginSecurityException) {
+        throw error;
+      }
+
+      if (error instanceof UnauthorizedException) {
+        await this.authFailureService.recordLoginFailure(
+          context,
+          'INVALID_TOKEN',
+          emailHint,
+        );
+        throw new UnauthorizedException('Authentication failed');
+      }
+
+      throw error;
+    }
+  }
+
+  private verifyEntraIdToken(
+    idToken: string,
+    tenantId: string,
+    clientId: string,
+  ): Promise<jwt.JwtPayload> {
+    return new Promise((resolve, reject) => {
       const client = jwksClient({
         jwksUri: `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
         cache: true,
@@ -60,73 +179,13 @@ export class AuthService {
         },
         (err, result) => {
           if (err) {
-            reject(new UnauthorizedException(`Invalid Microsoft Entra token: ${err.message}`));
+            reject(new UnauthorizedException('Authentication failed'));
           } else {
-            resolve(result);
+            resolve(result as jwt.JwtPayload);
           }
         },
       );
     });
-
-    const email = decoded.email || decoded.preferred_username || decoded.upn;
-    if (!email) {
-      throw new UnauthorizedException('Token does not contain user email');
-    }
-
-    let user = await this.usersService.findByEmail(email.toLowerCase());
-    if (!user) {
-      user = await this.usersService.create({
-        entraObjectId: decoded.oid,
-        email: email.toLowerCase(),
-        displayName: decoded.name || email.split('@')[0],
-        role: {
-          code: 'engineer', // Default role for auto-registered users
-        },
-        isActive: true,
-        isExternal: false,
-      });
-    }
-
-    if (!user.isActive) {
-      throw new UnauthorizedException('User account is inactive');
-    }
-
-    // Update Entra object ID and last login timestamp
-    const entraObjectId = decoded.oid;
-    await this.usersService.updateInternal(user.id, {
-      entraObjectId,
-      lastLogin: new Date(),
-    });
-
-    const refreshTokenHash = crypto
-      .createHash('sha256')
-      .update(randomStringGenerator())
-      .digest('hex');
-
-    const session = await this.sessionService.create({
-      userId: user.id,
-      refreshTokenHash,
-      ipAddress: null,
-      userAgent: null,
-      expiresAt: new Date(Date.now() + ms(this.configService.getOrThrow('auth.refreshExpires', { infer: true }))),
-    });
-
-
-    const { token, refreshToken, tokenExpires } = await this.getTokensData({
-      id: user.id,
-      role: {
-        code: user.role?.code || user.roleCode,
-      },
-      sessionId: session.id,
-      refreshTokenHash,
-    });
-
-    return {
-      refreshToken,
-      token,
-      tokenExpires,
-      user,
-    };
   }
 
   async me(userJwtPayload: JwtPayloadType): Promise<NullableType<User>> {
@@ -135,7 +194,7 @@ export class AuthService {
 
   async refreshToken(
     data: Pick<JwtRefreshPayloadType, 'sessionId' | 'refreshTokenHash'>,
-  ): Promise<Omit<LoginResponseDto, 'user'>> {
+  ): Promise<Omit<AuthSessionResult, 'user'>> {
     const session = await this.sessionService.findById(data.sessionId);
 
     if (!session) {
@@ -228,4 +287,3 @@ export class AuthService {
     };
   }
 }
-

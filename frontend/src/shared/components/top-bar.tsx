@@ -4,6 +4,7 @@ import * as React from "react";
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "@/i18n/routing";
 import { useAuth } from "@/domains/auth";
+import { useRole } from "@/shared/providers/role-provider";
 import { ThemeToggle } from "./theme-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
@@ -55,8 +56,6 @@ const ROLES = [
   { id: "hr", label: "HR", sub: "People & timesheets" },
   { id: "finance", label: "Finance", sub: "Budget & expenses" },
 ];
-
-import { useRole } from "@/shared/providers/role-provider";
 
 export function TopBar() {
   const { user, signOut } = useAuth();
