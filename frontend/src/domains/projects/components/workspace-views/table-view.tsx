@@ -4,7 +4,7 @@ import { useState } from "react";
 import { cn } from "@/shared/utils/cn";
 import { Circle, CircleCheck, Plus, ChevronRight } from "lucide-react";
 
-type Status = "TO DO" | "IN PROGRESS" | "DONE";
+type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
 
 interface Task {
@@ -20,9 +20,12 @@ interface Task {
 }
 
 const STATUS_PILL: Record<Status, string> = {
-  "TO DO": "bg-muted text-muted-foreground border border-border/60",
-  "IN PROGRESS": "bg-blue-50 text-blue-600 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800",
-  "DONE": "bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800",
+  "To_Do": "bg-muted text-muted-foreground border border-border/60",
+  "In_Progress": "bg-blue-50 text-blue-605 border border-blue-205 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800",
+  "Submitted_for_Review": "bg-amber-50 text-amber-605 border border-amber-205 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800",
+  "Approved": "bg-teal-50 text-teal-605 border border-teal-205 dark:bg-teal-900/20 dark:text-teal-400 dark:border-teal-800",
+  "Rework": "bg-rose-50 text-rose-605 border border-rose-205 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800",
+  "Done": "bg-emerald-50 text-emerald-605 border border-emerald-205 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800",
 };
 
 const PRIORITY_STYLES: Record<Priority, string> = {
@@ -196,13 +199,23 @@ export function TableView({ tasks, toggleTask, onTaskClick }: TableViewProps) {
                   {/* Status */}
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
-                      {task.status === "DONE" ? (
+                      {task.status === "Done" || task.status === "Approved" ? (
                         <CircleCheck className="size-3.5 text-emerald-500 shrink-0" />
                       ) : (
                         <Circle className="size-3.5 text-muted-foreground shrink-0" />
                       )}
-                      <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-md", STATUS_PILL[task.status] || STATUS_PILL["TO DO"])}>
-                        {task.status}
+                      <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-md", STATUS_PILL[task.status] || STATUS_PILL["To_Do"])}>
+                        {task.status === "To_Do"
+                          ? "To Do"
+                          : task.status === "In_Progress"
+                          ? "In Progress"
+                          : task.status === "Submitted_for_Review"
+                          ? "Submitted for Review"
+                          : task.status === "Approved"
+                          ? "Approved"
+                          : task.status === "Rework"
+                          ? "Rework"
+                          : "Done"}
                       </span>
                     </div>
                   </td>

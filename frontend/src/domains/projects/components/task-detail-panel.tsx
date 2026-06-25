@@ -14,6 +14,7 @@ import {
   useGetTaskByIdQuery,
   useGetProjectByIdQuery,
   useGetProjectManagersQuery,
+  useGetPhasesQuery,
   useUpdateTaskMutation,
   useCreateTaskMutation,
   updateTaskSchema,
@@ -61,7 +62,7 @@ interface TaskDetailPanelProps {
 }
 
 const STATUS_OPTIONS: { value: UpdateTaskFormValues["status"]; label: string }[] = [
-  { value: "To_Do", label: "Not Started" },
+  { value: "To_Do", label: "To Do" },
   { value: "In_Progress", label: "In Progress" },
   { value: "Submitted_for_Review", label: "Submitted for Review" },
   { value: "Approved", label: "Approved" },
@@ -119,6 +120,7 @@ export function TaskDetailPanel({
   });
   const { data: project } = useGetProjectByIdQuery(projectId, { skip: !open });
   const { data: users = [], isLoading: loadingUsers } = useGetProjectManagersQuery();
+  const { data: phases = [], isLoading: loadingPhases } = useGetPhasesQuery(projectId, { skip: !open });
   const [updateTask, { isLoading: isSaving }] = useUpdateTaskMutation();
   const [createTask] = useCreateTaskMutation();
   const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
@@ -168,6 +170,7 @@ export function TaskDetailPanel({
           ...toCreateTaskPayload({
             projectId,
             parentTaskId: taskId,
+            phaseId: values.phaseId,
             title: sub.title,
             description: sub.description ?? "",
             priority: "Medium",
@@ -187,6 +190,7 @@ export function TaskDetailPanel({
           : "Task updated"
       );
       onUpdated?.();
+      onClose();
     } catch (err: unknown) {
       const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
       const fieldErrors = apiError?.data?.errors;
@@ -303,44 +307,75 @@ export function TaskDetailPanel({
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Assignee</Label>
-                    <Controller
-                      control={control}
-                      name="ownerId"
-                      render={({ field }) => (
-                        <Select
-                          value={field.value ?? "none"}
-                          onValueChange={(val) => field.onChange(val === "none" ? null : val)}
-                          disabled={loadingUsers}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Unassigned">
-                              {activeOwner ? (
-                                <span className="flex items-center gap-2">
-                                  <Avatar className="size-5">
-                                    <AvatarFallback className="text-[9px]">
-                                      {initials(activeOwner.displayName)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  {activeOwner.displayName}
-                                </span>
-                              ) : (
-                                "Unassigned"
-                              )}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Unassigned</SelectItem>
-                            {users.map((u) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.displayName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Assignee</Label>
+                      <Controller
+                        control={control}
+                        name="ownerId"
+                        render={({ field }) => (
+                          <Select
+                            value={field.value ?? "none"}
+                            onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                            disabled={loadingUsers}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Unassigned">
+                                {activeOwner ? (
+                                  <span className="flex items-center gap-2">
+                                    <Avatar className="size-5">
+                                      <AvatarFallback className="text-[9px]">
+                                        {initials(activeOwner.displayName)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    {activeOwner.displayName}
+                                  </span>
+                                ) : (
+                                  "Unassigned"
+                                )}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Unassigned</SelectItem>
+                              {users.map((u) => (
+                                <SelectItem key={u.id} value={u.id}>
+                                  {u.displayName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Phase *</Label>
+                      <Controller
+                        control={control}
+                        name="phaseId"
+                        render={({ field }) => (
+                          <Select
+                            value={field.value ?? ""}
+                            onValueChange={field.onChange}
+                            disabled={loadingPhases}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select phase">
+                                {phases.find((p) => p.id === field.value)?.name || "Select phase"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {phases.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                      <FieldError message={errors.phaseId?.message} />
+                    </div>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">

@@ -59,11 +59,13 @@ export interface Task {
   effortHours: number | null;
   progressApproved: number;
   status: TaskStatus;
+  phaseId: string | null;
   createdAt: string;
   updatedAt: string;
   project?: { id: string; name: string };
   owner?: TaskUserSummary;
   parentTask?: { id: string; title: string };
+  phase?: { id: string; name: string } | null;
   subTasks?: TaskSubTask[];
   comments?: TaskComment[];
   attachments?: TaskAttachment[];
@@ -82,6 +84,7 @@ export interface GetTasksParams {
   topLevelOnly?: boolean;
   status?: string;
   search?: string;
+  phaseId?: string;
 }
 
 export interface CreateTaskBundlePayload {

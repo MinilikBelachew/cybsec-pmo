@@ -68,4 +68,9 @@ export class QueryTaskDto {
   @IsBoolean()
   @IsOptional()
   topLevelOnly?: boolean;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  phaseId?: string;
 }

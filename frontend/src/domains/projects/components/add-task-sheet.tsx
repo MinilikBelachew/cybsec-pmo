@@ -16,10 +16,14 @@ import {
   FileText,
   Lock,
   Circle,
+  Flag,
 } from "lucide-react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   useCreateTaskBundleMutation,
   useGetProjectManagersQuery,
+  useGetPhasesQuery,
+  useCreatePhaseMutation,
   createTaskSchema,
   toCreateTaskPayload,
   type CreateTaskFormValues,
@@ -49,14 +53,19 @@ import { Calendar } from "@/shared/ui/calendar";
 import { cn } from "@/shared/utils/cn";
 import { ADD_TASK_SHEET_CLASS } from "./task-sheet.constants";
 import { defaultTaskDateRange } from "../schemas/task-date-fields";
+import { PhaseForm } from "./phase-form";
+import { type PhaseFormValues } from "../schemas/phase.schema";
 
-type WorkspaceStatus = "TO DO" | "IN PROGRESS" | "DONE";
+type WorkspaceStatus = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type SideTab = "subtasks" | "comments";
 
 const WORKSPACE_STATUS_TO_API: Record<WorkspaceStatus, CreateTaskFormValues["status"]> = {
-  "TO DO": "To_Do",
-  "IN PROGRESS": "In_Progress",
-  DONE: "Done",
+  "To_Do": "To_Do",
+  "In_Progress": "In_Progress",
+  "Submitted_for_Review": "Submitted_for_Review",
+  "Approved": "Approved",
+  "Rework": "Rework",
+  "Done": "Done",
 };
 
 interface DraftComment {
@@ -78,6 +87,7 @@ interface AddTaskSheetProps {
   projectId: string;
   parentTaskId?: string | null;
   defaultStatus?: WorkspaceStatus;
+  defaultPhaseId?: string | null;
   projectName?: string;
 }
 
@@ -117,12 +127,15 @@ export function AddTaskSheet({
   onCreated,
   projectId,
   parentTaskId = null,
-  defaultStatus = "TO DO",
+  defaultStatus = "To_Do",
+  defaultPhaseId = null,
   projectName = "Workspace",
 }: AddTaskSheetProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sideTab, setSideTab] = useState<SideTab>("subtasks");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showCreatePhase, setShowCreatePhase] = useState(false);
+  const [isSavingPhase, setIsSavingPhase] = useState(false);
 
   const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
   const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
@@ -134,7 +147,9 @@ export function AddTaskSheet({
   const [subTaskDescription, setSubTaskDescription] = useState("");
 
   const [createTaskBundle] = useCreateTaskBundleMutation();
+  const [createPhase] = useCreatePhaseMutation();
   const { data: users = [], isLoading: loadingUsers } = useGetProjectManagersQuery();
+  const { data: phases = [], isLoading: loadingPhases } = useGetPhasesQuery(projectId);
   const defaultDates = defaultTaskDateRange();
 
   const {
@@ -143,12 +158,14 @@ export function AddTaskSheet({
     control,
     reset,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<CreateTaskFormValues>({
     resolver: zodResolver(createTaskSchema) as import("react-hook-form").Resolver<CreateTaskFormValues>,
     defaultValues: {
       projectId,
       parentTaskId: parentTaskId ?? null,
+      phaseId: defaultPhaseId ?? "",
       title: "",
       description: "",
       priority: "Medium",
@@ -162,6 +179,31 @@ export function AddTaskSheet({
 
   const watchedOwnerId = watch("ownerId");
   const activeOwner = users.find((u) => u.id === watchedOwnerId);
+
+  const handleCreatePhase = async (values: PhaseFormValues) => {
+    setIsSavingPhase(true);
+    try {
+      const newPhase = await createPhase({
+        projectId,
+        body: {
+          name: values.name,
+          description: values.description,
+          startDate: values.startDate,
+          endDate: values.endDate,
+          status: values.status,
+          orderIndex: 0,
+        },
+      }).unwrap();
+      setValue("phaseId", newPhase.id);
+      setShowCreatePhase(false);
+      toast.success(`Phase "${newPhase.name}" created and selected`);
+    } catch (err: unknown) {
+      const apiError = err as { data?: { message?: string } };
+      toast.error(apiError?.data?.message ?? "Failed to create phase");
+    } finally {
+      setIsSavingPhase(false);
+    }
+  };
 
   const resetDrafts = () => {
     setDraftComments([]);
@@ -182,6 +224,7 @@ export function AddTaskSheet({
     reset({
       projectId,
       parentTaskId: parentTaskId ?? null,
+      phaseId: defaultPhaseId ?? "",
       title: "",
       description: "",
       priority: "Medium",
@@ -191,7 +234,7 @@ export function AddTaskSheet({
       endDate: dates.endDate,
       effortHours: undefined,
     });
-  }, [open, projectId, parentTaskId, defaultStatus, reset]);
+  }, [open, projectId, parentTaskId, defaultStatus, defaultPhaseId, reset]);
 
   const handleClose = () => {
     resetDrafts();
@@ -271,7 +314,8 @@ export function AddTaskSheet({
   });
 
   return (
-    <Sheet open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
+    <>
+      <Sheet open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <SheetContent side="right" className={ADD_TASK_SHEET_CLASS} showCloseButton>
         <form onSubmit={onSubmit} className="flex h-full flex-col">
           <SheetHeader className="shrink-0 border-b border-border px-6 py-4 text-left">
@@ -350,33 +394,77 @@ export function AddTaskSheet({
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Assignee</Label>
-                  <Controller
-                    control={control}
-                    name="ownerId"
-                    render={({ field }) => (
-                      <Select
-                        value={field.value ?? "none"}
-                        onValueChange={(val) => field.onChange(val === "none" ? null : val)}
-                        disabled={loadingUsers}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Assignee</Label>
+                    <Controller
+                      control={control}
+                      name="ownerId"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value ?? "none"}
+                          onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                          disabled={loadingUsers}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Unassigned">
+                              {activeOwner ? activeOwner.displayName : "Unassigned"}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Unassigned</SelectItem>
+                            {users.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.displayName}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Phase *</Label>
+                    </div>
+                    {!loadingPhases && phases.length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreatePhase(true)}
+                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 text-xs font-medium text-primary hover:bg-primary/10 transition"
                       >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Unassigned">
-                            {activeOwner ? activeOwner.displayName : "Unassigned"}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Unassigned</SelectItem>
-                          {users.map((u) => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.displayName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <Flag className="size-3.5" />
+                        No phases yet — Create one
+                      </button>
+                    ) : (
+                      <Controller
+                        control={control}
+                        name="phaseId"
+                        render={({ field }) => (
+                          <Select
+                            value={field.value ?? ""}
+                            onValueChange={field.onChange}
+                            disabled={loadingPhases}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select phase">
+                                {phases.find((p) => p.id === field.value)?.name || "Select phase"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {phases.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
                     )}
-                  />
+                    <FieldError message={errors.phaseId?.message} />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -725,5 +813,34 @@ export function AddTaskSheet({
         </form>
       </SheetContent>
     </Sheet>
+
+    {/* ── Create Phase Modal ── */}
+    <DialogPrimitive.Root open={showCreatePhase} onOpenChange={(open) => !open && setShowCreatePhase(false)}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <DialogPrimitive.Popup className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-background shadow-xl transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-ending-style:scale-95 data-starting-style:scale-95 overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+            <Flag className="size-4 text-primary" />
+            <DialogPrimitive.Title className="text-sm font-bold">
+              Create New Phase
+            </DialogPrimitive.Title>
+          </div>
+          <PhaseForm
+            initialValues={{
+              name: "",
+              description: "",
+              startDate: "",
+              endDate: "",
+              status: "Planned",
+            }}
+            onSubmit={handleCreatePhase}
+            onCancel={() => setShowCreatePhase(false)}
+            isSaving={isSavingPhase}
+            existingPhases={phases}
+          />
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+    </>
   );
 }

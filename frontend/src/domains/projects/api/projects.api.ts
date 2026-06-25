@@ -6,6 +6,8 @@ import {
   type PaginatedProjectsResponse,
   type Project,
   type ProjectManager,
+  type ProjectPhase,
+  type ProjectMilestone,
 } from "../types/projects.types";
 
 export const projectsApi = api.injectEndpoints({
@@ -69,6 +71,116 @@ export const projectsApi = api.injectEndpoints({
       }),
       invalidatesTags: [{ type: "Projects", id: "LIST" }],
     }),
+
+    getPhases: builder.query<ProjectPhase[], string>({
+      query: (projectId) => `/projects/${projectId}/phases`,
+      providesTags: (result, error, projectId) =>
+        result
+          ? [
+              ...result.map(({ id }) => ({ type: "Phases" as const, id })),
+              { type: "Phases", id: "LIST" },
+              { type: "Phases", id: projectId },
+            ]
+          : [{ type: "Phases", id: "LIST" }],
+    }),
+
+    createPhase: builder.mutation<ProjectPhase, { projectId: string; body: Omit<ProjectPhase, "id" | "projectId" | "createdAt" | "updatedAt"> }>({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/phases`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Phases", id: "LIST" },
+        { type: "Phases", id: projectId },
+        { type: "Projects", id: projectId },
+      ],
+    }),
+
+    updatePhase: builder.mutation<ProjectPhase, { projectId: string; phaseId: string; body: Partial<ProjectPhase> }>({
+      query: ({ projectId, phaseId, body }) => ({
+        url: `/projects/${projectId}/phases/${phaseId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (result, error, { projectId, phaseId }) => [
+        { type: "Phases", id: phaseId },
+        { type: "Phases", id: projectId },
+        { type: "Phases", id: "LIST" },
+        { type: "Projects", id: projectId },
+        { type: "Tasks" },
+      ],
+    }),
+
+    deletePhase: builder.mutation<void, { projectId: string; phaseId: string }>({
+      query: ({ projectId, phaseId }) => ({
+        url: `/projects/${projectId}/phases/${phaseId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (result, error, { projectId, phaseId }) => [
+        { type: "Phases", id: phaseId },
+        { type: "Phases", id: projectId },
+        { type: "Phases", id: "LIST" },
+        { type: "Projects", id: projectId },
+        { type: "Tasks" },
+        { type: "Milestones", id: projectId },
+      ],
+    }),
+
+    getMilestones: builder.query<ProjectMilestone[], string>({
+      query: (projectId) => `/projects/${projectId}/milestones`,
+      providesTags: (result, error, projectId) =>
+        result
+          ? [
+              ...result.map(({ id }) => ({ type: "Milestones" as const, id })),
+              { type: "Milestones", id: "LIST" },
+              { type: "Milestones", id: projectId },
+            ]
+          : [{ type: "Milestones", id: "LIST" }],
+    }),
+
+    createMilestone: builder.mutation<ProjectMilestone, { projectId: string; body: Omit<ProjectMilestone, "id" | "projectId" | "createdAt"> }>({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/milestones`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Milestones", id: "LIST" },
+        { type: "Milestones", id: projectId },
+        { type: "Projects", id: projectId },
+        { type: "Phases", id: projectId },
+      ],
+    }),
+
+    updateMilestone: builder.mutation<ProjectMilestone, { projectId: string; milestoneId: string; body: Partial<ProjectMilestone> }>({
+      query: ({ projectId, milestoneId, body }) => ({
+        url: `/projects/${projectId}/milestones/${milestoneId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (result, error, { projectId, milestoneId }) => [
+        { type: "Milestones", id: milestoneId },
+        { type: "Milestones", id: projectId },
+        { type: "Milestones", id: "LIST" },
+        { type: "Projects", id: projectId },
+        { type: "Phases", id: projectId },
+      ],
+    }),
+
+    deleteMilestone: builder.mutation<void, { projectId: string; milestoneId: string }>({
+      query: ({ projectId, milestoneId }) => ({
+        url: `/projects/${projectId}/milestones/${milestoneId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (result, error, { projectId, milestoneId }) => [
+        { type: "Milestones", id: milestoneId },
+        { type: "Milestones", id: projectId },
+        { type: "Milestones", id: "LIST" },
+        { type: "Projects", id: projectId },
+        { type: "Phases", id: projectId },
+      ],
+    }),
   }),
 });
 
@@ -81,4 +193,12 @@ export const {
   useCreateProjectMutation,
   useUpdateProjectMutation,
   useDeleteProjectMutation,
+  useGetPhasesQuery,
+  useCreatePhaseMutation,
+  useUpdatePhaseMutation,
+  useDeletePhaseMutation,
+  useGetMilestonesQuery,
+  useCreateMilestoneMutation,
+  useUpdateMilestoneMutation,
+  useDeleteMilestoneMutation,
 } = projectsApi;

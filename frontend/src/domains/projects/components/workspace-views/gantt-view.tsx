@@ -1,11 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import { cn } from "@/shared/utils/cn";
 import { ChevronDown, ChevronRight, Plus, Circle, CircleCheck, ZoomIn, ZoomOut } from "lucide-react";
 
-type Status = "TO DO" | "IN PROGRESS" | "DONE";
+type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
+
+import { type ProjectPhase, type ProjectMilestone } from "../../types/projects.types";
 
 interface Task {
   id: string;
@@ -16,6 +18,11 @@ interface Task {
   status: Status;
   hasSubtasks?: boolean;
   done: boolean;
+  phaseId?: string | null;
+  phaseName?: string;
+  phaseColor?: string;
+  rawStartDate?: string | null;
+  rawEndDate?: string | null;
 }
 
 interface GanttViewProps {
@@ -23,12 +30,17 @@ interface GanttViewProps {
   toggleTask: (taskId: string) => void;
   ganttZoom?: number;
   setGanttZoom?: React.Dispatch<React.SetStateAction<number>>;
+  phases?: ProjectPhase[];
+  milestones?: ProjectMilestone[];
 }
 
 const STATUS_BAR: Record<Status, string> = {
-  "TO DO": "bg-muted-foreground/30",
-  "IN PROGRESS": "bg-blue-400",
-  "DONE": "bg-emerald-400",
+  "To_Do": "bg-muted-foreground/30 text-muted-foreground",
+  "In_Progress": "bg-blue-400",
+  "Submitted_for_Review": "bg-amber-400 text-black",
+  "Approved": "bg-teal-400 text-white",
+  "Rework": "bg-rose-450",
+  "Done": "bg-emerald-400",
 };
 
 // Build week columns: 4 weeks starting from May 5 (Mon)
@@ -56,23 +68,88 @@ for (let w = 0; w < 4; w++) {
 const TOTAL_DAYS = WEEKS.length * 7;
 const COL_W = 44; // px per day column
 
-export function GanttView({ tasks, toggleTask }: GanttViewProps) {
-  const [openProject, setOpenProject] = useState(true);
+export function GanttView({ tasks, toggleTask, phases = [], milestones = [] }: GanttViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [openPhases, setOpenPhases] = useState<Record<string, boolean>>({});
 
   const colW = Math.round(COL_W * zoom);
 
-  // Map tasks to dynamic gantt schedule parameters
-  const ganttTasks = tasks.map((t, idx) => {
-    const startDay = (idx * 2) % 15;
-    const durationDays = Math.max(1, 3 + (idx % 5));
-    return {
-      ...t,
-      startDay,
-      durationDays,
-    };
-  });
+  const togglePhase = (phaseId: string) => {
+    setOpenPhases((prev) => ({
+      ...prev,
+      [phaseId]: prev[phaseId] === false ? true : false,
+    }));
+  };
+
+  // Group data by phase
+  const groupedData = useMemo(() => {
+    const sortedPhases = [...phases].sort((a, b) => {
+      if (!a.startDate && !b.startDate) return a.name.localeCompare(b.name);
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      
+      const diff = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+      if (diff !== 0) return diff;
+      
+      if (!a.endDate && !b.endDate) return a.name.localeCompare(b.name);
+      if (!a.endDate) return 1;
+      if (!b.endDate) return -1;
+      
+      return new Date(a.endDate).getTime() - new Date(b.endDate).getTime();
+    });
+
+    const mapped = sortedPhases.map((phase) => {
+      const phaseTasks = tasks.filter((t) => t.phaseId === phase.id);
+      const phaseMilestones = milestones.filter((m) => m.phaseId === phase.id);
+      return {
+        id: phase.id,
+        name: phase.name,
+        color: "#8b5cf6",
+        tasks: phaseTasks,
+        milestones: phaseMilestones,
+      };
+    });
+
+    const unassignedTasks = tasks.filter((t) => !t.phaseId);
+    const unassignedMilestones = milestones.filter((m) => !m.phaseId);
+
+    if (unassignedTasks.length > 0 || unassignedMilestones.length > 0) {
+      mapped.push({
+        id: "unassigned",
+        name: "Unassigned Tasks & Milestones",
+        color: "#64748b",
+        tasks: unassignedTasks,
+        milestones: unassignedMilestones,
+      });
+    }
+
+    return mapped;
+  }, [phases, tasks, milestones]);
+
+  const getMilestoneOffset = (targetDateStr: string) => {
+    const date = new Date(targetDateStr);
+    const diffTime = date.getTime() - PROJECT_START.getTime();
+    const diffDays = Math.floor(diffTime / 86400000);
+    return Math.max(0, Math.min(TOTAL_DAYS - 1, diffDays));
+  };
+
+  const getGanttDates = (task: Task, index: number) => {
+    if (task.rawStartDate && task.rawEndDate) {
+      const start = new Date(task.rawStartDate);
+      const end = new Date(task.rawEndDate);
+      const diffStart = start.getTime() - PROJECT_START.getTime();
+      const diffEnd = end.getTime() - PROJECT_START.getTime();
+      
+      const startDay = Math.max(0, Math.floor(diffStart / 86400000));
+      const durationDays = Math.max(1, Math.ceil((diffEnd - diffStart) / 86400000) + 1);
+      return { startDay, durationDays };
+    }
+    // Fallback mock schedule
+    const startDay = (index * 2) % 15;
+    const durationDays = Math.max(1, 3 + (index % 5));
+    return { startDay, durationDays };
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
@@ -116,50 +193,60 @@ export function GanttView({ tasks, toggleTask }: GanttViewProps) {
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-transparent h-[56px]">
             <span className="text-xs font-semibold text-muted-foreground">Name</span>
-            <button className="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors">
-              <Plus className="size-3.5" />
-            </button>
           </div>
 
           {/* Task rows */}
           <div className="flex-1 overflow-y-auto">
-            {/* Project row */}
-            <div
-              className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/30 cursor-pointer"
-              onClick={() => setOpenProject((o) => !o)}
-            >
-              {openProject ? (
-                <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
-              ) : (
-                <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
-              )}
-              <span className="text-sm font-semibold truncate">Active Tasks</span>
-            </div>
-
-            {openProject &&
-              ganttTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-2 px-3 py-2 border-b border-border/20 hover:bg-muted/20 cursor-pointer group"
-                >
-                  <div className="w-3.5 shrink-0" />
-                  {task.hasSubtasks ? (
-                    <ChevronRight className="size-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  ) : (
-                    <div className="size-3 shrink-0" />
-                  )}
-                  <button onClick={() => toggleTask(task.id)}>
-                    {task.done ? (
-                      <CircleCheck className="size-3.5 text-emerald-500 shrink-0" />
+            {groupedData.map((group) => {
+              const isExpanded = openPhases[group.id] !== false;
+              return (
+                <React.Fragment key={group.id}>
+                  {/* Phase row */}
+                  <div
+                    className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/30 cursor-pointer select-none"
+                    onClick={() => togglePhase(group.id)}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
                     ) : (
-                      <Circle className="size-3.5 text-muted-foreground shrink-0" />
+                      <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
                     )}
-                  </button>
-                  <span className={cn("text-sm truncate flex-1", task.done && "line-through text-muted-foreground")}>
-                    {task.name}
-                  </span>
-                </div>
-              ))}
+                    <span
+                      className="size-2 rounded-full shrink-0"
+                      style={{ backgroundColor: group.color }}
+                    />
+                    <span className="text-xs font-bold truncate flex-1 uppercase tracking-wide text-slate-700 dark:text-slate-200">
+                      {group.name}
+                    </span>
+                  </div>
+
+                  {isExpanded &&
+                    group.tasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex items-center gap-2 px-3 py-2 border-b border-border/20 hover:bg-muted/20 cursor-pointer group"
+                      >
+                        <div className="w-3.5 shrink-0" />
+                        {task.hasSubtasks ? (
+                          <ChevronRight className="size-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        ) : (
+                          <div className="size-3 shrink-0" />
+                        )}
+                        <button onClick={() => toggleTask(task.id)}>
+                          {task.done ? (
+                            <CircleCheck className="size-3.5 text-emerald-500 shrink-0" />
+                          ) : (
+                            <Circle className="size-3.5 text-muted-foreground shrink-0" />
+                          )}
+                        </button>
+                        <span className={cn("text-xs truncate flex-1", task.done && "line-through text-muted-foreground")}>
+                          {task.name}
+                        </span>
+                      </div>
+                    ))}
+                </React.Fragment>
+              );
+            })}
           </div>
         </div>
 
@@ -197,45 +284,66 @@ export function GanttView({ tasks, toggleTask }: GanttViewProps) {
               )}
             </div>
 
-            {/* Project row (empty) */}
-            <div className="border-b border-border/30 relative" style={{ height: 36 }}>
-              <GridLines totalDays={TOTAL_DAYS} colW={colW} todayOffset={TODAY_OFFSET} />
-            </div>
+            {/* Timeline phase and task bars */}
+            {groupedData.map((group) => {
+              const isExpanded = openPhases[group.id] !== false;
+              return (
+                <React.Fragment key={group.id}>
+                  {/* Phase timeline row (renders milestones) */}
+                  <div className="border-b border-border/30 relative bg-muted/10 dark:bg-white/5" style={{ height: 36 }}>
+                    <GridLines totalDays={TOTAL_DAYS} colW={colW} todayOffset={TODAY_OFFSET} />
 
-            {/* Task rows */}
-            {openProject &&
-              ganttTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="border-b border-border/20 relative hover:bg-muted/10 transition-colors"
-                  style={{ height: 36 }}
-                >
-                  <GridLines totalDays={TOTAL_DAYS} colW={colW} todayOffset={TODAY_OFFSET} />
-
-                  {/* Bar */}
-                  <div
-                    className={cn(
-                      "absolute top-1/2 -translate-y-1/2 rounded-full h-5 flex items-center px-2 text-[10px] font-semibold text-white/90 overflow-hidden whitespace-nowrap",
-                      STATUS_BAR[task.status] || STATUS_BAR["TO DO"]
-                    )}
-                    style={{
-                      left: task.startDay * colW + 2,
-                      width: Math.max(task.durationDays * colW - 4, colW - 4),
-                    }}
-                    title={task.name}
-                  >
-                    {task.durationDays * colW > 60 ? task.name : ""}
+                    {/* Milestones inside Phase Header Row */}
+                    {group.milestones.map((m) => {
+                      const dayOffset = getMilestoneOffset(m.targetDate);
+                      return (
+                        <div
+                          key={m.id}
+                          className={cn(
+                            "absolute top-1/2 -translate-y-1/2 size-3.5 rotate-45 border-2 flex items-center justify-center cursor-help shrink-0 shadow-xs hover:scale-125 transition-transform z-20",
+                            m.status === "Done"
+                              ? "bg-emerald-500 border-white dark:border-slate-900"
+                              : "bg-purple-600 border-white dark:border-slate-900"
+                          )}
+                          style={{ left: dayOffset * colW + colW / 2 - 7 }}
+                          title={`Milestone: ${m.title} (${new Date(m.targetDate).toLocaleDateString()})`}
+                        />
+                      );
+                    })}
                   </div>
 
-                  {/* Milestone dot for 1-day tasks */}
-                  {task.durationDays === 1 && (
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 size-2.5 rounded-full bg-amber-400 border-2 border-background"
-                      style={{ left: task.startDay * colW + colW / 2 - 5 }}
-                    />
-                  )}
-                </div>
-              ))}
+                  {/* Task rows timeline */}
+                  {isExpanded &&
+                    group.tasks.map((task, idx) => {
+                      const { startDay, durationDays } = getGanttDates(task, idx);
+                      return (
+                        <div
+                          key={task.id}
+                          className="border-b border-border/20 relative hover:bg-muted/10 transition-colors"
+                          style={{ height: 36 }}
+                        >
+                          <GridLines totalDays={TOTAL_DAYS} colW={colW} todayOffset={TODAY_OFFSET} />
+
+                          {/* Bar */}
+                          <div
+                            className={cn(
+                              "absolute top-1/2 -translate-y-1/2 rounded-full h-5 flex items-center px-2 text-[10px] font-semibold text-white/90 overflow-hidden whitespace-nowrap",
+                              STATUS_BAR[task.status] || STATUS_BAR["To_Do"]
+                            )}
+                            style={{
+                              left: startDay * colW + 2,
+                              width: Math.max(durationDays * colW - 4, colW - 4),
+                            }}
+                            title={task.name}
+                          >
+                            {durationDays * colW > 60 ? task.name : ""}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </React.Fragment>
+              );
+            })}
           </div>
         </div>
       </div>

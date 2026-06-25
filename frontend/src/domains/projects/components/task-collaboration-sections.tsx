@@ -60,7 +60,7 @@ function formatFileSize(bytes: number | null) {
 const STATUS_LABEL: Record<string, string> = {
   To_Do: "To Do",
   In_Progress: "In Progress",
-  Submitted_for_Review: "In Review",
+  Submitted_for_Review: "Submitted for Review",
   Approved: "Approved",
   Rework: "Rework",
   Done: "Done",

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { cn } from "@/shared/utils/cn";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-type Status = "TO DO" | "IN PROGRESS" | "DONE";
+type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
 
 interface Task {
@@ -32,9 +32,12 @@ function parseDueDate(raw: string): { month: number; day: number } | null {
 }
 
 const STATUS_PILL: Record<Status, string> = {
-  "TO DO": "bg-muted text-muted-foreground",
-  "IN PROGRESS": "bg-blue-100 text-blue-700 dark:bg-blue-900/45 dark:text-blue-350",
-  "DONE": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/45 dark:text-emerald-350",
+  "To_Do": "bg-muted text-muted-foreground",
+  "In_Progress": "bg-blue-100 text-blue-705 dark:bg-blue-900/45 dark:text-blue-300",
+  "Submitted_for_Review": "bg-amber-100 text-amber-705 dark:bg-amber-900/45 dark:text-amber-300",
+  "Approved": "bg-teal-100 text-teal-705 dark:bg-teal-900/45 dark:text-teal-300",
+  "Rework": "bg-rose-100 text-rose-705 dark:bg-rose-900/45 dark:text-rose-300",
+  "Done": "bg-emerald-100 text-emerald-705 dark:bg-emerald-900/45 dark:text-emerald-300",
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -174,7 +177,7 @@ export function CalendarView({ tasks }: CalendarViewProps) {
                     key={t.id}
                     className={cn(
                       "px-1.5 py-0.5 rounded-md text-[10px] font-medium truncate cursor-pointer hover:opacity-80 transition-opacity border border-transparent",
-                      STATUS_PILL[t.status] || STATUS_PILL["TO DO"]
+                      STATUS_PILL[t.status] || STATUS_PILL["To_Do"]
                     )}
                     title={t.name}
                   >

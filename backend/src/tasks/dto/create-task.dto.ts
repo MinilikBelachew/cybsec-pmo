@@ -56,6 +56,11 @@ export class CreateTaskDto {
   @IsUUID()
   parentTaskId?: string | null;
 
+  @ApiProperty({ format: 'uuid', example: '550e8400-e29b-41d4-a716-446655440003' })
+  @IsUUID()
+  @IsNotEmpty()
+  phaseId: string;
+
   @ApiProperty({ example: 'Complete vulnerability scanning', maxLength: 255 })
   @IsString()
   @IsNotEmpty()

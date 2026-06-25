@@ -35,6 +35,13 @@ enum TaskStatus {
   Done
 }
 
+enum PhaseStatus {
+  Planned
+  Active
+  Completed
+  On_Hold @map("On Hold")
+}
+
 enum Methodology {
   Agile
   Waterfall
@@ -290,6 +297,7 @@ model Project {
   creator        User             @relation("ProjectCreatedBy", fields: [createdBy], references: [id])
 
   projectDomains        ProjectDomain[]
+  phases                ProjectPhase[]
   milestones            ProjectMilestone[]
   tasks                 Task[]
   allocations           Allocation[]
@@ -336,19 +344,42 @@ model ProjectDomain {
   @@map("project_domains")
 }
 
-model ProjectMilestone {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId  String   @map("project_id") @db.Uuid
-  title      String   @db.VarChar(255)
-  targetDate DateTime @map("target_date") @db.Date
-  weight     Decimal? @db.Decimal(5, 2)
-  status     String   @default("Pending") @db.VarChar(30)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+model ProjectPhase {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String      @map("project_id") @db.Uuid
+  name        String      @db.VarChar(255)
+  description String?
+  orderIndex  Int         @default(0) @map("order_index")
+  startDate   DateTime    @map("start_date") @db.Date
+  endDate     DateTime    @map("end_date") @db.Date
+  status      PhaseStatus @default(Planned)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id])
-  invoices Invoice[]
+  project    Project            @relation(fields: [projectId], references: [id])
+  milestones ProjectMilestone[]
+  tasks      Task[]
+
+  @@index([projectId], map: "idx_phases_project")
+  @@map("project_phases")
+}
+
+model ProjectMilestone {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId  String        @map("project_id") @db.Uuid
+  phaseId    String?       @map("phase_id") @db.Uuid
+  title      String        @db.VarChar(255)
+  targetDate DateTime      @map("target_date") @db.Date
+  weight     Decimal?      @db.Decimal(5, 2)
+  status     String        @default("Pending") @db.VarChar(30)
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  project   Project       @relation(fields: [projectId], references: [id])
+  phase     ProjectPhase? @relation(fields: [phaseId], references: [id])
+  invoices  Invoice[]
 
   @@index([projectId], map: "idx_milestones_project")
+  @@index([phaseId], map: "idx_milestones_phase")
   @@map("project_milestones")
 }
 
@@ -356,6 +387,7 @@ model Task {
   id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId        String        @map("project_id") @db.Uuid
   parentTaskId     String?       @map("parent_task_id") @db.Uuid
+  phaseId          String?       @map("phase_id") @db.Uuid
   title            String        @db.VarChar(255)
   description      String?
   priority         PriorityLevel @default(Medium)
@@ -377,6 +409,7 @@ model Task {
   project     Project @relation(fields: [projectId], references: [id])
   parentTask  Task?   @relation("SubTasks", fields: [parentTaskId], references: [id])
   subTasks    Task[]  @relation("SubTasks")
+  phase       ProjectPhase? @relation(fields: [phaseId], references: [id])
   owner       User?   @relation("TaskOwner", fields: [ownerId], references: [id])
 
   comments          TaskComment[]
@@ -390,6 +423,7 @@ model Task {
   @@index([ownerId], map: "idx_tasks_owner")
   @@index([parentTaskId], map: "idx_tasks_parent")
   @@index([status], map: "idx_tasks_status")
+  @@index([phaseId], map: "idx_tasks_phase")
   @@map("tasks")
 }
 

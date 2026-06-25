@@ -6,18 +6,20 @@ import {
   Plus,
   CircleCheck,
   Flag,
-  Calendar,
+  Calendar as CalendarIcon,
   MessageSquare,
   ChevronRight,
+  ChevronLeft,
   MoreHorizontal,
   GripVertical,
   AlertCircle,
   Clock,
   CheckSquare,
 } from "lucide-react";
+import { Calendar } from "@/shared/ui/calendar";
 
 type Priority = "high" | "medium" | "low" | "critical";
-type Status = "TO DO" | "IN PROGRESS" | "DONE";
+type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 
 interface Task {
   id: string;
@@ -36,6 +38,8 @@ interface Task {
   progress?: number;
   description?: string;
   emoji?: string;
+  rawStartDate?: string | null;
+  rawEndDate?: string | null;
 }
 
 interface ColumnDef {
@@ -51,7 +55,7 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   {
-    id: "TO DO",
+    id: "To_Do",
     label: "To Do",
     wipLimit: 5,
     borderColor: "border-border/50",
@@ -61,7 +65,7 @@ const COLUMNS: ColumnDef[] = [
     accentBar: "bg-muted-foreground/20",
   },
   {
-    id: "IN PROGRESS",
+    id: "In_Progress",
     label: "In Progress",
     wipLimit: 3,
     borderColor: "border-blue-200 dark:border-blue-800/60",
@@ -71,8 +75,36 @@ const COLUMNS: ColumnDef[] = [
     accentBar: "bg-blue-400",
   },
   {
-    id: "DONE",
-    label: "Complete",
+    id: "Submitted_for_Review",
+    label: "Submitted for Review",
+    wipLimit: 3,
+    borderColor: "border-amber-200 dark:border-amber-800/60",
+    headerBg: "bg-amber-50/80 dark:bg-amber-900/20",
+    headerText: "text-amber-750 dark:text-amber-300",
+    dotClass: "bg-amber-500",
+    accentBar: "bg-amber-400",
+  },
+  {
+    id: "Approved",
+    label: "Approved",
+    borderColor: "border-teal-200 dark:border-teal-800/60",
+    headerBg: "bg-teal-50/80 dark:bg-teal-900/20",
+    headerText: "text-teal-700 dark:text-teal-300",
+    dotClass: "bg-teal-500",
+    accentBar: "bg-teal-400",
+  },
+  {
+    id: "Rework",
+    label: "Rework",
+    borderColor: "border-rose-200 dark:border-rose-800/60",
+    headerBg: "bg-rose-50/80 dark:bg-rose-900/20",
+    headerText: "text-rose-700 dark:text-rose-300",
+    dotClass: "bg-rose-500",
+    accentBar: "bg-rose-400",
+  },
+  {
+    id: "Done",
+    label: "Done",
     borderColor: "border-emerald-200 dark:border-emerald-800/60",
     headerBg: "bg-emerald-50/80 dark:bg-emerald-900/20",
     headerText: "text-emerald-700 dark:text-emerald-300",
@@ -193,9 +225,22 @@ interface BoardViewProps {
   toggleTask: (id: string) => void;
   onAddTask?: (status: Status) => void;
   onTaskClick?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => void;
+  onDuplicateTask?: (taskId: string) => void;
+  onMoveTask?: (taskId: string, toStatus: Status) => void;
+  onSetDueDate?: (taskId: string, date: string | null) => void;
 }
 
-export function BoardView({ tasks: externalTasks, toggleTask, onAddTask, onTaskClick }: BoardViewProps) {
+export function BoardView({
+  tasks: externalTasks,
+  toggleTask,
+  onAddTask,
+  onTaskClick,
+  onDeleteTask,
+  onDuplicateTask,
+  onMoveTask,
+  onSetDueDate,
+}: BoardViewProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => {
@@ -213,14 +258,18 @@ export function BoardView({ tasks: externalTasks, toggleTask, onAddTask, onTaskC
       const task = prev.find((t) => t.id === taskId);
       if (!task) return prev;
       const without = prev.filter((t) => t.id !== taskId);
-      const updated = { ...task, status: toStatus, done: toStatus === "DONE" };
+      const updated = { ...task, status: toStatus, done: toStatus === "Done" || toStatus === "Approved" };
       if (!beforeTaskId) return [...without, updated];
       const idx = without.findIndex((t) => t.id === beforeTaskId);
       const result = [...without];
       result.splice(idx === -1 ? result.length : idx, 0, updated);
       return result;
     });
-  }, []);
+
+    if (onMoveTask) {
+      onMoveTask(taskId, toStatus);
+    }
+  }, [onMoveTask]);
 
   function handleDragStart(e: React.DragEvent, taskId: string, fromStatus: Status) {
     dragTaskId.current = taskId;
@@ -332,6 +381,10 @@ export function BoardView({ tasks: externalTasks, toggleTask, onAddTask, onTaskC
                     onDragEnd={handleDragEnd}
                     onDragOver={(e) => handleTaskDragOver(e, task.id, col.id)}
                     onDrop={(e) => handleTaskDrop(e, task.id, col.id)}
+                    onDeleteTask={onDeleteTask}
+                    onDuplicateTask={onDuplicateTask}
+                    onMoveTask={onMoveTask}
+                    onSetDueDate={onSetDueDate}
                   />
                 </div>
               ))}
@@ -379,10 +432,44 @@ interface BoardCardProps {
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
+  onDeleteTask?: (taskId: string) => void;
+  onDuplicateTask?: (taskId: string) => void;
+  onMoveTask?: (taskId: string, toStatus: Status) => void;
+  onSetDueDate?: (taskId: string, date: string | null) => void;
 }
 
-function BoardCard({ task, isDragging, onToggle, onTaskClick, onDragStart, onDragEnd, onDragOver, onDrop }: BoardCardProps) {
+function BoardCard({
+  task,
+  isDragging,
+  onToggle,
+  onTaskClick,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+  onDeleteTask,
+  onDuplicateTask,
+  onMoveTask,
+  onSetDueDate,
+}: BoardCardProps) {
   const [showMenu, setShowMenu] = useState(false);
+  const [menuState, setMenuState] = useState<"main" | "move" | "date">("main");
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showMenu) {
+      setMenuState("main");
+      return;
+    }
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMenu]);
+
   const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
   const dueSoon = task.dueDate && !task.dueDate.includes("-") ? !overdue && isDueSoon(task.dueDate) : false;
   const pConfig = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
@@ -429,7 +516,7 @@ function BoardCard({ task, isDragging, onToggle, onTaskClick, onDragStart, onDra
           </div>
 
           {/* More menu */}
-          <div className="relative shrink-0">
+          <div className="relative shrink-0" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
               className="opacity-0 group-hover:opacity-100 transition-opacity size-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60"
@@ -437,19 +524,133 @@ function BoardCard({ task, isDragging, onToggle, onTaskClick, onDragStart, onDra
               <MoreHorizontal className="size-3.5" />
             </button>
             {showMenu && (
-              <div className="absolute top-full end-0 mt-1 z-30 bg-popover border border-border/60 rounded-xl shadow-lg p-1 min-w-[140px]">
-                {["Edit task", "Duplicate", "Move to…", "Set due date", "Delete"].map((item) => (
-                  <button
-                    key={item}
-                    onClick={() => setShowMenu(false)}
-                    className={cn(
-                      "w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors",
-                      item === "Delete" && "text-destructive hover:bg-destructive/10"
-                    )}
-                  >
-                    {item}
-                  </button>
-                ))}
+              <div
+                className={cn(
+                  "absolute top-full end-0 mt-1 z-30 bg-popover border border-border/60 rounded-xl shadow-lg p-1.5 transition-all duration-150 bg-white dark:bg-slate-900",
+                  menuState === "date" ? "w-[270px]" : "min-w-[140px]"
+                )}
+              >
+                {menuState === "main" && (
+                  <div className="space-y-0.5">
+                    <button
+                      onClick={() => {
+                        onTaskClick?.(task.id);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors"
+                    >
+                      Edit task
+                    </button>
+                    <button
+                      onClick={() => {
+                        onDuplicateTask?.(task.id);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors"
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      onClick={() => setMenuState("move")}
+                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors flex items-center justify-between"
+                    >
+                      <span>Move to…</span>
+                      <ChevronRight className="size-3 text-muted-foreground" />
+                    </button>
+                    <button
+                      onClick={() => setMenuState("date")}
+                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors flex items-center justify-between"
+                    >
+                      <span>Set due date</span>
+                      <ChevronRight className="size-3 text-muted-foreground" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        onDeleteTask?.(task.id);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+
+                {menuState === "move" && (
+                  <div>
+                    <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border/40 mb-1">
+                      <button
+                        onClick={() => setMenuState("main")}
+                        className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                      >
+                        <ChevronLeft className="size-3.5" />
+                      </button>
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Move task</span>
+                    </div>
+                    <div className="space-y-0.5">
+                      {(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"] as const)
+                        .filter((status) => status !== task.status)
+                        .map((status) => (
+                          <button
+                            key={status}
+                            onClick={() => {
+                              onMoveTask?.(task.id, status);
+                              setShowMenu(false);
+                            }}
+                            className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors"
+                          >
+                            {status === "To_Do"
+                              ? "To Do"
+                              : status === "In_Progress"
+                              ? "In Progress"
+                              : status === "Submitted_for_Review"
+                              ? "Submitted for Review"
+                              : status === "Approved"
+                              ? "Approved"
+                              : status === "Rework"
+                              ? "Rework"
+                              : "Done"}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {menuState === "date" && (
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border/40 mb-1">
+                      <button
+                        onClick={() => setMenuState("main")}
+                        className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                      >
+                        <ChevronLeft className="size-3.5" />
+                      </button>
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Set due date</span>
+                    </div>
+                    <div className="p-1 flex justify-center">
+                      <Calendar
+                        mode="single"
+                        selected={task.rawEndDate ? new Date(task.rawEndDate) : undefined}
+                        onSelect={(date) => {
+                          if (date) {
+                            const formattedDate = date.toISOString().slice(0, 10);
+                            onSetDueDate?.(task.id, formattedDate);
+                          }
+                          setShowMenu(false);
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        onSetDueDate?.(task.id, null);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-center py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-lg transition-colors border-t border-border/40 mt-1"
+                    >
+                      Clear due date
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -539,7 +740,7 @@ function BoardCard({ task, isDragging, onToggle, onTaskClick, onDragStart, onDra
               overdue ? "text-rose-500" : dueSoon ? "text-amber-500" : "text-muted-foreground"
             )}
           >
-            {overdue ? <AlertCircle className="size-3 shrink-0" /> : dueSoon ? <Clock className="size-3 shrink-0" /> : <Calendar className="size-3 shrink-0" />}
+            {overdue ? <AlertCircle className="size-3 shrink-0" /> : dueSoon ? <Clock className="size-3 shrink-0" /> : <CalendarIcon className="size-3 shrink-0" />}
             {task.dueDate}
           </div>
 
