@@ -1,19 +1,34 @@
 import { api } from "@/core/api/api";
-import { type EntraLoginRequestDto, type LoginResponseDto } from "../types/auth.types";
+
+export type SessionPolicy = {
+  idleTimeoutMs: number;
+  warningAtMs: number;
+  warningBeforeMs: number;
+};
 
 export const authApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    entraLogin: builder.mutation<LoginResponseDto, EntraLoginRequestDto>({
-      query: (body) => ({
-        url: "/auth/entra/login",
+    getSessionPolicy: builder.query<SessionPolicy, void>({
+      query: () => "/auth/session-policy",
+    }),
+
+    getMe: builder.query<import("../types/auth.types").ApiUser, void>({
+      query: () => "/auth/me",
+      providesTags: ["User"],
+    }),
+
+    refreshSession: builder.mutation<void, void>({
+      query: () => ({
+        url: "/auth/refresh",
         method: "POST",
-        body,
       }),
     }),
 
-    getMe: builder.query<LoginResponseDto["user"], void>({
-      query: () => "/auth/me",
-      providesTags: ["User"],
+    sessionHeartbeat: builder.mutation<void, void>({
+      query: () => ({
+        url: "/auth/session/heartbeat",
+        method: "POST",
+      }),
     }),
 
     logout: builder.mutation<void, void>({
@@ -27,7 +42,10 @@ export const authApi = api.injectEndpoints({
 });
 
 export const {
-  useEntraLoginMutation,
+  useGetSessionPolicyQuery,
   useGetMeQuery,
+  useLazyGetMeQuery,
+  useRefreshSessionMutation,
+  useSessionHeartbeatMutation,
   useLogoutMutation,
 } = authApi;

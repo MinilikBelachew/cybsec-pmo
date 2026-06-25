@@ -22,6 +22,8 @@ import { MailerModule } from './mailer/mailer.module';
 import { FilesModule } from './files/files.module';
 import { BullModule } from '@nestjs/bull';
 import loginSecurityConfig from './auth/config/login-security.config';
+import sessionSecurityConfig from './auth/config/session-security.config';
+import securityAlertsConfig from './auth/config/security-alerts.config';
 import { RedisModule } from './redis/redis.module';
 import { AuditLogsModule } from './audit/audit-logs.module';
 
@@ -38,6 +40,8 @@ import { AuditLogsModule } from './audit/audit-logs.module';
         fileConfig,
         redisConfig,
         loginSecurityConfig,
+        sessionSecurityConfig,
+        securityAlertsConfig,
       ],
       envFilePath: ['.env'],
     }),

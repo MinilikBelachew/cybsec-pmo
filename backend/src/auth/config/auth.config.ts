@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import { IsString } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 import validateConfig from '../../utils/validate-config';
 import { AuthConfig } from './auth-config.type';
 import ms from 'ms';
@@ -38,6 +38,10 @@ class EnvironmentVariablesValidator {
 
   @IsString()
   ENTRA_CLIENT_SECRET: string;
+
+  @IsString()
+  @IsOptional()
+  ENTRA_REDIRECT_URI: string;
 }
 
 export default registerAs<AuthConfig>('auth', () => {
@@ -56,6 +60,7 @@ export default registerAs<AuthConfig>('auth', () => {
     entraTenantId: process.env.ENTRA_TENANT_ID,
     entraClientId: process.env.ENTRA_CLIENT_ID,
     entraClientSecret: process.env.ENTRA_CLIENT_SECRET,
+    entraRedirectUri: process.env.ENTRA_REDIRECT_URI,
   };
 });
 

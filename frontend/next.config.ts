@@ -23,7 +23,7 @@ const nextConfig: NextConfig = {
               "form-action 'self' https://login.microsoftonline.com",
               "frame-ancestors 'none'",
               // Allow MSAL to connect to Microsoft identity endpoints
-              "connect-src 'self' https://login.microsoftonline.com https://login.microsoft.com https://sts.windows.net https://graph.microsoft.com http://localhost:6002",
+              "connect-src 'self' https://login.microsoftonline.com https://login.microsoft.com https://sts.windows.net https://graph.microsoft.com http://localhost:6001",
               // Allow MSAL redirect bridge iframes
               "frame-src 'self' https://login.microsoftonline.com https://login.microsoft.com",
               "block-all-mixed-content",

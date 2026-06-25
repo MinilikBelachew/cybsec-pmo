@@ -4,10 +4,10 @@
  * Sends invalid id_tokens to POST /v1/auth/entra/login and prints status codes.
  *
  * Usage: node scripts/test-login-failure-controls.mjs [baseUrl]
- * Example: node scripts/test-login-failure-controls.mjs http://localhost:6002/api/v1
+ * Example: node scripts/test-login-failure-controls.mjs http://localhost:6001/api/v1
  */
 
-const baseUrl = process.argv[2] ?? 'http://localhost:6002/api/v1';
+const baseUrl = process.argv[2] ?? 'http://localhost:6001/api/v1';
 
 async function attemptLogin(index) {
   const res = await fetch(`${baseUrl}/auth/entra/login`, {

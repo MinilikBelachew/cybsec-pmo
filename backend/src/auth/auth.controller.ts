@@ -1,24 +1,28 @@
 import {
-  Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
+  Query,
   Request,
   Response,
   Post,
   UseGuards,
   SerializeOptions,
   UseFilters,
+  Res,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { EntraOauthService } from './entra-oauth.service';
+import { SessionActivityService } from './session-activity.service';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
-import { AuthEntraLoginDto } from './dto/auth-entra-login.dto';
-import { LoginResponseDto } from './dto/login-response.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { NullableType } from '../utils/types/nullable.type';
 import { User } from '../users/domain/user';
-import { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import {
+  Request as ExpressRequest,
+  Response as ExpressResponse,
+} from 'express';
 import {
   extractClientIp,
   extractUserAgent,
@@ -59,26 +63,89 @@ function setAuthCookies(
   version: '1',
 })
 export class AuthController {
-  constructor(private readonly service: AuthService) {}
+  constructor(
+    private readonly service: AuthService,
+    private readonly entraOauthService: EntraOauthService,
+    private readonly sessionActivityService: SessionActivityService,
+  ) {}
 
-  @SerializeOptions({ groups: ['me'] })
-  @Post('entra/login')
-  @UseFilters(LoginSecurityExceptionFilter)
-  @ApiOkResponse({ type: LoginResponseDto })
+  @Get('session-policy')
   @HttpCode(HttpStatus.OK)
-  public async login(
-    @Body() loginDto: AuthEntraLoginDto,
+  public sessionPolicy() {
+    return this.sessionActivityService.getPolicy();
+  }
+
+  @ApiBearerAuth()
+  @Post('session/heartbeat')
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(HttpStatus.NO_CONTENT)
+  public async sessionHeartbeat(@Request() request): Promise<void> {
+    await this.sessionActivityService.touch(request.user.sessionId);
+  }
+
+  @Get('entra/authorize')
+  @HttpCode(HttpStatus.FOUND)
+  public async entraAuthorize(
+    @Query('returnTo') returnTo: string | undefined,
+    @Res() res: ExpressResponse,
+  ): Promise<void> {
+    const { authorizationUrl } =
+      await this.entraOauthService.createAuthorizationRequest(returnTo);
+    res.redirect(authorizationUrl);
+  }
+
+  @Get('entra/callback')
+  @UseFilters(LoginSecurityExceptionFilter)
+  public async entraCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
     @Request() req: ExpressRequest,
-    @Response({ passthrough: true }) res: ExpressResponse,
-  ): Promise<LoginResponseDto> {
-    const result = await this.service.validateEntraLogin(loginDto.idToken, {
-      ipAddress: extractClientIp(req),
-      userAgent: extractUserAgent(req),
-    });
+    @Res() res: ExpressResponse,
+  ): Promise<void> {
+    const fallbackReturnTo = '/dashboard';
 
-    setAuthCookies(res, result.token, result.refreshToken, result.tokenExpires);
+    if (error || !code || !state) {
+      res.redirect(
+        this.entraOauthService.getFrontendCallbackUrl(
+          fallbackReturnTo,
+          error ?? 'auth_failed',
+        ),
+      );
+      return;
+    }
 
-    return { user: result.user };
+    try {
+      const { idToken, nonce, returnTo } =
+        await this.entraOauthService.exchangeCodeForIdToken(code, state);
+
+      const result = await this.service.validateEntraLogin(
+        idToken,
+        {
+          ipAddress: extractClientIp(req),
+          userAgent: extractUserAgent(req),
+        },
+        { expectedNonce: nonce },
+      );
+
+      setAuthCookies(
+        res,
+        result.token,
+        result.refreshToken,
+        result.tokenExpires,
+      );
+
+      res.redirect(
+        this.entraOauthService.getFrontendCallbackUrl(returnTo),
+      );
+    } catch {
+      res.redirect(
+        this.entraOauthService.getFrontendCallbackUrl(
+          fallbackReturnTo,
+          'auth_failed',
+        ),
+      );
+    }
   }
 
   @ApiBearerAuth()

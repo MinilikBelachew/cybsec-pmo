@@ -5,27 +5,36 @@ import { ConfigService } from '@nestjs/config';
 import { JwtRefreshPayloadType } from './types/jwt-refresh-payload.type';
 import { OrNeverType } from '../../utils/types/or-never.type';
 import { AllConfigType } from '../../config/config.type';
+import { SessionActivityService } from '../session-activity.service';
 
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(
   Strategy,
   'jwt-refresh',
 ) {
-  constructor(configService: ConfigService<AllConfigType>) {
+  constructor(
+    configService: ConfigService<AllConfigType>,
+    private readonly sessionActivityService: SessionActivityService,
+  ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (request) => request?.cookies?.refresh_token ?? null,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       secretOrKey: configService.getOrThrow('auth.refreshSecret', {
         infer: true,
       }),
     });
   }
 
-  public validate(
+  public async validate(
     payload: JwtRefreshPayloadType,
-  ): OrNeverType<JwtRefreshPayloadType> {
+  ): Promise<OrNeverType<JwtRefreshPayloadType>> {
     if (!payload.sessionId) {
       throw new UnauthorizedException();
     }
+
+    await this.sessionActivityService.assertActive(payload.sessionId);
 
     return payload;
   }

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
 const filesDir = path.join(backendRoot, 'files');
-const apiBase = process.env.BACKEND_DOMAIN ?? 'http://localhost:6002';
+const apiBase = process.env.BACKEND_DOMAIN ?? 'http://localhost:6001';
 
 async function main() {
   const onDisk = (await fs.readdir(filesDir)).filter((f) => !f.startsWith('.'));

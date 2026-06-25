@@ -22,6 +22,7 @@ import { AuthFailureService } from './auth-failure.service';
 import { AuthLoginContext } from './types/auth-login-context.type';
 import { extractEmailHintFromIdToken } from './utils/id-token.util';
 import { LoginSecurityException } from './exceptions/login-security.exception';
+import { SessionActivityService } from './session-activity.service';
 
 @Injectable()
 export class AuthService {
@@ -31,11 +32,13 @@ export class AuthService {
     private sessionService: SessionService,
     private configService: ConfigService<AllConfigType>,
     private authFailureService: AuthFailureService,
+    private sessionActivityService: SessionActivityService,
   ) {}
 
   async validateEntraLogin(
     idToken: string,
     context: AuthLoginContext,
+    options?: { expectedNonce?: string },
   ): Promise<AuthSessionResult> {
     const emailHint = extractEmailHintFromIdToken(idToken);
 
@@ -53,6 +56,7 @@ export class AuthService {
         idToken,
         tenantId,
         clientId,
+        options?.expectedNonce,
       );
 
       const email = decoded.email || decoded.preferred_username || decoded.upn;
@@ -124,6 +128,8 @@ export class AuthService {
         email.toLowerCase(),
       );
 
+      await this.sessionActivityService.touch(session.id);
+
       return {
         refreshToken,
         token,
@@ -152,6 +158,7 @@ export class AuthService {
     idToken: string,
     tenantId: string,
     clientId: string,
+    expectedNonce?: string,
   ): Promise<jwt.JwtPayload> {
     return new Promise((resolve, reject) => {
       const client = jwksClient({
@@ -181,7 +188,12 @@ export class AuthService {
           if (err) {
             reject(new UnauthorizedException('Authentication failed'));
           } else {
-            resolve(result as jwt.JwtPayload);
+            const payload = result as jwt.JwtPayload;
+            if (expectedNonce && payload.nonce !== expectedNonce) {
+              reject(new UnauthorizedException('Authentication failed'));
+              return;
+            }
+            resolve(payload);
           }
         },
       );
@@ -228,6 +240,8 @@ export class AuthService {
       sessionId: session.id,
       refreshTokenHash,
     });
+
+    await this.sessionActivityService.touch(session.id);
 
     return {
       token,

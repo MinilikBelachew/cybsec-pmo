@@ -5,6 +5,7 @@ import { RedisService } from '../redis/redis.service';
 import { AllConfigType } from '../config/config.type';
 import { LoginSecurityConfig } from '../auth/config/login-security.config';
 import { LoginSecurityException } from '../auth/exceptions/login-security.exception';
+import { SecurityAlertService } from './security-alert.service';
 import {
   AuthLoginContext,
   AuthLoginFailureReason,
@@ -18,6 +19,7 @@ export class AuthFailureService {
     private readonly redis: RedisService,
     private readonly configService: ConfigService<AllConfigType>,
     private readonly auditLogsService: AuditLogsService,
+    private readonly securityAlertService: SecurityAlertService,
   ) {}
 
   private get config(): LoginSecurityConfig {
@@ -88,7 +90,22 @@ export class AuthFailureService {
     }
 
     if (peakFailures >= cfg.alertThreshold) {
-      this.emitSecurityAlert(context, email, peakFailures, reason);
+      void this.securityAlertService.emit(
+        {
+          code: 'AUTH_FAILED_LOGIN_THRESHOLD',
+          severity: 'warning',
+          message: `${peakFailures} failed login attempts detected`,
+          context: {
+            email,
+            ipAddress: context.ipAddress,
+            reason,
+            attemptCount: peakFailures,
+            userAgent: context.userAgent,
+          },
+        },
+        email ? `auth-fail:${email}` : `auth-fail:ip:${ip}`,
+        cfg.lockoutSec,
+      );
     }
   }
 
@@ -163,29 +180,6 @@ export class AuthFailureService {
         attemptCount,
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
-      }),
-    );
-  }
-
-  private emitSecurityAlert(
-    context: AuthLoginContext,
-    email: string | null,
-    attemptCount: number,
-    reason: AuthLoginFailureReason,
-  ): void {
-    // PDF §19.3: 5+ failed logins/user → security team alert + audit
-    this.logger.error(
-      JSON.stringify({
-        timestamp: new Date().toISOString(),
-        level: 'SECURITY_ALERT',
-        event: 'AUTH_ANOMALY',
-        code: 'AUTH_FAILED_LOGIN_THRESHOLD',
-        message: `${attemptCount} failed login attempts detected`,
-        email,
-        ipAddress: context.ipAddress,
-        reason,
-        userAgent: context.userAgent,
-        action: 'NOTIFY_SECURITY_TEAM',
       }),
     );
   }

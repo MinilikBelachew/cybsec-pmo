@@ -119,7 +119,7 @@ export class TasksService {
     }
     if (storageKey.startsWith('/')) {
       const backendDomain =
-        process.env.BACKEND_DOMAIN?.replace(/\/$/, '') ?? 'http://localhost:6002';
+        process.env.BACKEND_DOMAIN?.replace(/\/$/, '') ?? 'http://localhost:6001';
       return `${backendDomain}${storageKey}`;
     }
     return storageKey;

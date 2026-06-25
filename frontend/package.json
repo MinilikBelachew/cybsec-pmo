@@ -9,8 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@azure/msal-browser": "^5.14.0",
-    "@azure/msal-react": "^5.4.5",
     "@base-ui/react": "^1.4.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-visually-hidden": "^1.2.4",

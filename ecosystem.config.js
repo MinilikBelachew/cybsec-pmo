@@ -6,7 +6,7 @@ module.exports = {
       script: "npm",
       args: "start",          // Runs 'npm start' (requires 'next build' first)
       env: {
-        PORT: 6001,           // Next.js will pick this up
+        PORT: 3000,           // Next.js will pick this up
         NODE_ENV: "production"
       }
     },
@@ -15,7 +15,7 @@ module.exports = {
       cwd: "./backend",       // Moves into /var/www/konax/web/backend
       script: "./dist/src/main.js", 
       env: {
-        PORT: 6002,
+        PORT: 6001,
         NODE_ENV: "production"
       }
     }

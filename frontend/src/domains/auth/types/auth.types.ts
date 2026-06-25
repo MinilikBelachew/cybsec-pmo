@@ -1,11 +1,3 @@
-export interface EntraLoginRequestDto {
-  idToken: string;
-}
-
-export interface LoginResponseDto {
-  user: ApiUser;
-}
-
 export interface ApiUser {
   id: string;
   displayName: string;

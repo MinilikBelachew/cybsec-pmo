@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { LoginForm } from "./login-form";
 
 export function LoginPage() {
@@ -11,7 +12,9 @@ export function LoginPage() {
       </div>
 
       <div className="space-y-4">
-        <LoginForm />
+        <Suspense fallback={<div className="text-center text-sm text-white/50">Loading…</div>}>
+          <LoginForm />
+        </Suspense>
       </div>
 
       <p className="text-center text-xs text-white/40 leading-relaxed">

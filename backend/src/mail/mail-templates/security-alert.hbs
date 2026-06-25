@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{{title}}</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+  <h2 style="color: #b91c1c;">{{title}}</h2>
+  <p><strong>Severity:</strong> {{severity}}</p>
+  <p><strong>Code:</strong> {{code}}</p>
+  <p>{{message}}</p>
+  {{#if details}}
+  <pre style="background: #f4f4f5; padding: 12px; border-radius: 8px; overflow-x: auto;">{{details}}</pre>
+  {{/if}}
+  <p style="color: #6b7280; font-size: 12px;">Sent by {{app_name}} security monitoring.</p>
+</body>
+</html>

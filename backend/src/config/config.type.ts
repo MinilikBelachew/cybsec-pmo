@@ -5,6 +5,8 @@ import { MailConfig } from '../mail/config/mail-config.type';
 import { FileConfig } from '../files/config/file-config.type';
 import { RedisConfig } from './redis-config.type';
 import { LoginSecurityConfig } from '../auth/config/login-security.config';
+import { SessionSecurityConfig } from '../auth/config/session-security.config';
+import { SecurityAlertsConfig } from '../auth/config/security-alerts.config';
 
 export type AllConfigType = {
   app: AppConfig;
@@ -14,6 +16,8 @@ export type AllConfigType = {
   file: FileConfig;
   redis: RedisConfig;
   loginSecurity: LoginSecurityConfig;
+  sessionSecurity: SessionSecurityConfig;
+  securityAlerts: SecurityAlertsConfig;
 };
 
 

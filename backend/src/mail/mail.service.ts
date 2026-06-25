@@ -8,6 +8,8 @@ import { MailerService } from '../mailer/mailer.service';
 import path from 'path';
 import { AllConfigType } from '../config/config.type';
 
+import { SecurityAlertMailData } from './types/security-alert-mail.type';
+
 @Injectable()
 export class MailService {
   constructor(
@@ -115,6 +117,38 @@ export class MailService {
         text2,
         text3,
         text4,
+      },
+    });
+  }
+
+  async sendSecurityAlert(
+    mailData: MailData<SecurityAlertMailData>,
+  ): Promise<void> {
+    const { data } = mailData;
+    const title = `[Security Alert] ${data.code}`;
+
+    await this.mailerService.sendMail({
+      to: mailData.to,
+      subject: title,
+      text: `${title}\n\n${data.message}\n\n${JSON.stringify(data.context ?? {}, null, 2)}`,
+      templatePath: path.join(
+        this.configService.getOrThrow('app.workingDirectory', {
+          infer: true,
+        }),
+        'src',
+        'mail',
+        'mail-templates',
+        'security-alert.hbs',
+      ),
+      context: {
+        title,
+        severity: data.severity,
+        code: data.code,
+        message: data.message,
+        details: data.context
+          ? JSON.stringify(data.context, null, 2)
+          : undefined,
+        app_name: this.configService.get('app.name', { infer: true }),
       },
     });
   }

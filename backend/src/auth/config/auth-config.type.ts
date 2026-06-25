@@ -12,5 +12,6 @@ export type AuthConfig = {
   entraTenantId?: string;
   entraClientId?: string;
   entraClientSecret?: string;
+  entraRedirectUri?: string;
 };
 
