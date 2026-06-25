@@ -7,7 +7,13 @@ import {
   useGetProjectByIdQuery,
   useGetTasksQuery,
   useUpdateTaskMutation,
+  useGetPhasesQuery,
+  useGetMilestonesQuery,
+  useDeleteTaskMutation,
+  useCreateTaskMutation,
 } from "@/domains/projects";
+import { toast } from "react-hot-toast";
+import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { useRole } from "@/shared/providers/role-provider";
 import {
   ChevronDown,
@@ -37,12 +43,14 @@ import { BoardView } from "./workspace-views/board-view";
 import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
+import { PhaseView } from "./workspace-views/phase-view";
 import { AddTaskSheet } from "./add-task-sheet";
 import { TaskDetailPanel } from "./task-detail-panel";
+import { PhaseMilestonePanel } from "./phase-milestone-panel";
 
 type Priority = "high" | "medium" | "low" | "critical";
-type Status = "TO DO" | "IN PROGRESS" | "DONE";
-type View = "list" | "board" | "calendar" | "gantt" | "table";
+type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
+type View = "list" | "board" | "calendar" | "gantt" | "table" | "phases";
 
 interface Task {
   id: string;
@@ -66,7 +74,7 @@ const INITIAL_TASKS: Task[] = [
     assigneeColor: "bg-purple-500",
     dueDate: "Nov 3",
     priority: "high",
-    status: "TO DO",
+    status: "To_Do",
     comments: 3,
     hasSubtasks: true,
     done: false,
@@ -78,7 +86,7 @@ const INITIAL_TASKS: Task[] = [
     assigneeColor: "bg-sky-500",
     dueDate: "Nov 5",
     priority: "medium",
-    status: "TO DO",
+    status: "To_Do",
     comments: 1,
     done: false,
   },
@@ -89,7 +97,7 @@ const INITIAL_TASKS: Task[] = [
     assigneeColor: "bg-emerald-500",
     dueDate: "Nov 8",
     priority: "high",
-    status: "IN PROGRESS",
+    status: "In_Progress",
     comments: 5,
     hasSubtasks: true,
     done: false,
@@ -101,7 +109,7 @@ const INITIAL_TASKS: Task[] = [
     assigneeColor: "bg-amber-500",
     dueDate: "Nov 10",
     priority: "low",
-    status: "IN PROGRESS",
+    status: "In_Progress",
     comments: 2,
     done: false,
   },
@@ -112,13 +120,13 @@ const INITIAL_TASKS: Task[] = [
     assigneeColor: "bg-purple-500",
     dueDate: "Oct 28",
     priority: "medium",
-    status: "DONE",
+    status: "Done",
     comments: 0,
     done: true,
   },
 ];
 
-const STATUS_GROUPS: Status[] = ["TO DO", "IN PROGRESS", "DONE"];
+const STATUS_GROUPS: Status[] = ["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"];
 
 const PRIORITY_STYLES: Record<Priority, string> = {
   critical: "text-red-600 dark:text-red-400 font-bold",
@@ -135,15 +143,21 @@ const PRIORITY_LABEL: Record<Priority, string> = {
 };
 
 const STATUS_DOT: Record<Status, string> = {
-  "TO DO": "border-2 border-slate-400 dark:border-white/30 bg-transparent",
-  "IN PROGRESS": "bg-blue-500",
-  "DONE": "bg-emerald-500",
+  "To_Do": "border-2 border-slate-400 dark:border-white/30 bg-transparent",
+  "In_Progress": "bg-blue-500",
+  "Submitted_for_Review": "bg-amber-500",
+  "Approved": "bg-teal-500",
+  "Rework": "bg-rose-500",
+  "Done": "bg-emerald-500",
 };
 
 const GROUP_ACCENT: Record<Status, string> = {
-  "TO DO": "text-slate-500 dark:text-white/40",
-  "IN PROGRESS": "text-blue-600 dark:text-blue-400",
-  "DONE": "text-emerald-600 dark:text-emerald-400",
+  "To_Do": "text-slate-500 dark:text-white/40",
+  "In_Progress": "text-blue-600 dark:text-blue-400",
+  "Submitted_for_Review": "text-amber-600 dark:text-amber-400",
+  "Approved": "text-teal-605 dark:text-teal-400",
+  "Rework": "text-rose-600 dark:text-rose-400",
+  "Done": "text-emerald-600 dark:text-emerald-400",
 };
 
 const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
@@ -152,13 +166,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "calendar", label: "Calendar", icon: CalendarIcon },
   { id: "gantt", label: "Gantt", icon: ChartGantt },
   { id: "table", label: "Table", icon: Table2 },
-];
-
-const MOCK_MILESTONES = [
-  { id: "m1", name: "Phase 1 - Discovery", dueDate: "Feb 14", status: "done" },
-  { id: "m2", name: "Phase 2 - Design", dueDate: "Mar 21", status: "done" },
-  { id: "m3", name: "Phase 3 - Development", dueDate: "May 10", status: "in-progress" },
-  { id: "m4", name: "Phase 4 - UAT", dueDate: "Jun 1", status: "upcoming" },
+  { id: "phases", label: "Phases", icon: Flag },
 ];
 
 export function ProjectWorkspace() {
@@ -176,18 +184,43 @@ export function ProjectWorkspace() {
     useGetTasksQuery({ projectId: id, limit: 50 });
   
   const [updateTask] = useUpdateTaskMutation();
+  const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
+  const [createTask] = useCreateTaskMutation();
+
+  const [deleteTaskConfirm, setDeleteTaskConfirm] = useState<{
+    isOpen: boolean;
+    taskId: string | null;
+  }>({ isOpen: false, taskId: null });
+
+  const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
+  const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
+
+  // Fetch phases
+  const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(id);
+
+  // Fetch milestones
+  const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id);
+
+  const recentMilestones = useMemo(() => {
+    return [...milestones]
+      .sort((a, b) => new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime())
+      .slice(0, 4)
+      .map(m => {
+        let status: 'done' | 'in-progress' | 'upcoming' = 'upcoming';
+        if (m.status === 'Done') status = 'done';
+        else if (m.status === 'In Progress') status = 'in-progress';
+        
+        return {
+          id: m.id,
+          name: m.title,
+          dueDate: new Date(m.targetDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          status
+        };
+      });
+  }, [milestones]);
 
   const tasks = useMemo(() => {
     if (!tasksResponse?.data) return [];
-    
-    const statusMap: Record<string, Status> = {
-      "To_Do": "TO DO",
-      "In_Progress": "IN PROGRESS",
-      "Done": "DONE",
-      "Submitted_for_Review": "TO DO",
-      "Approved": "DONE",
-      "Rework": "IN PROGRESS",
-    };
     
     const priorityMap: Record<string, Priority> = {
       "Low": "low",
@@ -215,26 +248,31 @@ export function ProjectWorkspace() {
           ? new Date(t.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
           : "No due date",
         priority: priorityMap[t.priority] || "medium",
-        status: statusMap[t.status] || "TO DO",
+        status: t.status || "To_Do",
         comments: t.comments?.length ?? 0,
         hasSubtasks: t.subTasks && t.subTasks.length > 0,
         done: t.status === "Done" || t.status === "Approved",
+        phaseId: t.phaseId,
+        phaseName: t.phase?.name || "Unassigned",
+        phaseColor: t.phase?.color || "#64748b",
+        rawStartDate: t.startDate,
+        rawEndDate: t.endDate,
       };
     });
   }, [tasksResponse]);
 
-  const isLoading = isProjectLoading || isTasksLoading;
+  const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
 
   // States
   const [activeView, setActiveView] = useState<View>("list");
-  const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["TO DO", "IN PROGRESS", "DONE"]));
+  const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
 
 // Side Sheet states
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [newTaskStatus, setNewTaskStatus] = useState<Status>("TO DO");
+  const [newTaskStatus, setNewTaskStatus] = useState<Status>("To_Do");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [parentTaskId, setParentTaskId] = useState<string | null>(null);
 
@@ -252,11 +290,82 @@ export function ProjectWorkspace() {
   const toggleTask = async (taskId: string) => {
     const target = tasks.find((t) => t.id === taskId);
     if (!target) return;
-    const newStatus = target.status === "DONE" ? "To_Do" : "Done";
+    const newStatus = target.status === "Done" || target.status === "Approved" ? "To_Do" : "Done";
     try {
       await updateTask({ id: taskId, body: { status: newStatus } }).unwrap();
     } catch (err) {
       console.error("Failed to toggle task:", err);
+    }
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    setDeleteTaskConfirm({ isOpen: true, taskId });
+  };
+
+  const confirmDeleteTask = async () => {
+    if (!deleteTaskConfirm.taskId) return;
+    try {
+      await deleteTask(deleteTaskConfirm.taskId).unwrap();
+      toast.success("Task deleted successfully");
+    } catch (err) {
+      console.error("Failed to delete task:", err);
+      toast.error("Failed to delete task");
+    } finally {
+      setDeleteTaskConfirm({ isOpen: false, taskId: null });
+    }
+  };
+
+  const handleDuplicateTask = async (taskId: string) => {
+    const original = tasksResponse?.data?.find((t) => t.id === taskId);
+    if (!original) {
+      toast.error("Task not found");
+      return;
+    }
+    try {
+      await createTask({
+        projectId: original.projectId,
+        parentTaskId: original.parentTaskId,
+        phaseId: original.phaseId,
+        title: `${original.title} (Copy)`,
+        description: original.description || undefined,
+        priority: original.priority,
+        ownerId: original.ownerId || undefined,
+        startDate: original.startDate,
+        endDate: original.endDate,
+        effortHours: original.effortHours || undefined,
+        status: original.status,
+      }).unwrap();
+      toast.success("Task duplicated successfully");
+    } catch (err) {
+      console.error("Failed to duplicate task:", err);
+      toast.error("Failed to duplicate task");
+    }
+  };
+
+  const handleMoveTask = async (taskId: string, toStatus: Status) => {
+    try {
+      await updateTask({ id: taskId, body: { status: toStatus } }).unwrap();
+      const friendlyName = toStatus === "To_Do"
+        ? "To Do"
+        : toStatus === "In_Progress"
+        ? "In Progress"
+        : toStatus === "Submitted_for_Review"
+        ? "Submitted for Review"
+        : toStatus;
+      toast.success(`Task moved to ${friendlyName}`);
+    } catch (err) {
+      console.error("Failed to move task:", err);
+      toast.error("Failed to move task");
+    }
+  };
+
+  const handleSetDueDate = async (taskId: string, date: string | null) => {
+    try {
+      await updateTask({ id: taskId, body: { endDate: date } }).unwrap();
+      toast.success(date ? "Due date updated successfully" : "Due date cleared");
+    } catch (err) {
+      console.error("Failed to update due date:", err);
+      toast.error("Failed to update due date");
     }
   };
 
@@ -299,7 +408,7 @@ export function ProjectWorkspace() {
   }
 
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.status === "DONE").length;
+  const completedTasks = tasks.filter((t) => t.status === "Done" || t.status === "Approved").length;
   const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
@@ -372,32 +481,36 @@ export function ProjectWorkspace() {
         <div className="md:col-span-2 space-y-2 bg-transparent">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-slate-400 dark:text-white/40">Recent Milestones</span>
-            <button className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline">View Roadmap</button>
+            <button onClick={() => setIsPhasePanelOpen(true)} className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline">Manage Roadmap</button>
           </div>
           <div className="flex items-center gap-1">
-            {MOCK_MILESTONES.map((m, i) => (
-              <React.Fragment key={m.id}>
-                <div className={`flex-1 p-2 rounded-lg border transition-all cursor-default relative overflow-hidden group ${
-                  m.status === 'done'        ? "bg-emerald-50/50 border-emerald-200/50 dark:bg-emerald-950/10 dark:border-emerald-800/30" :
-                  m.status === 'in-progress' ? "bg-purple-600/5 border-purple-500/20 ring-1 ring-purple-500/20 shadow-sm" :
-                  "bg-slate-100/50 dark:bg-white/5 border-slate-200 dark:border-white/5"
-                }`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`text-[8px] font-bold uppercase tracking-tighter ${
-                      m.status === 'done'        ? "text-emerald-600" :
-                      m.status === 'in-progress' ? "text-purple-600 dark:text-purple-400" :
-                      "text-slate-400 dark:text-white/30"
-                    }`}>
-                      {m.dueDate}
-                    </span>
-                    {m.status === 'done' && <CheckCircle2 className="size-2 text-emerald-500" />}
-                    {m.status === 'in-progress' && <Clock className="size-2 text-purple-600 dark:text-purple-400 animate-pulse" />}
+            {recentMilestones.length === 0 ? (
+              <span className="text-[10px] text-slate-400 dark:text-white/30 italic px-1">No milestones defined.</span>
+            ) : (
+              recentMilestones.map((m, i) => (
+                <React.Fragment key={m.id}>
+                  <div className={`flex-1 p-2 rounded-lg border transition-all cursor-default relative overflow-hidden group ${
+                    m.status === 'done'        ? "bg-emerald-50/50 border-emerald-200/50 dark:bg-emerald-950/10 dark:border-emerald-800/30" :
+                    m.status === 'in-progress' ? "bg-purple-600/5 border-purple-500/20 ring-1 ring-purple-500/20 shadow-sm" :
+                    "bg-slate-100/50 dark:bg-white/5 border-slate-200 dark:border-white/5"
+                  }`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-[8px] font-bold uppercase tracking-tighter ${
+                        m.status === 'done'        ? "text-emerald-600" :
+                        m.status === 'in-progress' ? "text-purple-600 dark:text-purple-400" :
+                        "text-slate-400 dark:text-white/30"
+                      }`}>
+                        {m.dueDate}
+                      </span>
+                      {m.status === 'done' && <CheckCircle2 className="size-2 text-emerald-500" />}
+                      {m.status === 'in-progress' && <Clock className="size-2 text-purple-600 dark:text-purple-400 animate-pulse" />}
+                    </div>
+                    <p className="text-[10px] font-bold truncate leading-tight">{m.name}</p>
                   </div>
-                  <p className="text-[10px] font-bold truncate leading-tight">{m.name}</p>
-                </div>
-                {i < 3 && <ChevronRight className="size-3 text-slate-300 dark:text-white/10 shrink-0" />}
-              </React.Fragment>
-            ))}
+                  {i < recentMilestones.length - 1 && <ChevronRight className="size-3 text-slate-300 dark:text-white/10 shrink-0" />}
+                </React.Fragment>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -444,9 +557,12 @@ export function ProjectWorkspace() {
               className="bg-transparent font-semibold outline-none cursor-pointer"
             >
               <option value="ALL">All Statuses</option>
-              <option value="TO DO">To Do</option>
-              <option value="IN PROGRESS">In Progress</option>
-              <option value="DONE">Completed</option>
+              <option value="To_Do">To Do</option>
+              <option value="In_Progress">In Progress</option>
+              <option value="Submitted_for_Review">Submitted for Review</option>
+              <option value="Approved">Approved</option>
+              <option value="Rework">Rework</option>
+              <option value="Done">Done</option>
             </select>
           </div>
 
@@ -470,13 +586,11 @@ export function ProjectWorkspace() {
 
           {/* Action button */}
           <Button
-            size="sm"
             onClick={() => {
               setParentTaskId(null);
-              setNewTaskStatus("TO DO");
+              setNewTaskStatus("To_Do");
               setIsSheetOpen(true);
             }}
-            className="rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold h-9 text-xs"
           >
             <Plus className="mr-1.5 size-4" />
             Add Task
@@ -498,6 +612,7 @@ export function ProjectWorkspace() {
               setNewTaskStatus(status);
               setIsSheetOpen(true);
             }}
+            phases={phases}
           />
         )}
 
@@ -511,6 +626,10 @@ export function ProjectWorkspace() {
               setNewTaskStatus(status);
               setIsSheetOpen(true);
             }}
+            onDeleteTask={handleDeleteTask}
+            onDuplicateTask={handleDuplicateTask}
+            onMoveTask={handleMoveTask}
+            onSetDueDate={handleSetDueDate}
           />
         )}
 
@@ -522,6 +641,8 @@ export function ProjectWorkspace() {
             toggleTask={toggleTask}
             ganttZoom={ganttZoom}
             setGanttZoom={setGanttZoom}
+            phases={phases}
+            milestones={milestones}
           />
         )}
 
@@ -532,6 +653,18 @@ export function ProjectWorkspace() {
             onTaskClick={setSelectedTaskId}
           />
         )}
+
+        {activeView === "phases" && (
+          <PhaseView
+            projectId={id}
+            onTaskClick={setSelectedTaskId}
+            onAddTask={(phaseId) => {
+              setSelectedPhaseIdForNewTask(phaseId);
+              setNewTaskStatus("To_Do");
+              setIsSheetOpen(true);
+            }}
+          />
+        )}
       </div>
 
       {/* Add Task Side Sheet */}
@@ -540,6 +673,7 @@ export function ProjectWorkspace() {
         onClose={() => {
           setIsSheetOpen(false);
           setParentTaskId(null);
+          setSelectedPhaseIdForNewTask(null);
         }}
         onCreated={() => {
           refetchTasks();
@@ -550,6 +684,7 @@ export function ProjectWorkspace() {
         projectId={id}
         parentTaskId={parentTaskId}
         defaultStatus={newTaskStatus}
+        defaultPhaseId={selectedPhaseIdForNewTask}
         projectName={project.name}
       />
 
@@ -560,6 +695,21 @@ export function ProjectWorkspace() {
         onClose={() => setSelectedTaskId(null)}
         onOpenSubTask={(subId) => setSelectedTaskId(subId)}
         onUpdated={() => refetchTasks()}
+      />
+
+      <PhaseMilestonePanel
+        projectId={id}
+        isOpen={isPhasePanelOpen}
+        onClose={() => setIsPhasePanelOpen(false)}
+      />
+
+      <DeleteDialog
+        isOpen={deleteTaskConfirm.isOpen}
+        onClose={() => setDeleteTaskConfirm({ isOpen: false, taskId: null })}
+        onConfirm={confirmDeleteTask}
+        title="Delete Task"
+        description="Are you sure you want to delete this task? This action cannot be undone."
+        isDeleting={isDeletingTask}
       />
     </div>
   );

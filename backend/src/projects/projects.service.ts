@@ -7,6 +7,10 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { CreatePhaseDto } from './dto/create-phase.dto';
+import { UpdatePhaseDto } from './dto/update-phase.dto';
+import { CreateMilestoneDto } from './dto/create-milestone.dto';
+import { UpdateMilestoneDto } from './dto/update-milestone.dto';
 import { IPaginationOptions } from '../utils/types/pagination-options';
 import {
   ApiMethodology,
@@ -263,5 +267,212 @@ export class ProjectsService {
         errors,
       });
     }
+  }
+
+  async findPhases(projectId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { project: 'projectNotFound' },
+      });
+    }
+    const phases = await this.prisma.projectPhase.findMany({
+      where: { projectId },
+      orderBy: { orderIndex: 'asc' },
+      include: { milestones: true },
+    });
+    return phases.map((phase) => ({
+      ...phase,
+      milestones: phase.milestones.map((m) => ({
+        ...m,
+        weight: m.weight ? Number(m.weight) : null,
+      })),
+    }));
+  }
+
+  async createPhase(projectId: string, dto: CreatePhaseDto) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { project: 'projectNotFound' },
+      });
+    }
+    if (dto.startDate && dto.endDate && dto.startDate > dto.endDate) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { endDate: 'endDateMustBeAfterStartDate' },
+      });
+    }
+    return this.prisma.projectPhase.create({
+      data: {
+        projectId,
+        name: dto.name,
+        description: dto.description,
+        orderIndex: dto.orderIndex ?? 0,
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+        status: dto.status,
+      },
+    });
+  }
+
+  async updatePhase(phaseId: string, dto: UpdatePhaseDto) {
+    const existing = await this.prisma.projectPhase.findUnique({ where: { id: phaseId } });
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { phase: 'phaseNotFound' },
+      });
+    }
+
+    const startDate = dto.startDate !== undefined ? dto.startDate : existing.startDate;
+    const endDate = dto.endDate !== undefined ? dto.endDate : existing.endDate;
+    if (startDate && endDate && startDate > endDate) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { endDate: 'endDateMustBeAfterStartDate' },
+      });
+    }
+
+    return this.prisma.projectPhase.update({
+      where: { id: phaseId },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.orderIndex !== undefined && { orderIndex: dto.orderIndex }),
+        ...(dto.startDate !== undefined && { startDate: dto.startDate }),
+        ...(dto.endDate !== undefined && { endDate: dto.endDate }),
+        ...(dto.status !== undefined && { status: dto.status }),
+      },
+    });
+  }
+
+  async removePhase(phaseId: string) {
+    const existing = await this.prisma.projectPhase.findUnique({ where: { id: phaseId } });
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { phase: 'phaseNotFound' },
+      });
+    }
+    await this.prisma.$transaction([
+      this.prisma.task.updateMany({
+        where: { phaseId },
+        data: { phaseId: null },
+      }),
+      this.prisma.projectMilestone.updateMany({
+        where: { phaseId },
+        data: { phaseId: null },
+      }),
+      this.prisma.projectPhase.delete({ where: { id: phaseId } }),
+    ]);
+  }
+
+  async findMilestones(projectId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { project: 'projectNotFound' },
+      });
+    }
+    const milestones = await this.prisma.projectMilestone.findMany({
+      where: { projectId },
+      orderBy: { targetDate: 'asc' },
+      include: { phase: true },
+    });
+    return milestones.map((m) => ({
+      ...m,
+      weight: m.weight ? Number(m.weight) : null,
+    }));
+  }
+
+  async createMilestone(projectId: string, dto: CreateMilestoneDto) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { project: 'projectNotFound' },
+      });
+    }
+    if (dto.phaseId) {
+      const phase = await this.prisma.projectPhase.findFirst({
+        where: { id: dto.phaseId, projectId },
+      });
+      if (!phase) {
+        throw new NotFoundException({
+          status: HttpStatus.NOT_FOUND,
+          errors: { phase: 'phaseNotFoundOrNotBelongToProject' },
+        });
+      }
+    }
+    const milestone = await this.prisma.projectMilestone.create({
+      data: {
+        projectId,
+        title: dto.title,
+        targetDate: dto.targetDate,
+        weight: dto.weight,
+        status: dto.status ?? 'Pending',
+        phaseId: dto.phaseId ?? null,
+      },
+    });
+    return {
+      ...milestone,
+      weight: milestone.weight ? Number(milestone.weight) : null,
+    };
+  }
+
+  async updateMilestone(milestoneId: string, dto: UpdateMilestoneDto) {
+    const existing = await this.prisma.projectMilestone.findUnique({ where: { id: milestoneId } });
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { milestone: 'milestoneNotFound' },
+      });
+    }
+    if (dto.phaseId) {
+      const phase = await this.prisma.projectPhase.findFirst({
+        where: { id: dto.phaseId, projectId: existing.projectId },
+      });
+      if (!phase) {
+        throw new NotFoundException({
+          status: HttpStatus.NOT_FOUND,
+          errors: { phase: 'phaseNotFoundOrNotBelongToProject' },
+        });
+      }
+    }
+    const milestone = await this.prisma.projectMilestone.update({
+      where: { id: milestoneId },
+      data: {
+        ...(dto.title !== undefined && { title: dto.title }),
+        ...(dto.targetDate !== undefined && { targetDate: dto.targetDate }),
+        ...(dto.weight !== undefined && { weight: dto.weight }),
+        ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.phaseId !== undefined && { phaseId: dto.phaseId }),
+      },
+    });
+    return {
+      ...milestone,
+      weight: milestone.weight ? Number(milestone.weight) : null,
+    };
+  }
+
+  async removeMilestone(milestoneId: string) {
+    const existing = await this.prisma.projectMilestone.findUnique({ where: { id: milestoneId } });
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { milestone: 'milestoneNotFound' },
+      });
+    }
+    await this.prisma.$transaction([
+      this.prisma.invoice.updateMany({
+        where: { matchedMilestoneId: milestoneId },
+        data: { matchedMilestoneId: null },
+      }),
+      this.prisma.projectMilestone.delete({ where: { id: milestoneId } }),
+    ]);
   }
 }

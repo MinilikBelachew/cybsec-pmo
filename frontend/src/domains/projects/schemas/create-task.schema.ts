@@ -11,6 +11,7 @@ export const createTaskSchema = z
   .object({
     projectId: z.string().uuid("Invalid project selected"),
     parentTaskId: z.preprocess(emptyToNull, z.string().uuid().nullable().optional()),
+    phaseId: z.string().uuid("Please select a phase"),
     title: z.string().min(1, "Title is required").max(255),
     description: z.string().optional(),
     priority: z.enum(["Low", "Medium", "High", "Critical"]),
@@ -41,6 +42,7 @@ export function toCreateTaskPayload(values: CreateTaskFormValues) {
   return {
     projectId: values.projectId,
     parentTaskId: values.parentTaskId || null,
+    phaseId: values.phaseId,
     title: values.title,
     description: values.description || null,
     priority: values.priority,

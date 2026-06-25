@@ -8,6 +8,6 @@ export const api = createApi({
   reducerPath: "api",
   baseQuery: baseQueryWithInterceptor,
   // Tag types used for cache invalidation across all domains
-  tagTypes: ["User", "Auth", "Profile", "Users", "Projects", "Departments", "Customers", "ProjectManagers", "Tasks"],
+  tagTypes: ["User", "Auth", "Profile", "Users", "Projects", "Departments", "Customers", "ProjectManagers", "Tasks", "Phases", "Milestones"],
   endpoints: () => ({}), // domains inject their own endpoints
 });

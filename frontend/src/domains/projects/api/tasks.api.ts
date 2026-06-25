@@ -23,6 +23,7 @@ export const tasksApi = api.injectEndpoints({
         if (params.topLevelOnly === false) queryParams.append("topLevelOnly", "false");
         if (params.status) queryParams.append("status", params.status);
         if (params.search) queryParams.append("search", params.search);
+        if (params.phaseId) queryParams.append("phaseId", params.phaseId);
         return `/tasks?${queryParams.toString()}`;
       },
       providesTags: (result, _error, params) => {

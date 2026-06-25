@@ -73,3 +73,31 @@ export interface PaginatedProjectsResponse {
   data: Project[];
   hasNextPage: boolean;
 }
+
+export type PhaseStatus = "Planned" | "Active" | "Completed" | "On_Hold";
+
+export interface ProjectPhase {
+  id: string;
+  projectId: string;
+  name: string;
+  description?: string | null;
+  orderIndex: number;
+  startDate: string;
+  endDate: string;
+  status: PhaseStatus;
+  createdAt: string;
+  updatedAt: string;
+  milestones?: ProjectMilestone[];
+}
+
+export interface ProjectMilestone {
+  id: string;
+  projectId: string;
+  phaseId?: string | null;
+  title: string;
+  targetDate: string;
+  weight?: number | null;
+  status: string;
+  createdAt: string;
+  phase?: ProjectPhase | null;
+}

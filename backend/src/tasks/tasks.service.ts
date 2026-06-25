@@ -22,6 +22,7 @@ const TASK_INCLUDE = {
   project: { select: { id: true, name: true } },
   owner: { select: { id: true, displayName: true, email: true } },
   parentTask: { select: { id: true, title: true } },
+  phase: { select: { id: true, name: true } },
   subTasks: {
     select: {
       id: true,
@@ -164,6 +165,7 @@ export class TasksService {
     projectId: string,
     ownerId?: string | null,
     parentTaskId?: string | null,
+    phaseId?: string | null,
   ) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
@@ -183,6 +185,18 @@ export class TasksService {
         throw new UnprocessableEntityException({
           status: HttpStatus.UNPROCESSABLE_ENTITY,
           errors: { owner: 'ownerNotFound' },
+        });
+      }
+    }
+
+    if (phaseId) {
+      const phase = await this.prisma.projectPhase.findFirst({
+        where: { id: phaseId, projectId },
+      });
+      if (!phase) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { phase: 'phaseNotFoundOrNotBelongToProject' },
         });
       }
     }
@@ -213,12 +227,13 @@ export class TasksService {
   }
 
   async create(dto: CreateTaskDto, actorId: string, viewerRoleCode?: string) {
-    await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId);
+    await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId, dto.phaseId);
 
     const task = await this.prisma.task.create({
       data: {
         projectId: dto.projectId,
         parentTaskId: dto.parentTaskId ?? null,
+        phaseId: dto.phaseId,
         title: dto.title,
         description: dto.description ?? null,
         priority: (dto.priority as PriorityLevel) ?? PriorityLevel.Medium,
@@ -240,7 +255,7 @@ export class TasksService {
     actorId: string,
     viewerRoleCode?: string,
   ) {
-    await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId);
+    await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId, dto.phaseId);
 
     const comments = dto.comments ?? [];
     for (const comment of comments) {
@@ -265,6 +280,7 @@ export class TasksService {
         data: {
           projectId: dto.projectId,
           parentTaskId: dto.parentTaskId ?? null,
+          phaseId: dto.phaseId,
           title: dto.title,
           description: dto.description ?? null,
           priority: (dto.priority as PriorityLevel) ?? PriorityLevel.Medium,
@@ -281,6 +297,7 @@ export class TasksService {
           data: {
             projectId: dto.projectId,
             parentTaskId: created.id,
+            phaseId: dto.phaseId,
             title: sub.title,
             description: sub.description ?? null,
             priority: PriorityLevel.Medium,
@@ -353,6 +370,9 @@ export class TasksService {
     } else if (query.topLevelOnly !== false) {
       where.parentTaskId = null;
     }
+    if (query.phaseId) {
+      where.phaseId = query.phaseId;
+    }
     if (query.search) {
       where.OR = [
         { title: { contains: query.search, mode: 'insensitive' } },
@@ -408,9 +428,10 @@ export class TasksService {
     const ownerId = dto.ownerId !== undefined ? dto.ownerId : existing.ownerId;
     const parentTaskId =
       dto.parentTaskId !== undefined ? dto.parentTaskId : existing.parentTaskId;
+    const phaseId = dto.phaseId !== undefined ? dto.phaseId : existing.phaseId;
 
-    if (dto.projectId || dto.ownerId || dto.parentTaskId) {
-      await this.validateReferences(projectId, ownerId, parentTaskId);
+    if (dto.projectId || dto.ownerId || dto.parentTaskId || dto.phaseId !== undefined) {
+      await this.validateReferences(projectId, ownerId, parentTaskId, phaseId);
     }
 
     if (dto.status) {
@@ -425,6 +446,7 @@ export class TasksService {
         description: dto.description ?? undefined,
         priority: (dto.priority as PriorityLevel) ?? undefined,
         ownerId: dto.ownerId !== undefined ? dto.ownerId : undefined,
+        phaseId: dto.phaseId !== undefined ? dto.phaseId : undefined,
         startDate: dto.startDate !== undefined ? dto.startDate : undefined,
         endDate: dto.endDate !== undefined ? dto.endDate : undefined,
         effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
