@@ -2,19 +2,27 @@
 
 import { useState } from "react";
 import { PageHeader } from "@/shared/components/page-header";
-import { useRole } from "@/shared/providers/role-provider";
-import { Users, CheckCircle, XCircle, Settings } from "lucide-react";
+import { useAppAbility } from "@/domains/auth/casl/ability-context";
+import { useAuth } from "@/domains/auth";
+import { Users, CheckCircle, XCircle, Settings, ShieldAlert } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
+import { BreakGlassSection } from "./break-glass-section";
 
-type SettingsTab = "profile" | "users";
+type SettingsTab = "profile" | "users" | "security";
 
 export function SettingsPage() {
-  const { userRole } = useRole();
-  const isSuperAdmin = userRole === "super_admin";
+  const ability = useAppAbility();
+  const { user } = useAuth();
+  const canManageUsers = ability?.can("read", "User") ?? false;
+  const canManageSecurity =
+    user?.backendRoleCode === "super_admin" ||
+    (ability?.can("manage", "Settings") ?? false);
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>(isSuperAdmin ? "users" : "profile");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    canManageUsers ? "users" : "profile",
+  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
@@ -39,7 +47,7 @@ export function SettingsPage() {
           <Settings className="size-4" />
           My Profile
         </button>
-        {isSuperAdmin && (
+        {canManageUsers && (
           <button
             type="button"
             onClick={() => setActiveTab("users")}
@@ -52,6 +60,21 @@ export function SettingsPage() {
           >
             <Users className="size-4" />
             User Directory
+          </button>
+        )}
+        {canManageSecurity && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("security")}
+            className={cn(
+              "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+              activeTab === "security"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <ShieldAlert className="size-4" />
+            Security
           </button>
         )}
       </div>
@@ -71,8 +94,21 @@ export function SettingsPage() {
 
       {activeTab === "profile" && <ProfileSection />}
 
-      {activeTab === "users" && isSuperAdmin && (
+      {activeTab === "users" && canManageUsers && (
         <UserDirectorySection
+          onSuccess={(message) => {
+            setActionError(null);
+            setActionSuccess(message);
+          }}
+          onError={(message) => {
+            setActionSuccess(null);
+            setActionError(message);
+          }}
+        />
+      )}
+
+      {activeTab === "security" && canManageSecurity && (
+        <BreakGlassSection
           onSuccess={(message) => {
             setActionError(null);
             setActionSuccess(message);

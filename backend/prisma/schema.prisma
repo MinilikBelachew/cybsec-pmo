@@ -107,14 +107,14 @@ model User {
   entraObjectId String    @unique @map("entra_object_id") @db.VarChar(128)
   email         String    @unique @db.VarChar(255)
   displayName   String    @map("display_name") @db.VarChar(255)
-  roleCode      String    @map("role_code") @db.VarChar(50)
+  roleId        Int       @map("role_id")
   isActive      Boolean   @default(true) @map("is_active")
   isExternal    Boolean   @default(false) @map("is_external")
   lastLogin     DateTime? @map("last_login") @db.Timestamptz
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  role Role @relation(fields: [roleCode], references: [code])
+  role Role @relation(fields: [roleId], references: [id])
 
   sessions                  Session[]
   auditLogs                 AuditLog[]
@@ -173,12 +173,13 @@ model User {
 
   @@index([entraObjectId], map: "idx_users_entra")
   @@index([email], map: "idx_users_email")
-  @@index([roleCode], map: "idx_users_role")
+  @@index([roleId], map: "idx_users_role")
   @@map("users")
 }
 
 model Role {
-  code       String   @id @db.VarChar(50)
+  id         Int      @id @default(autoincrement())
+  code       String   @unique @db.VarChar(50)
   label      String   @db.VarChar(100)
   isExternal Boolean  @default(false) @map("is_external")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -193,15 +194,16 @@ model Role {
 
 model Permission {
   id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  roleCode    String @map("role_code") @db.VarChar(50)
+  roleId      Int    @map("role_id")
   module      String @db.VarChar(100)
   action      String @db.VarChar(50)
   recordScope String? @map("record_scope") @db.VarChar(50)
   fieldScope  Json?   @map("field_scope")
 
-  role Role @relation(fields: [roleCode], references: [code])
+  role Role @relation(fields: [roleId], references: [id])
 
-  @@index([roleCode, module, action], map: "idx_permissions_role_module")
+  @@unique([roleId, module, action], map: "uq_permissions_role_module_action")
+  @@index([roleId, module, action], map: "idx_permissions_role_module")
   @@map("permissions")
 }
 
@@ -213,6 +215,8 @@ model Session {
   userAgent        String?   @map("user_agent")
   expiresAt        DateTime  @map("expires_at") @db.Timestamptz
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz
+  isBreakGlass     Boolean   @default(false) @map("is_break_glass")
+  breakGlassReason String?   @map("break_glass_reason") @db.VarChar(500)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id])
@@ -232,6 +236,7 @@ model AuditLog {
   newValue   Json?    @map("new_value")
   ipAddress  String?  @map("ip_address")
   isExternal Boolean  @default(false) @map("is_external")
+  breakGlassAction Boolean @default(false) @map("break_glass_action")
   source     String?  @db.VarChar(50)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
@@ -241,6 +246,7 @@ model AuditLog {
   @@index([objectType], map: "idx_audit_object_type")
   @@index([createdAt], map: "idx_audit_created")
   @@index([objectType, objectId], map: "idx_audit_object")
+  @@index([breakGlassAction], map: "idx_audit_break_glass")
   @@map("audit_logs")
 }
 
@@ -815,12 +821,12 @@ model AlertRule {
 model AlertRuleRecipient {
   id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ruleId    String @map("rule_id") @db.Uuid
-  roleCode  String @map("role_code") @db.VarChar(50)
+  roleId  Int @map("role_id")
 
   rule AlertRule @relation(fields: [ruleId], references: [id])
-  role Role      @relation(fields: [roleCode], references: [code])
+  role Role      @relation(fields: [roleId], references: [id])
 
-  @@unique([ruleId, roleCode], map: "uq_alert_rule_recipient")
+  @@unique([ruleId, roleId], map: "uq_alert_rule_recipient")
   @@map("alert_rule_recipients")
 }
 
@@ -1014,11 +1020,11 @@ model ReportSchedule {
 model ReportScheduleRecipient {
   id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   scheduleId String  @map("schedule_id") @db.Uuid
-  roleCode   String? @map("role_code") @db.VarChar(50)
+  roleId     Int? @map("role_id")
   contactId  String? @map("contact_id") @db.Uuid
 
   schedule ReportSchedule   @relation(fields: [scheduleId], references: [id])
-  role     Role?            @relation(fields: [roleCode], references: [code])
+  role     Role?            @relation(fields: [roleId], references: [id])
   contact  CustomerContact? @relation(fields: [contactId], references: [id])
 
   @@index([scheduleId], map: "idx_report_recipients_schedule")

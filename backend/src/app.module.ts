@@ -24,9 +24,10 @@ import { BullModule } from '@nestjs/bull';
 import loginSecurityConfig from './auth/config/login-security.config';
 import sessionSecurityConfig from './auth/config/session-security.config';
 import securityAlertsConfig from './auth/config/security-alerts.config';
+import breakGlassConfig from './auth/config/break-glass.config';
 import { RedisModule } from './redis/redis.module';
 import { AuditLogsModule } from './audit/audit-logs.module';
-
+import { CaslModule } from './casl/casl.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { AuditLogsModule } from './audit/audit-logs.module';
         loginSecurityConfig,
         sessionSecurityConfig,
         securityAlertsConfig,
+        breakGlassConfig,
       ],
       envFilePath: ['.env'],
     }),
@@ -58,6 +60,7 @@ import { AuditLogsModule } from './audit/audit-logs.module';
     }),
     RedisModule,
     PrismaModule,
+    CaslModule,
     I18nModule.forRootAsync({
       useFactory: (configService: ConfigService<AllConfigType>) => {
         let i18nPath = path.join(__dirname, '/i18n/');

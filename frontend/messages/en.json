@@ -25,10 +25,20 @@
     "verify": "Verify"
   },
   "Table": {
-    "search": "Search...",
+    "search": "Search…",
     "columns": "Columns",
+    "toggleColumns": "Toggle columns",
+    "clearSearch": "Clear search",
     "next": "Next",
     "previous": "Previous",
+    "loading": "Loading…",
+    "noResults": "No results.",
+    "rowsPerPage": "Rows per page",
+    "showingRange": "{start}–{end} of {total}",
+    "pageOf": "Page {page} of {total}",
+    "selectRows": "Select",
+    "cancelSelect": "Cancel",
+    "selectRowsHint": "Select rows to export or copy event IDs.",
     "rowsSelected": "{selected} of {total} row(s) selected."
   }
 }

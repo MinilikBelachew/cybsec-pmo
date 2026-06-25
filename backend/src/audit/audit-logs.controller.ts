@@ -6,17 +6,20 @@ import {
   HttpCode,
   HttpStatus,
   Header,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { Roles } from '../roles/roles.decorator';
-import { RoleEnum } from '../roles/roles.enum';
-import { RolesGuard } from '../roles/roles.guard';
+import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
+import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CaslGuard } from '../casl/casl.guard';
 import { AuditLogsService } from './audit-logs.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
+import { buildAuditLogWhere, buildAuditLogOrderBy } from './audit-log-query.util';
 
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('AuditLogs')
 @Controller({
   path: 'audit',
@@ -25,7 +28,7 @@ import { QueryAuditDto } from './dto/query-audit.dto';
 export class AuditLogsController {
   constructor(private readonly auditLogsService: AuditLogsService) {}
 
-  @Roles(RoleEnum.super_admin, RoleEnum.it_admin, RoleEnum.pmo_lead)
+  @CheckAbility('read', 'AuditLog')
   @Get('events')
   @HttpCode(HttpStatus.OK)
   async findAll(@Query() query: QueryAuditDto) {
@@ -33,23 +36,15 @@ export class AuditLogsController {
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
-    if (query.objectType) {
-      where.objectType = query.objectType;
-    }
-    if (query.objectId) {
-      where.objectId = query.objectId;
-    }
-    if (query.action) {
-      where.action = query.action;
-    }
+    const where = buildAuditLogWhere(query);
+    const orderBy = buildAuditLogOrderBy(query);
 
     const [data, total] = await Promise.all([
       this.auditLogsService.findAll({
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       }),
       this.auditLogsService.count(where),
     ]);
@@ -67,28 +62,19 @@ export class AuditLogsController {
     };
   }
 
-  @Roles(RoleEnum.super_admin, RoleEnum.it_admin, RoleEnum.pmo_lead)
+  @CheckAbility('read', 'AuditLog')
   @Get('export')
   @HttpCode(HttpStatus.OK)
   @Header('Content-Type', 'application/json')
   @Header('Content-Disposition', 'attachment; filename="audit_logs_export.json"')
   async export(@Query() query: QueryAuditDto) {
-    const where: any = {};
-    if (query.objectType) {
-      where.objectType = query.objectType;
-    }
-    if (query.objectId) {
-      where.objectId = query.objectId;
-    }
-    if (query.action) {
-      where.action = query.action;
-    }
+    const where = buildAuditLogWhere(query);
+    const orderBy = buildAuditLogOrderBy(query);
 
-    // Return a bulk list (up to 10,000 items) for export
     return this.auditLogsService.findAll({
       where,
       take: 10000,
-      orderBy: { createdAt: 'desc' },
+      orderBy,
     });
   }
 }

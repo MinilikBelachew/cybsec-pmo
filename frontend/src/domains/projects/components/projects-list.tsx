@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useGetProjectsQuery } from "../api/projects.api";
 import { CreateProjectSheet } from "./create-project-sheet";
-import { useRole } from "@/shared/providers/role-provider";
+import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
 import {
@@ -70,11 +70,9 @@ const DEPT_COLOR: Record<string, string> = {
   AppSec: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
 };
 
-const CREATE_PROJECT_ROLES = ["super_admin", "pmo_lead", "project_manager"];
-
 export function ProjectsList() {
-  const { userRole } = useRole();
-  const canCreate = CREATE_PROJECT_ROLES.includes(userRole);
+  const ability = useAppAbility();
+  const canCreate = ability?.can("create", "Project") ?? false;
   
   const [view, setView] = useState<"grid" | "list">("grid");
   const [search, setSearch] = useState("");

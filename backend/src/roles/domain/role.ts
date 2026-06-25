@@ -5,6 +5,13 @@ export class Role {
   @Allow()
   @ApiProperty({
     type: String,
+    example: 1,
+  })
+  id: number;
+
+  @Allow()
+  @ApiProperty({
+    type: String,
     example: 'super_admin',
   })
   code: string;

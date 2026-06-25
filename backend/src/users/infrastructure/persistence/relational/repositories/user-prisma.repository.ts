@@ -39,9 +39,17 @@ export class UsersPrismaRepository implements UserRepository {
     };
 
     if (filterOptions?.roles?.length) {
-      where.roleCode = {
-        in: filterOptions.roles.map((role) => role.code),
-      };
+      const roleCodes = filterOptions.roles
+        .map((role) => role.code)
+        .filter((code): code is string => Boolean(code));
+
+      if (roleCodes.length) {
+        where.role = {
+          code: {
+            in: roleCodes,
+          },
+        };
+      }
     }
 
     const orderBy: Prisma.UserOrderByWithRelationInput[] =

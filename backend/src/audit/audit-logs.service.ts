@@ -32,7 +32,7 @@ export class AuditLogsService {
             id: true,
             displayName: true,
             email: true,
-            roleCode: true,
+            role: { select: { id: true, code: true, label: true } },
           },
         },
       },

@@ -5,6 +5,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { AppAbility, CaslUserContext } from '../casl/casl.types';
+import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { IPaginationOptions } from '../utils/types/pagination-options';
@@ -35,7 +37,10 @@ const PM_ROLE_CODES = [RoleEnum.pm, RoleEnum.pmo_lead];
 
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly recordScopeWhere: RecordScopeWhereService,
+  ) {}
 
   async create(dto: CreateProjectDto, actorId: string) {
     await this.validateReferences(dto);
@@ -62,11 +67,16 @@ export class ProjectsService {
       include: PROJECT_INCLUDE,
     });
 
-    return toApiProject(project as ProjectWithRelations);
+    return toApiProject(project as ProjectWithRelations, { ability: null });
   }
 
-  async findManyWithPagination(paginationOptions: IPaginationOptions) {
+  async findManyWithPagination(
+    paginationOptions: IPaginationOptions,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+  ) {
     const projects = await this.prisma.project.findMany({
+      where: this.recordScopeWhere.projectWhere(caslUser, 'read'),
       skip: (paginationOptions.page - 1) * paginationOptions.limit,
       take: paginationOptions.limit,
       orderBy: { createdAt: 'desc' },
@@ -74,13 +84,15 @@ export class ProjectsService {
     });
 
     return projects.map((project) =>
-      toApiProject(project as ProjectWithRelations),
+      toApiProject(project as ProjectWithRelations, { ability }),
     );
   }
 
-  async findById(id: string) {
-    const project = await this.prisma.project.findUnique({
-      where: { id },
+  async findById(id: string, caslUser: CaslUserContext, ability: AppAbility) {
+    const project = await this.prisma.project.findFirst({
+      where: {
+        AND: [{ id }, this.recordScopeWhere.projectWhere(caslUser, 'read')],
+      },
       include: PROJECT_INCLUDE,
     });
 
@@ -88,11 +100,21 @@ export class ProjectsService {
       return null;
     }
 
-    return toApiProject(project as ProjectWithRelations);
+    return toApiProject(project as ProjectWithRelations, { ability });
   }
 
-  async update(id: string, dto: UpdateProjectDto, actorId: string) {
-    const existing = await this.prisma.project.findUnique({ where: { id } });
+  async update(
+    id: string,
+    dto: UpdateProjectDto,
+    actorId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+  ) {
+    const existing = await this.prisma.project.findFirst({
+      where: {
+        AND: [{ id }, this.recordScopeWhere.projectWhere(caslUser, 'update')],
+      },
+    });
 
     if (!existing) {
       throw new NotFoundException({
@@ -163,11 +185,15 @@ export class ProjectsService {
       include: PROJECT_INCLUDE,
     });
 
-    return toApiProject(project as ProjectWithRelations);
+    return toApiProject(project as ProjectWithRelations, { ability });
   }
 
-  async remove(id: string, actorId: string): Promise<void> {
-    const existing = await this.prisma.project.findUnique({ where: { id } });
+  async remove(id: string, caslUser: CaslUserContext, ability: AppAbility): Promise<void> {
+    const existing = await this.prisma.project.findFirst({
+      where: {
+        AND: [{ id }, this.recordScopeWhere.projectWhere(caslUser, 'approve')],
+      },
+    });
 
     if (!existing) {
       throw new NotFoundException({
@@ -201,19 +227,29 @@ export class ProjectsService {
   }
 
   async findProjectManagers() {
-    return this.prisma.user.findMany({
+    const managers = await this.prisma.user.findMany({
       where: {
         isActive: true,
-        roleCode: { in: PM_ROLE_CODES },
+        role: {
+          code: { in: PM_ROLE_CODES },
+        },
       },
       orderBy: { displayName: 'asc' },
       select: {
         id: true,
         displayName: true,
         email: true,
-        roleCode: true,
+        role: { select: { id: true, code: true } },
       },
     });
+
+    return managers.map((manager) => ({
+      id: manager.id,
+      displayName: manager.displayName,
+      email: manager.email,
+      roleId: manager.role.id,
+      roleCode: manager.role.code,
+    }));
   }
 
   private async validateReferences(dto: CreateProjectDto): Promise<void> {
@@ -228,7 +264,7 @@ export class ProjectsService {
         where: {
           id: dto.primaryPmId,
           isActive: true,
-          roleCode: { in: PM_ROLE_CODES },
+          role: { code: { in: PM_ROLE_CODES } },
         },
       }),
       dto.secondaryPmId
@@ -236,7 +272,7 @@ export class ProjectsService {
             where: {
               id: dto.secondaryPmId,
               isActive: true,
-              roleCode: { in: PM_ROLE_CODES },
+              role: { code: { in: PM_ROLE_CODES } },
             },
           })
         : Promise.resolve(null),

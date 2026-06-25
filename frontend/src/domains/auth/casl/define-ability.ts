@@ -1,0 +1,26 @@
+import { AbilityBuilder, createMongoAbility, type MongoAbility } from "@casl/ability";
+import { toCaslAction, toCaslSubject, type CaslAction } from "./casl.constants";
+import type { PermissionRow } from "../types/permissions.types";
+
+export type AppAbility = MongoAbility<[CaslAction, string]>;
+
+export function defineAbilityFor(permissions: PermissionRow[]): AppAbility {
+  const { can, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
+
+  for (const permission of permissions) {
+    const action = toCaslAction(permission.action);
+    const subject = toCaslSubject(permission.module);
+    can(action, subject);
+  }
+
+  return build();
+}
+
+export function canAccess(
+  ability: AppAbility | null | undefined,
+  action: CaslAction,
+  subject: string,
+): boolean {
+  if (!ability) return false;
+  return ability.can(action, subject);
+}

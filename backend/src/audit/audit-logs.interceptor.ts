@@ -47,6 +47,13 @@ export class AuditLogsInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    if (
+      url.includes('/auth/break-glass') ||
+      url.includes('/auth/emergency-login')
+    ) {
+      return next.handle();
+    }
+
     const urlParts = this.parseUrlParts(url);
     const auditTarget = this.resolveRouteAudit(urlParts, method, url);
 
@@ -57,6 +64,7 @@ export class AuditLogsInterceptor implements NestInterceptor {
       request.socket.remoteAddress ||
       null;
     const isExternal = request.user?.isExternal || false;
+    const isBreakGlass = request.user?.breakGlass === true;
     const bodyPayload = this.maskSensitiveFields(request.body);
 
     return new Observable((observer) => {
@@ -78,6 +86,13 @@ export class AuditLogsInterceptor implements NestInterceptor {
                 }
               }
 
+              if (isBreakGlass) {
+                newValue =
+                  newValue && typeof newValue === 'object'
+                    ? { ...newValue, breakGlassAction: true }
+                    : { breakGlassAction: true };
+              }
+
               this.auditLogsService
                 .create({
                   action: auditTarget.action,
@@ -87,6 +102,7 @@ export class AuditLogsInterceptor implements NestInterceptor {
                   newValue: newValue ? JSON.parse(JSON.stringify(newValue)) : null,
                   ipAddress,
                   isExternal,
+                  breakGlassAction: isBreakGlass,
                   source: 'WebAPI',
                   user: actorId ? { connect: { id: actorId } } : undefined,
                 })

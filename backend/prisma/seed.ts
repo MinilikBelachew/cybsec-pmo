@@ -1,53 +1,84 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
+import {
+  ROLE_CATALOG,
+  ROLE_ID_BY_CODE,
+  buildPermissionRows,
+} from './rbac-seed-data';
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('Seeding roles...');
 
-  const roles = [
-    { code: 'super_admin', label: 'Super Admin', isExternal: false },
-    { code: 'it_admin', label: 'IT Admin', isExternal: false },
-    { code: 'pmo_lead', label: 'PMO Lead', isExternal: false },
-    { code: 'pm', label: 'PM', isExternal: false },
-    { code: 'team_lead', label: 'Team Lead', isExternal: false },
-    { code: 'engineer', label: 'Engineer', isExternal: false },
-    { code: 'finance', label: 'Finance', isExternal: false },
-    { code: 'hr', label: 'HR', isExternal: false },
-    { code: 'sales', label: 'Sales', isExternal: false },
-    { code: 'client', label: 'Client', isExternal: true },
-    { code: 'vendor', label: 'Vendor', isExternal: true },
-  ];
-
-  for (const role of roles) {
+  for (const role of ROLE_CATALOG) {
     await prisma.role.upsert({
       where: { code: role.code },
       update: { label: role.label, isExternal: role.isExternal },
-      create: role,
+      create: {
+        id: role.id,
+        code: role.code,
+        label: role.label,
+        isExternal: role.isExternal,
+      },
     });
   }
 
   console.log('Roles seeded successfully.');
 
+  await prisma.$executeRawUnsafe(
+    `SELECT setval(pg_get_serial_sequence('roles', 'id'), (SELECT COALESCE(MAX(id), 1) FROM roles), true)`,
+  );
+
+  console.log('Seeding permissions...');
+  const permissionRows = buildPermissionRows();
+
+  for (const row of permissionRows) {
+    await prisma.permission.upsert({
+      where: {
+        roleId_module_action: {
+          roleId: row.roleId,
+          module: row.module,
+          action: row.action,
+        },
+      },
+      update: {
+        recordScope: row.recordScope,
+        fieldScope: row.fieldScope
+          ? (row.fieldScope as Prisma.InputJsonValue)
+          : undefined,
+      },
+      create: {
+        roleId: row.roleId,
+        module: row.module,
+        action: row.action,
+        recordScope: row.recordScope,
+        fieldScope: row.fieldScope
+          ? (row.fieldScope as Prisma.InputJsonValue)
+          : undefined,
+      },
+    });
+  }
+
+  console.log(`Permissions seeded successfully (${permissionRows.length} rows).`);
+
   console.log('Seeding initial Super Admin user...');
   const adminEmail = 'bminilik12@gmail.com';
 
-  // Seed user matching Microsoft Entra identity
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
       displayName: 'roba belachew',
-      roleCode: 'super_admin',
+      roleId: ROLE_ID_BY_CODE.super_admin,
       isActive: true,
       isExternal: false,
     },
     create: {
       email: adminEmail,
       displayName: 'roba belachew',
-      roleCode: 'super_admin',
+      roleId: ROLE_ID_BY_CODE.super_admin,
       isActive: true,
       isExternal: false,
-      entraObjectId: 'pending-first-login-admin', // Will be updated on first login
+      entraObjectId: 'pending-first-login-admin',
     },
   });
 
@@ -59,14 +90,14 @@ async function main() {
     where: { email: pmEmail },
     update: {
       displayName: 'John Smith',
-      roleCode: 'pm',
+      roleId: ROLE_ID_BY_CODE.pm,
       isActive: true,
       isExternal: false,
     },
     create: {
       email: pmEmail,
       displayName: 'John Smith',
-      roleCode: 'pm',
+      roleId: ROLE_ID_BY_CODE.pm,
       isActive: true,
       isExternal: false,
       entraObjectId: 'pending-first-login-pm',

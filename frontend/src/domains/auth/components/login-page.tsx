@@ -19,7 +19,11 @@ export function LoginPage() {
 
       <p className="text-center text-xs text-white/40 leading-relaxed">
         This platform uses Single Sign-On (SSO) for authentication. <br />
-        If you have trouble logging in, please contact your systems administrator.
+        If Entra ID is unavailable,{" "}
+        <a href="/emergency-login" className="underline hover:text-white/70">
+          use emergency access
+        </a>
+        . Otherwise contact your systems administrator.
       </p>
     </div>
   );

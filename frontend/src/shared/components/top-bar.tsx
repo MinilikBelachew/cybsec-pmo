@@ -4,7 +4,7 @@ import * as React from "react";
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "@/i18n/routing";
 import { useAuth } from "@/domains/auth";
-import { useRole } from "@/shared/providers/role-provider";
+import { ROLE_CATALOG } from "@/config/roles.config";
 import { ThemeToggle } from "./theme-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
@@ -25,7 +25,6 @@ import {
   LogOut,
   ChevronRight,
   ChevronDown,
-  Check,
   Plus,
   Clock,
   FileText,
@@ -46,25 +45,15 @@ import {
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 
-const ROLES = [
-  { id: "super_admin", label: "Super Admin", sub: "Full system access" },
-  { id: "pmo_lead", label: "PMO Lead", sub: "Portfolio oversight" },
-  { id: "project_manager", label: "Project Manager", sub: "Project execution" },
-  { id: "team_lead", label: "Team Lead", sub: "Team management" },
-  { id: "member", label: "Team Member", sub: "Standard access" },
-  { id: "consultant", label: "Consultant", sub: "Task & time logging" },
-  { id: "hr", label: "HR", sub: "People & timesheets" },
-  { id: "finance", label: "Finance", sub: "Budget & expenses" },
-];
-
 export function TopBar() {
   const { user, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
-  const { userRole: selectedRole, setUserRole: setSelectedRole } = useRole();
-
-  const currentRole = ROLES.find((r) => r.id === selectedRole) || ROLES[0];
+  const currentRoleLabel =
+    ROLE_CATALOG.find((r) => r.code === user?.backendRoleCode)?.label ??
+    user?.backendRoleCode?.replace(/_/g, " ") ??
+    "User";
 
   // Dynamic breadcrumbs based on pathname
   const segments = pathname.split("/").filter(Boolean);
@@ -134,38 +123,9 @@ export function TopBar() {
       <div className="flex items-center gap-2 flex-1 justify-end">
         <ThemeToggle />
 
-        {/* Role Switcher Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border/60 bg-card hover:bg-muted/50 transition-colors text-xs font-semibold select-none outline-none"
-            aria-label="Switch active role view"
-          >
-            <span className="size-2 rounded-full bg-primary shrink-0" />
-            <span className="text-foreground">{currentRole.label}</span>
-            <ChevronDown className="size-3 text-muted-foreground" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 p-1.5 bg-popover border border-border/60">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                View As Role
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {ROLES.map((role) => (
-                <DropdownMenuItem
-                  key={role.id}
-                  onClick={() => setSelectedRole(role.id)}
-                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer text-xs"
-                >
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-semibold leading-tight">{role.label}</span>
-                    <span className="text-[10px] text-muted-foreground">{role.sub}</span>
-                  </div>
-                  {selectedRole === role.id && <Check className="size-3.5 text-primary shrink-0" />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Badge variant="secondary" className="hidden md:inline-flex h-8 px-2.5 text-xs font-semibold">
+          {currentRoleLabel}
+        </Badge>
 
         {/* Notifications Bell Dropdown */}
         <DropdownMenu>

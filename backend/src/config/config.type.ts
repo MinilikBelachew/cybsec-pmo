@@ -7,6 +7,7 @@ import { RedisConfig } from './redis-config.type';
 import { LoginSecurityConfig } from '../auth/config/login-security.config';
 import { SessionSecurityConfig } from '../auth/config/session-security.config';
 import { SecurityAlertsConfig } from '../auth/config/security-alerts.config';
+import { BreakGlassConfig } from '../auth/config/break-glass.config';
 
 export type AllConfigType = {
   app: AppConfig;
@@ -18,6 +19,7 @@ export type AllConfigType = {
   loginSecurity: LoginSecurityConfig;
   sessionSecurity: SessionSecurityConfig;
   securityAlerts: SecurityAlertsConfig;
+  breakGlass: BreakGlassConfig;
 };
 
 

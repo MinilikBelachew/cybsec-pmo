@@ -8,6 +8,8 @@ export class Session {
   userAgent: string | null;
   expiresAt: Date;
   revokedAt: Date | null;
+  isBreakGlass: boolean;
+  breakGlassReason: string | null;
   createdAt: Date;
   user?: User;
 }

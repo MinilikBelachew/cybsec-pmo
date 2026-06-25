@@ -6,6 +6,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { AppAbility, CaslUserContext } from '../casl/casl.types';
+import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CreateTaskDto, TaskStatusEnum } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTaskDto } from './dto/query-task.dto';
@@ -61,6 +63,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly filesUploadService: FilesUploadService,
+    private readonly recordScopeWhere: RecordScopeWhereService,
   ) {}
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
@@ -92,7 +95,7 @@ export class TasksService {
   }
 
   private resolveRoleCode(user: { role?: { code?: string }; roleCode?: string }): string | undefined {
-    return user.role?.code || user.roleCode;
+    return user.role?.code;
   }
 
   private mapAttachment(attachment: {
@@ -331,34 +334,45 @@ export class TasksService {
     return this.formatTask(task, viewerRoleCode);
   }
 
-  async findManyWithPagination(query: QueryTaskDto, viewerRoleCode?: string) {
+  async findManyWithPagination(
+    query: QueryTaskDto,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
-    const where: any = {};
+    const filters: Record<string, unknown>[] = [
+      this.recordScopeWhere.taskWhere(caslUser, 'read'),
+    ];
 
     if (query.projectId) {
-      where.projectId = query.projectId;
+      filters.push({ projectId: query.projectId });
     }
     if (query.ownerId) {
-      where.ownerId = query.ownerId;
+      filters.push({ ownerId: query.ownerId });
     }
     if (query.status) {
-      where.status = this.mapStatusToPrisma(query.status);
+      filters.push({ status: this.mapStatusToPrisma(query.status) });
     }
     if (query.priority) {
-      where.priority = query.priority;
+      filters.push({ priority: query.priority });
     }
     if (query.parentTaskId) {
-      where.parentTaskId = query.parentTaskId;
+      filters.push({ parentTaskId: query.parentTaskId });
     } else if (query.topLevelOnly !== false) {
-      where.parentTaskId = null;
+      filters.push({ parentTaskId: null });
     }
     if (query.search) {
-      where.OR = [
-        { title: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
-      ];
+      filters.push({
+        OR: [
+          { title: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    const where = { AND: filters };
 
     const tasks = await this.prisma.task.findMany({
       where,
@@ -371,9 +385,16 @@ export class TasksService {
     return tasks.map((task) => this.formatTask(task, viewerRoleCode));
   }
 
-  async findById(id: string, viewerRoleCode?: string) {
-    const task = await this.prisma.task.findUnique({
-      where: { id },
+  async findById(
+    id: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    const task = await this.prisma.task.findFirst({
+      where: {
+        AND: [{ id }, this.recordScopeWhere.taskWhere(caslUser, 'read')],
+      },
       include: TASK_INCLUDE,
     });
 
@@ -391,10 +412,14 @@ export class TasksService {
     id: string,
     dto: UpdateTaskDto,
     actorId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
     viewerRoleCode?: string,
   ) {
-    const existing = await this.prisma.task.findUnique({
-      where: { id },
+    const existing = await this.prisma.task.findFirst({
+      where: {
+        AND: [{ id }, this.recordScopeWhere.taskWhere(caslUser, 'update')],
+      },
     });
 
     if (!existing) {
@@ -436,9 +461,11 @@ export class TasksService {
     return this.formatTask(task, viewerRoleCode);
   }
 
-  async remove(id: string, actorId: string) {
-    const existing = await this.prisma.task.findUnique({
-      where: { id },
+  async remove(id: string, actorId: string, caslUser: CaslUserContext, ability: AppAbility) {
+    const existing = await this.prisma.task.findFirst({
+      where: {
+        AND: [{ id }, this.recordScopeWhere.taskWhere(caslUser, 'update')],
+      },
       include: { subTasks: { select: { id: true } } },
     });
 
@@ -463,8 +490,13 @@ export class TasksService {
     });
   }
 
-  async getComments(taskId: string, viewerRoleCode?: string) {
-    await this.findById(taskId, viewerRoleCode);
+  async getComments(
+    taskId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
 
     const comments = await this.prisma.taskComment.findMany({
       where: { taskId },
@@ -481,9 +513,11 @@ export class TasksService {
     taskId: string,
     dto: CreateTaskCommentDto,
     authorId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
     viewerRoleCode?: string,
   ) {
-    await this.findById(taskId, viewerRoleCode);
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
 
     const isInternal = dto.isInternal ?? true;
     if (this.isExternalRole(viewerRoleCode) && isInternal) {
@@ -508,8 +542,13 @@ export class TasksService {
     return comment;
   }
 
-  async getAttachments(taskId: string, viewerRoleCode?: string) {
-    await this.findById(taskId, viewerRoleCode);
+  async getAttachments(
+    taskId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
 
     const attachments = await this.prisma.taskAttachment.findMany({
       where: { taskId },
@@ -526,9 +565,11 @@ export class TasksService {
     taskId: string,
     dto: CreateTaskAttachmentDto,
     uploaderId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
     viewerRoleCode?: string,
   ) {
-    await this.findById(taskId, viewerRoleCode);
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
 
     const attachment = await this.prisma.taskAttachment.create({
       data: {
@@ -550,9 +591,11 @@ export class TasksService {
   async removeAttachment(
     taskId: string,
     attachmentId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
     viewerRoleCode?: string,
   ) {
-    await this.findById(taskId, viewerRoleCode);
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
 
     const attachment = await this.prisma.taskAttachment.findFirst({
       where: { id: attachmentId, taskId },

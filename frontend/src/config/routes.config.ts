@@ -4,6 +4,7 @@ export const PUBLIC_ROUTES = ["/login", "/register", "/forgot-password"];
 export const PUBLIC_PATH_PREFIXES = [
   ...PUBLIC_ROUTES,
   "/auth/callback",
+  "/emergency-login",
   "/api/auth",
   "/api/health",
 ];

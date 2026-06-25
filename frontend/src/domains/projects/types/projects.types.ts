@@ -22,6 +22,7 @@ export interface ProjectManager {
   id: string;
   displayName: string;
   email: string;
+  roleId: number;
   roleCode: string;
 }
 

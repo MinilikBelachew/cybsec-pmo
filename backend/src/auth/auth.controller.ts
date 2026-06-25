@@ -11,10 +11,13 @@ import {
   SerializeOptions,
   UseFilters,
   Res,
+  Body,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { EntraOauthService } from './entra-oauth.service';
 import { SessionActivityService } from './session-activity.service';
+import { BreakGlassService } from './break-glass.service';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { NullableType } from '../utils/types/nullable.type';
@@ -28,6 +31,12 @@ import {
   extractUserAgent,
 } from './utils/request-context.util';
 import { LoginSecurityExceptionFilter } from './filters/login-security-exception.filter';
+import { AuthBreakGlassDto } from './dto/auth-break-glass.dto';
+import { AuthEmergencyLoginDto } from './dto/auth-emergency-login.dto';
+import { PermissionDto } from './dto/permission.dto';
+import { Roles } from '../roles/roles.decorator';
+import { RoleEnum } from '../roles/roles.enum';
+import { RolesGuard } from '../roles/roles.guard';
 
 const ACCESS_TOKEN_COOKIE = 'access_token';
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
@@ -57,6 +66,11 @@ function setAuthCookies(
   });
 }
 
+function clearAuthCookies(res: ExpressResponse) {
+  res.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
+  res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/v1/auth/refresh' });
+}
+
 @ApiTags('Auth')
 @Controller({
   path: 'auth',
@@ -67,6 +81,7 @@ export class AuthController {
     private readonly service: AuthService,
     private readonly entraOauthService: EntraOauthService,
     private readonly sessionActivityService: SessionActivityService,
+    private readonly breakGlassService: BreakGlassService,
   ) {}
 
   @Get('session-policy')
@@ -154,8 +169,103 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOkResponse({ type: User })
   @HttpCode(HttpStatus.OK)
-  public me(@Request() request): Promise<NullableType<User>> {
+  public me(
+    @Request() request,
+  ): Promise<(User & { breakGlass?: boolean }) | null> {
     return this.service.me(request.user);
+  }
+
+  @ApiBearerAuth()
+  @Get('me/permissions')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOkResponse({ type: [PermissionDto] })
+  @HttpCode(HttpStatus.OK)
+  public mePermissions(@Request() request) {
+    return this.service.getPermissionsForUser(request.user);
+  }
+
+  @ApiBearerAuth()
+  @Roles(RoleEnum.super_admin)
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Post('break-glass')
+  @HttpCode(HttpStatus.OK)
+  public async activateBreakGlass(
+    @Request() request,
+    @Body() dto: AuthBreakGlassDto,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ): Promise<{ user: User; breakGlass: true }> {
+    const result = await this.breakGlassService.activateForSuperAdmin(
+      request.user.id,
+      dto.reason,
+      {
+        ipAddress: extractClientIp(request),
+        userAgent: extractUserAgent(request),
+      },
+      request.user.sessionId,
+    );
+
+    setAuthCookies(
+      res,
+      result.token,
+      result.refreshToken,
+      result.tokenExpires,
+    );
+
+    return { user: result.user, breakGlass: true };
+  }
+
+  @ApiBearerAuth()
+  @Post('break-glass/stop')
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(HttpStatus.OK)
+  public async stopBreakGlass(
+    @Request() request,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ): Promise<{ redirectTo: 'entra' | 'login' }> {
+    if (request.user?.breakGlass !== true) {
+      throw new ForbiddenException('Not an active break-glass session');
+    }
+
+    const result = await this.breakGlassService.stopBreakGlassSession(
+      request.user.id,
+      request.user.sessionId,
+      {
+        ipAddress: extractClientIp(request),
+        userAgent: extractUserAgent(request),
+      },
+    );
+
+    clearAuthCookies(res);
+
+    return result;
+  }
+
+  @Post('emergency-login')
+  @UseFilters(LoginSecurityExceptionFilter)
+  @HttpCode(HttpStatus.OK)
+  public async emergencyLogin(
+    @Body() dto: AuthEmergencyLoginDto,
+    @Request() req: ExpressRequest,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ): Promise<{ user: User; breakGlass: true }> {
+    const result = await this.breakGlassService.emergencyLogin(
+      dto.email,
+      dto.secret,
+      dto.reason,
+      {
+        ipAddress: extractClientIp(req),
+        userAgent: extractUserAgent(req),
+      },
+    );
+
+    setAuthCookies(
+      res,
+      result.token,
+      result.refreshToken,
+      result.tokenExpires,
+    );
+
+    return { user: result.user, breakGlass: true };
   }
 
   @ApiBearerAuth()
@@ -185,7 +295,6 @@ export class AuthController {
   ): Promise<void> {
     await this.service.logout({ sessionId: request.user.sessionId });
 
-    res.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
-    res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/v1/auth/refresh' });
+    clearAuthCookies(res);
   }
 }

@@ -5,27 +5,25 @@ import { useAuth } from "@/domains/auth";
 
 type RoleContextValue = {
   userRole: string;
-  setUserRole: (role: string) => void;
 };
 
 const RoleContext = createContext<RoleContextValue>({
-  userRole: "super_admin",
-  setUserRole: () => {},
+  userRole: "engineer",
 });
 
+/** Display-only role label synced from authenticated user. */
 export function RoleProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [userRole, setUserRole] = useState("super_admin");
+  const [userRole, setUserRole] = useState("engineer");
 
-  // Sync with user's primary role when loaded
   useEffect(() => {
-    if (user?.roles && user.roles.length > 0) {
-      setUserRole(user.roles[0]);
+    if (user?.backendRoleCode) {
+      setUserRole(user.backendRoleCode);
     }
   }, [user]);
 
   return (
-    <RoleContext.Provider value={{ userRole, setUserRole }}>
+    <RoleContext.Provider value={{ userRole }}>
       {children}
     </RoleContext.Provider>
   );

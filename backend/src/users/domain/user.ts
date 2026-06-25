@@ -31,9 +31,16 @@ export class User {
 
   @ApiProperty({
     type: String,
-    example: 'super_admin',
+    example: 1,
   })
-  roleCode: string;
+  roleId: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'super_admin',
+    description: 'Derived from role.code when role relation is loaded',
+  })
+  roleCode?: string;
 
   @ApiProperty({
     type: Boolean,

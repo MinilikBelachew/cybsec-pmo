@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
+    "@casl/ability": "^7.0.0",
+    "@casl/react": "^7.0.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-visually-hidden": "^1.2.4",
     "@reduxjs/toolkit": "^2.11.2",

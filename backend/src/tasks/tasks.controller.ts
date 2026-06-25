@@ -27,9 +27,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { Roles } from '../roles/roles.decorator';
-import { RoleEnum } from '../roles/roles.enum';
-import { RolesGuard } from '../roles/roles.guard';
+import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
+import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -37,39 +37,15 @@ import { QueryTaskDto } from './dto/query-task.dto';
 import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
 import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
 import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
-import { JwtPayloadType } from '../auth/strategies/types/jwt-payload.type';
 import { infinityPagination } from '../utils/infinity-pagination';
 
-const TASK_READ_ROLES = [
-  RoleEnum.super_admin,
-  RoleEnum.pmo_lead,
-  RoleEnum.pm,
-  RoleEnum.team_lead,
-  RoleEnum.engineer,
-  RoleEnum.finance,
-  RoleEnum.sales,
-  RoleEnum.client,
-  RoleEnum.vendor,
-];
-
-const TASK_WRITE_ROLES = [
-  RoleEnum.super_admin,
-  RoleEnum.pmo_lead,
-  RoleEnum.pm,
-  RoleEnum.team_lead,
-  RoleEnum.engineer,
-];
-
-const TASK_ATTACHMENT_DELETE_ROLES = [
-  RoleEnum.super_admin,
-  RoleEnum.pmo_lead,
-  RoleEnum.pm,
-];
-
-type AuthRequest = { user: JwtPayloadType & { role?: { code?: string }; roleCode?: string } };
+type AuthRequest = RequestWithAbility & {
+  user: { id: string; role?: { code?: string } };
+};
 
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('Tasks')
 @Controller({
   path: 'tasks',
@@ -79,10 +55,10 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   private viewerRole(request: AuthRequest): string | undefined {
-    return request.user.role?.code || request.user.roleCode;
+    return request.user.role?.code;
   }
 
-  @Roles(...TASK_WRITE_ROLES)
+  @CheckAbility('create', 'Task')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createTaskDto: CreateTaskDto, @Request() request: AuthRequest) {
@@ -93,7 +69,7 @@ export class TasksController {
     );
   }
 
-  @Roles(...TASK_WRITE_ROLES)
+  @CheckAbility('create', 'Task')
   @Post('bundle')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FilesInterceptor('files', 20))
@@ -111,7 +87,7 @@ export class TasksController {
     );
   }
 
-  @Roles(...TASK_READ_ROLES)
+  @CheckAbility('read', 'Task')
   @Get()
   @HttpCode(HttpStatus.OK)
   async findAll(@Query() query: QueryTaskDto, @Request() request: AuthRequest) {
@@ -124,21 +100,28 @@ export class TasksController {
     return infinityPagination(
       await this.tasksService.findManyWithPagination(
         { ...query, page, limit },
+        request.caslUser!,
+        request.ability!,
         this.viewerRole(request),
       ),
       { page, limit },
     );
   }
 
-  @Roles(...TASK_READ_ROLES)
+  @CheckAbility('read', 'Task')
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
   findOne(@Param('id') id: string, @Request() request: AuthRequest) {
-    return this.tasksService.findById(id, this.viewerRole(request));
+    return this.tasksService.findById(
+      id,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
   }
 
-  @Roles(...TASK_READ_ROLES)
+  @CheckAbility('update', 'Task')
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -151,27 +134,34 @@ export class TasksController {
       id,
       updateTaskDto,
       request.user.id,
+      request.caslUser!,
+      request.ability!,
       this.viewerRole(request),
     );
   }
 
-  @Roles(RoleEnum.super_admin, RoleEnum.pmo_lead, RoleEnum.pm)
+  @CheckAbility('update', 'Task')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })
   remove(@Param('id') id: string, @Request() request: AuthRequest) {
-    return this.tasksService.remove(id, request.user.id);
+    return this.tasksService.remove(id, request.user.id, request.caslUser!, request.ability!);
   }
 
-  @Roles(...TASK_READ_ROLES)
+  @CheckAbility('read', 'Task')
   @Get(':id/comments')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
   getComments(@Param('id') id: string, @Request() request: AuthRequest) {
-    return this.tasksService.getComments(id, this.viewerRole(request));
+    return this.tasksService.getComments(
+      id,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
   }
 
-  @Roles(...TASK_WRITE_ROLES)
+  @CheckAbility('update', 'Task')
   @Post(':id/comments')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -184,19 +174,26 @@ export class TasksController {
       id,
       dto,
       request.user.id,
+      request.caslUser!,
+      request.ability!,
       this.viewerRole(request),
     );
   }
 
-  @Roles(...TASK_READ_ROLES)
+  @CheckAbility('read', 'Task')
   @Get(':id/attachments')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
   getAttachments(@Param('id') id: string, @Request() request: AuthRequest) {
-    return this.tasksService.getAttachments(id, this.viewerRole(request));
+    return this.tasksService.getAttachments(
+      id,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
   }
 
-  @Roles(...TASK_WRITE_ROLES)
+  @CheckAbility('update', 'Task')
   @Post(':id/attachments')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -209,11 +206,13 @@ export class TasksController {
       id,
       dto,
       request.user.id,
+      request.caslUser!,
+      request.ability!,
       this.viewerRole(request),
     );
   }
 
-  @Roles(...TASK_ATTACHMENT_DELETE_ROLES)
+  @CheckAbility('update', 'Task')
   @Delete(':id/attachments/:attachmentId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiNoContentResponse()
@@ -227,6 +226,8 @@ export class TasksController {
     return this.tasksService.removeAttachment(
       id,
       attachmentId,
+      request.caslUser!,
+      request.ability!,
       this.viewerRole(request),
     );
   }

@@ -11,6 +11,7 @@ import {
   Query,
   Request,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -20,9 +21,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { Roles } from '../roles/roles.decorator';
-import { RoleEnum } from '../roles/roles.enum';
-import { RolesGuard } from '../roles/roles.guard';
+import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
+import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CaslGuard } from '../casl/casl.guard';
+import { RequestWithAbility } from '../casl/casl.guard';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -39,26 +41,10 @@ import {
 } from '../utils/dto/infinity-pagination-response.dto';
 import { infinityPagination } from '../utils/infinity-pagination';
 import { NullableType } from '../utils/types/nullable.type';
-import { JwtPayloadType } from '../auth/strategies/types/jwt-payload.type';
-
-const PROJECT_READ_ROLES = [
-  RoleEnum.super_admin,
-  RoleEnum.pmo_lead,
-  RoleEnum.pm,
-  RoleEnum.team_lead,
-  RoleEnum.engineer,
-  RoleEnum.finance,
-  RoleEnum.sales,
-];
-
-const PROJECT_WRITE_ROLES = [
-  RoleEnum.super_admin,
-  RoleEnum.pmo_lead,
-  RoleEnum.pm,
-];
 
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('Projects')
 @Controller({
   path: 'projects',
@@ -67,18 +53,18 @@ const PROJECT_WRITE_ROLES = [
 export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
-  @Roles(...PROJECT_WRITE_ROLES)
+  @CheckAbility('create', 'Project')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiCreatedResponse({ type: ProjectDto })
   create(
     @Body() createProjectDto: CreateProjectDto,
-    @Request() request: { user: JwtPayloadType },
+    @Request() request: RequestWithAbility,
   ): Promise<ProjectDto> {
-    return this.projectsService.create(createProjectDto, request.user.id);
+    return this.projectsService.create(createProjectDto, request.user!.id);
   }
 
-  @Roles(...PROJECT_READ_ROLES)
+  @CheckAbility('read', 'Project')
   @Get('meta/departments')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: [DepartmentDto] })
@@ -86,7 +72,7 @@ export class ProjectsController {
     return this.projectsService.findDepartments();
   }
 
-  @Roles(...PROJECT_READ_ROLES)
+  @CheckAbility('read', 'Project')
   @Get('meta/customers')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: [CustomerDto] })
@@ -94,7 +80,7 @@ export class ProjectsController {
     return this.projectsService.findCustomers();
   }
 
-  @Roles(...PROJECT_READ_ROLES)
+  @CheckAbility('read', 'Project')
   @Get('meta/project-managers')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: [ProjectManagerDto] })
@@ -102,12 +88,13 @@ export class ProjectsController {
     return this.projectsService.findProjectManagers();
   }
 
-  @Roles(...PROJECT_READ_ROLES)
+  @CheckAbility('read', 'Project')
   @Get()
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: InfinityPaginationResponse(ProjectDto) })
   async findAll(
     @Query() query: QueryProjectDto,
+    @Request() request: RequestWithAbility,
   ): Promise<InfinityPaginationResponseDto<ProjectDto>> {
     const page = query?.page ?? 1;
     let limit = query?.limit ?? 10;
@@ -116,21 +103,28 @@ export class ProjectsController {
     }
 
     return infinityPagination(
-      await this.projectsService.findManyWithPagination({ page, limit }),
+      await this.projectsService.findManyWithPagination(
+        { page, limit },
+        request.caslUser!,
+        request.ability!,
+      ),
       { page, limit },
     );
   }
 
-  @Roles(...PROJECT_READ_ROLES)
+  @CheckAbility('read', 'Project')
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiOkResponse({ type: ProjectDto })
-  findOne(@Param('id') id: string): Promise<NullableType<ProjectDto>> {
-    return this.projectsService.findById(id);
+  findOne(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<NullableType<ProjectDto>> {
+    return this.projectsService.findById(id, request.caslUser!, request.ability!);
   }
 
-  @Roles(...PROJECT_WRITE_ROLES)
+  @CheckAbility('update', 'Project')
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -138,19 +132,25 @@ export class ProjectsController {
   update(
     @Param('id') id: string,
     @Body() updateProjectDto: UpdateProjectDto,
-    @Request() request: { user: JwtPayloadType },
+    @Request() request: RequestWithAbility,
   ): Promise<ProjectDto> {
-    return this.projectsService.update(id, updateProjectDto, request.user.id);
+    return this.projectsService.update(
+      id,
+      updateProjectDto,
+      request.user!.id,
+      request.caslUser!,
+      request.ability!,
+    );
   }
 
-  @Roles(RoleEnum.super_admin, RoleEnum.pmo_lead)
+  @CheckAbility('approve', 'Project')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })
   remove(
     @Param('id') id: string,
-    @Request() request: { user: JwtPayloadType },
+    @Request() request: RequestWithAbility,
   ): Promise<void> {
-    return this.projectsService.remove(id, request.user.id);
+    return this.projectsService.remove(id, request.caslUser!, request.ability!);
   }
 }

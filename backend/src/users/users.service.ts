@@ -36,7 +36,7 @@ export class UsersService {
       entraObjectId: createUserDto.entraObjectId,
       email: createUserDto.email,
       displayName: createUserDto.displayName,
-      roleCode: createUserDto.role.code,
+      roleId: createUserDto.role.id,
       isActive: createUserDto.isActive ?? true,
       isExternal: createUserDto.isExternal ?? false,
       lastLogin: null,
@@ -105,7 +105,7 @@ export class UsersService {
     if (updateUserDto.entraObjectId !== undefined) updatePayload.entraObjectId = updateUserDto.entraObjectId;
     if (updateUserDto.email !== undefined) updatePayload.email = updateUserDto.email;
     if (updateUserDto.displayName !== undefined) updatePayload.displayName = updateUserDto.displayName;
-    if (updateUserDto.role?.code !== undefined) updatePayload.roleCode = updateUserDto.role.code;
+    if (updateUserDto.role?.id !== undefined) updatePayload.roleId = updateUserDto.role.id;
     if (updateUserDto.isActive !== undefined) updatePayload.isActive = updateUserDto.isActive;
     if (updateUserDto.isExternal !== undefined) updatePayload.isExternal = updateUserDto.isExternal;
 

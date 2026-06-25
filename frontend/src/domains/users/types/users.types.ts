@@ -1,4 +1,5 @@
 export interface Role {
+  id: number;
   code: string;
   label: string;
   isExternal: boolean;
@@ -9,7 +10,8 @@ export interface User {
   entraObjectId: string;
   email: string;
   displayName: string;
-  roleCode: string;
+  roleId: number;
+  roleCode?: string;
   isActive: boolean;
   isExternal: boolean;
   role?: Role;
@@ -21,14 +23,14 @@ export interface CreateUserDto {
   entraObjectId: string;
   email: string;
   displayName: string;
-  role: { code: string };
+  role: { id: number; code?: string };
   isActive?: boolean;
   isExternal?: boolean;
 }
 
 export interface UpdateUserDto {
   displayName?: string;
-  role?: { code: string };
+  role?: { id: number; code?: string };
   isActive?: boolean;
   isExternal?: boolean;
 }

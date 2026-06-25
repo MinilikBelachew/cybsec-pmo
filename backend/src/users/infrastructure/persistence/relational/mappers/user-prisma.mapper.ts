@@ -16,13 +16,15 @@ export class UserPrismaMapper {
     domainEntity.entraObjectId = raw.entraObjectId;
     domainEntity.email = raw.email;
     domainEntity.displayName = raw.displayName;
-    domainEntity.roleCode = raw.roleCode;
+    domainEntity.roleId = raw.roleId;
+    domainEntity.roleCode = raw.role?.code;
     domainEntity.isActive = raw.isActive;
     domainEntity.isExternal = raw.isExternal;
     domainEntity.lastLogin = raw.lastLogin;
 
     if (raw.role) {
       const role = new Role();
+      role.id = raw.role.id;
       role.code = raw.role.code;
       role.label = raw.role.label;
       role.isExternal = raw.role.isExternal;
@@ -41,7 +43,7 @@ export class UserPrismaMapper {
       entraObjectId: domainEntity.entraObjectId,
       email: domainEntity.email,
       displayName: domainEntity.displayName,
-      roleCode: domainEntity.roleCode,
+      roleId: domainEntity.roleId,
       isActive: domainEntity.isActive,
       isExternal: domainEntity.isExternal,
       lastLogin: domainEntity.lastLogin,

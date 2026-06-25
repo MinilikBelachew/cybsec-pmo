@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { getRoleBadgeColor, getRoleLabel } from "../utils/role-display";
+import { ROLE_CATALOG, ROLE_CODE_BY_ID, ROLE_ID_BY_CODE } from "@/config/roles.config";
 
 interface UserDirectorySectionProps {
   onSuccess?: (message: string) => void;
@@ -40,10 +41,10 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
   const [addForm, setAddForm] = useState({
     displayName: "",
     email: "",
-    roleCode: "engineer",
+    roleId: ROLE_ID_BY_CODE.engineer,
   });
   const [editForm, setEditForm] = useState({
-    roleCode: "",
+    roleId: ROLE_ID_BY_CODE.engineer,
     isActive: true,
   });
 
@@ -68,14 +69,16 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
       await createUser({
         displayName: addForm.displayName,
         email: addForm.email.toLowerCase().trim(),
-        role: { code: addForm.roleCode },
+        role: { id: addForm.roleId },
         entraObjectId: "pending-first-login",
         isActive: true,
-        isExternal: addForm.roleCode === "client" || addForm.roleCode === "vendor",
+        isExternal:
+          ROLE_CODE_BY_ID[addForm.roleId] === "client" ||
+          ROLE_CODE_BY_ID[addForm.roleId] === "vendor",
       }).unwrap();
 
       onSuccess?.(`User ${addForm.displayName} registered successfully.`);
-      setAddForm({ displayName: "", email: "", roleCode: "engineer" });
+      setAddForm({ displayName: "", email: "", roleId: ROLE_ID_BY_CODE.engineer });
       setIsAddModalOpen(false);
     } catch (err: unknown) {
       const apiError = err as { data?: { message?: string } };
@@ -86,7 +89,7 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
   const handleEditUser = (user: User) => {
     setSelectedUser(user);
     setEditForm({
-      roleCode: user.roleCode || user.role?.code || "engineer",
+      roleId: user.roleId || user.role?.id || ROLE_ID_BY_CODE.engineer,
       isActive: user.isActive,
     });
     setIsEditModalOpen(true);
@@ -100,9 +103,11 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
       await updateUser({
         id: selectedUser.id,
         body: {
-          role: { code: editForm.roleCode },
+          role: { id: editForm.roleId },
           isActive: editForm.isActive,
-          isExternal: editForm.roleCode === "client" || editForm.roleCode === "vendor",
+          isExternal:
+            ROLE_CODE_BY_ID[editForm.roleId] === "client" ||
+            ROLE_CODE_BY_ID[editForm.roleId] === "vendor",
         },
       }).unwrap();
 
@@ -140,12 +145,16 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
     }
   };
 
+  const resolveRoleCode = (user: User) =>
+    user.roleCode || user.role?.code || ROLE_CODE_BY_ID[user.roleId] || "";
+
   const filteredUsers = usersData?.data?.filter((u) => {
     const query = searchQuery.toLowerCase();
+    const roleCode = resolveRoleCode(u);
     return (
       u.displayName.toLowerCase().includes(query) ||
       u.email.toLowerCase().includes(query) ||
-      u.roleCode.toLowerCase().includes(query)
+      roleCode.toLowerCase().includes(query)
     );
   });
 
@@ -222,10 +231,10 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
                           <Badge
                             className={cn(
                               "text-xs font-semibold px-2 py-0.5 border",
-                              getRoleBadgeColor(u.roleCode || u.role?.code || "")
+                              getRoleBadgeColor(resolveRoleCode(u))
                             )}
                           >
-                            {getRoleLabel(u.roleCode || u.role?.code || "")}
+                            {getRoleLabel(resolveRoleCode(u))}
                           </Badge>
                         </td>
                         <td className="p-3 text-center">
@@ -332,19 +341,18 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-muted-foreground uppercase">System Role</label>
                 <select
-                  value={addForm.roleCode}
-                  onChange={(e) => setAddForm({ ...addForm, roleCode: e.target.value })}
+                  value={addForm.roleId}
+                  onChange={(e) =>
+                    setAddForm({ ...addForm, roleId: Number(e.target.value) })
+                  }
                   className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm"
                 >
-                  <option value="super_admin">Super Admin</option>
-                  <option value="pmo_lead">PMO Lead</option>
-                  <option value="pm">Project Manager</option>
-                  <option value="team_lead">Team Lead</option>
-                  <option value="engineer">Engineer</option>
-                  <option value="finance">Finance</option>
-                  <option value="hr">HR</option>
-                  <option value="client">Client (External)</option>
-                  <option value="vendor">Vendor (External)</option>
+                  {ROLE_CATALOG.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.label}
+                      {role.code === "client" || role.code === "vendor" ? " (External)" : ""}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="flex gap-2.5 pt-4 border-t mt-6">
@@ -380,19 +388,18 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-muted-foreground uppercase">System Role</label>
                 <select
-                  value={editForm.roleCode}
-                  onChange={(e) => setEditForm({ ...editForm, roleCode: e.target.value })}
+                  value={editForm.roleId}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, roleId: Number(e.target.value) })
+                  }
                   className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm"
                 >
-                  <option value="super_admin">Super Admin</option>
-                  <option value="pmo_lead">PMO Lead</option>
-                  <option value="pm">Project Manager</option>
-                  <option value="team_lead">Team Lead</option>
-                  <option value="engineer">Engineer</option>
-                  <option value="finance">Finance</option>
-                  <option value="hr">HR</option>
-                  <option value="client">Client (External)</option>
-                  <option value="vendor">Vendor (External)</option>
+                  {ROLE_CATALOG.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.label}
+                      {role.code === "client" || role.code === "vendor" ? " (External)" : ""}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="flex items-center gap-3 pt-2">

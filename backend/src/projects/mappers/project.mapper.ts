@@ -18,6 +18,7 @@ import {
   ApiPriorityLevel,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
+import type { AppAbility } from '../../casl/casl.types';
 
 export type ProjectWithRelations = Project & {
   department?: Department;
@@ -97,7 +98,15 @@ export function toPrismaCurrency(value: ApiCurrencyCode): CurrencyCode {
   return CURRENCY_TO_PRISMA[value];
 }
 
-export function toApiProject(project: ProjectWithRelations) {
+export function toApiProject(
+  project: ProjectWithRelations,
+  options: { ability?: AppAbility | null } = {},
+) {
+  const showFinancials =
+    !options.ability ||
+    options.ability.can('manage', 'Settings') ||
+    options.ability.can('read', 'Financial');
+
   return {
     id: project.id,
     name: project.name,
@@ -111,8 +120,12 @@ export function toApiProject(project: ProjectWithRelations) {
     priority: project.priority as ApiPriorityLevel,
     startDate: project.startDate.toISOString().slice(0, 10),
     endDate: project.endDate.toISOString().slice(0, 10),
-    value: Number(project.value),
-    currency: CURRENCY_FROM_PRISMA[project.currency],
+    ...(showFinancials
+      ? {
+          value: Number(project.value),
+          currency: CURRENCY_FROM_PRISMA[project.currency],
+        }
+      : {}),
     primaryPmId: project.primaryPmId,
     secondaryPmId: project.secondaryPmId,
     status: STATUS_FROM_PRISMA[project.status],

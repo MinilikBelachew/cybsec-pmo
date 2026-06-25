@@ -23,6 +23,13 @@ import {
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
+import type { AppAbility } from "@/domains/auth/casl/define-ability";
+import type { CaslAction } from "@/domains/auth/casl/casl.constants";
+
+export type NavPermission = {
+  action: CaslAction;
+  subject: string;
+};
 
 export type NavChild = {
   id: string;
@@ -30,6 +37,7 @@ export type NavChild = {
   icon: LucideIcon;
   href: string;
   badge?: string;
+  permission?: NavPermission;
 };
 
 export type NavSection = {
@@ -38,213 +46,224 @@ export type NavSection = {
   icon: LucideIcon;
   href?: string;
   children?: NavChild[];
-  roles: string[];
+  permission?: NavPermission;
 };
 
 export const sidebarNav: NavSection[] = [
-  // ── 1. My Workspace ───────────────────────────────────────────────────────
   {
     id: "workspace",
     label: "My Workspace",
     icon: LayoutDashboard,
     href: "/dashboard",
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager", "team_lead", "member", "consultant", "hr", "finance", "client"],
   },
-
-  // ── 2. Projects ───────────────────────────────────────────────────────────
   {
     id: "projects",
     label: "Projects",
     icon: FolderKanban,
     href: "/dashboard/projects",
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager", "team_lead", "consultant"],
+    permission: { action: "read", subject: "Project" },
   },
-
-  // ── 3. Project Execution ─────────────────────────────────────────────────
   {
     id: "execution",
     label: "Project Execution",
     icon: CheckSquare,
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager", "team_lead", "member", "consultant"],
+    permission: { action: "read", subject: "Task" },
     children: [
       {
         id: "tasks",
         label: "Active Tasks",
         icon: CheckSquare,
         href: "/dashboard/tasks",
+        permission: { action: "read", subject: "Task" },
       },
       {
         id: "gantt",
         label: "Gantt & Dependencies",
         icon: GanttChartSquare,
         href: "/dashboard/gantt",
+        permission: { action: "read", subject: "Project" },
       },
       {
         id: "documents",
         label: "Document Vault",
         icon: FileStack,
         href: "/dashboard/documents",
-      },
-      {
-        id: "audit",
-        label: "Audit Trail",
-        icon: ClipboardList,
-        href: "/dashboard/audit",
+        permission: { action: "read", subject: "Document" },
       },
     ],
   },
-
-  // ── 4. Resource & Time ────────────────────────────────────────────────────
   {
     id: "resources",
     label: "Resource & Time",
     icon: Users,
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager", "team_lead", "member", "consultant", "hr"],
+    permission: { action: "read", subject: "Team" },
     children: [
       {
         id: "team-dir",
         label: "Team Directory",
         icon: Users,
         href: "/dashboard/team",
+        permission: { action: "read", subject: "Team" },
       },
       {
         id: "log-hours",
         label: "Log Hours",
         icon: Clock,
         href: "/dashboard/timesheets/log",
+        permission: { action: "update", subject: "Task" },
       },
       {
         id: "approvals",
         label: "Approval Queue",
         icon: CheckCircle,
         href: "/dashboard/timesheets/approvals",
+        permission: { action: "approve", subject: "Task" },
       },
     ],
   },
-
-  // ── 5. Risk & Issues ──────────────────────────────────────────────────────
   {
     id: "risk",
     label: "Risk & Issues",
     icon: AlertTriangle,
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager", "team_lead", "consultant"],
+    permission: { action: "read", subject: "Project" },
     children: [
       {
         id: "risk-register",
         label: "Risk Register",
         icon: AlertTriangle,
         href: "/dashboard/risks",
+        permission: { action: "read", subject: "Project" },
       },
       {
         id: "issues",
         label: "Issue Tracker",
         icon: Bug,
         href: "/dashboard/issues",
+        permission: { action: "update", subject: "Project" },
       },
     ],
   },
-
-  // ── 6. Financials ─────────────────────────────────────────────────────────
   {
     id: "finance",
     label: "Financials",
     icon: Wallet,
-    roles: ["super_admin", "admin", "pmo_lead", "finance"],
+    permission: { action: "read", subject: "Project" },
     children: [
       {
         id: "budget",
         label: "Budget Tracker",
         icon: Wallet,
         href: "/dashboard/budget",
+        permission: { action: "read", subject: "Project" },
       },
       {
         id: "revenue",
         label: "Revenue & CRM Sync",
         icon: TrendingUp,
         href: "/dashboard/revenue",
+        permission: { action: "read", subject: "Project" },
       },
       {
         id: "expenses",
         label: "Expense Claims",
         icon: Receipt,
         href: "/dashboard/expenses",
+        permission: { action: "update", subject: "Project" },
       },
     ],
   },
-
-  // ── 7. Reports ────────────────────────────────────────────────────────────
   {
     id: "reports",
     label: "Reports",
     icon: FileText,
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager", "hr", "finance"],
+    permission: { action: "read", subject: "Report" },
     children: [
-      { id: "report-library",   label: "Report Library",       icon: FileText,   href: "/dashboard/reports" },
-      { id: "status-reports",   label: "Status Reports",        icon: Calendar,   href: "/dashboard/reports/status" },
-      { id: "analytics",        label: "Analytics",             icon: BarChart3,  href: "/dashboard/reports/analytics" },
-      { id: "project-health",   label: "Project Health",        icon: CheckSquare,href: "/dashboard/reports/health" },
-      { id: "financial-summary",label: "Financial Summary",     icon: Wallet,     href: "/dashboard/reports/financial" },
-      { id: "utilization",      label: "Utilization",           icon: PieChart,   href: "/dashboard/reports/utilization" },
-      { id: "scheduled",        label: "Scheduled Reports",     icon: Clock,      href: "/dashboard/reports/scheduled" },
+      { id: "report-library", label: "Report Library", icon: FileText, href: "/dashboard/reports", permission: { action: "read", subject: "Report" } },
+      { id: "status-reports", label: "Status Reports", icon: Calendar, href: "/dashboard/reports/status", permission: { action: "read", subject: "Report" } },
+      { id: "analytics", label: "Analytics", icon: BarChart3, href: "/dashboard/reports/analytics", permission: { action: "read", subject: "Report" } },
+      { id: "project-health", label: "Project Health", icon: CheckSquare, href: "/dashboard/reports/health", permission: { action: "read", subject: "Project" } },
+      { id: "financial-summary", label: "Financial Summary", icon: Wallet, href: "/dashboard/reports/financial", permission: { action: "read", subject: "Project" } },
+      { id: "utilization", label: "Utilization", icon: PieChart, href: "/dashboard/reports/utilization", permission: { action: "read", subject: "Report" } },
+      { id: "scheduled", label: "Scheduled Reports", icon: Clock, href: "/dashboard/reports/scheduled", permission: { action: "read", subject: "Report" } },
     ],
   },
-
-  // ── 8. External Access ────────────────────────────────────────────────────
   {
     id: "external",
     label: "External Access",
     icon: Globe,
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager"],
+    permission: { action: "read", subject: "Project" },
     children: [
       {
         id: "client-portal",
         label: "Client Portal",
         icon: Globe,
         href: "/dashboard/portals/client",
+        permission: { action: "read", subject: "Project" },
       },
       {
         id: "vendor",
         label: "Vendor Management",
         icon: Store,
         href: "/dashboard/portals/vendor",
+        permission: { action: "read", subject: "Task" },
       },
     ],
   },
-
-  // ── 9. Settings ───────────────────────────────────────────────────────────
+  {
+    id: "audit-trail",
+    label: "Audit Trail",
+    icon: ClipboardList,
+    href: "/dashboard/audit",
+    permission: { action: "read", subject: "AuditLog" },
+  },
   {
     id: "settings",
     label: "Settings",
     icon: KeyRound,
     href: "/dashboard/settings",
-    roles: ["super_admin", "admin"],
+    permission: { action: "read", subject: "User" },
   },
-
-  // ── AI Assistant ───────────────────────────────────────────────────────────
   {
     id: "assistant",
     label: "AI Assistant",
     icon: Sparkles,
     href: "/dashboard/assistant",
-    roles: ["super_admin", "admin", "pmo_lead", "project_manager", "team_lead", "member", "consultant"],
+    permission: { action: "read", subject: "Task" },
   },
 ];
 
-export function getVisibleSections(userRoles: string[]): NavSection[] {
-  if (!userRoles || userRoles.length === 0) return [];
-  
-  // Normalize backend role codes to frontend roles
-  const normalizedRoles = userRoles.map((role) => {
-    if (role === "pm") return "project_manager";
-    if (role === "engineer") return "member";
-    if (role === "it_admin") return "super_admin";
-    if (role === "sales") return "member";
-    return role;
-  });
-
-  if (normalizedRoles.includes("super_admin")) {
-    return sidebarNav;
-  }
-  return sidebarNav.filter((s) => s.roles.some((r) => normalizedRoles.includes(r)));
+function canSee(
+  ability: AppAbility | null,
+  permission?: NavPermission,
+): boolean {
+  if (!permission) return true;
+  if (!ability) return false;
+  return ability.can(permission.action, permission.subject);
 }
 
+export function getVisibleSections(
+  ability: AppAbility | null,
+  permissionsLoaded = false,
+): NavSection[] {
+  if (!permissionsLoaded) {
+    return sidebarNav;
+  }
+
+  return sidebarNav
+    .map((section) => {
+      if (section.children) {
+        const children = section.children.filter((child) =>
+          canSee(ability, child.permission ?? section.permission),
+        );
+        if (children.length === 0) return null;
+        if (!canSee(ability, section.permission) && children.length === 0) {
+          return null;
+        }
+        return { ...section, children };
+      }
+
+      if (!canSee(ability, section.permission)) return null;
+      return section;
+    })
+    .filter((section): section is NavSection => section !== null);
+}

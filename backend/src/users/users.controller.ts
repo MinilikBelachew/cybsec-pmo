@@ -11,6 +11,7 @@ import {
   HttpStatus,
   HttpCode,
   SerializeOptions,
+  UseInterceptors,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -21,10 +22,10 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { Roles } from '../roles/roles.decorator';
-import { RoleEnum } from '../roles/roles.enum';
 import { AuthGuard } from '@nestjs/passport';
-
+import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
+import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CaslGuard } from '../casl/casl.guard';
 import {
   InfinityPaginationResponse,
   InfinityPaginationResponseDto,
@@ -33,12 +34,11 @@ import { NullableType } from '../utils/types/nullable.type';
 import { QueryUserDto } from './dto/query-user.dto';
 import { User } from './domain/user';
 import { UsersService } from './users.service';
-import { RolesGuard } from '../roles/roles.guard';
 import { infinityPagination } from '../utils/infinity-pagination';
 
 @ApiBearerAuth()
-@Roles(RoleEnum.super_admin, RoleEnum.it_admin)
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('Users')
 @Controller({
   path: 'users',
@@ -47,6 +47,7 @@ import { infinityPagination } from '../utils/infinity-pagination';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @CheckAbility('create', 'User')
   @ApiCreatedResponse({
     type: User,
   })
@@ -59,6 +60,7 @@ export class UsersController {
     return this.usersService.create(createProfileDto);
   }
 
+  @CheckAbility('read', 'User')
   @ApiOkResponse({
     type: InfinityPaginationResponse(User),
   })
@@ -89,6 +91,7 @@ export class UsersController {
     );
   }
 
+  @CheckAbility('read', 'User')
   @ApiOkResponse({
     type: User,
   })
@@ -106,6 +109,7 @@ export class UsersController {
     return this.usersService.findById(id);
   }
 
+  @CheckAbility('manage', 'User')
   @ApiOkResponse({
     type: User,
   })
@@ -126,6 +130,7 @@ export class UsersController {
     return this.usersService.update(id, updateProfileDto);
   }
 
+  @CheckAbility('manage', 'User')
   @Delete(':id')
   @ApiParam({
     name: 'id',

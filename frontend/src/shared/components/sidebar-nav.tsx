@@ -6,7 +6,9 @@ import { usePathname, Link } from "@/i18n/routing";
 import { cn } from "@/shared/utils/cn";
 import { getVisibleSections, type NavSection } from "@/config/sidebar.config";
 import { useAuth } from "@/domains/auth";
-import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { useAppAbility } from "@/domains/auth/casl/ability-context";
+import { useAppSelector } from "@/store/hooks";
+import { ROLE_CATALOG } from "@/config/roles.config";
 import { Button } from "@/shared/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/shared/ui/sheet";
 import {
@@ -19,12 +21,13 @@ import {
 } from "lucide-react";
 import { APP_NAME } from "@/shared/constants";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
-import { useRole } from "@/shared/providers/role-provider";
+import { useMediaQuery } from "@/shared/hooks/use-media-query";
 
 export function SidebarNav() {
   const pathname = usePathname();
   const { user } = useAuth();
-  const { userRole } = useRole();
+  const ability = useAppAbility();
+  const permissionsLoaded = useAppSelector((s) => s.auth.permissionsLoaded);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mounted, setMounted] = useState(false);
 
@@ -118,7 +121,7 @@ export function SidebarNav() {
 
   const NavContent = ({ mobile = false }: { mobile?: boolean }) => {
     const isCollapsedLayout = collapsed && !mobile;
-    const visibleSections = getVisibleSections([userRole]);
+    const visibleSections = getVisibleSections(ability, permissionsLoaded);
 
     // Flatten visible items for pinned lookup
     const allPinnableItems = visibleSections.flatMap((s) =>
@@ -149,26 +152,40 @@ export function SidebarNav() {
                 ? isActive(section.href)
                 : section.children?.some((c) => isActive(c.href));
 
+              const iconClass = cn(
+                "group relative flex items-center justify-center size-10 rounded-xl transition-all duration-150 mx-auto",
+                sectionActive
+                  ? "bg-white/20 text-white shadow-inner"
+                  : "text-white/60 hover:bg-white/10 hover:text-white"
+              );
+
+              if (section.href) {
+                return (
+                  <Link
+                    key={section.id}
+                    href={section.href}
+                    title={section.label}
+                    className={iconClass}
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    {sectionActive && (
+                      <span className="absolute right-0.5 top-1/2 -translate-y-1/2 w-1 h-3 rounded-full bg-white" />
+                    )}
+                  </Link>
+                );
+              }
+
               return (
                 <button
                   key={section.id}
-                  onClick={(e) => {
-                    if (section.href) {
-                      window.location.href = `/${userRole}${section.href}`;
-                    } else {
-                      if (collapsed && !mobile) {
-                        handleSetCollapsed(false);
-                      }
-                      toggleSection(section.id);
+                  onClick={() => {
+                    if (collapsed && !mobile) {
+                      handleSetCollapsed(false);
                     }
+                    toggleSection(section.id);
                   }}
                   title={section.label}
-                  className={cn(
-                    "group relative flex items-center justify-center size-10 rounded-xl transition-all duration-150 mx-auto",
-                    sectionActive
-                      ? "bg-white/20 text-white shadow-inner"
-                      : "text-white/60 hover:bg-white/10 hover:text-white"
-                  )}
+                  className={iconClass}
                 >
                   <Icon className="size-4 shrink-0" />
                   {sectionActive && (
@@ -345,7 +362,9 @@ export function SidebarNav() {
               <div className="flex-1 min-w-0">
                 <p className="text-[11px] font-semibold text-foreground truncate whitespace-nowrap">{user?.name || "User"}</p>
                 <p className="text-[9px] text-muted-foreground capitalize truncate whitespace-nowrap">
-                  {userRole.replace("_", " ")}
+                  {ROLE_CATALOG.find((r) => r.code === user?.backendRoleCode)?.label ??
+                    user?.backendRoleCode?.replace(/_/g, " ") ??
+                    "User"}
                 </p>
               </div>
             </div>

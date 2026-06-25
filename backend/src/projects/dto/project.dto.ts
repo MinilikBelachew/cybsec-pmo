@@ -72,11 +72,11 @@ export class ProjectDto {
   @ApiProperty()
   endDate: string;
 
-  @ApiProperty()
-  value: number;
+  @ApiPropertyOptional()
+  value?: number;
 
-  @ApiProperty({ enum: ApiCurrencyCode })
-  currency: ApiCurrencyCode;
+  @ApiPropertyOptional({ enum: ApiCurrencyCode })
+  currency?: ApiCurrencyCode;
 
   @ApiProperty()
   primaryPmId: string;
@@ -143,6 +143,9 @@ export class ProjectManagerDto {
 
   @ApiProperty()
   email: string;
+
+  @ApiProperty()
+  roleId: number;
 
   @ApiProperty()
   roleCode: string;
