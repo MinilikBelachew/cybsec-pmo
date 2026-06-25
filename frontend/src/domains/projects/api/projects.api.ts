@@ -3,6 +3,7 @@ import {
   type CreateProjectDto,
   type Customer,
   type Department,
+  type GetProjectsParams,
   type PaginatedProjectsResponse,
   type Project,
   type ProjectManager,
@@ -12,8 +13,16 @@ import {
 
 export const projectsApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    getProjects: builder.query<PaginatedProjectsResponse, { page?: number; limit?: number }>({
-      query: ({ page = 1, limit = 10 }) => `/projects?page=${page}&limit=${limit}`,
+    getProjects: builder.query<PaginatedProjectsResponse, GetProjectsParams>({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        if (params.page) queryParams.append("page", String(params.page));
+        if (params.limit) queryParams.append("limit", String(params.limit));
+        if (params.search) queryParams.append("search", params.search);
+        if (params.status) queryParams.append("status", params.status);
+        if (params.priority) queryParams.append("priority", params.priority);
+        return `/projects?${queryParams.toString()}`;
+      },
       providesTags: (result) =>
         result
           ? [

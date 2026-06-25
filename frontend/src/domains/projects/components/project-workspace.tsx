@@ -12,6 +12,8 @@ import {
   useDeleteTaskMutation,
   useCreateTaskMutation,
 } from "@/domains/projects";
+import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
+import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { useRole } from "@/shared/providers/role-provider";
@@ -65,69 +67,6 @@ interface Task {
   done: boolean;
 }
 
-// ─── INITIAL MOCK TASKS ───────────────────────────────────────────────────────
-const INITIAL_TASKS: Task[] = [
-  {
-    id: "t1",
-    name: "Set up project structure",
-    assigneeInitials: "AH",
-    assigneeColor: "bg-purple-500",
-    dueDate: "Nov 3",
-    priority: "high",
-    status: "To_Do",
-    comments: 3,
-    hasSubtasks: true,
-    done: false,
-  },
-  {
-    id: "t2",
-    name: "Define API contracts",
-    assigneeInitials: "SP",
-    assigneeColor: "bg-sky-500",
-    dueDate: "Nov 5",
-    priority: "medium",
-    status: "To_Do",
-    comments: 1,
-    done: false,
-  },
-  {
-    id: "t3",
-    name: "Build authentication module",
-    assigneeInitials: "LC",
-    assigneeColor: "bg-emerald-500",
-    dueDate: "Nov 8",
-    priority: "high",
-    status: "In_Progress",
-    comments: 5,
-    hasSubtasks: true,
-    done: false,
-  },
-  {
-    id: "t4",
-    name: "Design system setup",
-    assigneeInitials: "MO",
-    assigneeColor: "bg-amber-500",
-    dueDate: "Nov 10",
-    priority: "low",
-    status: "In_Progress",
-    comments: 2,
-    done: false,
-  },
-  {
-    id: "t5",
-    name: "Project kickoff meeting",
-    assigneeInitials: "AH",
-    assigneeColor: "bg-purple-500",
-    dueDate: "Oct 28",
-    priority: "medium",
-    status: "Done",
-    comments: 0,
-    done: true,
-  },
-];
-
-const STATUS_GROUPS: Status[] = ["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"];
-
 const PRIORITY_STYLES: Record<Priority, string> = {
   critical: "text-red-600 dark:text-red-400 font-bold",
   high: "text-rose-500",
@@ -169,6 +108,14 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "phases", label: "Phases", icon: Flag },
 ];
 
+const PRIORITY_FILTER_TO_API: Record<string, TaskPriority | undefined> = {
+  ALL: undefined,
+  CRITICAL: "Critical",
+  HIGH: "High",
+  MEDIUM: "Medium",
+  LOW: "Low",
+};
+
 export function ProjectWorkspace() {
   const params = useParams();
   const id = params.id as string;
@@ -179,9 +126,32 @@ export function ProjectWorkspace() {
   // Fetch project details
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
 
-  // Fetch tasks
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  const taskQueryParams = useMemo((): GetTasksParams => {
+    const params: GetTasksParams = {
+      projectId: id,
+      limit: 50,
+    };
+    const trimmedSearch = debouncedSearch.trim();
+    if (trimmedSearch) {
+      params.search = trimmedSearch;
+    }
+    if (statusFilter !== "ALL") {
+      params.status = statusFilter;
+    }
+    const priority = PRIORITY_FILTER_TO_API[priorityFilter];
+    if (priority) {
+      params.priority = priority;
+    }
+    return params;
+  }, [id, debouncedSearch, statusFilter, priorityFilter]);
+
   const { data: tasksResponse, isLoading: isTasksLoading, refetch: refetchTasks } =
-    useGetTasksQuery({ projectId: id, limit: 50 });
+    useGetTasksQuery(taskQueryParams);
   
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
@@ -266,9 +236,6 @@ export function ProjectWorkspace() {
   // States
   const [activeView, setActiveView] = useState<View>("list");
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
-  const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
 
 // Side Sheet states
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -368,15 +335,6 @@ export function ProjectWorkspace() {
       toast.error("Failed to update due date");
     }
   };
-
-  const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      const matchesSearch = task.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus = statusFilter === "ALL" || task.status === statusFilter;
-      const matchesPriority = priorityFilter === "ALL" || task.priority === priorityFilter.toLowerCase();
-      return matchesSearch && matchesStatus && matchesPriority;
-    });
-  }, [tasks, searchQuery, statusFilter, priorityFilter]);
 
   if (isLoading) {
     return (
@@ -602,7 +560,7 @@ export function ProjectWorkspace() {
       <div className="flex-1 overflow-hidden">
         {activeView === "list" && (
           <ListView
-            tasks={filteredTasks}
+            tasks={tasks}
             openGroups={openGroups}
             toggleGroup={toggleGroup}
             toggleTask={toggleTask}
@@ -618,7 +576,7 @@ export function ProjectWorkspace() {
 
         {activeView === "board" && (
           <BoardView
-            tasks={filteredTasks}
+            tasks={tasks}
             toggleTask={toggleTask}
             onTaskClick={setSelectedTaskId}
             onAddTask={(status) => {
@@ -633,11 +591,11 @@ export function ProjectWorkspace() {
           />
         )}
 
-        {activeView === "calendar" && <CalendarView tasks={filteredTasks} />}
+        {activeView === "calendar" && <CalendarView tasks={tasks} />}
 
         {activeView === "gantt" && (
           <GanttView
-            tasks={filteredTasks}
+            tasks={tasks}
             toggleTask={toggleTask}
             ganttZoom={ganttZoom}
             setGanttZoom={setGanttZoom}
@@ -648,7 +606,7 @@ export function ProjectWorkspace() {
 
         {activeView === "table" && (
           <TableView
-            tasks={filteredTasks}
+            tasks={tasks}
             toggleTask={toggleTask}
             onTaskClick={setSelectedTaskId}
           />
@@ -657,6 +615,7 @@ export function ProjectWorkspace() {
         {activeView === "phases" && (
           <PhaseView
             projectId={id}
+            taskQueryParams={{ ...taskQueryParams, limit: 100 }}
             onTaskClick={setSelectedTaskId}
             onAddTask={(phaseId) => {
               setSelectedPhaseIdForNewTask(phaseId);

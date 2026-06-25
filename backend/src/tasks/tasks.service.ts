@@ -381,7 +381,7 @@ export class TasksService {
       filters.push({ parentTaskId: null });
     }
     if (query.phaseId) {
-      where.phaseId = query.phaseId;
+      filters.push({ phaseId: query.phaseId });
     }
     if (query.search) {
       filters.push({

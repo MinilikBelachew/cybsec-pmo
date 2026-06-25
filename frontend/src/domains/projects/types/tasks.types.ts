@@ -83,8 +83,10 @@ export interface GetTasksParams {
   parentTaskId?: string;
   topLevelOnly?: boolean;
   status?: string;
+  priority?: TaskPriority;
   search?: string;
   phaseId?: string;
+  ownerId?: string;
 }
 
 export interface CreateTaskBundlePayload {

@@ -9,11 +9,12 @@ import { AppAbility, CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { QueryProjectDto } from './dto/query-project.dto';
 import { CreatePhaseDto } from './dto/create-phase.dto';
 import { UpdatePhaseDto } from './dto/update-phase.dto';
 import { CreateMilestoneDto } from './dto/create-milestone.dto';
 import { UpdateMilestoneDto } from './dto/update-milestone.dto';
-import { IPaginationOptions } from '../utils/types/pagination-options';
+import { ProjectStatus, TaskStatus, PhaseStatus } from '@prisma/client';
 import {
   ApiMethodology,
   ApiPriorityLevel,
@@ -75,21 +76,124 @@ export class ProjectsService {
   }
 
   async findManyWithPagination(
-    paginationOptions: IPaginationOptions,
+    query: QueryProjectDto,
     caslUser: CaslUserContext,
     ability: AppAbility,
   ) {
-    const projects = await this.prisma.project.findMany({
-      where: this.recordScopeWhere.projectWhere(caslUser, 'read'),
-      skip: (paginationOptions.page - 1) * paginationOptions.limit,
-      take: paginationOptions.limit,
-      orderBy: { createdAt: 'desc' },
-      include: PROJECT_INCLUDE,
-    });
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    const filters: Record<string, unknown>[] = [scopeWhere];
 
-    return projects.map((project) =>
-      toApiProject(project as ProjectWithRelations, { ability }),
+    if (query.search?.trim()) {
+      const term = query.search.trim();
+      filters.push({
+        OR: [
+          { name: { contains: term, mode: 'insensitive' } },
+          { objective: { contains: term, mode: 'insensitive' } },
+          { primaryPm: { displayName: { contains: term, mode: 'insensitive' } } },
+          { secondaryPm: { displayName: { contains: term, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    if (query.status) {
+      filters.push({ status: toPrismaStatus(query.status) });
+    }
+
+    if (query.priority) {
+      filters.push({ priority: query.priority });
+    }
+
+    const where = { AND: filters };
+
+    const [projects, statusGroups] = await Promise.all([
+      this.prisma.project.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          ...PROJECT_INCLUDE,
+          _count: {
+            select: {
+              tasks: { where: { parentTaskId: null } },
+              phases: true,
+              milestones: true,
+            },
+          },
+        },
+      }),
+      this.prisma.project.groupBy({
+        by: ['status'],
+        where: scopeWhere,
+        _count: { _all: true },
+      }),
+    ]);
+
+    const projectIds = projects.map((project) => project.id);
+    const [doneTaskGroups, completedPhaseGroups, doneMilestoneGroups] = projectIds.length
+      ? await Promise.all([
+          this.prisma.task.groupBy({
+            by: ['projectId'],
+            where: {
+              projectId: { in: projectIds },
+              parentTaskId: null,
+              status: TaskStatus.Done,
+            },
+            _count: { _all: true },
+          }),
+          this.prisma.projectPhase.groupBy({
+            by: ['projectId'],
+            where: {
+              projectId: { in: projectIds },
+              status: PhaseStatus.Completed,
+            },
+            _count: { _all: true },
+          }),
+          this.prisma.projectMilestone.groupBy({
+            by: ['projectId'],
+            where: {
+              projectId: { in: projectIds },
+              status: 'Done',
+            },
+            _count: { _all: true },
+          }),
+        ])
+      : [[], [], []];
+
+    const doneTaskMap = new Map(
+      doneTaskGroups.map((row) => [row.projectId, row._count._all]),
     );
+    const completedPhaseMap = new Map(
+      completedPhaseGroups.map((row) => [row.projectId, row._count._all]),
+    );
+    const doneMilestoneMap = new Map(
+      doneMilestoneGroups.map((row) => [row.projectId, row._count._all]),
+    );
+
+    const statusCount = (status: ProjectStatus) =>
+      statusGroups.find((group) => group.status === status)?._count._all ?? 0;
+
+    const stats = {
+      total: statusGroups.reduce((sum, group) => sum + group._count._all, 0),
+      active: statusCount(ProjectStatus.Active),
+      atRisk: statusCount(ProjectStatus.Pending_Closure),
+      delayed: statusCount(ProjectStatus.On_Hold),
+      completed: statusCount(ProjectStatus.Closed),
+    };
+
+    const data = projects.map((project) => ({
+      ...toApiProject(project as ProjectWithRelations, { ability }),
+      tasksTotal: project._count.tasks,
+      tasksDone: doneTaskMap.get(project.id) ?? 0,
+      phasesTotal: project._count.phases,
+      phasesCompleted: completedPhaseMap.get(project.id) ?? 0,
+      milestonesTotal: project._count.milestones,
+      milestonesDone: doneMilestoneMap.get(project.id) ?? 0,
+    }));
+
+    return { data, stats, page, limit };
   }
 
   async findById(id: string, caslUser: CaslUserContext, ability: AppAbility) {

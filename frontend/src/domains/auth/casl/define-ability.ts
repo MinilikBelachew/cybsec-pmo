@@ -6,11 +6,25 @@ export type AppAbility = MongoAbility<[CaslAction, string]>;
 
 export function defineAbilityFor(permissions: PermissionRow[]): AppAbility {
   const { can, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
+  const applied = new Set<string>();
 
   for (const permission of permissions) {
     const action = toCaslAction(permission.action);
     const subject = toCaslSubject(permission.module);
+    const key = `${action}:${subject}`;
+    if (applied.has(key)) {
+      continue;
+    }
+    applied.add(key);
     can(action, subject);
+
+    if (permission.action === "edit" && subject === "Task") {
+      const createKey = `create:${subject}`;
+      if (!applied.has(createKey)) {
+        applied.add(createKey);
+        can("create", subject);
+      }
+    }
   }
 
   return build();

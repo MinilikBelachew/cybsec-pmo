@@ -40,6 +40,15 @@ export class CaslAbilityFactory {
       applied.add(key);
 
       can(action, subject);
+
+      // RBAC matrix uses tasks.edit (not tasks.create) for task authoring.
+      if (permission.action === 'edit' && subject === 'Task') {
+        const createKey = `create:${subject}`;
+        if (!applied.has(createKey)) {
+          applied.add(createKey);
+          can('create', subject);
+        }
+      }
     }
 
     return build();

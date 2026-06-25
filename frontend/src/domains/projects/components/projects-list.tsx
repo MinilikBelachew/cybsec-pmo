@@ -1,16 +1,27 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { useGetProjectsQuery } from "../api/projects.api";
+import { useGetProjectsQuery, useDeleteProjectMutation } from "../api/projects.api";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
+import { useDebounce } from "@/shared/hooks/use-debounce";
+import { Button } from "@/shared/ui/button";
+import { DeleteDialog } from "@/shared/ui/delete-dialog";
+import { toast } from "react-hot-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
+import type { GetProjectsParams, PriorityLevel, Project, ProjectStatus } from "../types/projects.types";
 import {
   Search, Plus, LayoutGrid, List, FolderKanban,
-  CheckSquare, AlertTriangle, TrendingUp, MoreHorizontal,
-  ChevronDown, X, Star, ArrowUpRight, Calendar, Milestone, Loader2,
-  Briefcase, DollarSign, Users2, ShieldAlert
+  CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
+  ChevronDown, X, Star, ArrowUpRight, Calendar, Milestone,
+  Pencil, Trash2,
 } from "lucide-react";
 
 // ─── Status Config Mapping ────────────────────────────────────────────────────
@@ -70,18 +81,189 @@ const DEPT_COLOR: Record<string, string> = {
   AppSec: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
 };
 
+const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: string; text: string }> = {
+  Critical: { label: "Critical", dot: "bg-red-500", bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-400" },
+  High: { label: "High", dot: "bg-rose-500", bg: "bg-rose-50 dark:bg-rose-900/20", text: "text-rose-700 dark:text-rose-400" },
+  Medium: { label: "Medium", dot: "bg-amber-400", bg: "bg-amber-50 dark:bg-amber-900/20", text: "text-amber-700 dark:text-amber-400" },
+  Low: { label: "Low", dot: "bg-slate-400", bg: "bg-slate-50 dark:bg-slate-900/20", text: "text-slate-600 dark:text-slate-400" },
+};
+
+const STATUS_FILTER_OPTIONS: { value: ProjectStatus | "all"; label: string; description: string; dot: string }[] = [
+  { value: "all", label: "All statuses", description: "Every project in your portfolio", dot: "bg-muted-foreground" },
+  { value: "Active", label: "Active", description: "Currently in delivery", dot: "bg-emerald-500" },
+  { value: "PendingClosure", label: "At risk", description: "Pending closure review", dot: "bg-rose-500" },
+  { value: "OnHold", label: "On hold", description: "Paused or delayed", dot: "bg-amber-400" },
+  { value: "Closed", label: "Completed", description: "Successfully closed", dot: "bg-primary" },
+  { value: "Draft", label: "Draft", description: "Not yet started", dot: "bg-muted-foreground" },
+];
+
+const PRIORITY_FILTER_OPTIONS: { value: PriorityLevel | "all"; label: string; description: string; dot: string }[] = [
+  { value: "all", label: "All priorities", description: "Any priority level", dot: "bg-muted-foreground" },
+  { value: "Critical", label: "Critical", description: "Highest urgency", dot: "bg-red-500" },
+  { value: "High", label: "High", description: "Important delivery", dot: "bg-rose-500" },
+  { value: "Medium", label: "Medium", description: "Standard priority", dot: "bg-amber-400" },
+  { value: "Low", label: "Low", description: "Lower urgency", dot: "bg-slate-400" },
+];
+
+type ProcessedProject = ReturnType<typeof enrichProject>;
+
+function enrichProject(
+  project: NonNullable<ReturnType<typeof useGetProjectsQuery>["data"]>["data"][number],
+  starredIds: string[],
+) {
+  const tasksTotal = project.tasksTotal ?? 0;
+  const tasksDone = project.tasksDone ?? 0;
+  const milestonesTotal = project.milestonesTotal ?? 0;
+  const milestonesDone = project.milestonesDone ?? 0;
+  const progress =
+    project.status === "Closed"
+      ? 100
+      : project.status === "Draft"
+        ? 0
+        : tasksTotal > 0
+          ? Math.round((tasksDone / tasksTotal) * 100)
+          : 0;
+
+  const budget = project.value || 0;
+  const budgetUsed = budget > 0 ? Math.floor(budget * (progress / 100) * 0.95) : 0;
+
+  const team = [
+    {
+      initials: project.primaryPm?.displayName
+        ? project.primaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase()
+        : "PM",
+      color: "bg-violet-500",
+    },
+  ];
+  if (project.secondaryPm?.displayName) {
+    team.push({
+      initials: project.secondaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase(),
+      color: "bg-sky-500",
+    });
+  }
+
+  return {
+    ...project,
+    description: project.objective || "No objective description provided.",
+    starred: starredIds.includes(project.id),
+    progress,
+    tasksTotal,
+    tasksDone,
+    milestonesTotal,
+    milestonesDone,
+    risks: 0,
+    budget,
+    budgetUsed,
+    team,
+  };
+}
+
+function formatPmShortName(name?: string) {
+  if (!name) return "Unassigned";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  return `${parts[0][0]}. ${parts[parts.length - 1]}`;
+}
+
+function formatProjectTimeline(startDate?: string, endDate?: string) {
+  const format = (value?: string) => {
+    if (!value) return "—";
+    return new Date(value).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  };
+  return `${format(startDate)} → ${format(endDate)}`;
+}
+
+function FilterCardDropdown<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string; description: string; dot: string }[];
+  onChange: (value: T) => void;
+}) {
+  const active = options.find((option) => option.value === value);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-9 gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none",
+              value !== "all" && "border-primary/40 bg-primary/5",
+            )}
+          />
+        }
+      >
+        <span className="text-muted-foreground">{label}</span>
+        <span className="inline-flex items-center gap-1.5 font-medium">
+          {active && active.value !== "all" && (
+            <span className={cn("size-2 rounded-full", active.dot)} />
+          )}
+          <span className="max-w-[120px] truncate">{active?.label ?? label}</span>
+        </span>
+        <ChevronDown className="size-3.5 opacity-50" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64 p-2">
+        <div className="space-y-1">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                value === option.value
+                  ? "border-primary/30 bg-primary/5"
+                  : "border-transparent hover:border-border/60 hover:bg-muted/50",
+              )}
+            >
+              <span className={cn("mt-1.5 size-2.5 shrink-0 rounded-full", option.dot)} />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{option.label}</span>
+                <span className="block text-[11px] text-muted-foreground">{option.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ProjectsList() {
   const ability = useAppAbility();
   const canCreate = ability?.can("create", "Project") ?? false;
+  const canUpdate = ability?.can("update", "Project") ?? false;
+  const canDelete = ability?.can("approve", "Project") ?? false;
   
   const [view, setView] = useState<"grid" | "list">("grid");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [deptFilter, setDeptFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
+  const [priorityFilter, setPriorityFilter] = useState<PriorityLevel | "all">("all");
   const [starredIds, setStarredIds] = useState<string[]>([]);
   const [showNew, setShowNew] = useState(false);
+  const [editProject, setEditProject] = useState<Project | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProcessedProject | null>(null);
+  const debouncedSearch = useDebounce(search, 300);
 
-  const { data, isLoading, isError, refetch } = useGetProjectsQuery({ page: 1, limit: 100 });
+  const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
+
+  const queryParams = useMemo((): GetProjectsParams => {
+    const params: GetProjectsParams = { page: 1, limit: 100 };
+    const trimmedSearch = debouncedSearch.trim();
+    if (trimmedSearch) params.search = trimmedSearch;
+    if (statusFilter !== "all") params.status = statusFilter;
+    if (priorityFilter !== "all") params.priority = priorityFilter;
+    return params;
+  }, [debouncedSearch, statusFilter, priorityFilter]);
+
+  const { data, isLoading, isError, refetch } = useGetProjectsQuery(queryParams);
 
   useEffect(() => {
     const saved = localStorage.getItem("pmo_starred_projects");
@@ -102,87 +284,31 @@ export function ProjectsList() {
 
   const processedProjects = useMemo(() => {
     if (!data?.data) return [];
-    return data.data.map((project) => {
-      const numId = project.id.split("-").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      
-      let progress = 40;
-      if (project.status === "Closed") progress = 100;
-      else if (project.status === "Draft") progress = 0;
-      else if (project.status === "OnHold") progress = 35;
-      else {
-        progress = 30 + (numId % 56);
-      }
-
-      const tasksTotal = 15 + (numId % 45);
-      const tasksDone = Math.floor(tasksTotal * (progress / 100));
-      const milestonesTotal = 3 + (numId % 5);
-      const milestonesDone = Math.floor(milestonesTotal * (progress / 100));
-      const budget = project.value || 120;
-      const budgetUsed = Math.floor(budget * (progress / 100) * 0.95);
-      const risks = (numId % 4) + (project.priority === "Critical" ? 3 : project.priority === "High" ? 1 : 0);
-
-      const team = [
-        { initials: project.primaryPm?.displayName ? project.primaryPm.displayName.split(" ").map(n => n[0]).join("").toUpperCase() : "PM", color: "bg-violet-500" }
-      ];
-      if (project.secondaryPm?.displayName) {
-        team.push({ initials: project.secondaryPm.displayName.split(" ").map(n => n[0]).join("").toUpperCase(), color: "bg-sky-500" });
-      }
-      if (numId % 2 === 0) team.push({ initials: "LC", color: "bg-emerald-500" });
-      if (numId % 3 === 0) team.push({ initials: "MO", color: "bg-amber-500" });
-
-      return {
-        ...project,
-        description: project.objective || "No objective description provided.",
-        statusLabel: project.status,
-        starred: starredIds.includes(project.id),
-        progress,
-        tasksTotal,
-        tasksDone,
-        milestonesTotal,
-        milestonesDone,
-        budget,
-        budgetUsed,
-        risks,
-        team
-      };
-    });
+    return data.data.map((project) => enrichProject(project, starredIds));
   }, [data, starredIds]);
 
-  const stats = useMemo(() => {
-    const list = processedProjects;
-    return {
-      total: list.length,
-      active: list.filter((p) => p.status === "Active").length,
-      atRisk: list.filter((p) => p.status === "PendingClosure").length,
-      delayed: list.filter((p) => p.status === "OnHold").length,
-      completed: list.filter((p) => p.status === "Closed").length,
-    };
-  }, [processedProjects]);
+  const stats = data?.stats ?? {
+    total: processedProjects.length,
+    active: processedProjects.filter((p) => p.status === "Active").length,
+    atRisk: processedProjects.filter((p) => p.status === "PendingClosure").length,
+    delayed: processedProjects.filter((p) => p.status === "OnHold").length,
+    completed: processedProjects.filter((p) => p.status === "Closed").length,
+  };
 
-  const filteredProjects = useMemo(() => {
-    return processedProjects.filter((p) => {
-      const matchSearch =
-        !search ||
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.description.toLowerCase().includes(search.toLowerCase()) ||
-        (p.primaryPm?.displayName ?? "").toLowerCase().includes(search.toLowerCase());
-      
-      const matchStatus =
-        statusFilter === "all" ||
-        (statusFilter === "active" && p.status === "Active") ||
-        (statusFilter === "at-risk" && p.status === "PendingClosure") ||
-        (statusFilter === "delayed" && p.status === "OnHold") ||
-        (statusFilter === "completed" && p.status === "Closed") ||
-        (statusFilter === "on-hold" && p.status === "Draft");
+  const hasActiveFilters =
+    Boolean(debouncedSearch.trim()) || statusFilter !== "all" || priorityFilter !== "all";
 
-      const matchDept =
-        deptFilter === "all" ||
-        p.department?.name === deptFilter ||
-        p.department?.code === deptFilter;
-
-      return matchSearch && matchStatus && matchDept;
-    });
-  }, [processedProjects, search, statusFilter, deptFilter]);
+  const handleDeleteProject = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteProject(deleteTarget.id).unwrap();
+      toast.success("Project deleted successfully");
+      setDeleteTarget(null);
+      refetch();
+    } catch {
+      toast.error("Failed to delete project");
+    }
+  };
 
   return (
     <div className="space-y-6 pb-10">
@@ -212,23 +338,22 @@ export function ProjectsList() {
       {/* ── Summary Strip ── */}
       <div className="grid grid-cols-5 gap-3">
         {[
-          { label: "Total", value: stats.total, filterVal: "all", color: "text-foreground", bg: "bg-card border-border/50" },
-          { label: "Active", value: stats.active, filterVal: "active", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-900/10" },
-          { label: "At Risk", value: stats.atRisk, filterVal: "at-risk", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-900/10" },
-          { label: "Delayed", value: stats.delayed, filterVal: "delayed", color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-50 dark:bg-rose-900/20 border-rose-100 dark:border-rose-900/10" },
-          { label: "Completed", value: stats.completed, filterVal: "completed", color: "text-primary", bg: "bg-primary/10 border-primary/20" },
+          { label: "Total", value: stats.total, filterVal: "all" as const },
+          { label: "Active", value: stats.active, filterVal: "Active" as const },
+          { label: "At Risk", value: stats.atRisk, filterVal: "PendingClosure" as const },
+          { label: "Delayed", value: stats.delayed, filterVal: "OnHold" as const },
+          { label: "Completed", value: stats.completed, filterVal: "Closed" as const },
         ].map((s) => (
           <button
             key={s.label}
             onClick={() => setStatusFilter(s.filterVal)}
             className={cn(
-              "flex flex-col items-center justify-center py-3 rounded-xl border transition-all hover:border-primary/40 cursor-pointer shadow-xs",
-              s.bg,
-              statusFilter === s.filterVal ? "ring-2 ring-primary/40 scale-[1.01]" : ""
+              "flex flex-col items-center justify-center rounded-xl border border-border/60 bg-card py-3.5 transition-all hover:bg-muted/30 cursor-pointer",
+              statusFilter === s.filterVal && "border-foreground/20 bg-muted/40 ring-1 ring-foreground/10",
             )}
           >
-            <span className={cn("text-2xl font-bold", s.color)}>{s.value}</span>
-            <span className="text-xs text-muted-foreground mt-0.5">{s.label}</span>
+            <span className="text-2xl font-bold text-foreground">{s.value}</span>
+            <span className="mt-0.5 text-xs text-muted-foreground">{s.label}</span>
           </button>
         ))}
       </div>
@@ -255,44 +380,26 @@ export function ProjectsList() {
           )}
         </div>
 
-        {/* Status Dropdown */}
-        <div className="relative">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="h-9 pl-3 pr-8 rounded-xl bg-muted/45 border border-border/50 text-sm outline-none focus:ring-1 focus:ring-primary/30 appearance-none cursor-pointer text-foreground font-medium"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="at-risk">At Risk</option>
-            <option value="delayed">Delayed</option>
-            <option value="completed">Completed</option>
-            <option value="on-hold">On Hold</option>
-          </select>
-          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-        </div>
-
-        {/* Dept Dropdown */}
-        <div className="relative">
-          <select
-            value={deptFilter}
-            onChange={(e) => setDeptFilter(e.target.value)}
-            className="h-9 pl-3 pr-8 rounded-xl bg-muted/45 border border-border/50 text-sm outline-none focus:ring-1 focus:ring-primary/30 appearance-none cursor-pointer text-foreground font-medium"
-          >
-            <option value="all">All Departments</option>
-            <option value="SOC">SOC</option>
-            <option value="GRC">GRC</option>
-            <option value="Cloud">Cloud</option>
-            <option value="AppSec">AppSec</option>
-          </select>
-          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-        </div>
+        {/* Filters */}
+        <FilterCardDropdown
+          label="Status"
+          value={statusFilter}
+          options={STATUS_FILTER_OPTIONS}
+          onChange={setStatusFilter}
+        />
+        <FilterCardDropdown
+          label="Priority"
+          value={priorityFilter}
+          options={PRIORITY_FILTER_OPTIONS}
+          onChange={setPriorityFilter}
+        />
 
         <div className="flex-1" />
 
         {/* Count */}
         <span className="text-xs text-muted-foreground">
-          {filteredProjects.length} of {processedProjects.length}
+          {processedProjects.length} of {stats.total}
+          {hasActiveFilters ? " matching" : ""}
         </span>
 
         {/* Grid/List View Toggles */}
@@ -331,7 +438,7 @@ export function ProjectsList() {
         </div>
       )}
 
-      {!isLoading && !isError && filteredProjects.length === 0 && (
+      {!isLoading && !isError && processedProjects.length === 0 && (
         <div className="flex flex-col items-center justify-center py-24 text-center space-y-3">
           <div className="size-14 rounded-2xl bg-muted/40 border border-border/40 flex items-center justify-center">
             <FolderKanban className="size-7 text-muted-foreground" />
@@ -342,7 +449,7 @@ export function ProjectsList() {
             onClick={() => {
               setSearch("");
               setStatusFilter("all");
-              setDeptFilter("all");
+              setPriorityFilter("all");
             }}
             className="text-xs text-primary hover:underline font-semibold"
           >
@@ -351,187 +458,251 @@ export function ProjectsList() {
         </div>
       )}
 
-      {!isLoading && !isError && filteredProjects.length > 0 && (
+      {!isLoading && !isError && processedProjects.length > 0 && (
         view === "grid" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredProjects.map((p) => (
-              <ProjectGridCard key={p.id} project={p} onToggleStar={toggleStar} />
+            {processedProjects.map((p) => (
+              <ProjectGridCard
+                key={p.id}
+                project={p}
+                onToggleStar={toggleStar}
+                onEdit={canUpdate ? setEditProject : undefined}
+                onDelete={canDelete ? setDeleteTarget : undefined}
+              />
             ))}
           </div>
         ) : (
-          <ProjectListView projects={filteredProjects} onToggleStar={toggleStar} />
+          <ProjectListView
+            projects={processedProjects}
+            onToggleStar={toggleStar}
+            onEdit={canUpdate ? setEditProject : undefined}
+            onDelete={canDelete ? setDeleteTarget : undefined}
+          />
         )
       )}
 
       {/* ── New Project Side Sheet ── */}
       <CreateProjectSheet open={showNew} onClose={() => setShowNew(false)} refetch={refetch} />
+      <CreateProjectSheet
+        open={Boolean(editProject)}
+        project={editProject}
+        onClose={() => setEditProject(null)}
+        refetch={refetch}
+      />
+      <DeleteDialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteProject}
+        isDeleting={isDeleting}
+        title="Delete project?"
+        description={
+          deleteTarget
+            ? `This will permanently delete "${deleteTarget.name}" and cannot be undone.`
+            : ""
+        }
+      />
     </div>
   );
 }
 
 // ─── Subcomponents ───────────────────────────────────────────────────────────
 
-function ProjectGridCard({ project: p, onToggleStar }: { project: any; onToggleStar: (id: string) => void }) {
+function ProjectGridCard({
+  project: p,
+  onToggleStar,
+  onEdit,
+  onDelete,
+}: {
+  project: ProcessedProject;
+  onToggleStar: (id: string) => void;
+  onEdit?: (project: Project) => void;
+  onDelete?: (project: ProcessedProject) => void;
+}) {
   const router = useRouter();
   const s = STATUS_CONFIG[p.status] || STATUS_CONFIG.Draft;
-  const budgetPct = Math.round((p.budgetUsed / p.budget) * 100);
+  const budgetPct = p.budget > 0 ? Math.round((p.budgetUsed / p.budget) * 100) : 0;
   const overBudget = budgetPct > 90;
+  const showActions = Boolean(onEdit || onDelete);
 
   return (
-    <div className="group flex flex-col bg-card border border-border/60 rounded-2xl hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200 overflow-hidden">
-      <div className="p-5 flex flex-col gap-4 flex-1">
-        
-        {/* Header */}
+    <div className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
+      <div className="flex flex-1 flex-col gap-4 p-5">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            
-            {/* Badges */}
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border", s.bg, s.text, s.border)}>
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold", s.bg, s.text, s.border)}>
                 <span className={cn("size-1.5 rounded-full", s.dot)} />
                 {s.label}
               </span>
-              <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", DEPT_COLOR[p.department?.name] || DEPT_COLOR.Engineering)}>
+              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", DEPT_COLOR[p.department?.name ?? ""] || DEPT_COLOR.Engineering)}>
                 {p.department?.name || "Direct"}
               </span>
-              <span className="text-[10px] text-muted-foreground font-medium">
-                {METHODOLOGY_EMOJI[p.methodology] || "⚡"} {p.methodology || "Agile"}
+              <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {METHODOLOGY_EMOJI[p.methodology] || "🔀"} {p.methodology || "Hybrid"}
               </span>
             </div>
 
-            <h3 className="text-base font-bold text-foreground leading-tight truncate">{p.name}</h3>
-            <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{p.description}</p>
+            <h3 className="truncate text-base font-bold leading-tight text-foreground">{p.name}</h3>
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{p.description}</p>
           </div>
 
-          {/* Star & Options */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex shrink-0 items-center gap-0.5">
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleStar(p.id);
               }}
-              className={cn("p-1 rounded-lg transition-colors", p.starred ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400")}
+              className={cn("rounded-lg p-1 transition-colors", p.starred ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400")}
             >
               <Star className={cn("size-4", p.starred && "fill-amber-400")} />
             </button>
-            <button className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/65 transition-all">
-              <MoreHorizontal className="size-4" />
-            </button>
+
+            {showActions && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="rounded-lg p-1 text-muted-foreground opacity-0 transition-all hover:bg-muted/65 hover:text-foreground group-hover:opacity-100"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  }
+                >
+                  <MoreHorizontal className="size-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  {onEdit && (
+                    <DropdownMenuItem
+                      className="cursor-pointer gap-2"
+                      onClick={() => onEdit(p)}
+                    >
+                      <Pencil className="size-3.5" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {onDelete && (
+                    <DropdownMenuItem
+                      className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
+                      onClick={() => onDelete(p)}
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
 
-        {/* Progress */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-muted-foreground">Progress</span>
             <span className="text-[11px] font-bold text-foreground">{p.progress}%</span>
           </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                p.progress === 100 ? "bg-emerald-500" :
-                p.progress >= 60  ? "bg-primary" :
-                p.progress >= 30  ? "bg-amber-400" : "bg-rose-400"
-              )}
+              className="h-full rounded-full bg-primary transition-all duration-500"
               style={{ width: `${p.progress}%` }}
             />
           </div>
         </div>
 
-        {/* Stats Row */}
         <div className="grid grid-cols-3 gap-2">
           <StatPill icon={CheckSquare} label="Tasks" value={`${p.tasksDone}/${p.tasksTotal}`} />
           <StatPill icon={Milestone} label="Milestones" value={`${p.milestonesDone}/${p.milestonesTotal}`} />
-          <StatPill icon={AlertTriangle} label="Risks" value={String(p.risks)} alert={p.risks >= 3} />
+          <StatPill icon={AlertTriangle} label="Risks" value={String(p.risks)} />
         </div>
 
-        {/* Budget */}
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-muted/40 border border-border/40">
-          <TrendingUp className={cn("size-3.5 shrink-0", overBudget ? "text-rose-500" : "text-muted-foreground")} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-muted-foreground">Budget</span>
-              <span className={cn("text-[10px] font-bold", overBudget ? "text-rose-500" : "text-foreground")}>
-                ${p.budgetUsed}k / ${p.budget}k
-              </span>
+        {p.budget > 0 && (
+          <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/40 p-2.5">
+            <TrendingUp className={cn("size-3.5 shrink-0", overBudget ? "text-rose-500" : "text-muted-foreground")} />
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground">Budget</span>
+                <span className={cn("text-[10px] font-bold", overBudget ? "text-rose-500" : "text-foreground")}>
+                  ${p.budgetUsed}k / ${p.budget}k
+                </span>
+              </div>
+              <div className="h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn("h-full rounded-full transition-all", overBudget ? "bg-rose-400" : "bg-emerald-400")}
+                  style={{ width: `${Math.min(budgetPct, 100)}%` }}
+                />
+              </div>
             </div>
-            <div className="h-1 rounded-full bg-muted overflow-hidden">
-              <div
-                className={cn("h-full rounded-full transition-all", overBudget ? "bg-rose-400" : "bg-emerald-400")}
-                style={{ width: `${Math.min(budgetPct, 100)}%` }}
-              />
-            </div>
+            <span className={cn("shrink-0 text-[10px] font-bold", overBudget ? "text-rose-500" : "text-muted-foreground")}>
+              {budgetPct}%
+            </span>
           </div>
-          <span className={cn("text-[10px] font-bold shrink-0", overBudget ? "text-rose-500" : "text-muted-foreground")}>
-            {budgetPct}%
-          </span>
-        </div>
+        )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-1 border-t border-border/40">
-          {/* Team Initials */}
+        <div className="flex items-center justify-between border-t border-border/40 pt-1">
           <div className="flex items-center -space-x-1.5">
-            {p.team.slice(0, 4).map((m: any, i: number) => (
+            {p.team.slice(0, 4).map((member: { initials: string; color: string }, index: number) => (
               <span
-                key={i}
-                className={cn("inline-flex items-center justify-center size-6 rounded-full text-[9px] font-bold text-white border-2 border-card", m.color)}
-                title={m.initials}
+                key={index}
+                className={cn("inline-flex size-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-white", member.color)}
+                title={member.initials}
               >
-                {m.initials}
+                {member.initials}
               </span>
             ))}
-            {p.team.length > 4 && (
-              <span className="inline-flex items-center justify-center size-6 rounded-full text-[9px] font-bold bg-muted text-muted-foreground border-2 border-card">
-                +{p.team.length - 4}
-              </span>
-            )}
           </div>
 
-          {/* Dates & PM info */}
           <div className="text-end">
-            <p className="text-[10px] font-semibold text-foreground">{p.primaryPm?.displayName || "Unassigned"}</p>
-            <div className="flex items-center gap-1 text-[10px] text-muted-foreground justify-end">
+            <p className="text-[10px] font-semibold text-foreground">{formatPmShortName(p.primaryPm?.displayName)}</p>
+            <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
               <Calendar className="size-3" />
-              {p.startDate ? p.startDate.slice(0, 10) : "—"} → {p.endDate ? p.endDate.slice(0, 10) : "—"}
+              {formatProjectTimeline(p.startDate, p.endDate)}
             </div>
           </div>
         </div>
-
       </div>
 
-      {/* View Details Action Button */}
       <div className="px-5 pb-4">
         <button
+          type="button"
           onClick={() => router.push(`/dashboard/projects/${p.id}`)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-border/50 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all group/btn"
+          className="group/btn flex w-full items-center justify-center gap-1.5 rounded-xl border border-border/50 py-2 text-xs font-semibold text-muted-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
         >
           Open Project
-          <ArrowUpRight className="size-3.5 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
+          <ArrowUpRight className="size-3.5 transition-transform group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5" />
         </button>
       </div>
     </div>
   );
 }
 
-function StatPill({ icon: Icon, label, value, alert }: { icon: any; label: string; value: string; alert?: boolean }) {
+function StatPill({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 p-2 rounded-xl bg-muted/40 border border-border/30">
-      <Icon className={cn("size-3.5", alert ? "text-rose-500" : "text-muted-foreground")} />
-      <span className={cn("text-sm font-bold", alert ? "text-rose-500" : "text-foreground")}>{value}</span>
-      <span className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</span>
+    <div className="flex flex-col items-center gap-0.5 rounded-xl border border-border/30 bg-muted/40 p-2">
+      <Icon className="size-3.5 text-muted-foreground" />
+      <span className="text-sm font-bold text-foreground">{value}</span>
+      <span className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</span>
     </div>
   );
 }
 
-function ProjectListView({ projects, onToggleStar }: { projects: any[]; onToggleStar: (id: string) => void }) {
+function ProjectListView({
+  projects,
+  onToggleStar,
+  onEdit,
+  onDelete,
+}: {
+  projects: ProcessedProject[];
+  onToggleStar: (id: string) => void;
+  onEdit?: (project: Project) => void;
+  onDelete?: (project: ProcessedProject) => void;
+}) {
   const router = useRouter();
   return (
     <div className="rounded-2xl border border-border/60 overflow-hidden bg-card">
       
       {/* Table Header */}
       <div className="grid grid-cols-[2fr_1fr_1fr_120px_100px_80px_80px_40px] gap-3 px-5 py-3 border-b border-border/50 bg-muted/30">
-        {["Project", "PM", "Department", "Progress", "Timeline", "Tasks", "Risks", ""].map((h) => (
+        {["Project", "PM", "Priority", "Progress", "Timeline", "Tasks", "Milestones", ""].map((h) => (
           <div key={h} className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
             {h}
           </div>
@@ -542,6 +713,7 @@ function ProjectListView({ projects, onToggleStar }: { projects: any[]; onToggle
       <div className="divide-y divide-border/30">
         {projects.map((p) => {
           const s = STATUS_CONFIG[p.status] || STATUS_CONFIG.Draft;
+          const priority = PRIORITY_CONFIG[p.priority as PriorityLevel] ?? PRIORITY_CONFIG.Medium;
           return (
             <div
               key={p.id}
@@ -582,9 +754,9 @@ function ProjectListView({ projects, onToggleStar }: { projects: any[]; onToggle
                 <span className="text-xs text-muted-foreground truncate">{p.primaryPm?.displayName || "Unassigned"}</span>
               </div>
 
-              {/* Dept */}
-              <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full w-fit", DEPT_COLOR[p.department?.name] || DEPT_COLOR.Engineering)}>
-                {p.department?.name || "Direct"}
+              {/* Priority */}
+              <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full w-fit", priority.bg, priority.text)}>
+                {priority.label}
               </span>
 
               {/* Progress */}
@@ -615,15 +787,45 @@ function ProjectListView({ projects, onToggleStar }: { projects: any[]; onToggle
                 <span className="text-muted-foreground font-normal">/{p.tasksTotal}</span>
               </div>
 
-              {/* Risks */}
-              <div className={cn("text-xs font-bold", p.risks >= 3 ? "text-rose-500" : p.risks >= 1 ? "text-amber-500" : "text-muted-foreground")}>
-                {p.risks > 0 ? `⚠️ ${p.risks}` : "—"}
+              {/* Milestones */}
+              <div className="text-xs font-semibold text-foreground">
+                {p.milestonesDone}
+                <span className="text-muted-foreground font-normal">/{p.milestonesTotal}</span>
               </div>
 
-              {/* Action trigger */}
-              <button className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/65 transition-all">
-                <MoreHorizontal className="size-4" />
-              </button>
+              {/* Actions */}
+              {(onEdit || onDelete) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <button
+                        type="button"
+                        className="rounded-lg p-1 text-muted-foreground opacity-0 transition-all hover:bg-muted/65 hover:text-foreground group-hover:opacity-100"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    }
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    {onEdit && (
+                      <DropdownMenuItem className="cursor-pointer gap-2" onClick={() => onEdit(p)}>
+                        <Pencil className="size-3.5" />
+                        Edit
+                      </DropdownMenuItem>
+                    )}
+                    {onDelete && (
+                      <DropdownMenuItem
+                        className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
+                        onClick={() => onDelete(p)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           );
         })}

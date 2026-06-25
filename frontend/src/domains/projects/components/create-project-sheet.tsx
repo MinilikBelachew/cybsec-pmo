@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -9,9 +9,11 @@ import {
   useGetCustomersQuery,
   useGetProjectManagersQuery,
   useCreateProjectMutation,
+  useUpdateProjectMutation,
   createProjectSchema,
   toCreateProjectPayload,
   type CreateProjectFormValues,
+  type Project,
 } from "@/domains/projects";
 import {
   Select,
@@ -45,10 +47,34 @@ interface CreateProjectSheetProps {
   open: boolean;
   onClose: () => void;
   refetch?: () => void;
+  project?: Project | null;
 }
 
-export function CreateProjectSheet({ open, onClose, refetch }: CreateProjectSheetProps) {
-  const [createProject, { isLoading: isSubmitting }] = useCreateProjectMutation();
+function projectToFormValues(project: Project): CreateProjectFormValues {
+  return {
+    name: project.name,
+    objective: project.objective,
+    departmentId: project.departmentId,
+    customerId: project.customerId,
+    methodology: project.methodology,
+    primaryPmId: project.primaryPmId,
+    secondaryPmId: project.secondaryPmId ?? "",
+    startDate: new Date(project.startDate),
+    endDate: new Date(project.endDate),
+    value: project.value,
+    currency: project.currency,
+    engagementType: project.engagementType,
+    billingModel: project.billingModel,
+    priority: project.priority,
+    status: project.status,
+  };
+}
+
+export function CreateProjectSheet({ open, onClose, refetch, project }: CreateProjectSheetProps) {
+  const isEditMode = Boolean(project);
+  const [createProject, { isLoading: isCreating }] = useCreateProjectMutation();
+  const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
+  const isSubmitting = isCreating || isUpdating;
 
   const { data: departments = [] } = useGetDepartmentsQuery();
   const { data: customers = [] } = useGetCustomersQuery();
@@ -59,6 +85,7 @@ export function CreateProjectSheet({ open, onClose, refetch }: CreateProjectShee
     watch,
     control,
     register,
+    reset,
     formState: { errors },
   } = useForm<CreateProjectFormValues>({
     resolver: zodResolver(createProjectSchema) as import("react-hook-form").Resolver<CreateProjectFormValues>,
@@ -82,21 +109,52 @@ export function CreateProjectSheet({ open, onClose, refetch }: CreateProjectShee
     mode: "onChange",
   });
 
+  useEffect(() => {
+    if (!open) return;
+    if (project) {
+      reset(projectToFormValues(project));
+    } else {
+      reset({
+        name: "",
+        objective: "",
+        departmentId: "",
+        customerId: "",
+        methodology: "Agile",
+        primaryPmId: "",
+        secondaryPmId: "",
+        startDate: "" as any,
+        endDate: "" as any,
+        value: "" as any,
+        currency: "USD",
+        engagementType: "FixedPrice",
+        billingModel: "FixedPrice",
+        priority: "Medium",
+        status: "Draft",
+      });
+    }
+  }, [open, project, reset]);
+
   const onSubmit = handleSubmit(async (values) => {
     try {
-      await createProject(toCreateProjectPayload(values)).unwrap();
-      toast.success("Project created successfully!");
+      const payload = toCreateProjectPayload(values);
+      if (isEditMode && project) {
+        await updateProject({ id: project.id, body: payload }).unwrap();
+        toast.success("Project updated successfully!");
+      } else {
+        await createProject(payload).unwrap();
+        toast.success("Project created successfully!");
+      }
       refetch?.();
       onClose();
     } catch (err: any) {
-      console.error("Project creation failed:", err);
+      console.error("Project save failed:", err);
       const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
       const fieldErrors = apiError?.data?.errors;
       if (fieldErrors) {
         const firstError = Object.values(fieldErrors)[0];
-        toast.error(typeof firstError === "string" ? firstError : "Failed to create project.");
+        toast.error(typeof firstError === "string" ? firstError : "Failed to save project.");
       } else {
-        toast.error(apiError?.data?.message ?? "Failed to create project. Please try again.");
+        toast.error(apiError?.data?.message ?? "Failed to save project. Please try again.");
       }
     }
   });
@@ -142,10 +200,12 @@ export function CreateProjectSheet({ open, onClose, refetch }: CreateProjectShee
           <SheetHeader className="shrink-0 border-b border-slate-100 px-8 py-5 text-left dark:border-white/[0.06]">
             <SheetTitle className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-900 dark:text-white">
               <FolderKanban className="size-5 text-primary" />
-              New Project
+              {isEditMode ? "Edit Project" : "New Project"}
             </SheetTitle>
             <SheetDescription className="text-xs text-slate-500 dark:text-slate-400">
-              Configure project specifications inside a unified ledger
+              {isEditMode
+                ? "Update project specifications and delivery settings"
+                : "Configure project specifications inside a unified ledger"}
             </SheetDescription>
           </SheetHeader>
 
@@ -643,7 +703,7 @@ export function CreateProjectSheet({ open, onClose, refetch }: CreateProjectShee
           </Button>
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Create Project
+            {isEditMode ? "Save Changes" : "Create Project"}
           </Button>
         </SheetFooter>
         </form>

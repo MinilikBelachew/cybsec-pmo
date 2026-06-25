@@ -99,21 +99,31 @@ export class ProjectsController {
   async findAll(
     @Query() query: QueryProjectDto,
     @Request() request: RequestWithAbility,
-  ): Promise<InfinityPaginationResponseDto<ProjectDto>> {
+  ): Promise<InfinityPaginationResponseDto<ProjectDto> & {
+    stats: {
+      total: number;
+      active: number;
+      atRisk: number;
+      delayed: number;
+      completed: number;
+    };
+  }> {
     const page = query?.page ?? 1;
     let limit = query?.limit ?? 10;
     if (limit > 50) {
       limit = 50;
     }
 
-    return infinityPagination(
-      await this.projectsService.findManyWithPagination(
-        { page, limit },
-        request.caslUser!,
-        request.ability!,
-      ),
-      { page, limit },
+    const result = await this.projectsService.findManyWithPagination(
+      { ...query, page, limit },
+      request.caslUser!,
+      request.ability!,
     );
+
+    return {
+      ...infinityPagination(result.data, { page, limit }),
+      stats: result.stats,
+    };
   }
 
   @CheckAbility('read', 'Project')
@@ -158,7 +168,7 @@ export class ProjectsController {
     return this.projectsService.remove(id, request.caslUser!, request.ability!);
   }
 
-  @Roles(...PROJECT_READ_ROLES)
+  @CheckAbility('read', 'Project')
   @Get(':id/phases')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -166,7 +176,7 @@ export class ProjectsController {
     return this.projectsService.findPhases(id);
   }
 
-  @Roles(...PROJECT_WRITE_ROLES)
+  @CheckAbility('update', 'Project')
   @Post(':id/phases')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -177,7 +187,7 @@ export class ProjectsController {
     return this.projectsService.createPhase(id, dto);
   }
 
-  @Roles(...PROJECT_WRITE_ROLES)
+  @CheckAbility('update', 'Project')
   @Patch(':id/phases/:phaseId')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -189,7 +199,7 @@ export class ProjectsController {
     return this.projectsService.updatePhase(phaseId, dto);
   }
 
-  @Roles(RoleEnum.super_admin, RoleEnum.pmo_lead)
+  @CheckAbility('approve', 'Project')
   @Delete(':id/phases/:phaseId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -200,7 +210,7 @@ export class ProjectsController {
     return this.projectsService.removePhase(phaseId);
   }
 
-  @Roles(...PROJECT_READ_ROLES)
+  @CheckAbility('read', 'Project')
   @Get(':id/milestones')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -208,7 +218,7 @@ export class ProjectsController {
     return this.projectsService.findMilestones(id);
   }
 
-  @Roles(...PROJECT_WRITE_ROLES)
+  @CheckAbility('update', 'Project')
   @Post(':id/milestones')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -219,7 +229,7 @@ export class ProjectsController {
     return this.projectsService.createMilestone(id, dto);
   }
 
-  @Roles(...PROJECT_WRITE_ROLES)
+  @CheckAbility('update', 'Project')
   @Patch(':id/milestones/:milestoneId')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -231,7 +241,7 @@ export class ProjectsController {
     return this.projectsService.updateMilestone(milestoneId, dto);
   }
 
-  @Roles(RoleEnum.super_admin, RoleEnum.pmo_lead)
+  @CheckAbility('approve', 'Project')
   @Delete(':id/milestones/:milestoneId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })

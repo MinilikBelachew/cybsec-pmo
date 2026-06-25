@@ -1,6 +1,10 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, IsOptional } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
+import {
+  ApiPriorityLevel,
+  ApiProjectStatus,
+} from '../enums/project-api.enum';
 
 export class QueryProjectDto {
   @ApiPropertyOptional({ default: 1 })
@@ -14,4 +18,19 @@ export class QueryProjectDto {
   @IsNumber()
   @IsOptional()
   limit?: number;
+
+  @ApiPropertyOptional({ example: 'security audit' })
+  @IsString()
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({ enum: ApiProjectStatus })
+  @IsEnum(ApiProjectStatus)
+  @IsOptional()
+  status?: ApiProjectStatus;
+
+  @ApiPropertyOptional({ enum: ApiPriorityLevel })
+  @IsEnum(ApiPriorityLevel)
+  @IsOptional()
+  priority?: ApiPriorityLevel;
 }

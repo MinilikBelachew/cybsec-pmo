@@ -38,16 +38,21 @@ import {
 } from "lucide-react";
 import { PhaseStatus } from "../../types/projects.types";
 
+import type { GetTasksParams } from "../../types/tasks.types";
+
 interface PhaseViewProps {
   projectId: string;
+  taskQueryParams?: GetTasksParams;
   onTaskClick: (taskId: string) => void;
   onAddTask: (phaseId: string) => void;
 }
 
-export function PhaseView({ projectId, onTaskClick, onAddTask }: PhaseViewProps) {
+export function PhaseView({ projectId, taskQueryParams, onTaskClick, onAddTask }: PhaseViewProps) {
   const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(projectId);
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(projectId);
-  const { data: tasksResponse, isLoading: isTasksLoading } = useGetTasksQuery({ projectId, limit: 100 });
+  const { data: tasksResponse, isLoading: isTasksLoading } = useGetTasksQuery(
+    taskQueryParams ?? { projectId, limit: 100 }
+  );
 
   const [createPhase, { isLoading: isCreatingPhase }] = useCreatePhaseMutation();
   const [updatePhase, { isLoading: isUpdatingPhase }] = useUpdatePhaseMutation();

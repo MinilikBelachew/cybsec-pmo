@@ -107,6 +107,24 @@ export class ProjectDto {
 
   @ApiPropertyOptional({ type: ProjectPmDto, nullable: true })
   secondaryPm?: ProjectPmDto | null;
+
+  @ApiPropertyOptional({ example: 12 })
+  tasksTotal?: number;
+
+  @ApiPropertyOptional({ example: 5 })
+  tasksDone?: number;
+
+  @ApiPropertyOptional({ example: 4 })
+  phasesTotal?: number;
+
+  @ApiPropertyOptional({ example: 2 })
+  phasesCompleted?: number;
+
+  @ApiPropertyOptional({ example: 6 })
+  milestonesTotal?: number;
+
+  @ApiPropertyOptional({ example: 3 })
+  milestonesDone?: number;
 }
 
 export class DepartmentDto {
