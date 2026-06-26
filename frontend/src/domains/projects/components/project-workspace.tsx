@@ -300,7 +300,13 @@ export function ProjectWorkspace() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<Status>("To_Do");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskDetailDefaultTab, setTaskDetailDefaultTab] = useState<"comments" | "subtasks" | undefined>(undefined);
   const [parentTaskId, setParentTaskId] = useState<string | null>(null);
+
+  const openTaskDetail = (taskId: string, initialTab?: "comments" | "subtasks") => {
+    setTaskDetailDefaultTab(initialTab);
+    setSelectedTaskId(taskId);
+  };
 
   // Gantt Zoom state
   const [ganttZoom, setGanttZoom] = useState(1);
@@ -666,12 +672,15 @@ export function ProjectWorkspace() {
             openGroups={openGroups}
             toggleGroup={toggleGroup}
             toggleTask={toggleTask}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
             onAddTask={(status) => {
               setParentTaskId(null);
               setNewTaskStatus(status);
               setIsSheetOpen(true);
             }}
+            onDeleteTask={handleDeleteTask}
+            onDuplicateTask={handleDuplicateTask}
+            onMoveTask={handleMoveTask}
             phases={phases}
           />
         )}
@@ -680,7 +689,7 @@ export function ProjectWorkspace() {
           <BoardView
             tasks={tasks}
             toggleTask={toggleTask}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
             onAddTask={(status) => {
               setParentTaskId(null);
               setNewTaskStatus(status);
@@ -703,6 +712,7 @@ export function ProjectWorkspace() {
             setGanttZoom={setGanttZoom}
             phases={phases}
             milestones={milestones}
+            onTaskClick={openTaskDetail}
           />
         )}
 
@@ -710,7 +720,16 @@ export function ProjectWorkspace() {
           <TableView
             tasks={tasks}
             toggleTask={toggleTask}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
+            onAddTask={(status) => {
+              setParentTaskId(null);
+              setNewTaskStatus(status);
+              setIsSheetOpen(true);
+            }}
+            onDeleteTask={handleDeleteTask}
+            onDuplicateTask={handleDuplicateTask}
+            onMoveTask={handleMoveTask}
+            onSetDueDate={handleSetDueDate}
           />
         )}
 
@@ -719,7 +738,7 @@ export function ProjectWorkspace() {
             ref={phaseViewRef}
             projectId={id}
             taskQueryParams={{ ...taskQueryParams, limit: 100 }}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
             onAddTask={(phaseId) => {
               setSelectedPhaseIdForNewTask(phaseId);
               setNewTaskStatus("To_Do");
@@ -754,9 +773,13 @@ export function ProjectWorkspace() {
         taskId={selectedTaskId}
         projectId={id}
         open={!!selectedTaskId}
-        onClose={() => setSelectedTaskId(null)}
+        onClose={() => {
+          setSelectedTaskId(null);
+          setTaskDetailDefaultTab(undefined);
+        }}
         onOpenSubTask={(subId) => setSelectedTaskId(subId)}
         onUpdated={() => refetchTasks()}
+        initialTab={taskDetailDefaultTab}
       />
 
       <PhaseMilestonePanel

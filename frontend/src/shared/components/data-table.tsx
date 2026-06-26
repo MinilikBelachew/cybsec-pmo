@@ -187,6 +187,12 @@ export function DataTable<TData, TValue>({
           getPaginationRowModel: getPaginationRowModel(),
           getSortedRowModel: getSortedRowModel(),
           getFilteredRowModel: getFilteredRowModel(),
+          initialState: {
+            pagination: {
+              pageIndex,
+              pageSize,
+            },
+          },
         }),
     onColumnVisibilityChange: setColumnVisibility,
     state: {
@@ -194,7 +200,7 @@ export function DataTable<TData, TValue>({
       columnFilters,
       columnVisibility,
       rowSelection,
-      pagination: manual ? { pageIndex, pageSize: resolvedPageSize } : undefined,
+      ...(manual ? { pagination: { pageIndex, pageSize: resolvedPageSize } } : {}),
     },
   });
 
