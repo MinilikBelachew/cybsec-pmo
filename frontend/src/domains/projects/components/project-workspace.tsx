@@ -11,6 +11,7 @@ import {
   useGetMilestonesQuery,
   useDeleteTaskMutation,
   useCreateTaskMutation,
+  useGetProjectManagersQuery,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
 import { useDebounce } from "@/shared/hooks/use-debounce";
@@ -33,6 +34,8 @@ import {
   ChevronRight,
   CheckCircle2,
   Clock,
+  Upload,
+  Download,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -49,6 +52,8 @@ import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
 import { AddTaskSheet } from "./add-task-sheet";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { PhaseMilestonePanel } from "./phase-milestone-panel";
+import { convertTasksToCSV } from "../utils/import-export";
+import { ImportTasksDialog } from "./import-tasks-dialog";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -164,6 +169,7 @@ export function ProjectWorkspace() {
   }>({ isOpen: false, taskId: null });
 
   const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
 
   // Fetch phases
@@ -171,6 +177,9 @@ export function ProjectWorkspace() {
 
   // Fetch milestones
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id);
+
+  // Fetch managers/users for assignee mapping
+  const { data: managers = [] } = useGetProjectManagersQuery();
 
   const recentMilestones = useMemo(() => {
     return [...milestones]
@@ -189,6 +198,25 @@ export function ProjectWorkspace() {
         };
       });
   }, [milestones]);
+
+  const handleExport = () => {
+    try {
+      const csvContent = convertTasksToCSV(tasksResponse?.data || [], phases, managers);
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${project?.name || "project"}_tasks.csv`);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("Tasks exported to CSV successfully.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to export tasks to CSV.");
+    }
+  };
 
   const tasks = useMemo(() => {
     if (!tasksResponse?.data) return [];
@@ -543,28 +571,55 @@ export function ProjectWorkspace() {
 
           <div className="flex-1" />
 
-          {/* Action button */}
-          {activeView === "phases" ? (
-            <Button
-              onClick={() => {
-                phaseViewRef.current?.openAddPhase();
-              }}
-            >
-              <Plus className="mr-1.5 size-4" />
-              Add Phase
-            </Button>
-          ) : (
-            <Button
-              onClick={() => {
-                setParentTaskId(null);
-                setNewTaskStatus("To_Do");
-                setIsSheetOpen(true);
-              }}
-            >
-              <Plus className="mr-1.5 size-4" />
-              Add Task
-            </Button>
-          )}
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            {activeView !== "phases" && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsImportOpen(true)}
+                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                >
+                  <Upload className="size-4" />
+                  Import Tasks
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                >
+                  <Download className="size-4" />
+                  Export Tasks
+                </Button>
+              </>
+            )}
+
+            {activeView === "phases" ? (
+              <Button
+                onClick={() => {
+                  phaseViewRef.current?.openAddPhase();
+                }}
+                className="h-9 text-xs rounded-xl"
+              >
+                <Plus className="mr-1.5 size-4" />
+                Add Phase
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  setParentTaskId(null);
+                  setNewTaskStatus("To_Do");
+                  setIsSheetOpen(true);
+                }}
+                className="h-9 text-xs rounded-xl"
+              >
+                <Plus className="mr-1.5 size-4" />
+                Add Task
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -682,6 +737,13 @@ export function ProjectWorkspace() {
         title="Delete Task"
         description="Are you sure you want to delete this task? This action cannot be undone."
         isDeleting={isDeletingTask}
+      />
+
+      <ImportTasksDialog
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        refetch={refetchTasks}
+        projectId={id}
       />
     </div>
   );

@@ -1,4 +1,5 @@
-import { Department, Customer, ProjectManager, CreateProjectDto } from "../types/projects.types";
+import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase } from "../types/projects.types";
+import { Task } from "../types/tasks.types";
 
 /**
  * Parses a standard CSV string into a 2D array of string cells,
@@ -423,3 +424,245 @@ export function processRawCSVRows(
     };
   });
 }
+
+export function convertTasksToCSV(
+  tasks: Task[],
+  phases: ProjectPhase[],
+  managers: ProjectManager[]
+): string {
+  const headers = [
+    "Title",
+    "Description",
+    "Priority",
+    "Status",
+    "Assignee",
+    "Phase",
+    "Start Date",
+    "End Date",
+    "Effort Hours"
+  ];
+
+  const escapeCSV = (str: any) => {
+    if (str == null) return "";
+    const s = String(str);
+    if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+
+  const rows = tasks.map((t) => {
+    const assigneeName = t.owner?.displayName || managers.find((m) => m.id === t.ownerId)?.displayName || "";
+    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
+
+    return [
+      t.title || "",
+      t.description || "",
+      t.priority || "",
+      t.status || "",
+      assigneeName,
+      phaseName,
+      t.startDate ? t.startDate.split("T")[0] : "",
+      t.endDate ? t.endDate.split("T")[0] : "",
+      t.effortHours != null ? String(t.effortHours) : "",
+    ].map(escapeCSV);
+  });
+
+  return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+}
+
+export interface ParsedTaskRow {
+  title: string;
+  description: string;
+  priority: string;
+  status: string;
+  assigneeName: string;
+  phaseName: string;
+  startDate: string;
+  endDate: string;
+  effortHours: number;
+
+  resolvedAssigneeId?: string | null;
+  resolvedPhaseId?: string | null;
+
+  errors: string[];
+  warnings: string[];
+}
+
+export function processRawTaskCSVRows(
+  csvData: string[][],
+  phases: ProjectPhase[],
+  managers: ProjectManager[]
+): ParsedTaskRow[] {
+  if (csvData.length <= 1) return [];
+
+  const headers = csvData[0].map((h) => h.toLowerCase());
+  const rows = csvData.slice(1);
+
+  const getIndex = (aliases: string[]) => {
+    return headers.findIndex((h) => aliases.includes(h.trim()));
+  };
+
+  const titleIdx = getIndex(["title", "task title", "name", "task name"]);
+  const descIdx = getIndex(["description", "desc", "details"]);
+  const prioIdx = getIndex(["priority", "priority level"]);
+  const statusIdx = getIndex(["status", "task status"]);
+  const assigneeIdx = getIndex(["assignee", "owner", "pm"]);
+  const phaseIdx = getIndex(["phase", "project phase", "stage"]);
+  const startIdx = getIndex(["start date", "start"]);
+  const endIdx = getIndex(["end date", "end"]);
+  const effortIdx = getIndex(["effort hours", "effort", "hours"]);
+
+  // Pre-scan titles to detect duplicates within the CSV
+  const titleFrequency: Record<string, number> = {};
+  for (const row of rows) {
+    const t = (titleIdx !== -1 && row[titleIdx] ? row[titleIdx].trim() : "").toLowerCase();
+    if (t) titleFrequency[t] = (titleFrequency[t] ?? 0) + 1;
+  }
+
+  return rows.map((row) => {
+    const getVal = (idx: number, fallback = "") => (idx !== -1 && row[idx] ? row[idx].trim() : fallback);
+
+    const title = getVal(titleIdx);
+    const description = getVal(descIdx);
+    const priority = getVal(prioIdx, "Medium");
+    const status = getVal(statusIdx, "To_Do");
+    const assigneeName = getVal(assigneeIdx);
+    const phaseName = getVal(phaseIdx);
+    const startDate = getVal(startIdx);
+    const endDate = getVal(endIdx);
+    const rawEffort = getVal(effortIdx, "0");
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!title) errors.push("Task title is required.");
+
+    // Duplicate detection within the CSV
+    if (title && (titleFrequency[title.toLowerCase()] ?? 0) > 1) {
+      errors.push(`Duplicate task title "${title}" found in this file.`);
+    }
+
+    // Validate Start Date
+    let isStartValid = false;
+    if (startDate) {
+      const parsedStart = Date.parse(startDate);
+      if (!isNaN(parsedStart)) {
+        isStartValid = true;
+      } else {
+        errors.push("Start date must be a valid date (YYYY-MM-DD).");
+      }
+    }
+
+    // Validate End Date
+    let isEndValid = false;
+    if (endDate) {
+      const parsedEnd = Date.parse(endDate);
+      if (!isNaN(parsedEnd)) {
+        isEndValid = true;
+      } else {
+        errors.push("End date must be a valid date (YYYY-MM-DD).");
+      }
+    }
+
+    // Validate Range
+    if (isStartValid && isEndValid && startDate && endDate) {
+      if (new Date(startDate).getTime() > new Date(endDate).getTime()) {
+        errors.push("End date must be on or after start date.");
+      }
+    }
+
+    // Validate Effort Hours
+    let effortHours = 0;
+    if (rawEffort) {
+      const parsedEffort = parseFloat(rawEffort.replace(/[^0-9.-]/g, ""));
+      if (isNaN(parsedEffort)) {
+        errors.push("Invalid effort hours.");
+      } else {
+        effortHours = parsedEffort;
+      }
+    }
+
+    // Resolve Assignee
+    let resolvedAssigneeId: string | null = null;
+    if (assigneeName) {
+      const assignee = managers.find(
+        (m) =>
+          m.displayName.toLowerCase() === assigneeName.toLowerCase() ||
+          m.email.toLowerCase() === assigneeName.toLowerCase()
+      );
+      if (assignee) {
+        resolvedAssigneeId = assignee.id;
+      } else {
+        errors.push(`Assignee "${assigneeName}" not found. Please select one.`);
+      }
+    }
+
+    // Resolve Phase
+    let resolvedPhaseId: string | null = null;
+    if (phaseName) {
+      const phase = phases.find(
+        (p) => p.name.toLowerCase() === phaseName.toLowerCase()
+      );
+      if (phase) {
+        resolvedPhaseId = phase.id;
+      } else {
+        errors.push(`Phase "${phaseName}" not found. Please select one.`);
+      }
+    }
+
+    // Normalize select dropdown fields to standard backend API enum values
+    let normalizedPriority = priority;
+    const lowerPriority = priority.toLowerCase().trim();
+    if (["critical"].includes(lowerPriority)) {
+      normalizedPriority = "Critical";
+    } else if (["high"].includes(lowerPriority)) {
+      normalizedPriority = "High";
+    } else if (["medium"].includes(lowerPriority)) {
+      normalizedPriority = "Medium";
+    } else if (["low"].includes(lowerPriority)) {
+      normalizedPriority = "Low";
+    }
+
+    let normalizedStatus = status;
+    const lowerStatus = status.toLowerCase().trim().replace(/[\s-]/g, "_");
+    if (["to_do", "todo", "to do"].includes(lowerStatus)) {
+      normalizedStatus = "To_Do";
+    } else if (["in_progress", "inprogress", "in progress"].includes(lowerStatus)) {
+      normalizedStatus = "In_Progress";
+    } else if (["submitted_for_review", "submittedforreview", "submitted for review"].includes(lowerStatus)) {
+      normalizedStatus = "Submitted_for_Review";
+    } else if (["approved"].includes(lowerStatus)) {
+      normalizedStatus = "Approved";
+    } else if (["rework"].includes(lowerStatus)) {
+      normalizedStatus = "Rework";
+    } else if (["done"].includes(lowerStatus)) {
+      normalizedStatus = "Done";
+    }
+
+    // Add validation errors for invalid enum values
+    if (!["Low", "Medium", "High", "Critical"].includes(normalizedPriority)) {
+      errors.push(`Priority "${priority}" is invalid. Please select one.`);
+    }
+    if (!["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"].includes(normalizedStatus)) {
+      errors.push(`Status "${status}" is invalid. Please select one.`);
+    }
+
+    return {
+      title,
+      description,
+      priority: normalizedPriority,
+      status: normalizedStatus,
+      assigneeName,
+      phaseName,
+      startDate,
+      endDate,
+      effortHours,
+      resolvedAssigneeId,
+      resolvedPhaseId,
+      errors,
+      warnings,
+    };
+  });
+}
+
