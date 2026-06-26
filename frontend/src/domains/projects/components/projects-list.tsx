@@ -1,8 +1,16 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { useGetProjectsQuery, useDeleteProjectMutation } from "../api/projects.api";
+import {
+  useGetProjectsQuery,
+  useDeleteProjectMutation,
+  useGetDepartmentsQuery,
+  useGetCustomersQuery,
+  useGetProjectManagersQuery,
+} from "../api/projects.api";
 import { CreateProjectSheet } from "./create-project-sheet";
+import { ImportProjectsDialog } from "./import-projects-dialog";
+import { convertToCSV } from "../utils/import-export";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
@@ -21,7 +29,7 @@ import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
   ChevronDown, X, Star, ArrowUpRight, Calendar, Milestone,
-  Pencil, Trash2,
+  Pencil, Trash2, Download, Upload,
 } from "lucide-react";
 
 // ─── Status Config Mapping ────────────────────────────────────────────────────
@@ -248,8 +256,14 @@ export function ProjectsList() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityLevel | "all">("all");
   const [starredIds, setStarredIds] = useState<string[]>([]);
   const [showNew, setShowNew] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProcessedProject | null>(null);
+
+  // Fetch metadata lists for export resolving
+  const { data: departments = [] } = useGetDepartmentsQuery();
+  const { data: customers = [] } = useGetCustomersQuery();
+  const { data: managers = [] } = useGetProjectManagersQuery();
   const debouncedSearch = useDebounce(search, 300);
 
   const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
@@ -298,6 +312,10 @@ export function ProjectsList() {
   const hasActiveFilters =
     Boolean(debouncedSearch.trim()) || statusFilter !== "all" || priorityFilter !== "all";
 
+  const existingProjectNames = useMemo(() => {
+    return data?.data?.map((p) => p.name) || [];
+  }, [data]);
+
   const handleDeleteProject = async () => {
     if (!deleteTarget) return;
     try {
@@ -307,6 +325,31 @@ export function ProjectsList() {
       refetch();
     } catch {
       toast.error("Failed to delete project");
+    }
+  };
+
+  const handleExportCSV = () => {
+    const projectsToExport = data?.data || [];
+    if (projectsToExport.length === 0) {
+      toast.error("No projects to export.");
+      return;
+    }
+
+    try {
+      const csvContent = convertToCSV(projectsToExport, departments, customers, managers);
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `projects_export_${new Date().toISOString().split("T")[0]}.csv`);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("Portfolio exported successfully to CSV.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to export projects.");
     }
   };
 
@@ -423,6 +466,28 @@ export function ProjectsList() {
             <List className="size-4" />
           </button>
         </div>
+
+        {/* Import/Export Buttons */}
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowImport(true)}
+            className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
+          >
+            <Upload className="size-3.5" />
+            Import
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCSV}
+            className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
+          >
+            <Download className="size-3.5" />
+            Export
+          </Button>
+        </div>
       </div>
 
       {/* ── Content View ── */}
@@ -488,6 +553,12 @@ export function ProjectsList() {
         project={editProject}
         onClose={() => setEditProject(null)}
         refetch={refetch}
+      />
+      <ImportProjectsDialog
+        open={showImport}
+        onClose={() => setShowImport(false)}
+        refetch={refetch}
+        existingProjectNames={existingProjectNames}
       />
       <DeleteDialog
         isOpen={Boolean(deleteTarget)}

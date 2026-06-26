@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -45,7 +45,7 @@ import { BoardView } from "./workspace-views/board-view";
 import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
-import { PhaseView } from "./workspace-views/phase-view";
+import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
 import { AddTaskSheet } from "./add-task-sheet";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { PhaseMilestonePanel } from "./phase-milestone-panel";
@@ -122,6 +122,7 @@ export function ProjectWorkspace() {
 
   const { userRole } = useRole();
   const roleLabel = userRole ? userRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Guest";
+  const phaseViewRef = useRef<PhaseViewRef>(null);
 
   // Fetch project details
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
@@ -543,16 +544,27 @@ export function ProjectWorkspace() {
           <div className="flex-1" />
 
           {/* Action button */}
-          <Button
-            onClick={() => {
-              setParentTaskId(null);
-              setNewTaskStatus("To_Do");
-              setIsSheetOpen(true);
-            }}
-          >
-            <Plus className="mr-1.5 size-4" />
-            Add Task
-          </Button>
+          {activeView === "phases" ? (
+            <Button
+              onClick={() => {
+                phaseViewRef.current?.openAddPhase();
+              }}
+            >
+              <Plus className="mr-1.5 size-4" />
+              Add Phase
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                setParentTaskId(null);
+                setNewTaskStatus("To_Do");
+                setIsSheetOpen(true);
+              }}
+            >
+              <Plus className="mr-1.5 size-4" />
+              Add Task
+            </Button>
+          )}
         </div>
       </div>
 
@@ -614,6 +626,7 @@ export function ProjectWorkspace() {
 
         {activeView === "phases" && (
           <PhaseView
+            ref={phaseViewRef}
             projectId={id}
             taskQueryParams={{ ...taskQueryParams, limit: 100 }}
             onTaskClick={setSelectedTaskId}
