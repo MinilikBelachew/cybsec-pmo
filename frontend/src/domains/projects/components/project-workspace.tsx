@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   useGetProjectByIdQuery,
   useGetTasksQuery,
+  useLazyExportTasksQuery,
   useUpdateTaskMutation,
   useGetPhasesQuery,
   useGetMilestonesQuery,
@@ -54,6 +55,7 @@ import { TaskDetailPanel } from "./task-detail-panel";
 import { PhaseMilestonePanel } from "./phase-milestone-panel";
 import { convertTasksToCSV } from "../utils/import-export";
 import { ImportTasksDialog } from "./import-tasks-dialog";
+
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -162,6 +164,7 @@ export function ProjectWorkspace() {
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
   const [createTask] = useCreateTaskMutation();
+  const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
 
   const [deleteTaskConfirm, setDeleteTaskConfirm] = useState<{
     isOpen: boolean;
@@ -170,6 +173,7 @@ export function ProjectWorkspace() {
 
   const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+
   const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
 
   // Fetch phases
@@ -199,9 +203,33 @@ export function ProjectWorkspace() {
       });
   }, [milestones]);
 
-  const handleExport = () => {
+  const handleExport = async () => {
+    const exportToast = toast.loading("Preparing tasks export...");
     try {
-      const csvContent = convertTasksToCSV(tasksResponse?.data || [], phases, managers);
+      const exportParams: GetTasksParams = {
+        projectId: id,
+        topLevelOnly: false,
+      };
+      const trimmedSearch = debouncedSearch.trim();
+      if (trimmedSearch) {
+        exportParams.search = trimmedSearch;
+      }
+      if (statusFilter !== "ALL") {
+        exportParams.status = statusFilter;
+      }
+      const priority = PRIORITY_FILTER_TO_API[priorityFilter];
+      if (priority) {
+        exportParams.priority = priority;
+      }
+
+      const tasksToExport = await triggerExportTasks(exportParams).unwrap();
+      if (!tasksToExport || tasksToExport.length === 0) {
+        toast.dismiss(exportToast);
+        toast.error("No tasks to export.");
+        return;
+      }
+
+      const csvContent = convertTasksToCSV(tasksToExport, phases, managers);
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -211,9 +239,11 @@ export function ProjectWorkspace() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      toast.dismiss(exportToast);
       toast.success("Tasks exported to CSV successfully.");
     } catch (err) {
       console.error(err);
+      toast.dismiss(exportToast);
       toast.error("Failed to export tasks to CSV.");
     }
   };
@@ -588,9 +618,14 @@ export function ProjectWorkspace() {
                   variant="outline"
                   size="sm"
                   onClick={handleExport}
+                  disabled={isExportingTasks}
                   className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
                 >
-                  <Download className="size-4" />
+                  {isExportingTasks ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Download className="size-4" />
+                  )}
                   Export Tasks
                 </Button>
               </>
@@ -748,3 +783,4 @@ export function ProjectWorkspace() {
     </div>
   );
 }
+

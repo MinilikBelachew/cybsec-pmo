@@ -41,6 +41,21 @@ export const tasksApi = api.injectEndpoints({
       },
     }),
 
+    exportTasks: builder.query<Task[], GetTasksParams>({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        if (params.projectId) queryParams.append("projectId", params.projectId);
+        if (params.parentTaskId) queryParams.append("parentTaskId", params.parentTaskId);
+        if (params.topLevelOnly === false) queryParams.append("topLevelOnly", "false");
+        if (params.status) queryParams.append("status", params.status);
+        if (params.priority) queryParams.append("priority", params.priority);
+        if (params.search) queryParams.append("search", params.search);
+        if (params.phaseId) queryParams.append("phaseId", params.phaseId);
+        if (params.ownerId) queryParams.append("ownerId", params.ownerId);
+        return `/tasks/export?${queryParams.toString()}`;
+      },
+    }),
+
     getTaskById: builder.query<Task, string>({
       query: (id) => `/tasks/${id}`,
       providesTags: (result, error, id) => [{ type: "Tasks", id }],
@@ -185,6 +200,8 @@ export const tasksApi = api.injectEndpoints({
 
 export const {
   useGetTasksQuery,
+  useLazyExportTasksQuery,
+  useExportTasksQuery,
   useGetTaskByIdQuery,
   useCreateTaskMutation,
   useCreateTaskBundleMutation,

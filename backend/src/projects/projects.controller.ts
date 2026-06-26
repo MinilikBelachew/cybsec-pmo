@@ -127,6 +127,21 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
+  @Get('export')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: [ProjectDto] })
+  async export(
+    @Query() query: QueryProjectDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<ProjectDto[]> {
+    return this.projectsService.findManyForExport(
+      query,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })

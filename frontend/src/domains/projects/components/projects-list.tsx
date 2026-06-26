@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   useGetProjectsQuery,
+  useLazyExportProjectsQuery,
   useDeleteProjectMutation,
   useGetDepartmentsQuery,
   useGetCustomersQuery,
@@ -29,7 +30,7 @@ import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
   ChevronDown, X, Star, ArrowUpRight, Calendar, Milestone,
-  Pencil, Trash2, Download, Upload,
+  Pencil, Trash2, Download, Upload, Loader2,
 } from "lucide-react";
 
 // ─── Status Config Mapping ────────────────────────────────────────────────────
@@ -267,6 +268,7 @@ export function ProjectsList() {
   const debouncedSearch = useDebounce(search, 300);
 
   const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
+  const [triggerExportProjects, { isFetching: isExporting }] = useLazyExportProjectsQuery();
 
   const queryParams = useMemo((): GetProjectsParams => {
     const params: GetProjectsParams = { page: 1, limit: 100 };
@@ -328,14 +330,22 @@ export function ProjectsList() {
     }
   };
 
-  const handleExportCSV = () => {
-    const projectsToExport = data?.data || [];
-    if (projectsToExport.length === 0) {
-      toast.error("No projects to export.");
-      return;
-    }
+  const handleExportCSV = async () => {
+    const exportParams: GetProjectsParams = {};
+    const trimmedSearch = debouncedSearch.trim();
+    if (trimmedSearch) exportParams.search = trimmedSearch;
+    if (statusFilter !== "all") exportParams.status = statusFilter;
+    if (priorityFilter !== "all") exportParams.priority = priorityFilter;
 
+    const exportToast = toast.loading("Preparing portfolio export...");
     try {
+      const projectsToExport = await triggerExportProjects(exportParams).unwrap();
+      if (!projectsToExport || projectsToExport.length === 0) {
+        toast.dismiss(exportToast);
+        toast.error("No projects to export.");
+        return;
+      }
+
       const csvContent = convertToCSV(projectsToExport, departments, customers, managers);
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
@@ -346,9 +356,11 @@ export function ProjectsList() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      toast.dismiss(exportToast);
       toast.success("Portfolio exported successfully to CSV.");
     } catch (err) {
       console.error(err);
+      toast.dismiss(exportToast);
       toast.error("Failed to export projects.");
     }
   };
@@ -482,9 +494,14 @@ export function ProjectsList() {
             variant="outline"
             size="sm"
             onClick={handleExportCSV}
+            disabled={isExporting}
             className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
           >
-            <Download className="size-3.5" />
+            {isExporting ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
             Export
           </Button>
         </div>
