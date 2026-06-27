@@ -64,12 +64,6 @@ enum BillingModel {
   Time_and_Materials @map("Time & Materials")
 }
 
-enum CurrencyCode {
-  USD
-  AED
-  GBP
-  EUR
-}
 
 enum PartyType {
   Company
@@ -104,6 +98,17 @@ model SecurityDomain {
 
   @@map("security_domains")
 }
+
+model Currency {
+  code             String  @id @db.VarChar(3)
+  name             String  @db.VarChar(100)
+  number           String  @db.VarChar(3)
+  subunitsInUnit   Int     @map("subunits_in_unit")
+  symbol           String? @db.VarChar(10)
+
+  @@map("currencies")
+}
+
 
 // ─────────────────────────────────────────
 // DOMAIN 1: AUTH & RBAC
@@ -369,7 +374,7 @@ model Project {
   actualStartDate   DateTime?      @map("actual_start_date") @db.Date
   actualEndDate     DateTime?      @map("actual_end_date") @db.Date
   value             Decimal?       @db.Decimal(15, 2)
-  currency          CurrencyCode   @default(USD)
+  currency          String         @default("USD") @db.VarChar(10)
   primaryPmId       String         @map("primary_pm_id") @db.Uuid
   secondaryPmId     String?        @map("secondary_pm_id") @db.Uuid
   status            ProjectStatus  @default(Draft)
@@ -738,7 +743,7 @@ model ProjectBudget {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId      String       @unique @map("project_id") @db.Uuid
   baselineAmount Decimal      @map("baseline_amount") @db.Decimal(15, 2)
-  currency       CurrencyCode @default(USD)
+  currency       String       @default("USD") @db.VarChar(10)
   approvedBy     String       @map("approved_by") @db.Uuid
   approvedAt     DateTime     @map("approved_at") @db.Timestamptz
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
@@ -811,7 +816,7 @@ model Invoice {
   zohoInvoiceId      String       @unique @map("zoho_invoice_id") @db.VarChar(100)
   invoiceNumber      String       @map("invoice_number") @db.VarChar(100)
   amount             Decimal      @db.Decimal(15, 2)
-  currency           CurrencyCode @default(USD)
+  currency           String       @default("USD") @db.VarChar(10)
   dueDate            DateTime     @map("due_date") @db.Date
   collectionDate     DateTime?    @map("collection_date") @db.Date
   status             String       @db.VarChar(20)
@@ -1745,7 +1750,7 @@ model ProjectVendor {
   vendorId          String       @map("vendor_id") @db.Uuid
   engagementType    String       @map("engagement_type") @db.VarChar(50)
   agreedCost        Decimal?     @map("agreed_cost") @db.Decimal(12, 2)
-  currency          CurrencyCode @default(USD)
+  currency          String       @default("USD") @db.VarChar(10)
   internalContactId String?      @map("internal_contact_id") @db.Uuid
   startDate         DateTime?    @map("start_date") @db.Date
   endDate           DateTime?    @map("end_date") @db.Date

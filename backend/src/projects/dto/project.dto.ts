@@ -75,8 +75,8 @@ export class ProjectDto {
   @ApiPropertyOptional()
   value?: number;
 
-  @ApiPropertyOptional({ enum: ApiCurrencyCode })
-  currency?: ApiCurrencyCode;
+  @ApiPropertyOptional({ example: 'USD' })
+  currency?: string;
 
   @ApiProperty()
   primaryPmId: string;

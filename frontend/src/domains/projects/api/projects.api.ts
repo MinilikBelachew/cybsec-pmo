@@ -2,6 +2,7 @@ import { api } from "@/core/api/api";
 import {
   type CreateProjectDto,
   type CreateProjectBundleDto,
+  type Currency,
   type Customer,
   type Department,
   type GetProjectsParams,
@@ -67,6 +68,11 @@ export const projectsApi = api.injectEndpoints({
     getProjectManagers: builder.query<ProjectManager[], void>({
       query: () => "/projects/meta/project-managers",
       providesTags: [{ type: "ProjectManagers", id: "LIST" }],
+    }),
+
+    getCurrencies: builder.query<Currency[], void>({
+      query: () => "/currencies",
+      providesTags: [{ type: "Currencies", id: "LIST" }],
     }),
 
     createProject: builder.mutation<Project, CreateProjectDto>({
@@ -297,6 +303,7 @@ export const {
   useGetDepartmentsQuery,
   useGetCustomersQuery,
   useGetProjectManagersQuery,
+  useGetCurrenciesQuery,
   useCreateProjectMutation,
   useCreateProjectBundleMutation,
   useUpdateProjectMutation,

@@ -3,7 +3,14 @@ export type Methodology = "Agile" | "Waterfall" | "Hybrid";
 export type BillingModel = "TimeAndMaterial" | "FixedPrice" | "Retainer";
 export type PriorityLevel = "Low" | "Medium" | "High" | "Critical";
 export type ProjectStatus = "Draft" | "Active" | "OnHold" | "PendingClosure" | "Closed";
-export type CurrencyCode = "USD" | "EUR" | "AED" | "SAR";
+export type CurrencyCode = string;
+
+export interface Currency {
+  code: CurrencyCode;
+  name: string;
+  symbol: string;
+}
+
 
 export interface Department {
   id: string;

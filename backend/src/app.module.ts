@@ -32,6 +32,8 @@ import { RolesModule } from './roles/roles.module';
 import { SettingsModule } from './settings/settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { CurrenciesModule } from './currencies/currencies.module';
 
 @Module({
   imports: [
@@ -108,6 +110,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     RolesModule,
     SettingsModule,
     NotificationsModule,
+    DashboardModule,
+    CurrenciesModule,
     ScheduleModule.forRoot(),
   ],
 })
