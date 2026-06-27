@@ -1,5 +1,18 @@
-import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase } from "../types/projects.types";
+import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectTaskAssignee } from "../types/projects.types";
 import { Task } from "../types/tasks.types";
+
+function findProjectTaskAssignee(
+  assigneeName: string,
+  assignees: ProjectTaskAssignee[],
+): ProjectTaskAssignee | undefined {
+  const normalized = assigneeName.toLowerCase().trim();
+  return assignees.find(
+    (assignee) =>
+      assignee.displayName.toLowerCase() === normalized ||
+      assignee.email.toLowerCase() === normalized ||
+      assignee.name.toLowerCase() === normalized,
+  );
+}
 
 /**
  * Parses a standard CSV string into a 2D array of string cells,
@@ -428,7 +441,7 @@ export function processRawCSVRows(
 export function convertTasksToCSV(
   tasks: Task[],
   phases: ProjectPhase[],
-  managers: ProjectManager[]
+  assignees: ProjectTaskAssignee[]
 ): string {
   const headers = [
     "Title",
@@ -452,7 +465,10 @@ export function convertTasksToCSV(
   };
 
   const rows = tasks.map((t) => {
-    const assigneeName = t.owner?.displayName || managers.find((m) => m.id === t.ownerId)?.displayName || "";
+    const assigneeName =
+      t.owner?.displayName ||
+      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
+      "";
     const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
 
     return [
@@ -494,7 +510,7 @@ export interface ParsedTaskRow {
 export function processRawTaskCSVRows(
   csvData: string[][],
   phases: ProjectPhase[],
-  managers: ProjectManager[]
+  assignees: ProjectTaskAssignee[]
 ): ParsedTaskRow[] {
   if (csvData.length <= 1) return [];
 
@@ -588,15 +604,13 @@ export function processRawTaskCSVRows(
     // Resolve Assignee
     let resolvedAssigneeId: string | null = null;
     if (assigneeName) {
-      const assignee = managers.find(
-        (m) =>
-          m.displayName.toLowerCase() === assigneeName.toLowerCase() ||
-          m.email.toLowerCase() === assigneeName.toLowerCase()
-      );
+      const assignee = findProjectTaskAssignee(assigneeName, assignees);
       if (assignee) {
-        resolvedAssigneeId = assignee.id;
+        resolvedAssigneeId = assignee.userId;
       } else {
-        errors.push(`Assignee "${assigneeName}" not found. Please select one.`);
+        errors.push(
+          `Assignee "${assigneeName}" is not on the project team. Add them to the team first.`,
+        );
       }
     }
 
@@ -806,7 +820,7 @@ export function parseMSPDIXML(xmlText: string): { tasks: MSPDITask[]; resources:
 export function processMSPDITasks(
   parsedData: { tasks: MSPDITask[]; resources: MSPDIResource[] },
   phases: ProjectPhase[],
-  managers: ProjectManager[]
+  assignees: ProjectTaskAssignee[]
 ): ParsedTaskRow[] {
   const { tasks } = parsedData;
   if (tasks.length === 0) return [];
@@ -904,15 +918,13 @@ export function processMSPDITasks(
 
     let resolvedAssigneeId: string | null = null;
     if (assigneeName) {
-      const assignee = managers.find(
-        (m) =>
-          m.displayName.toLowerCase() === assigneeName.toLowerCase() ||
-          m.email.toLowerCase() === assigneeName.toLowerCase()
-      );
+      const assignee = findProjectTaskAssignee(assigneeName, assignees);
       if (assignee) {
-        resolvedAssigneeId = assignee.id;
+        resolvedAssigneeId = assignee.userId;
       } else {
-        errors.push(`Assignee "${assigneeName}" not found. Please select one.`);
+        errors.push(
+          `Assignee "${assigneeName}" is not on the project team. Add them to the team first.`,
+        );
       }
     }
 

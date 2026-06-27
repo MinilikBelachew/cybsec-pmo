@@ -9,6 +9,7 @@ import path from 'path';
 import { AllConfigType } from '../config/config.type';
 
 import { SecurityAlertMailData } from './types/security-alert-mail.type';
+import { NotificationMailData } from './types/notification-mail.type';
 
 @Injectable()
 export class MailService {
@@ -148,6 +149,36 @@ export class MailService {
         details: data.context
           ? JSON.stringify(data.context, null, 2)
           : undefined,
+        app_name: this.configService.get('app.name', { infer: true }),
+      },
+    });
+  }
+
+  async sendNotification(
+    mailData: MailData<NotificationMailData>,
+  ): Promise<void> {
+    const { data } = mailData;
+    const actionTitle = 'Open in Cybsec PMO';
+
+    await this.mailerService.sendMail({
+      to: mailData.to,
+      subject: data.title,
+      text: `${data.body}\n\n${actionTitle}: ${data.link}`,
+      templatePath: path.join(
+        this.configService.getOrThrow('app.workingDirectory', {
+          infer: true,
+        }),
+        'src',
+        'mail',
+        'mail-templates',
+        'notification.hbs',
+      ),
+      context: {
+        displayName: data.displayName,
+        title: data.title,
+        body: data.body,
+        link: data.link,
+        actionTitle,
         app_name: this.configService.get('app.name', { infer: true }),
       },
     });

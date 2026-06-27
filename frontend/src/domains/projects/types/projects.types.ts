@@ -94,6 +94,10 @@ export interface CreateProjectDto {
   status?: ProjectStatus;
 }
 
+export interface CreateProjectBundleDto extends CreateProjectDto {
+  allocations?: CreateProjectTeamPayload["allocations"];
+}
+
 export interface PaginatedProjectsResponse {
   data: Project[];
   hasNextPage: boolean;
@@ -126,4 +130,92 @@ export interface ProjectMilestone {
   status: string;
   createdAt: string;
   phase?: ProjectPhase | null;
+}
+
+export interface TeamCandidate {
+  employeeId: string;
+  name: string;
+  email: string;
+  designation: string;
+  userId: string | null;
+  department: Pick<Department, "id" | "code" | "name">;
+  weeklyCapacityHours: number;
+  allocatedHoursOtherProjects: number;
+  allocatedHoursThisProject: number;
+  allocatedHoursTotal: number;
+  remainingHours: number;
+  utilizationPercent: number;
+  isOverAllocated: boolean;
+  isFullyBooked: boolean;
+  isOnProject: boolean;
+}
+
+export interface ProjectAllocation {
+  id: string;
+  projectId: string;
+  employeeId: string;
+  role: string;
+  hours: number | null;
+  percent: number | null;
+  startDate: string;
+  endDate: string | null;
+  status: string;
+  employee: {
+    id: string;
+    name: string;
+    email: string;
+    designation: string;
+    userId: string | null;
+    department: Pick<Department, "id" | "code" | "name">;
+  };
+  weeklyCapacityHours: number;
+  allocatedHoursTotal: number;
+  remainingHoursTotal: number;
+  utilizationPercent: number;
+  isOverAllocated: boolean;
+}
+
+export interface PendingTeamMember {
+  employeeId: string;
+  name: string;
+  departmentName: string;
+  designation: string;
+  role: string;
+  hoursPerWeek: number;
+  startDate: string;
+  endDate?: string;
+  remainingHours: number;
+  isOverAllocated?: boolean;
+}
+
+export interface GetTeamCandidatesParams {
+  departmentId?: string;
+  projectId?: string;
+}
+
+export interface CreateProjectTeamPayload {
+  allocations: Array<{
+    employeeId: string;
+    role: string;
+    hours?: number;
+    percent?: number;
+    startDate: string;
+    endDate?: string;
+  }>;
+}
+
+export interface CreateProjectTeamResult {
+  created: ProjectAllocation[];
+  warnings: string[];
+}
+
+export interface ProjectTaskAssignee {
+  userId: string;
+  displayName: string;
+  email: string;
+  employeeId: string;
+  name: string;
+  designation: string;
+  role: string;
+  department: Pick<Department, "id" | "code" | "name">;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -8,13 +8,18 @@ import {
   useGetDepartmentsQuery,
   useGetCustomersQuery,
   useGetProjectManagersQuery,
-  useCreateProjectMutation,
+  useCreateProjectBundleMutation,
   useUpdateProjectMutation,
+  useAddProjectTeamMembersMutation,
   createProjectSchema,
   toCreateProjectPayload,
+  ProjectTeamSection,
   type CreateProjectFormValues,
+  type PendingTeamMember,
   type Project,
+  type ProjectTeamSectionHandle,
 } from "@/domains/projects";
+import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import {
   Select,
   SelectContent,
@@ -70,11 +75,43 @@ function projectToFormValues(project: Project): CreateProjectFormValues {
   };
 }
 
+function mergeTeamMembers(
+  pendingMembers: PendingTeamMember[],
+  draftMembers: PendingTeamMember[],
+): PendingTeamMember[] {
+  const byEmployeeId = new Map(
+    pendingMembers.map((member) => [member.employeeId, member]),
+  );
+
+  for (const member of draftMembers) {
+    if (!byEmployeeId.has(member.employeeId)) {
+      byEmployeeId.set(member.employeeId, member);
+    }
+  }
+
+  return Array.from(byEmployeeId.values());
+}
+
+function toAllocationPayload(members: PendingTeamMember[]) {
+  return members.map((member) => ({
+    employeeId: member.employeeId,
+    role: member.role,
+    hours: member.hoursPerWeek,
+    startDate: member.startDate,
+    endDate: member.endDate,
+  }));
+}
+
 export function CreateProjectSheet({ open, onClose, refetch, project }: CreateProjectSheetProps) {
   const isEditMode = Boolean(project);
-  const [createProject, { isLoading: isCreating }] = useCreateProjectMutation();
+  const ability = useAppAbility();
+  const canEditTeam = ability?.can("update", "Project") ?? false;
+  const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
+  const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
+  const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
   const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
-  const isSubmitting = isCreating || isUpdating;
+  const [addProjectTeamMembers, { isLoading: isSavingTeam }] = useAddProjectTeamMembersMutation();
+  const isSubmitting = isCreating || isUpdating || isSavingTeam;
 
   const { data: departments = [] } = useGetDepartmentsQuery();
   const { data: customers = [] } = useGetCustomersQuery();
@@ -110,7 +147,10 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   });
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setPendingTeamMembers([]);
+      return;
+    }
     if (project) {
       reset(projectToFormValues(project));
     } else {
@@ -137,13 +177,43 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const onSubmit = handleSubmit(async (values) => {
     try {
       const payload = toCreateProjectPayload(values);
+      const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
+      const membersToSave = mergeTeamMembers(pendingTeamMembers, draftMembers);
+      let targetProjectId = project?.id;
+
       if (isEditMode && project) {
         await updateProject({ id: project.id, body: payload }).unwrap();
+        targetProjectId = project.id;
         toast.success("Project updated successfully!");
+
+        if (targetProjectId && membersToSave.length > 0) {
+          const teamResult = await addProjectTeamMembers({
+            projectId: targetProjectId,
+            body: { allocations: toAllocationPayload(membersToSave) },
+          }).unwrap();
+
+          teamResult.warnings.forEach((warning) => toast(warning, { icon: "⚠️" }));
+          if (teamResult.created.length > 0) {
+            toast.success(
+              `${teamResult.created.length} team member${teamResult.created.length === 1 ? "" : "s"} assigned.`,
+            );
+          }
+        }
       } else {
-        await createProject(payload).unwrap();
-        toast.success("Project created successfully!");
+        const created = await createProjectBundle({
+          ...payload,
+          allocations:
+            membersToSave.length > 0 ? toAllocationPayload(membersToSave) : undefined,
+        }).unwrap();
+        targetProjectId = created.id;
+        toast.success(
+          membersToSave.length > 0
+            ? `Project created with ${membersToSave.length} team member${membersToSave.length === 1 ? "" : "s"}.`
+            : "Project created successfully!",
+        );
       }
+
+      setPendingTeamMembers([]);
       refetch?.();
       onClose();
     } catch (err: any) {
@@ -459,6 +529,17 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                 )}
               </div>
             </div>
+
+            <ProjectTeamSection
+              ref={teamSectionRef}
+              projectId={project?.id}
+              departmentId={watchedDeptId || undefined}
+              startDate={watchedStartDate}
+              endDate={watchedEndDate}
+              pendingMembers={pendingTeamMembers}
+              onPendingMembersChange={setPendingTeamMembers}
+              canEdit={canEditTeam}
+            />
 
             {/* Dates */}
             <div className="grid grid-cols-2 gap-4">

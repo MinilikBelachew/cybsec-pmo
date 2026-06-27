@@ -173,6 +173,139 @@ async function main() {
   }
   console.log('Departments seeded successfully.');
 
+  const departmentByCode = Object.fromEntries(
+    (
+      await prisma.department.findMany({
+        select: { id: true, code: true },
+      })
+    ).map((dept) => [dept.code, dept.id]),
+  );
+
+  console.log('Seeding demo team users + mock employees (Entra test accounts)...');
+
+  type DemoStaffSeed = {
+    email: string;
+    displayName: string;
+    roleCode: keyof typeof ROLE_ID_BY_CODE;
+    kekaEmployeeId: string;
+    departmentCode: keyof typeof departmentByCode;
+    designation: string;
+    managerKekaId?: string;
+  };
+
+  const demoStaff: DemoStaffSeed[] = [
+    {
+      email: 'rachelgreen@bminilik12gmail.onmicrosoft.com',
+      displayName: 'Rachel Green',
+      roleCode: 'team_lead',
+      kekaEmployeeId: 'MOCK-KEKA-004',
+      departmentCode: 'SOC',
+      designation: 'Team Lead',
+    },
+    {
+      email: 'briannguyen@bminilik12gmail.onmicrosoft.com',
+      displayName: 'Brian Nguyen',
+      roleCode: 'engineer',
+      kekaEmployeeId: 'MOCK-KEKA-001',
+      departmentCode: 'SOC',
+      designation: 'Security Consultant',
+      managerKekaId: 'MOCK-KEKA-004',
+    },
+    {
+      email: 'emilydavis@bminilik12gmail.onmicrosoft.com',
+      displayName: 'Emily Davis',
+      roleCode: 'engineer',
+      kekaEmployeeId: 'MOCK-KEKA-002',
+      departmentCode: 'GRC',
+      designation: 'GRC Analyst',
+      managerKekaId: 'MOCK-KEKA-004',
+    },
+    {
+      email: 'sarahjenkins@bminilik12gmail.onmicrosoft.com',
+      displayName: 'Sarah Jenkins',
+      roleCode: 'engineer',
+      kekaEmployeeId: 'MOCK-KEKA-003',
+      departmentCode: 'CLOUD',
+      designation: 'Cloud Security Engineer',
+      managerKekaId: 'MOCK-KEKA-004',
+    },
+  ];
+
+  const employeeIdByKeka = new Map<string, string>();
+  const syncedAt = new Date();
+
+  for (const person of demoStaff) {
+    const departmentId = departmentByCode[person.departmentCode];
+    if (!departmentId) {
+      throw new Error(`Missing department seed: ${person.departmentCode}`);
+    }
+
+    const user = await prisma.user.upsert({
+      where: { email: person.email },
+      update: {
+        displayName: person.displayName,
+        roleId: ROLE_ID_BY_CODE[person.roleCode],
+        isActive: true,
+        isExternal: false,
+      },
+      create: {
+        email: person.email,
+        displayName: person.displayName,
+        roleId: ROLE_ID_BY_CODE[person.roleCode],
+        isActive: true,
+        isExternal: false,
+        entraObjectId: `pending-first-login-${person.kekaEmployeeId.toLowerCase()}`,
+      },
+    });
+
+    const employee = await prisma.employee.upsert({
+      where: { kekaEmployeeId: person.kekaEmployeeId },
+      update: {
+        userId: user.id,
+        name: person.displayName,
+        email: person.email,
+        departmentId,
+        designation: person.designation,
+        weeklyHours: new Prisma.Decimal(40),
+        isActive: true,
+        syncedAt,
+      },
+      create: {
+        kekaEmployeeId: person.kekaEmployeeId,
+        userId: user.id,
+        name: person.displayName,
+        email: person.email,
+        departmentId,
+        designation: person.designation,
+        weeklyHours: new Prisma.Decimal(40),
+        isActive: true,
+        syncedAt,
+      },
+    });
+
+    employeeIdByKeka.set(person.kekaEmployeeId, employee.id);
+    console.log(`  ${person.displayName} (${person.email})`);
+  }
+
+  for (const person of demoStaff) {
+    if (!person.managerKekaId) {
+      continue;
+    }
+
+    const employeeId = employeeIdByKeka.get(person.kekaEmployeeId);
+    const managerId = employeeIdByKeka.get(person.managerKekaId);
+    if (!employeeId || !managerId) {
+      continue;
+    }
+
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: { managerId },
+    });
+  }
+
+  console.log('Demo team users + mock employees seeded successfully.');
+
   console.log('Seeding customers...');
   const customers = [
     {

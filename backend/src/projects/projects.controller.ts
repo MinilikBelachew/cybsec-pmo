@@ -26,7 +26,9 @@ import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { CaslGuard } from '../casl/casl.guard';
 import { RequestWithAbility } from '../casl/casl.guard';
 import { ProjectsService } from './projects.service';
+import { ProjectTeamService } from './project-team.service';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { CreateProjectBundleDto } from './dto/create-project-bundle.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { QueryProjectDto } from './dto/query-project.dto';
 import { CreatePhaseDto } from './dto/create-phase.dto';
@@ -39,6 +41,14 @@ import {
   ProjectDto,
   ProjectManagerDto,
 } from './dto/project.dto';
+import { QueryTeamCandidatesDto } from './dto/query-team-candidates.dto';
+import {
+  CreateProjectTeamResultDto,
+  ProjectAllocationDto,
+  ProjectTaskAssigneeDto,
+  TeamCandidateDto,
+} from './dto/project-allocation.dto';
+import { CreateProjectTeamDto } from './dto/create-allocation.dto';
 import {
   InfinityPaginationResponse,
   InfinityPaginationResponseDto,
@@ -55,7 +65,10 @@ import { NullableType } from '../utils/types/nullable.type';
   version: '1',
 })
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly projectTeamService: ProjectTeamService,
+  ) {}
 
   @CheckAbility('create', 'Project')
   @Post()
@@ -66,6 +79,32 @@ export class ProjectsController {
     @Request() request: RequestWithAbility,
   ): Promise<ProjectDto> {
     return this.projectsService.create(createProjectDto, request.user!.id);
+  }
+
+  @CheckAbility('create', 'Project')
+  @Post('bundle')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ type: ProjectDto })
+  async createBundle(
+    @Body() dto: CreateProjectBundleDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<ProjectDto> {
+    const { allocations, ...projectDto } = dto;
+    const project = await this.projectsService.create(
+      projectDto,
+      request.user!.id,
+    );
+
+    if (allocations?.length) {
+      await this.projectTeamService.addMembers(
+        project.id,
+        allocations,
+        request.user!.id,
+        request.caslUser!,
+      );
+    }
+
+    return project;
   }
 
   @CheckAbility('read', 'Project')
@@ -90,6 +129,17 @@ export class ProjectsController {
   @ApiOkResponse({ type: [ProjectManagerDto] })
   findProjectManagers(): Promise<ProjectManagerDto[]> {
     return this.projectsService.findProjectManagers();
+  }
+
+  @CheckAbility('read', 'Team')
+  @Get('meta/team-candidates')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: [TeamCandidateDto] })
+  findTeamCandidates(
+    @Query() query: QueryTeamCandidatesDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<TeamCandidateDto[]> {
+    return this.projectTeamService.findCandidates(query, request.caslUser!);
   }
 
   @CheckAbility('read', 'Project')
@@ -181,6 +231,65 @@ export class ProjectsController {
     @Request() request: RequestWithAbility,
   ): Promise<void> {
     return this.projectsService.remove(id, request.caslUser!, request.ability!);
+  }
+
+  @CheckAbility('read', 'Project')
+  @Get(':id/team/assignees')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiOkResponse({ type: [ProjectTaskAssigneeDto] })
+  findTaskAssignees(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<ProjectTaskAssigneeDto[]> {
+    return this.projectTeamService.findTaskAssignees(id, request.caslUser!);
+  }
+
+  @CheckAbility('read', 'Project')
+  @Get(':id/team')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiOkResponse({ type: [ProjectAllocationDto] })
+  findProjectTeam(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<ProjectAllocationDto[]> {
+    return this.projectTeamService.findProjectTeam(id, request.caslUser!);
+  }
+
+  @CheckAbility('update', 'Project')
+  @Post(':id/team')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiCreatedResponse({ type: CreateProjectTeamResultDto })
+  addProjectTeamMembers(
+    @Param('id') id: string,
+    @Body() dto: CreateProjectTeamDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<CreateProjectTeamResultDto> {
+    return this.projectTeamService.addMembers(
+      id,
+      dto.allocations,
+      request.user!.id,
+      request.caslUser!,
+    );
+  }
+
+  @CheckAbility('update', 'Project')
+  @Delete(':id/team/:allocationId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'allocationId', type: String, required: true })
+  removeProjectTeamMember(
+    @Param('id') id: string,
+    @Param('allocationId') allocationId: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<void> {
+    return this.projectTeamService.removeMember(
+      id,
+      allocationId,
+      request.caslUser!,
+    );
   }
 
   @CheckAbility('read', 'Project')

@@ -30,6 +30,7 @@ import { AuditLogsModule } from './audit/audit-logs.module';
 import { CaslModule } from './casl/casl.module';
 import { RolesModule } from './roles/roles.module';
 import { SettingsModule } from './settings/settings.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -106,6 +107,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     AuditLogsModule,
     RolesModule,
     SettingsModule,
+    NotificationsModule,
     ScheduleModule.forRoot(),
   ],
 })

@@ -5,10 +5,10 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { toast } from "react-hot-toast";
 import {
   useGetPhasesQuery,
-  useGetProjectManagersQuery,
+  useGetProjectTaskAssigneesQuery,
 } from "../api/projects.api";
 import { useCreateTaskMutation } from "../api/tasks.api";
-import { ProjectPhase, ProjectManager } from "../types/projects.types";
+import { ProjectPhase, ProjectTaskAssignee } from "../types/projects.types";
 import {
   parseCSV,
   processRawTaskCSVRows,
@@ -159,7 +159,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
 
   // Fetch metadata lists for mapping
   const { data: phases = [] } = useGetPhasesQuery(projectId);
-  const { data: managers = [] } = useGetProjectManagersQuery();
+  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, { skip: !projectId });
 
   const [createTask] = useCreateTaskMutation();
 
@@ -178,7 +178,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
       "Effort Hours"
     ];
 
-    const defaultAssignee = managers[0]?.displayName || "John Doe";
+    const defaultAssignee = assignees[0]?.displayName || "Team Member";
     const defaultPhase = phases[0]?.name || "Phase 1";
 
     const sampleRows = [
@@ -251,7 +251,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
             toast.error("The CSV file is empty or only contains headers.");
             return;
           }
-          const processed = processRawTaskCSVRows(csvData, phases, managers);
+          const processed = processRawTaskCSVRows(csvData, phases, assignees);
           setParsedRows(processed);
           toast.success(`Loaded ${processed.length} rows from CSV`);
         } catch (err) {
@@ -275,7 +275,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
             toast.error("No tasks found in the XML file.");
             return;
           }
-          const processed = processMSPDITasks(parsedXML, phases, managers);
+          const processed = processMSPDITasks(parsedXML, phases, assignees);
           setParsedRows(processed);
           toast.success(`Loaded ${processed.length} rows from MS Project XML`);
         } catch (err) {
@@ -751,9 +751,9 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                                         </option>
                                       )}
                                       <option value="">None (Unassigned)</option>
-                                      {managers.map((m: ProjectManager) => (
-                                        <option key={m.id} value={m.id}>
-                                          {m.displayName}
+                                      {assignees.map((assignee: ProjectTaskAssignee) => (
+                                        <option key={assignee.userId} value={assignee.userId}>
+                                          {assignee.displayName}
                                         </option>
                                       ))}
                                     </select>

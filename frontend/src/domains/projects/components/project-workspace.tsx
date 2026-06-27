@@ -12,7 +12,7 @@ import {
   useGetMilestonesQuery,
   useDeleteTaskMutation,
   useCreateTaskMutation,
-  useGetProjectManagersQuery,
+  useGetProjectTaskAssigneesQuery,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
 import { useDebounce } from "@/shared/hooks/use-debounce";
@@ -182,8 +182,7 @@ export function ProjectWorkspace() {
   // Fetch milestones
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id);
 
-  // Fetch managers/users for assignee mapping
-  const { data: managers = [] } = useGetProjectManagersQuery();
+  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(id);
 
   const recentMilestones = useMemo(() => {
     return [...milestones]
@@ -229,7 +228,7 @@ export function ProjectWorkspace() {
         return;
       }
 
-      const csvContent = convertTasksToCSV(tasksToExport, phases, managers);
+      const csvContent = convertTasksToCSV(tasksToExport, phases, assignees);
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");

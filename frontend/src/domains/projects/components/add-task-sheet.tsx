@@ -21,7 +21,7 @@ import {
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   useCreateTaskBundleMutation,
-  useGetProjectManagersQuery,
+  useGetProjectTaskAssigneesQuery,
   useGetPhasesQuery,
   useCreatePhaseMutation,
   createTaskSchema,
@@ -148,7 +148,8 @@ export function AddTaskSheet({
 
   const [createTaskBundle] = useCreateTaskBundleMutation();
   const [createPhase] = useCreatePhaseMutation();
-  const { data: users = [], isLoading: loadingUsers } = useGetProjectManagersQuery();
+  const { data: assignees = [], isLoading: loadingAssignees } =
+    useGetProjectTaskAssigneesQuery(projectId, { skip: !projectId });
   const { data: phases = [], isLoading: loadingPhases } = useGetPhasesQuery(projectId);
   const defaultDates = defaultTaskDateRange();
 
@@ -178,7 +179,7 @@ export function AddTaskSheet({
   });
 
   const watchedOwnerId = watch("ownerId");
-  const activeOwner = users.find((u) => u.id === watchedOwnerId);
+  const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
 
   const handleCreatePhase = async (values: PhaseFormValues) => {
     setIsSavingPhase(true);
@@ -404,7 +405,7 @@ export function AddTaskSheet({
                         <Select
                           value={field.value ?? "none"}
                           onValueChange={(val) => field.onChange(val === "none" ? null : val)}
-                          disabled={loadingUsers}
+                          disabled={loadingAssignees}
                         >
                           <SelectTrigger className="w-full">
                             <SelectValue placeholder="Unassigned">
@@ -413,15 +414,25 @@ export function AddTaskSheet({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">Unassigned</SelectItem>
-                            {users.map((u) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.displayName}
+                            {assignees.map((assignee) => (
+                              <SelectItem key={assignee.userId} value={assignee.userId}>
+                                <div className="flex flex-col gap-0.5 py-0.5 text-left">
+                                  <span>{assignee.displayName}</span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {assignee.role} · {assignee.department.name}
+                                  </span>
+                                </div>
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       )}
                     />
+                    {!loadingAssignees && assignees.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Add project team members with linked login accounts before assigning tasks.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">

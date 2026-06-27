@@ -15,4 +15,5 @@ export * from "./components/create-project-sheet";
 export * from "./components/task-detail-panel";
 export * from "./components/phase-form";
 export * from "./components/milestone-form";
+export * from "./components/project-team-section";
 export * from "./components/phase-milestone-panel";

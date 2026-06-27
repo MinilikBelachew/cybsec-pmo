@@ -31,6 +31,9 @@ import {
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
   ChevronDown, X, Star, ArrowUpRight, Calendar, Milestone,
   Pencil, Trash2, Activity, CheckCircle2, PauseCircle,
+  Loader2,
+  Download,
+  Upload,
 } from "lucide-react";
 
 // ─── Status Config Mapping ────────────────────────────────────────────────────

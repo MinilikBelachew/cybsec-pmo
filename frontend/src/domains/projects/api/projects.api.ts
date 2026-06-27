@@ -1,6 +1,7 @@
 import { api } from "@/core/api/api";
 import {
   type CreateProjectDto,
+  type CreateProjectBundleDto,
   type Customer,
   type Department,
   type GetProjectsParams,
@@ -9,6 +10,12 @@ import {
   type ProjectManager,
   type ProjectPhase,
   type ProjectMilestone,
+  type TeamCandidate,
+  type ProjectAllocation,
+  type ProjectTaskAssignee,
+  type GetTeamCandidatesParams,
+  type CreateProjectTeamPayload,
+  type CreateProjectTeamResult,
 } from "../types/projects.types";
 
 export const projectsApi = api.injectEndpoints({
@@ -69,6 +76,23 @@ export const projectsApi = api.injectEndpoints({
         body,
       }),
       invalidatesTags: [{ type: "Projects", id: "LIST" }],
+    }),
+
+    createProjectBundle: builder.mutation<Project, CreateProjectBundleDto>({
+      query: (body) => ({
+        url: "/projects/bundle",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result) =>
+        result
+          ? [
+              { type: "Projects", id: "LIST" },
+              { type: "ProjectTeam", id: result.id },
+              { type: "ProjectTeam", id: `assignees-${result.id}` },
+              { type: "ProjectTeam", id: "CANDIDATES" },
+            ]
+          : [{ type: "Projects", id: "LIST" }],
     }),
 
     updateProject: builder.mutation<Project, { id: string; body: Partial<CreateProjectDto> }>({
@@ -200,6 +224,68 @@ export const projectsApi = api.injectEndpoints({
         { type: "Phases", id: projectId },
       ],
     }),
+
+    getTeamCandidates: builder.query<TeamCandidate[], GetTeamCandidatesParams>({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        if (params.departmentId) queryParams.append("departmentId", params.departmentId);
+        if (params.projectId) queryParams.append("projectId", params.projectId);
+        const qs = queryParams.toString();
+        return `/projects/meta/team-candidates${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: [{ type: "ProjectTeam", id: "CANDIDATES" }],
+    }),
+
+    getProjectTeam: builder.query<ProjectAllocation[], string>({
+      query: (projectId) => `/projects/${projectId}/team`,
+      providesTags: (result, error, projectId) =>
+        result
+          ? [
+              ...result.map(({ id }) => ({ type: "ProjectTeam" as const, id })),
+              { type: "ProjectTeam", id: projectId },
+            ]
+          : [{ type: "ProjectTeam", id: projectId }],
+    }),
+
+    getProjectTaskAssignees: builder.query<ProjectTaskAssignee[], string>({
+      query: (projectId) => `/projects/${projectId}/team/assignees`,
+      providesTags: (result, error, projectId) =>
+        result
+          ? [
+              ...result.map(({ userId }) => ({ type: "ProjectTeam" as const, id: `assignee-${userId}` })),
+              { type: "ProjectTeam", id: `assignees-${projectId}` },
+            ]
+          : [{ type: "ProjectTeam", id: `assignees-${projectId}` }],
+    }),
+
+    addProjectTeamMembers: builder.mutation<
+      CreateProjectTeamResult,
+      { projectId: string; body: CreateProjectTeamPayload }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/team`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "ProjectTeam", id: projectId },
+        { type: "ProjectTeam", id: `assignees-${projectId}` },
+        { type: "ProjectTeam", id: "CANDIDATES" },
+        { type: "Projects", id: projectId },
+      ],
+    }),
+
+    removeProjectTeamMember: builder.mutation<void, { projectId: string; allocationId: string }>({
+      query: ({ projectId, allocationId }) => ({
+        url: `/projects/${projectId}/team/${allocationId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "ProjectTeam", id: projectId },
+        { type: "ProjectTeam", id: `assignees-${projectId}` },
+        { type: "Projects", id: projectId },
+      ],
+    }),
   }),
 });
 
@@ -212,6 +298,7 @@ export const {
   useGetCustomersQuery,
   useGetProjectManagersQuery,
   useCreateProjectMutation,
+  useCreateProjectBundleMutation,
   useUpdateProjectMutation,
   useDeleteProjectMutation,
   useGetPhasesQuery,
@@ -222,4 +309,9 @@ export const {
   useCreateMilestoneMutation,
   useUpdateMilestoneMutation,
   useDeleteMilestoneMutation,
+  useGetTeamCandidatesQuery,
+  useGetProjectTeamQuery,
+  useGetProjectTaskAssigneesQuery,
+  useAddProjectTeamMembersMutation,
+  useRemoveProjectTeamMemberMutation,
 } = projectsApi;

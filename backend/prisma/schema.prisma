@@ -142,6 +142,7 @@ model User {
   ownedRisks                Risk[]
   ownedIssues               Issue[]
   raisedIssues              Issue[]              @relation("IssueRaiser")
+  notifications             Notification[]
   alertAcks                 AlertEvent[]
   ownedEscalations          CustomerEscalation[]
   escalationComms           EscalationCommunication[]
@@ -308,6 +309,43 @@ model AppSetting {
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 
   @@map("app_settings")
+}
+
+model Notification {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  eventType        String    @map("event_type") @db.VarChar(50)
+  title            String    @db.VarChar(255)
+  body             String
+  payload          Json      @default("{}")
+  sourceObjectType String?   @map("source_object_type") @db.VarChar(100)
+  sourceObjectId   String?   @map("source_object_id") @db.Uuid
+  readAt           DateTime? @map("read_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user       User                   @relation(fields: [userId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@index([userId, readAt], map: "idx_notifications_user_read")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_notifications_user_created")
+  @@map("notifications")
+}
+
+model NotificationDelivery {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  notificationId String    @map("notification_id") @db.Uuid
+  channel        String    @db.VarChar(20)
+  status         String    @default("queued") @db.VarChar(20)
+  error          String?
+  retryCount     Int       @default(0) @map("retry_count")
+  sentAt         DateTime? @map("sent_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId], map: "idx_notification_deliveries_notification")
+  @@index([status], map: "idx_notification_deliveries_status")
+  @@map("notification_deliveries")
 }
 
 // ─────────────────────────────────────────

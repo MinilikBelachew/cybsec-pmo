@@ -18,32 +18,30 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import {
-  Bell,
   Search,
   User,
   Settings,
   LogOut,
   ChevronRight,
   ChevronDown,
-  Plus,
-  Clock,
   FileText,
-  AlertTriangle,
   Rocket,
   Blocks,
   Languages,
   Palette,
   Keyboard,
   HelpCircle,
-  Download,
   FolderPlus,
   CheckSquare,
   FileStack,
   GanttChartSquare,
   ClipboardList,
   BarChart2,
+  AlertTriangle,
+  Download,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import { NotificationBell } from "@/shared/components/notification-bell";
 
 export function TopBar() {
   const { user, signOut } = useAuth();
@@ -127,52 +125,7 @@ export function TopBar() {
           {currentRoleLabel}
         </Badge>
 
-        {/* Notifications Bell Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className="relative flex items-center justify-center size-9 rounded-xl hover:bg-muted/60 transition-all group outline-none"
-            aria-label="Open notifications"
-          >
-            <Bell className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
-            <span className="absolute top-2 right-2 size-2 rounded-full bg-rose-500 border-2 border-background animate-pulse" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80 md:w-96 p-0 overflow-hidden rounded-xl border border-border/60 bg-background">
-            <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b border-border/50">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold">Notifications</span>
-                <Badge variant="secondary" className="bg-primary/10 text-primary border-none text-[9px] px-1.5 py-0">4 New</Badge>
-              </div>
-              <button className="text-[10px] font-semibold text-primary hover:underline px-2 py-1 rounded-md">
-                Mark all as read
-              </button>
-            </div>
-            <div className="max-h-[300px] overflow-y-auto divide-y divide-border/30 text-xs">
-              <NotificationItem
-                title="Task Assigned"
-                body="You've been assigned to 'Q4 Budget Review'"
-                time="5m ago"
-                unread
-                icon={<Plus className="size-4 text-blue-500" />}
-              />
-              <NotificationItem
-                title="Risk Escalated"
-                body="'Vendor delay' risk moved to High severity"
-                time="4h ago"
-                unread
-                icon={<AlertTriangle className="size-4 text-amber-500" />}
-              />
-              <NotificationItem
-                title="Timesheet Approved"
-                body="Your timesheet for Week 42 has been approved"
-                time="1d ago"
-                icon={<Clock className="size-4 text-emerald-500" />}
-              />
-            </div>
-            <button className="w-full py-2.5 text-center text-[10px] font-bold text-muted-foreground hover:text-primary hover:bg-primary/5 transition-all border-t border-border/50">
-              View all notifications
-            </button>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <NotificationBell />
 
         {/* User Account Multi-Column Dropdown */}
         <DropdownMenu>
@@ -286,44 +239,5 @@ export function TopBar() {
         </DropdownMenu>
       </div>
     </header>
-  );
-}
-
-function NotificationItem({
-  title,
-  body,
-  time,
-  unread,
-  icon,
-}: {
-  title: string;
-  body: string;
-  time: string;
-  unread?: boolean;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex gap-3 px-4 py-2.5 cursor-pointer transition-all hover:bg-muted/40 relative group",
-        unread && "bg-primary/5"
-      )}
-    >
-      <div className="size-8 rounded-lg flex items-center justify-center shrink-0 border border-border bg-card">
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1.5">
-          <p className={cn("text-xs font-bold truncate", unread ? "text-foreground" : "text-muted-foreground")}>
-            {title}
-          </p>
-          <span className="text-[9px] text-muted-foreground/50 shrink-0">{time}</span>
-        </div>
-        <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1 leading-normal">
-          {body}
-        </p>
-      </div>
-      {unread && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-primary rounded-r-full" />}
-    </div>
   );
 }

@@ -15,6 +15,8 @@ import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
 import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
 import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
 import { FilesUploadService, UploadedFileResult } from '../files/files-upload.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { TaskStatus, PriorityLevel } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
 
@@ -65,6 +67,7 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly filesUploadService: FilesUploadService,
     private readonly recordScopeWhere: RecordScopeWhereService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
@@ -190,6 +193,24 @@ export class TasksService {
           errors: { owner: 'ownerNotFound' },
         });
       }
+
+      const teamAllocation = await this.prisma.allocation.findFirst({
+        where: {
+          projectId,
+          status: 'Active',
+          employee: {
+            userId: ownerId,
+            isActive: true,
+          },
+        },
+      });
+
+      if (!teamAllocation) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { ownerId: 'assigneeMustBeOnProjectTeam' },
+        });
+      }
     }
 
     if (phaseId) {
@@ -249,7 +270,9 @@ export class TasksService {
       include: TASK_INCLUDE,
     });
 
-    return this.formatTask(task, viewerRoleCode);
+    const formatted = this.formatTask(task, viewerRoleCode);
+    await this.notifyTaskAssigned(task, actorId);
+    return formatted;
   }
 
   async createBundle(
@@ -348,6 +371,7 @@ export class TasksService {
       });
     }
 
+    await this.notifyTaskAssigned(task, actorId);
     return this.formatTask(task, viewerRoleCode);
   }
 
@@ -530,6 +554,7 @@ export class TasksService {
       include: TASK_INCLUDE,
     });
 
+    await this.dispatchTaskUpdateNotifications(existing, task, actorId);
     return this.formatTask(task, viewerRoleCode);
   }
 
@@ -681,5 +706,104 @@ export class TasksService {
     }
 
     await this.prisma.taskAttachment.delete({ where: { id: attachmentId } });
+  }
+
+  private buildTaskPayload(task: {
+    id: string;
+    projectId: string;
+    title: string;
+    project?: { name?: string | null } | null;
+  }) {
+    return {
+      taskId: task.id,
+      projectId: task.projectId,
+      projectName: task.project?.name ?? null,
+      taskTitle: task.title,
+      link: `/dashboard/projects/${task.projectId}`,
+    };
+  }
+
+  private async notifyTaskAssigned(
+    task: {
+      id: string;
+      projectId: string;
+      title: string;
+      ownerId: string | null;
+      project?: { name?: string | null } | null;
+    },
+    actorId: string,
+  ): Promise<void> {
+    if (!task.ownerId) {
+      return;
+    }
+
+    await this.notificationsService.notify({
+      eventType: NOTIFICATION_EVENT_TYPE.TASK_ASSIGNED,
+      recipientUserIds: [task.ownerId],
+      title: 'Task assigned',
+      body: `You were assigned to "${task.title}"${
+        task.project?.name ? ` on ${task.project.name}` : ''
+      }.`,
+      payload: this.buildTaskPayload(task),
+      sourceObjectType: 'Task',
+      sourceObjectId: task.id,
+      actorId,
+    });
+  }
+
+  private async dispatchTaskUpdateNotifications(
+    before: {
+      ownerId: string | null;
+      title: string;
+      priority: PriorityLevel;
+      status: TaskStatus;
+      startDate: Date | null;
+      endDate: Date | null;
+    },
+    after: {
+      id: string;
+      projectId: string;
+      title: string;
+      ownerId: string | null;
+      priority: PriorityLevel;
+      status: TaskStatus;
+      startDate: Date | null;
+      endDate: Date | null;
+      project?: { name?: string | null } | null;
+    },
+    actorId: string,
+  ): Promise<void> {
+    if (before.ownerId !== after.ownerId && after.ownerId) {
+      await this.notifyTaskAssigned(after, actorId);
+      return;
+    }
+
+    if (!after.ownerId) {
+      return;
+    }
+
+    const keyFieldChanged =
+      before.title !== after.title ||
+      before.priority !== after.priority ||
+      before.status !== after.status ||
+      before.startDate?.toISOString() !== after.startDate?.toISOString() ||
+      before.endDate?.toISOString() !== after.endDate?.toISOString();
+
+    if (!keyFieldChanged) {
+      return;
+    }
+
+    await this.notificationsService.notify({
+      eventType: NOTIFICATION_EVENT_TYPE.TASK_UPDATED,
+      recipientUserIds: [after.ownerId],
+      title: 'Task updated',
+      body: `"${after.title}" was updated${
+        after.project?.name ? ` on ${after.project.name}` : ''
+      }.`,
+      payload: this.buildTaskPayload(after),
+      sourceObjectType: 'Task',
+      sourceObjectId: after.id,
+      actorId,
+    });
   }
 }

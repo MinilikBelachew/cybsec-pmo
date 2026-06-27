@@ -43,6 +43,6 @@ import { MailModule } from '../mail/mail.module';
     JwtRefreshStrategy,
     AnonymousStrategy,
   ],
-  exports: [AuthService],
+  exports: [AuthService, SessionActivityService],
 })
 export class AuthModule {}
