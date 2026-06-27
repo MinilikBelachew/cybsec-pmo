@@ -13,7 +13,7 @@ export const createProjectSchema = z
     startDate: z.coerce.date({ message: "Start date is required" }),
     endDate: z.coerce.date({ message: "End date is required" }),
     value: z.coerce.number().positive("Value must be greater than zero"),
-    currency: z.enum(["USD", "EUR", "AED", "SAR"]),
+    currency: z.string().min(2).max(4).toUpperCase(),
     primaryPmId: z.string().uuid("Please assign a primary PM"),
     secondaryPmId: z.string().uuid().or(z.literal("")).nullable().optional(),
     status: z.enum(["Draft", "Active", "OnHold", "PendingClosure", "Closed"]),

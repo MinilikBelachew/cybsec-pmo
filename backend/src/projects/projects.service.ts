@@ -19,7 +19,6 @@ import {
   ApiMethodology,
   ApiPriorityLevel,
   ApiProjectStatus,
-  ApiCurrencyCode,
 } from './enums/project-api.enum';
 import {
   toApiProject,
@@ -63,7 +62,7 @@ export class ProjectsService {
         startDate: dto.startDate,
         endDate: dto.endDate,
         value: dto.value,
-        currency: toPrismaCurrency(dto.currency ?? ApiCurrencyCode.USD),
+        currency: toPrismaCurrency(dto.currency ?? 'USD'),
         primaryPmId: dto.primaryPmId,
         secondaryPmId: dto.secondaryPmId ?? null,
         status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),

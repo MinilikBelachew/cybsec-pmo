@@ -1,6 +1,5 @@
 import {
   BillingModel,
-  CurrencyCode,
   EngagementType,
   Methodology,
   PriorityLevel,
@@ -12,7 +11,6 @@ import {
 } from '@prisma/client';
 import {
   ApiBillingModel,
-  ApiCurrencyCode,
   ApiEngagementType,
   ApiMethodology,
   ApiPriorityLevel,
@@ -68,20 +66,6 @@ const STATUS_FROM_PRISMA: Record<ProjectStatus, ApiProjectStatus> = {
   [ProjectStatus.Closed]: ApiProjectStatus.Closed,
 };
 
-const CURRENCY_TO_PRISMA: Record<ApiCurrencyCode, CurrencyCode> = {
-  [ApiCurrencyCode.USD]: CurrencyCode.USD,
-  [ApiCurrencyCode.EUR]: CurrencyCode.EUR,
-  [ApiCurrencyCode.AED]: CurrencyCode.AED,
-  [ApiCurrencyCode.SAR]: CurrencyCode.AED,
-};
-
-const CURRENCY_FROM_PRISMA: Record<CurrencyCode, ApiCurrencyCode> = {
-  [CurrencyCode.USD]: ApiCurrencyCode.USD,
-  [CurrencyCode.EUR]: ApiCurrencyCode.EUR,
-  [CurrencyCode.AED]: ApiCurrencyCode.AED,
-  [CurrencyCode.GBP]: ApiCurrencyCode.USD,
-};
-
 export function toPrismaEngagementType(value: ApiEngagementType): EngagementType {
   return ENGAGEMENT_TO_PRISMA[value];
 }
@@ -94,8 +78,8 @@ export function toPrismaStatus(value: ApiProjectStatus): ProjectStatus {
   return STATUS_TO_PRISMA[value];
 }
 
-export function toPrismaCurrency(value: ApiCurrencyCode): CurrencyCode {
-  return CURRENCY_TO_PRISMA[value];
+export function toPrismaCurrency(value: string): string {
+  return value.toUpperCase();
 }
 
 export function toApiProject(
@@ -123,7 +107,7 @@ export function toApiProject(
     ...(showFinancials
       ? {
           value: Number(project.value),
-          currency: CURRENCY_FROM_PRISMA[project.currency],
+          currency: project.currency,
         }
       : {}),
     primaryPmId: project.primaryPmId,

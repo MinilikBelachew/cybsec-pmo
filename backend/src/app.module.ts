@@ -32,6 +32,7 @@ import { RolesModule } from './roles/roles.module';
 import { SettingsModule } from './settings/settings.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { CurrenciesModule } from './currencies/currencies.module';
 
 @Module({
   imports: [
@@ -108,6 +109,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     RolesModule,
     SettingsModule,
     DashboardModule,
+    CurrenciesModule,
     ScheduleModule.forRoot(),
   ],
 })

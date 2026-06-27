@@ -1,4 +1,6 @@
 import { Prisma, PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 import { assertKnownRecordScopes } from '../src/casl/record-scope.validation';
 import {
   ROLE_CATALOG,
@@ -217,7 +219,50 @@ async function main() {
     create: { id: 'default' },
   });
   console.log('App settings seeded successfully.');
+
+  console.log('Seeding currencies from SQL file...');
+  const sqlPath = path.join(__dirname, 'currencies.sql');
+  if (fs.existsSync(sqlPath)) {
+    const sqlContent = fs.readFileSync(sqlPath, 'utf8');
+    // Clear currencies first to allow re-running seed safely
+    await prisma.currency.deleteMany();
+    await prisma.$executeRawUnsafe(sqlContent);
+    console.log('Currencies table populated from SQL.');
+
+    // Now populate symbols
+    const symbols: Record<string, string> = {
+      AED: 'د.إ', AFN: '؋', ALL: 'L', AMD: '֏', ANG: 'ƒ', AOA: 'Kz', ARS: '$', AUD: 'A$', AWG: 'ƒ', AZN: '₼',
+      BAM: 'KM', BBD: 'Bds$', BDT: '৳', BGN: 'лв', BHD: 'BD', BIF: 'Fr', BMD: '$', BND: 'B$', BOB: 'Bs.', BOV: 'BOV',
+      BRL: 'R$', BSD: 'B$', BTN: 'Nu', BWP: 'P', BYR: 'Br', BZD: 'BZ$', CAD: 'C$', CDF: 'FC', CHE: 'CHE', CHF: 'Fr',
+      CHW: 'CHW', CLF: 'CLF', CLP: '$', CNY: '¥', COP: '$', COU: 'COU', CRC: '₡', CUC: '$', CUP: '$', CVE: '$',
+      CZK: 'Kč', DJF: 'Fr', DKK: 'kr', DOP: 'RD$', DZD: 'دج', EGP: 'E£', ERN: 'Nfk', ETB: 'Br', EUR: '€', FJD: 'FJ$',
+      FKP: '£', GBP: '£', GEL: '₾', GHS: '₵', GIP: '£', GMD: 'D', GNF: 'Fr', GTQ: 'Q', GYD: 'G$', HKD: 'HK$',
+      HNL: 'L', HRK: 'kn', HTG: 'G', HUF: 'Ft', IDR: 'Rp', ILS: '₪', INR: '₹', IQD: 'ع.د', IRR: '﷼', ISK: 'kr',
+      JMD: 'J$', JOD: 'JD', JPY: '¥', KES: 'KSh', KGS: 'с', KHR: '៛', KMF: 'Fr', KPW: '₩', KRW: '₩', KWD: 'KD',
+      KYD: 'CI$', KZT: '₸', LAK: '₭', LBP: 'L£', LKR: 'Rs', LRD: 'L$', LSL: 'L', LTL: 'Lt', LYD: 'LD', MAD: 'MAD',
+      MDL: 'L', MGA: 'Ar', MKD: 'ден', MMK: 'K', MNT: '₮', MOP: 'P', MRO: 'UM', MUR: 'Rs', MVR: 'Rf', MWK: 'MK',
+      MXN: 'Mex$', MXV: 'MXV', MYR: 'RM', MZN: 'MT', NAD: 'N$', NGN: '₦', NIO: 'C$', NOK: 'kr', NPR: 'Rs',
+      NZD: 'NZ$', OMR: 'ر.ع.', PAB: 'B/.', PEN: 'S/.', PGK: 'K', PHP: '₱', PKR: 'Rs', PLN: 'zł', PYG: '₲',
+      QAR: 'QR', RON: 'lei', RSD: 'din', RUB: '₽', RWF: 'Fr', SAR: 'ر.س', SBD: 'SI$', SCR: 'Rs', SDG: 'ج.س.',
+      SEK: 'kr', SGD: 'S$', SHP: '£', SLL: 'Le', SOS: 'Sh', SRD: '$', SSP: '£', STD: 'Db', SVC: '₡', SYP: 'S£',
+      SZL: 'L', THB: '฿', TJS: 'SM', TMT: 'T', TND: 'DT', TOP: "Pa'anga", TRY: '₺', TTD: 'TT$', TWD: 'NT$',
+      TZS: 'Sh', UAH: '₴', UGX: 'USh', USD: '$', USN: '$', UYI: 'UYI', UYU: '$U', UZS: 'суми', VEF: 'Bs.F',
+      VND: '₫', VUV: 'Vt', WST: 'T', XAF: 'Fr', XCD: 'EC$', XDR: 'XDR', XOF: 'Fr', XPF: 'Fr', XSU: 'XSU',
+      XUA: 'XUA', YER: '﷼', ZAR: 'R', ZMW: 'ZK', ZWL: 'Z$'
+    };
+
+    for (const [code, symbol] of Object.entries(symbols)) {
+      await prisma.currency.updateMany({
+        where: { code },
+        data: { symbol },
+      });
+    }
+    console.log('Currency symbols populated successfully.');
+  } else {
+    console.warn(`Warning: currencies.sql not found at ${sqlPath}`);
+  }
 }
+
 
 main()
   .catch((e) => {

@@ -8,6 +8,7 @@ import {
   useGetDepartmentsQuery,
   useGetCustomersQuery,
   useGetProjectManagersQuery,
+  useGetCurrenciesQuery,
   useCreateProjectMutation,
   useUpdateProjectMutation,
   createProjectSchema,
@@ -79,6 +80,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const { data: departments = [] } = useGetDepartmentsQuery();
   const { data: customers = [] } = useGetCustomersQuery();
   const { data: managers = [] } = useGetProjectManagersQuery();
+  const { data: currencies = [] } = useGetCurrenciesQuery();
 
   const {
     handleSubmit,
@@ -576,14 +578,18 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                     <Select value={field.value || "USD"} onValueChange={field.onChange}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select currency...">
-                          {watchedCurrency || "USD"}
+                          {(() => {
+                            const found = currencies.find((c) => c.code === watchedCurrency);
+                            return found ? `${found.code} (${found.symbol})` : (watchedCurrency || "USD");
+                          })()}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg">
-                        <SelectItem value="USD">USD ($)</SelectItem>
-                        <SelectItem value="EUR">EUR (€)</SelectItem>
-                        <SelectItem value="AED">AED (د.إ)</SelectItem>
-                        <SelectItem value="SAR">SAR (ر.س)</SelectItem>
+                        {currencies.map((c) => (
+                          <SelectItem key={c.code} value={c.code}>
+                            {c.code} ({c.symbol})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   )}

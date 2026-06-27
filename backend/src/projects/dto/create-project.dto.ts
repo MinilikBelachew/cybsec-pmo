@@ -93,10 +93,12 @@ export class CreateProjectDto {
   @IsPositive()
   value: number;
 
-  @ApiPropertyOptional({ enum: ApiCurrencyCode, default: ApiCurrencyCode.USD })
+  @ApiPropertyOptional({ example: 'USD', default: 'USD' })
   @IsOptional()
-  @IsEnum(ApiCurrencyCode)
-  currency?: ApiCurrencyCode = ApiCurrencyCode.USD;
+  @IsString()
+  @MinLength(3)
+  @MaxLength(3)
+  currency?: string = 'USD';
 
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
