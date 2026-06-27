@@ -31,6 +31,7 @@ import { CaslModule } from './casl/casl.module';
 import { RolesModule } from './roles/roles.module';
 import { SettingsModule } from './settings/settings.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     AuditLogsModule,
     RolesModule,
     SettingsModule,
+    DashboardModule,
     ScheduleModule.forRoot(),
   ],
 })
