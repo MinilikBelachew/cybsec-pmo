@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import ms from 'ms';
@@ -27,6 +28,8 @@ import { ROLE_ID_BY_CODE } from '../roles/role-catalog';
 import { RoleEnum } from '../roles/roles.enum';
 import { PermissionsCacheService } from '../casl/permissions-cache.service';
 import { PermissionRow } from '../casl/casl.types';
+import { AuditLogsService } from '../audit/audit-logs.service';
+import { resolveUserIsExternal } from './utils/user-external.util';
 
 type CreateSessionOptions = {
   isBreakGlass?: boolean;
@@ -37,6 +40,8 @@ type CreateSessionOptions = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private jwtService: JwtService,
     private usersService: UsersService,
@@ -45,6 +50,7 @@ export class AuthService {
     private authFailureService: AuthFailureService,
     private sessionActivityService: SessionActivityService,
     private permissionsCache: PermissionsCacheService,
+    private auditLogsService: AuditLogsService,
   ) {}
 
   async validateEntraLogin(
@@ -138,12 +144,15 @@ export class AuthService {
         sessionId: session.id,
         refreshTokenHash,
         isBreakGlass: false,
+        isExternal: resolveUserIsExternal(user),
       });
 
       await this.authFailureService.recordLoginSuccess(
         context,
         email.toLowerCase(),
       );
+
+      await this.writeLoginAudit(user, session.id, context);
 
       await this.sessionActivityService.touch(session.id);
 
@@ -284,6 +293,7 @@ export class AuthService {
       refreshTokenHash,
       isBreakGlass,
       accessTokenExpiresIn,
+      isExternal: resolveUserIsExternal(user),
     });
 
     await this.sessionActivityService.touch(session.id);
@@ -339,6 +349,7 @@ export class AuthService {
       accessTokenExpiresIn: session.isBreakGlass
         ? this.configService.getOrThrow('breakGlass.ttl', { infer: true })
         : undefined,
+      isExternal: resolveUserIsExternal(user),
     });
 
     await this.sessionActivityService.touch(session.id);
@@ -355,6 +366,34 @@ export class AuthService {
     return this.sessionService.deleteById(data.sessionId);
   }
 
+  private async writeLoginAudit(
+    user: User,
+    sessionId: string,
+    context: AuthLoginContext,
+  ): Promise<void> {
+    const isExternal = resolveUserIsExternal(user);
+
+    try {
+      await this.auditLogsService.create({
+        action: 'LOGIN',
+        objectType: 'Auth',
+        objectId: sessionId,
+        newValue: {
+          method: 'entra',
+          email: user.email,
+          roleCode: user.role?.code ?? user.roleCode,
+          userAgent: context.userAgent ?? undefined,
+        },
+        ipAddress: context.ipAddress ?? null,
+        isExternal,
+        source: 'WebAPI',
+        user: { connect: { id: user.id } },
+      });
+    } catch (err) {
+      this.logger.error('Failed to persist LOGIN audit row', err);
+    }
+  }
+
   private async getTokensData(data: {
     id: User['id'];
     role: { id: number; code: string };
@@ -362,6 +401,7 @@ export class AuthService {
     refreshTokenHash: Session['refreshTokenHash'];
     isBreakGlass?: boolean;
     accessTokenExpiresIn?: ms.StringValue;
+    isExternal?: boolean;
   }) {
     const tokenExpiresIn =
       data.accessTokenExpiresIn ??
@@ -380,6 +420,7 @@ export class AuthService {
           roleId: data.role.id,
           role: data.role,
           sessionId: data.sessionId,
+          ...(data.isExternal ? { isExternal: true } : {}),
           ...(data.isBreakGlass ? { breakGlass: true } : {}),
         },
         {

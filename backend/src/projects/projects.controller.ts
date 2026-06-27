@@ -172,8 +172,11 @@ export class ProjectsController {
   @Get(':id/phases')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
-  findPhases(@Param('id') id: string) {
-    return this.projectsService.findPhases(id);
+  findPhases(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.projectsService.findPhases(id, request.caslUser!);
   }
 
   @CheckAbility('update', 'Project')
@@ -183,8 +186,9 @@ export class ProjectsController {
   createPhase(
     @Param('id') id: string,
     @Body() dto: CreatePhaseDto,
+    @Request() request: RequestWithAbility,
   ) {
-    return this.projectsService.createPhase(id, dto);
+    return this.projectsService.createPhase(id, dto, request.caslUser!);
   }
 
   @CheckAbility('update', 'Project')
@@ -195,8 +199,9 @@ export class ProjectsController {
   updatePhase(
     @Param('phaseId') phaseId: string,
     @Body() dto: UpdatePhaseDto,
+    @Request() request: RequestWithAbility,
   ) {
-    return this.projectsService.updatePhase(phaseId, dto);
+    return this.projectsService.updatePhase(phaseId, dto, request.caslUser!);
   }
 
   @CheckAbility('approve', 'Project')
@@ -206,16 +211,20 @@ export class ProjectsController {
   @ApiParam({ name: 'phaseId', type: String, required: true })
   removePhase(
     @Param('phaseId') phaseId: string,
+    @Request() request: RequestWithAbility,
   ) {
-    return this.projectsService.removePhase(phaseId);
+    return this.projectsService.removePhase(phaseId, request.caslUser!);
   }
 
   @CheckAbility('read', 'Project')
   @Get(':id/milestones')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
-  findMilestones(@Param('id') id: string) {
-    return this.projectsService.findMilestones(id);
+  findMilestones(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.projectsService.findMilestones(id, request.caslUser!);
   }
 
   @CheckAbility('update', 'Project')
@@ -225,8 +234,9 @@ export class ProjectsController {
   createMilestone(
     @Param('id') id: string,
     @Body() dto: CreateMilestoneDto,
+    @Request() request: RequestWithAbility,
   ) {
-    return this.projectsService.createMilestone(id, dto);
+    return this.projectsService.createMilestone(id, dto, request.caslUser!);
   }
 
   @CheckAbility('update', 'Project')
@@ -237,8 +247,9 @@ export class ProjectsController {
   updateMilestone(
     @Param('milestoneId') milestoneId: string,
     @Body() dto: UpdateMilestoneDto,
+    @Request() request: RequestWithAbility,
   ) {
-    return this.projectsService.updateMilestone(milestoneId, dto);
+    return this.projectsService.updateMilestone(milestoneId, dto, request.caslUser!);
   }
 
   @CheckAbility('approve', 'Project')
@@ -248,7 +259,8 @@ export class ProjectsController {
   @ApiParam({ name: 'milestoneId', type: String, required: true })
   removeMilestone(
     @Param('milestoneId') milestoneId: string,
+    @Request() request: RequestWithAbility,
   ) {
-    return this.projectsService.removeMilestone(milestoneId);
+    return this.projectsService.removeMilestone(milestoneId, request.caslUser!);
   }
 }

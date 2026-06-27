@@ -26,18 +26,6 @@ const ROLES = [
 
 /** @type {Record<string, Record<string, string>>} */
 const MATRIX = {
-  'Auth — Login / SSO': {
-    super_admin: 'View', it_admin: 'View', pmo_lead: 'View', pm: 'View', team_lead: 'View',
-    engineer: 'View', finance: 'View', hr: 'View', sales: 'View', client: 'View', vendor: 'View',
-  },
-  'Auth — Session refresh / timeout': {
-    super_admin: 'View', it_admin: 'View', pmo_lead: 'View', pm: 'View', team_lead: 'View',
-    engineer: 'View', finance: 'View', hr: 'View', sales: 'View', client: 'View', vendor: 'View',
-  },
-  'Auth — MFA verify / enroll': {
-    super_admin: 'View', it_admin: 'View', pmo_lead: 'View', pm: 'View', team_lead: 'View',
-    engineer: 'View', finance: 'View', hr: 'View', sales: 'View', client: 'None', vendor: 'None',
-  },
   'Users — Directory list': {
     super_admin: 'View', it_admin: 'View', pmo_lead: 'View', pm: 'None', team_lead: 'None',
     engineer: 'None', finance: 'None', hr: 'View', sales: 'None', client: 'None', vendor: 'None',
@@ -322,9 +310,6 @@ function buildPermissionsSeedSheet() {
   const rows = [header];
 
   const moduleMap = {
-    'Auth — Login / SSO': { module: 'auth', action: 'login' },
-    'Auth — Session refresh / timeout': { module: 'auth', action: 'session' },
-    'Auth — MFA verify / enroll': { module: 'auth', action: 'mfa' },
     'Users — Directory list': { module: 'users', action: 'view' },
     'Users — Create / register': { module: 'users', action: 'create' },
     'Users — Assign / change role': { module: 'users', action: 'assign_role' },

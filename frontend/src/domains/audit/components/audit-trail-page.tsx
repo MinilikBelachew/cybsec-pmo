@@ -8,7 +8,16 @@ import { DataTable } from "@/shared/components/data-table";
 import { createSelectColumn } from "@/shared/components/data-table-select-column";
 import { useServerTableState } from "@/shared/hooks/use-server-table-state";
 import { Button } from "@/shared/ui/button";
-import { useGetAuditEventsQuery, type AuditLogEntry, type AuditLogsQuery } from "../api/audit.api";
+import {
+  downloadAuditBlob,
+  downloadAuditJson,
+  useGetAuditEventsQuery,
+  useLazyExportAuditFileQuery,
+  type AuditExportFormat,
+  type AuditLogEntry,
+  type AuditLogsQuery,
+} from "../api/audit.api";
+import { AuditExportMenu } from "./audit-export-menu";
 import { auditDataColumns } from "./audit-columns";
 import { AuditDetailSheet } from "./audit-detail-sheet";
 import { AuditFilters } from "./audit-filters";
@@ -18,8 +27,12 @@ const SORTABLE_COLUMNS = new Set(["createdAt", "action", "objectType"]);
 
 export function AuditTrailPage() {
   const [breakGlassOnly, setBreakGlassOnly] = useState(false);
+  const [externalOnly, setExternalOnly] = useState(false);
   const [actionFilter, setActionFilter] = useState("");
   const [objectTypeFilter, setObjectTypeFilter] = useState("");
+  const [actorFilter, setActorFilter] = useState("");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
   const [bulkActive, setBulkActive] = useState(false);
   const [selectedRows, setSelectedRows] = useState<AuditLogEntry[]>([]);
   const [detailEntry, setDetailEntry] = useState<AuditLogEntry | null>(null);
@@ -42,7 +55,26 @@ export function AuditTrailPage() {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [breakGlassOnly, actionFilter, objectTypeFilter, setPageIndex]);
+  }, [
+    breakGlassOnly,
+    externalOnly,
+    actionFilter,
+    objectTypeFilter,
+    actorFilter,
+    dateFromFilter,
+    dateToFilter,
+    setPageIndex,
+  ]);
+
+  const clearAllFilters = useCallback(() => {
+    setActionFilter("");
+    setObjectTypeFilter("");
+    setActorFilter("");
+    setDateFromFilter("");
+    setDateToFilter("");
+    setBreakGlassOnly(false);
+    setExternalOnly(false);
+  }, []);
 
   const queryParams = useMemo((): AuditLogsQuery => {
     const activeSort = sorting[0];
@@ -55,6 +87,10 @@ export function AuditTrailPage() {
       page: pageIndex + 1,
       limit: pageSize,
       breakGlassOnly,
+      externalOnly,
+      actorId: actorFilter || undefined,
+      dateFrom: dateFromFilter || undefined,
+      dateTo: dateToFilter || undefined,
       action: actionFilter || undefined,
       objectType: objectTypeFilter || undefined,
       search: debouncedSearch.trim() || undefined,
@@ -65,13 +101,18 @@ export function AuditTrailPage() {
     pageIndex,
     pageSize,
     breakGlassOnly,
+    externalOnly,
     actionFilter,
     objectTypeFilter,
+    actorFilter,
+    dateFromFilter,
+    dateToFilter,
     debouncedSearch,
     sorting,
   ]);
 
   const { data, isLoading, isFetching } = useGetAuditEventsQuery(queryParams);
+  const [exportAuditFile, { isFetching: isExporting }] = useLazyExportAuditFileQuery();
 
   const tableData = useMemo(() => data?.data ?? [], [data?.data]);
 
@@ -108,15 +149,16 @@ export function AuditTrailPage() {
   }, [bulkActive, handleView]);
 
   const bulkExport = (rows: AuditLogEntry[]) => {
-    const blob = new Blob([JSON.stringify(rows, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `audit-export-${Date.now()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadAuditJson(`audit-export-selected-${Date.now()}.json`, rows);
+  };
+
+  const exportFiltered = async (format: AuditExportFormat) => {
+    try {
+      const blob = await exportAuditFile({ params: queryParams, format }).unwrap();
+      downloadAuditBlob(`audit-export-${Date.now()}.${format}`, blob);
+    } catch {
+      // RTK surfaces errors via hook state
+    }
   };
 
   return (
@@ -124,6 +166,12 @@ export function AuditTrailPage() {
       <PageHeader
         title="Audit Trail"
         description="Read-only activity log with server-side search, filters, and sorting."
+        actions={
+          <AuditExportMenu
+            disabled={isExporting}
+            onExport={(format) => void exportFiltered(format)}
+          />
+        }
       />
 
       <DataTable
@@ -149,10 +197,19 @@ export function AuditTrailPage() {
           <AuditFilters
             action={actionFilter}
             objectType={objectTypeFilter}
+            actorId={actorFilter}
+            dateFrom={dateFromFilter}
+            dateTo={dateToFilter}
             breakGlassOnly={breakGlassOnly}
+            externalOnly={externalOnly}
             onActionChange={setActionFilter}
             onObjectTypeChange={setObjectTypeFilter}
+            onActorIdChange={setActorFilter}
+            onDateFromChange={setDateFromFilter}
+            onDateToChange={setDateToFilter}
             onBreakGlassOnlyChange={setBreakGlassOnly}
+            onExternalOnlyChange={setExternalOnly}
+            onClearAll={clearAllFilters}
           />
         }
         bulkSelect={{
@@ -166,7 +223,7 @@ export function AuditTrailPage() {
                   variant="outline"
                   size="icon-sm"
                   className="size-9 border-border/60 bg-white shadow-none dark:bg-card"
-                  title="Export selected"
+                  title="Export selected (includes old/new values)"
                   onClick={() => bulkExport(selectedRows)}
                 >
                   <Download className="size-4" />

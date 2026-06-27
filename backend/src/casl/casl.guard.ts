@@ -21,6 +21,7 @@ export type RequestWithAbility = {
     role?: { id?: number; code?: string };
     roleId?: number;
     roleCode?: string;
+    isExternal?: boolean;
   };
   ability?: AppAbility;
   caslUser?: CaslUserContext;

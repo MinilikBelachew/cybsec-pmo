@@ -125,6 +125,12 @@ export class ProjectDto {
 
   @ApiPropertyOptional({ example: 3 })
   milestonesDone?: number;
+
+  @ApiPropertyOptional({ example: 192 })
+  budgetSpent?: number;
+
+  @ApiPropertyOptional({ example: 88 })
+  budgetRemaining?: number;
 }
 
 export class DepartmentDto {

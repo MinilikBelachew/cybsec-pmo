@@ -4,6 +4,14 @@ import {
   QueryAuditDto,
 } from './dto/query-audit.dto';
 
+function startOfDayUtc(date: string): Date {
+  return new Date(`${date}T00:00:00.000Z`);
+}
+
+function endOfDayUtc(date: string): Date {
+  return new Date(`${date}T23:59:59.999Z`);
+}
+
 export function buildAuditLogWhere(
   query: QueryAuditDto,
 ): Prisma.AuditLogWhereInput {
@@ -27,6 +35,25 @@ export function buildAuditLogWhere(
 
   if (query.breakGlassOnly === true) {
     filters.push({ breakGlassAction: true });
+  }
+
+  if (query.externalOnly === true) {
+    filters.push({ isExternal: true });
+  }
+
+  if (query.actorId?.trim()) {
+    filters.push({ actorId: query.actorId.trim() });
+  }
+
+  const createdAt: Prisma.DateTimeFilter = {};
+  if (query.dateFrom) {
+    createdAt.gte = startOfDayUtc(query.dateFrom);
+  }
+  if (query.dateTo) {
+    createdAt.lte = endOfDayUtc(query.dateTo);
+  }
+  if (Object.keys(createdAt).length > 0) {
+    filters.push({ createdAt });
   }
 
   const search = query.search?.trim();

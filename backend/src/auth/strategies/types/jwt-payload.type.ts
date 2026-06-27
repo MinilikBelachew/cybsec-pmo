@@ -5,6 +5,7 @@ export type JwtPayloadType = Pick<User, 'id' | 'role'> & {
   roleId?: number;
   sessionId: Session['id'];
   breakGlass?: boolean;
+  isExternal?: boolean;
   iat: number;
   exp: number;
 };

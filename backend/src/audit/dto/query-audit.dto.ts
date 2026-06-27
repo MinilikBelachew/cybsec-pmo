@@ -7,6 +7,8 @@ import {
   Max,
   IsBoolean,
   IsIn,
+  IsUUID,
+  Matches,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -66,6 +68,37 @@ export class QueryAuditDto {
   breakGlassOnly?: boolean;
 
   @ApiPropertyOptional({
+    description: 'When true, return only actions performed by external users',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  externalOnly?: boolean;
+
+  @ApiPropertyOptional({ description: 'Filter by actor user UUID' })
+  @IsOptional()
+  @IsUUID()
+  actorId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Inclusive start date (YYYY-MM-DD)',
+    example: '2026-06-01',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dateFrom?: string;
+
+  @ApiPropertyOptional({
+    description: 'Inclusive end date (YYYY-MM-DD)',
+    example: '2026-06-15',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dateTo?: string;
+
+  @ApiPropertyOptional({
     description: 'Search action, object type, actor email/name, or IP address',
   })
   @IsOptional()
@@ -82,4 +115,13 @@ export class QueryAuditDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc';
+
+  @ApiPropertyOptional({
+    enum: ['json', 'xlsx', 'pdf'],
+    default: 'json',
+    description: 'Export file format (export endpoint only)',
+  })
+  @IsOptional()
+  @IsIn(['json', 'xlsx', 'pdf'])
+  format?: 'json' | 'xlsx' | 'pdf';
 }

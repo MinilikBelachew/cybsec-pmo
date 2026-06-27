@@ -21,7 +21,7 @@ import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
   ChevronDown, X, Star, ArrowUpRight, Calendar, Milestone,
-  Pencil, Trash2,
+  Pencil, Trash2, Activity, CheckCircle2, PauseCircle,
 } from "lucide-react";
 
 // ─── Status Config Mapping ────────────────────────────────────────────────────
@@ -124,8 +124,9 @@ function enrichProject(
           ? Math.round((tasksDone / tasksTotal) * 100)
           : 0;
 
-  const budget = project.value || 0;
-  const budgetUsed = budget > 0 ? Math.floor(budget * (progress / 100) * 0.95) : 0;
+  const budget = project.value ?? 0;
+  const budgetUsed = project.budgetSpent ?? 0;
+  const budgetRemaining = project.budgetRemaining ?? Math.max(0, budget - budgetUsed);
 
   const team = [
     {
@@ -154,6 +155,7 @@ function enrichProject(
     risks: 0,
     budget,
     budgetUsed,
+    budgetRemaining,
     team,
   };
 }
@@ -165,12 +167,155 @@ function formatPmShortName(name?: string) {
   return `${parts[0][0]}. ${parts[parts.length - 1]}`;
 }
 
+function formatBudgetK(amount: number) {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(1);
+}
+
 function formatProjectTimeline(startDate?: string, endDate?: string) {
   const format = (value?: string) => {
     if (!value) return "—";
     return new Date(value).toLocaleDateString("en-US", { month: "short", year: "numeric" });
   };
   return `${format(startDate)} → ${format(endDate)}`;
+}
+
+const CARD_THEMES = {
+  total: {
+    border: "border-slate-200 dark:border-slate-800/60 hover:border-slate-300 dark:hover:border-slate-700",
+    gradient: "from-slate-500/[0.05] via-transparent to-transparent",
+    iconColor: "text-slate-500 dark:text-slate-400",
+    chartColor: "text-slate-500/40 dark:text-slate-400/30",
+    activeRing: "ring-slate-500/30 border-slate-500/40",
+  },
+  active: {
+    border: "border-emerald-500/20 dark:border-emerald-500/10 hover:border-emerald-500/35 dark:hover:border-emerald-500/25",
+    gradient: "from-emerald-500/[0.05] via-transparent to-transparent",
+    iconColor: "text-emerald-500 dark:text-emerald-400",
+    chartColor: "text-emerald-500/40 dark:text-emerald-400/30",
+    activeRing: "ring-emerald-500/30 border-emerald-500/40",
+  },
+  atRisk: {
+    border: "border-rose-500/20 dark:border-rose-500/10 hover:border-rose-500/35 dark:hover:border-rose-500/25",
+    gradient: "from-rose-500/[0.05] via-transparent to-transparent",
+    iconColor: "text-rose-500 dark:text-rose-400",
+    chartColor: "text-rose-500/40 dark:text-rose-400/30",
+    activeRing: "ring-rose-500/30 border-rose-500/40",
+  },
+  delayed: {
+    border: "border-amber-500/20 dark:border-amber-500/10 hover:border-amber-500/35 dark:hover:border-amber-500/25",
+    gradient: "from-amber-500/[0.05] via-transparent to-transparent",
+    iconColor: "text-amber-500 dark:text-amber-400",
+    chartColor: "text-amber-500/40 dark:text-amber-400/30",
+    activeRing: "ring-amber-500/30 border-amber-500/40",
+  },
+  completed: {
+    border: "border-sky-500/20 dark:border-sky-500/10 hover:border-sky-500/35 dark:hover:border-sky-500/25",
+    gradient: "from-sky-500/[0.05] via-transparent to-transparent",
+    iconColor: "text-sky-500 dark:text-sky-400",
+    chartColor: "text-sky-500/40 dark:text-sky-400/30",
+    activeRing: "ring-sky-500/30 border-sky-500/40",
+  },
+};
+
+interface CardTheme {
+  border: string;
+  gradient: string;
+  iconColor: string;
+  chartColor: string;
+  activeRing: string;
+}
+
+function formatPortfolioValue(val: number) {
+  if (val >= 1000) {
+    return `$${(val / 1000).toFixed(1)}M`;
+  }
+  return `$${val}k`;
+}
+
+function MiniTrendChart({
+  value,
+  max,
+  colorClass,
+}: {
+  value: number;
+  max: number;
+  colorClass?: string;
+}) {
+  const ratio = max > 0 ? value / max : 0;
+  // Use relative points for a smooth trend line (x from 0 to 40, y from 0 to 14)
+  const baseHeights = [0.2, 0.55, 0.35, 0.8, 0.65];
+  const points = baseHeights.map((h, i) => {
+    const x = i * 10;
+    // Calculate y: if value is 0 (ratio is 0), y is 13 (flat line at the bottom).
+    const y = 14 - (h * ratio * 10 + 1);
+    return { x, y };
+  });
+
+  const linePath = `M ${points.map((p) => `${p.x} ${p.y}`).join(" L ")}`;
+  const areaPath = `${linePath} L 40 14 L 0 14 Z`;
+
+  return (
+    <svg viewBox="0 0 40 14" className={cn("h-3.5 w-9 shrink-0", colorClass || "text-muted-foreground/40")} aria-hidden>
+      {/* Area under the line */}
+      <path d={areaPath} fill="currentColor" className="opacity-15" />
+      {/* Trend line */}
+      <path
+        d={linePath}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function PortfolioStatCard({
+  title,
+  subtitle,
+  value,
+  numericValue,
+  chartMax,
+  icon: Icon,
+  active,
+  onClick,
+  theme,
+}: {
+  title: string;
+  subtitle: string;
+  value: string | number;
+  numericValue: number;
+  chartMax: number;
+  icon: React.ElementType;
+  active?: boolean;
+  onClick: () => void;
+  theme: CardTheme;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "relative flex min-h-[82px] flex-col rounded-xl border bg-card p-3 px-3.5 text-left transition-all bg-gradient-to-l",
+        theme.border,
+        theme.gradient,
+        active ? cn("ring-1 bg-muted/15 shadow-xs", theme.activeRing) : "hover:shadow-xs",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2 w-full">
+        <span className="text-[11px] font-medium text-muted-foreground/90 truncate">{title}</span>
+        <Icon className={cn("size-3.5 shrink-0", theme.iconColor)} />
+      </div>
+
+      <span className="mt-0.5 text-xl font-bold tracking-tight text-foreground">{value}</span>
+
+      <div className="mt-auto flex items-end justify-between gap-2 pt-1 w-full">
+        <span className="text-[10px] text-muted-foreground/75 truncate">{subtitle}</span>
+        <MiniTrendChart value={numericValue} max={chartMax} colorClass={theme.chartColor} />
+      </div>
+    </button>
+  );
 }
 
 function FilterCardDropdown<T extends string>({
@@ -287,6 +432,10 @@ export function ProjectsList() {
     return data.data.map((project) => enrichProject(project, starredIds));
   }, [data, starredIds]);
 
+  const totalValue = useMemo(() => {
+    return processedProjects.reduce((acc, p) => acc + (p.value ?? 0), 0);
+  }, [processedProjects]);
+
   const stats = data?.stats ?? {
     total: processedProjects.length,
     active: processedProjects.filter((p) => p.status === "Active").length,
@@ -327,7 +476,7 @@ export function ProjectsList() {
         {canCreate && (
           <button
             onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity shadow-md shadow-primary/20 shrink-0 cursor-pointer"
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity  shrink-0 cursor-pointer"
           >
             <Plus className="size-4" />
             New Project
@@ -336,26 +485,62 @@ export function ProjectsList() {
       </div>
 
       {/* ── Summary Strip ── */}
-      <div className="grid grid-cols-5 gap-3">
-        {[
-          { label: "Total", value: stats.total, filterVal: "all" as const },
-          { label: "Active", value: stats.active, filterVal: "Active" as const },
-          { label: "At Risk", value: stats.atRisk, filterVal: "PendingClosure" as const },
-          { label: "Delayed", value: stats.delayed, filterVal: "OnHold" as const },
-          { label: "Completed", value: stats.completed, filterVal: "Closed" as const },
-        ].map((s) => (
-          <button
-            key={s.label}
-            onClick={() => setStatusFilter(s.filterVal)}
-            className={cn(
-              "flex flex-col items-center justify-center rounded-xl border border-border/60 bg-card py-3.5 transition-all hover:bg-muted/30 cursor-pointer",
-              statusFilter === s.filterVal && "border-foreground/20 bg-muted/40 ring-1 ring-foreground/10",
-            )}
-          >
-            <span className="text-2xl font-bold text-foreground">{s.value}</span>
-            <span className="mt-0.5 text-xs text-muted-foreground">{s.label}</span>
-          </button>
-        ))}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <PortfolioStatCard
+          title="Total value"
+          subtitle="All in portfolio"
+          value={formatPortfolioValue(totalValue)}
+          numericValue={totalValue}
+          chartMax={Math.max(totalValue, 1)}
+          icon={FolderKanban}
+          active={statusFilter === "all"}
+          onClick={() => setStatusFilter("all")}
+          theme={CARD_THEMES.total}
+        />
+        <PortfolioStatCard
+          title="Active"
+          subtitle="In delivery"
+          value={stats.active}
+          numericValue={stats.active}
+          chartMax={Math.max(stats.total, 1)}
+          icon={Activity}
+          active={statusFilter === "Active"}
+          onClick={() => setStatusFilter("Active")}
+          theme={CARD_THEMES.active}
+        />
+        <PortfolioStatCard
+          title="At risk"
+          subtitle="Pending closure"
+          value={stats.atRisk}
+          numericValue={stats.atRisk}
+          chartMax={Math.max(stats.total, 1)}
+          icon={AlertTriangle}
+          active={statusFilter === "PendingClosure"}
+          onClick={() => setStatusFilter("PendingClosure")}
+          theme={CARD_THEMES.atRisk}
+        />
+        <PortfolioStatCard
+          title="Delayed"
+          subtitle="On hold"
+          value={stats.delayed}
+          numericValue={stats.delayed}
+          chartMax={Math.max(stats.total, 1)}
+          icon={PauseCircle}
+          active={statusFilter === "OnHold"}
+          onClick={() => setStatusFilter("OnHold")}
+          theme={CARD_THEMES.delayed}
+        />
+        <PortfolioStatCard
+          title="Completed"
+          subtitle="Closed projects"
+          value={stats.completed}
+          numericValue={stats.completed}
+          chartMax={Math.max(stats.total, 1)}
+          icon={CheckCircle2}
+          active={statusFilter === "Closed"}
+          onClick={() => setStatusFilter("Closed")}
+          theme={CARD_THEMES.completed}
+        />
       </div>
 
       {/* ── Toolbar ── */}
@@ -521,7 +706,7 @@ function ProjectGridCard({
   const router = useRouter();
   const s = STATUS_CONFIG[p.status] || STATUS_CONFIG.Draft;
   const budgetPct = p.budget > 0 ? Math.round((p.budgetUsed / p.budget) * 100) : 0;
-  const overBudget = budgetPct > 90;
+  const overBudget = p.budgetUsed > p.budget;
   const showActions = Boolean(onEdit || onDelete);
 
   return (
@@ -619,10 +804,10 @@ function ProjectGridCard({
           <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/40 p-2.5">
             <TrendingUp className={cn("size-3.5 shrink-0", overBudget ? "text-rose-500" : "text-muted-foreground")} />
             <div className="min-w-0 flex-1">
-              <div className="mb-1 flex items-center justify-between">
+              <div className="mb-1 flex items-center justify-between gap-2">
                 <span className="text-[10px] text-muted-foreground">Budget</span>
                 <span className={cn("text-[10px] font-bold", overBudget ? "text-rose-500" : "text-foreground")}>
-                  ${p.budgetUsed}k / ${p.budget}k
+                  ${formatBudgetK(p.budgetUsed)}k / ${formatBudgetK(p.budget)}k
                 </span>
               </div>
               <div className="h-1 overflow-hidden rounded-full bg-muted">
@@ -631,6 +816,9 @@ function ProjectGridCard({
                   style={{ width: `${Math.min(budgetPct, 100)}%` }}
                 />
               </div>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                ${formatBudgetK(p.budgetRemaining)}k remaining
+              </p>
             </div>
             <span className={cn("shrink-0 text-[10px] font-bold", overBudget ? "text-rose-500" : "text-muted-foreground")}>
               {budgetPct}%

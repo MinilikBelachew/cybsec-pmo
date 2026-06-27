@@ -31,6 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     await this.sessionActivityService.assertActive(payload.sessionId, {
       userId: payload.id,
+      isExternal: payload.isExternal === true,
     });
 
     return payload;

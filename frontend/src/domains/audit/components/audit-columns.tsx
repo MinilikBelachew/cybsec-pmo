@@ -2,6 +2,7 @@
 
 import { type ColumnDef } from "@tanstack/react-table";
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
+import { Badge } from "@/shared/ui/badge";
 import { type AuditLogEntry } from "../api/audit.api";
 
 export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
@@ -29,9 +30,16 @@ export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
           {(row.original.user?.displayName ?? "S").charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium leading-tight">
-            {row.original.user?.displayName ?? "System"}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-medium leading-tight">
+              {row.original.user?.displayName ?? "System"}
+            </p>
+            {row.original.isExternal && (
+              <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">
+                External
+              </Badge>
+            )}
+          </div>
           {row.original.user?.email && (
             <p className="mt-0.5 truncate text-xs text-muted-foreground max-w-[180px]">
               {row.original.user.email}

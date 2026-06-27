@@ -38,7 +38,7 @@ export default async function LocaleLayout({
 
   return (
     <html lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'} suppressHydrationWarning className={`${fontSans.variable} ${fontMono.variable}`}>
-      <body className="min-h-screen bg-background text-foreground font-sans antialiased">
+      <body className="h-screen overflow-hidden bg-background text-foreground font-sans antialiased">
         <NextIntlClientProvider messages={messages}>
           <AppProviders>
             {children}

@@ -5,17 +5,25 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Header,
   UseInterceptors,
+  Res,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { Response } from 'express';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { CaslGuard } from '../casl/casl.guard';
 import { AuditLogsService } from './audit-logs.service';
+import { AuditExportService } from './audit-export.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
 import { buildAuditLogWhere, buildAuditLogOrderBy } from './audit-log-query.util';
+import { AppSettingsService } from '../settings/app-settings.service';
+import {
+  AUDIT_EXPORT_FORMATS,
+  type AuditExportFormat,
+} from './audit-export.constants';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -26,7 +34,11 @@ import { buildAuditLogWhere, buildAuditLogOrderBy } from './audit-log-query.util
   version: '1',
 })
 export class AuditLogsController {
-  constructor(private readonly auditLogsService: AuditLogsService) {}
+  constructor(
+    private readonly auditLogsService: AuditLogsService,
+    private readonly auditExportService: AuditExportService,
+    private readonly appSettingsService: AppSettingsService,
+  ) {}
 
   @CheckAbility('read', 'AuditLog')
   @Get('events')
@@ -64,17 +76,73 @@ export class AuditLogsController {
 
   @CheckAbility('read', 'AuditLog')
   @Get('export')
-  @HttpCode(HttpStatus.OK)
-  @Header('Content-Type', 'application/json')
-  @Header('Content-Disposition', 'attachment; filename="audit_logs_export.json"')
-  async export(@Query() query: QueryAuditDto) {
+  async export(
+    @Query() query: QueryAuditDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const format = this.resolveExportFormat(query.format);
+    const auditSettings = await this.appSettingsService.getAuditSettings();
     const where = buildAuditLogWhere(query);
     const orderBy = buildAuditLogOrderBy(query);
 
-    return this.auditLogsService.findAll({
+    const rows = await this.auditLogsService.findAll({
       where,
-      take: 10000,
+      take: auditSettings.auditExportMaxRows,
       orderBy,
+    });
+
+    const exportLimits = {
+      excelJsonCellLimit: auditSettings.auditExportExcelJsonCellLimit,
+      pdfJsonLimit: auditSettings.auditExportPdfJsonLimit,
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    if (format === 'xlsx') {
+      const buffer = await this.auditExportService.buildXlsx(rows, exportLimits);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="audit_logs_${timestamp}.xlsx"`,
+      );
+      res.send(buffer);
+      return;
+    }
+
+    if (format === 'pdf') {
+      const buffer = await this.auditExportService.buildPdf(rows, exportLimits);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="audit_logs_${timestamp}.pdf"`,
+      );
+      res.send(buffer);
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="audit_logs_${timestamp}.json"`,
+    );
+    res.json(rows);
+  }
+
+  private resolveExportFormat(format?: string): AuditExportFormat {
+    if (!format || format === 'json') {
+      return 'json';
+    }
+
+    if ((AUDIT_EXPORT_FORMATS as readonly string[]).includes(format)) {
+      return format as AuditExportFormat;
+    }
+
+    throw new BadRequestException({
+      status: 400,
+      errors: { format: 'invalidExportFormat' },
     });
   }
 }

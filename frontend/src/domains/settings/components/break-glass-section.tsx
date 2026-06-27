@@ -12,6 +12,7 @@ import { useAppDispatch } from "@/store/hooks";
 import { apiUserToUser } from "@/domains/auth/transformers/auth.transformer";
 import { setUser } from "@/domains/auth/store/auth.slice";
 import { useAuth } from "@/domains/auth";
+import { getApiErrorMessage } from "@/core/errors/api-error";
 
 type BreakGlassSectionProps = {
   onSuccess: (message: string) => void;
@@ -47,8 +48,13 @@ export function BreakGlassSection({ onSuccess, onError }: BreakGlassSectionProps
       setReason("");
       setConfirmed(false);
       onSuccess("Break-glass mode activated. Security team has been alerted.");
-    } catch {
-      onError("Could not activate break-glass mode. Ensure you are signed in as Super Admin.");
+    } catch (err) {
+      onError(
+        getApiErrorMessage(
+          err,
+          "Could not activate break-glass mode. Ensure you are signed in as Super Admin.",
+        ),
+      );
     }
   };
 

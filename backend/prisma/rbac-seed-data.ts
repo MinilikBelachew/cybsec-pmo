@@ -24,9 +24,6 @@ const SCOPE_BY_CODE: Record<string, string> = {
 /** Gate 1 baseline — includes Foundation milestones M1.1–M1.7 scope */
 const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
   super_admin: [
-    { module: 'auth', action: 'login', recordScope: 'all' },
-    { module: 'auth', action: 'session', recordScope: 'all' },
-    { module: 'auth', action: 'mfa', recordScope: 'all' },
     { module: 'users', action: 'view', recordScope: 'all' },
     { module: 'users', action: 'create', recordScope: 'all' },
     { module: 'users', action: 'assign_role', recordScope: 'all' },
@@ -82,9 +79,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'portal_vendor', action: 'view', recordScope: 'all' },
   ],
   it_admin: [
-    { module: 'auth', action: 'login', recordScope: 'all' },
-    { module: 'auth', action: 'session', recordScope: 'all' },
-    { module: 'auth', action: 'mfa', recordScope: 'all' },
     { module: 'users', action: 'view', recordScope: 'all' },
     { module: 'users', action: 'create', recordScope: 'all' },
     { module: 'users', action: 'assign_role', recordScope: 'all' },
@@ -106,9 +100,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'reports', action: 'view', recordScope: 'all' },
   ],
   pmo_lead: [
-    { module: 'auth', action: 'login', recordScope: 'all' },
-    { module: 'auth', action: 'session', recordScope: 'all' },
-    { module: 'auth', action: 'mfa', recordScope: 'all' },
     { module: 'users', action: 'view', recordScope: 'all' },
     { module: 'notifications', action: 'view', recordScope: 'all' },
     { module: 'notifications', action: 'manage', recordScope: 'all' },
@@ -152,9 +143,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'portal_vendor', action: 'view', recordScope: 'all' },
   ],
   pm: [
-    { module: 'auth', action: 'login', recordScope: 'own_projects' },
-    { module: 'auth', action: 'session', recordScope: 'own_projects' },
-    { module: 'auth', action: 'mfa', recordScope: 'own_projects' },
     { module: 'notifications', action: 'view', recordScope: 'own_projects' },
     { module: 'notifications', action: 'manage', recordScope: 'own_projects' },
     { module: 'projects', action: 'view', recordScope: 'own_projects' },
@@ -194,9 +182,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'portal_vendor', action: 'view', recordScope: 'own_projects' },
   ],
   team_lead: [
-    { module: 'auth', action: 'login', recordScope: 'team' },
-    { module: 'auth', action: 'session', recordScope: 'team' },
-    { module: 'auth', action: 'mfa', recordScope: 'team' },
     { module: 'notifications', action: 'view', recordScope: 'team' },
     { module: 'notifications', action: 'manage', recordScope: 'team' },
     { module: 'projects', action: 'view', recordScope: 'team' },
@@ -221,9 +206,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'documents', action: 'upload_shared', recordScope: 'team' },
   ],
   engineer: [
-    { module: 'auth', action: 'login', recordScope: 'assigned' },
-    { module: 'auth', action: 'session', recordScope: 'assigned' },
-    { module: 'auth', action: 'mfa', recordScope: 'assigned' },
     { module: 'notifications', action: 'view', recordScope: 'assigned' },
     { module: 'notifications', action: 'manage', recordScope: 'assigned' },
     { module: 'projects', action: 'view', recordScope: 'assigned' },
@@ -244,9 +226,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'documents', action: 'upload_shared', recordScope: 'assigned' },
   ],
   finance: [
-    { module: 'auth', action: 'login', recordScope: 'department' },
-    { module: 'auth', action: 'session', recordScope: 'department' },
-    { module: 'auth', action: 'mfa', recordScope: 'department' },
     { module: 'notifications', action: 'view', recordScope: 'department' },
     { module: 'notifications', action: 'manage', recordScope: 'department' },
     { module: 'projects', action: 'view', recordScope: 'department' },
@@ -258,9 +237,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'documents', action: 'view_internal', recordScope: 'department' },
   ],
   hr: [
-    { module: 'auth', action: 'login', recordScope: 'department' },
-    { module: 'auth', action: 'session', recordScope: 'department' },
-    { module: 'auth', action: 'mfa', recordScope: 'department' },
     { module: 'notifications', action: 'view', recordScope: 'department' },
     { module: 'notifications', action: 'manage', recordScope: 'department' },
     { module: 'users', action: 'view', recordScope: 'department' },
@@ -272,9 +248,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'reports', action: 'view', recordScope: 'department' },
   ],
   sales: [
-    { module: 'auth', action: 'login', recordScope: 'all' },
-    { module: 'auth', action: 'session', recordScope: 'all' },
-    { module: 'auth', action: 'mfa', recordScope: 'all' },
     { module: 'notifications', action: 'view', recordScope: 'all' },
     { module: 'notifications', action: 'manage', recordScope: 'all' },
     { module: 'projects', action: 'view', recordScope: 'all' },
@@ -285,8 +258,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'reports', action: 'view', recordScope: 'all' },
   ],
   client: [
-    { module: 'auth', action: 'login', recordScope: 'shared' },
-    { module: 'auth', action: 'session', recordScope: 'shared' },
     { module: 'notifications', action: 'view', recordScope: 'shared' },
     { module: 'notifications', action: 'manage', recordScope: 'shared' },
     { module: 'projects', action: 'view', recordScope: 'shared' },
@@ -298,8 +269,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'portal_client', action: 'view', recordScope: 'shared' },
   ],
   vendor: [
-    { module: 'auth', action: 'login', recordScope: 'assigned' },
-    { module: 'auth', action: 'session', recordScope: 'assigned' },
     { module: 'notifications', action: 'view', recordScope: 'assigned' },
     { module: 'notifications', action: 'manage', recordScope: 'assigned' },
     { module: 'tasks', action: 'view', recordScope: 'assigned' },
@@ -312,7 +281,28 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
 
 export { ROLE_CATALOG, ROLE_ID_BY_CODE, SCOPE_BY_CODE, PERMISSIONS_BY_ROLE };
 
-export function buildPermissionRows() {
+export function buildPermissionCatalog() {
+  const seen = new Set<string>();
+  const catalog: Array<{ module: string; action: string }> = [];
+
+  for (const permissions of Object.values(PERMISSIONS_BY_ROLE)) {
+    for (const permission of permissions) {
+      const key = `${permission.module}:${permission.action}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      catalog.push({ module: permission.module, action: permission.action });
+    }
+  }
+
+  return catalog.sort((a, b) => {
+    const moduleCompare = a.module.localeCompare(b.module);
+    return moduleCompare !== 0 ? moduleCompare : a.action.localeCompare(b.action);
+  });
+}
+
+export function buildRolePermissionRows() {
   const rows: Array<{
     roleId: number;
     module: string;
@@ -335,4 +325,9 @@ export function buildPermissionRows() {
   }
 
   return rows;
+}
+
+/** @deprecated Use buildRolePermissionRows — kept as alias for scripts */
+export function buildPermissionRows() {
+  return buildRolePermissionRows();
 }

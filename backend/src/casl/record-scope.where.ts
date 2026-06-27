@@ -1,8 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { toCaslAction, toCaslSubject } from './casl.constants';
+import {
+  getProjectClausesForScope,
+  getTaskClausesForScope,
+  RECORD_SCOPE_ALL,
+} from './record-scope.registry';
 import { CaslAction, CaslUserContext, PermissionRow } from './casl.types';
-
-const DENIED: Prisma.ProjectWhereInput = { id: '__casl_denied__' };
 
 function mergeOr<T extends Prisma.ProjectWhereInput | Prisma.TaskWhereInput>(
   clauses: T[],
@@ -14,91 +17,6 @@ function mergeOr<T extends Prisma.ProjectWhereInput | Prisma.TaskWhereInput>(
     return clauses[0];
   }
   return { OR: clauses } as unknown as T;
-}
-
-export function projectWhereClausesForScope(
-  user: CaslUserContext,
-  scope: string,
-): Prisma.ProjectWhereInput[] {
-  switch (scope) {
-    case 'own_projects':
-      return [
-        { primaryPmId: user.id },
-        { secondaryPmId: user.id },
-      ];
-    case 'department':
-      return user.departmentId
-        ? [{ departmentId: user.departmentId }]
-        : [DENIED];
-    case 'shared':
-      return [
-        {
-          customer: { contacts: { some: { userId: user.id } } },
-        },
-      ];
-    case 'assigned':
-      return [
-        { primaryPmId: user.id },
-        { secondaryPmId: user.id },
-        { tasks: { some: { ownerId: user.id } } },
-        {
-          allocations: { some: { employee: { userId: user.id } } },
-        },
-      ];
-    case 'team':
-      return [
-        { primaryPmId: user.id },
-        { secondaryPmId: user.id },
-        {
-          allocations: { some: { employee: { userId: user.id } } },
-        },
-        {
-          allocations: {
-            some: { employee: { manager: { userId: user.id } } },
-          },
-        },
-      ];
-    default:
-      return [];
-  }
-}
-
-export function taskWhereClausesForScope(
-  user: CaslUserContext,
-  scope: string,
-): Prisma.TaskWhereInput[] {
-  switch (scope) {
-    case 'assigned':
-      return [{ ownerId: user.id }];
-    case 'own_projects':
-      return [
-        { project: { primaryPmId: user.id } },
-        { project: { secondaryPmId: user.id } },
-      ];
-    case 'shared':
-      return [
-        {
-          project: {
-            customer: { contacts: { some: { userId: user.id } } },
-          },
-        },
-      ];
-    case 'team':
-      return [
-        { ownerId: user.id },
-        { project: { primaryPmId: user.id } },
-        { project: { secondaryPmId: user.id } },
-        {
-          owner: { employees: { manager: { userId: user.id } } },
-        },
-      ];
-    case 'department':
-      return user.departmentId
-        ? [{ project: { departmentId: user.departmentId } }]
-        : [{ id: '__casl_denied__' }];
-    default:
-      return [];
-  }
 }
 
 function collectEntityWhere<T extends Prisma.ProjectWhereInput | Prisma.TaskWhereInput>(
@@ -119,8 +37,8 @@ function collectEntityWhere<T extends Prisma.ProjectWhereInput | Prisma.TaskWher
       continue;
     }
 
-    const scope = permission.recordScope ?? 'all';
-    if (scope === 'all') {
+    const scope = permission.recordScope ?? RECORD_SCOPE_ALL;
+    if (scope === RECORD_SCOPE_ALL) {
       return {} as T;
     }
     if (seenScopes.has(scope)) {
@@ -143,7 +61,7 @@ export function buildProjectWhere(
     user,
     action,
     'Project',
-    projectWhereClausesForScope,
+    (scopeUser, scope) => getProjectClausesForScope(scope, scopeUser) as Prisma.ProjectWhereInput[],
   );
 }
 
@@ -157,6 +75,6 @@ export function buildTaskWhere(
     user,
     action,
     'Task',
-    taskWhereClausesForScope,
+    (scopeUser, scope) => getTaskClausesForScope(scope, scopeUser) as Prisma.TaskWhereInput[],
   );
 }

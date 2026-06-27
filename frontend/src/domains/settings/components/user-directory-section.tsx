@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -24,6 +24,7 @@ import {
   Mail,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import { getApiErrorMessage } from "@/core/errors/api-error";
 import { getRoleBadgeColor, getRoleLabel } from "../utils/role-display";
 import { ROLE_CATALOG, ROLE_CODE_BY_ID, ROLE_ID_BY_CODE } from "@/config/roles.config";
 
@@ -48,10 +49,23 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
     isActive: true,
   });
 
-  const { data: usersData, isLoading: isLoadingUsers, refetch: refetchUsers } = useGetUsersQuery({
+  const { data: usersData, isLoading: isLoadingUsers, isError: isUsersError, error: usersError, refetch: refetchUsers } = useGetUsersQuery({
     page: 1,
     limit: 100,
   });
+  const loadErrorNotified = useRef(false);
+
+  useEffect(() => {
+    if (!isUsersError || loadErrorNotified.current) return;
+    loadErrorNotified.current = true;
+    onError?.(
+      getApiErrorMessage(usersError, "Failed to load user directory. Please try again."),
+    );
+  }, [isUsersError, usersError, onError]);
+
+  useEffect(() => {
+    if (usersData) loadErrorNotified.current = false;
+  }, [usersData]);
 
   const [createUser, { isLoading: isCreating }] = useCreateUserMutation();
   const [updateUser, { isLoading: isUpdating }] = useUpdateUserMutation();
@@ -81,8 +95,7 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
       setAddForm({ displayName: "", email: "", roleId: ROLE_ID_BY_CODE.engineer });
       setIsAddModalOpen(false);
     } catch (err: unknown) {
-      const apiError = err as { data?: { message?: string } };
-      onError?.(apiError?.data?.message || "Failed to create user. Email may already be in use.");
+      onError?.(getApiErrorMessage(err, "Failed to create user. Email may already be in use."));
     }
   };
 
@@ -115,8 +128,7 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
       setIsEditModalOpen(false);
       setSelectedUser(null);
     } catch (err: unknown) {
-      const apiError = err as { data?: { message?: string } };
-      onError?.(apiError?.data?.message || "Failed to update user.");
+      onError?.(getApiErrorMessage(err, "Failed to update user."));
     }
   };
 
@@ -127,8 +139,7 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
       await deleteUser(user.id).unwrap();
       onSuccess?.("User deleted successfully.");
     } catch (err: unknown) {
-      const apiError = err as { data?: { message?: string } };
-      onError?.(apiError?.data?.message || "Failed to delete user.");
+      onError?.(getApiErrorMessage(err, "Failed to delete user."));
     }
   };
 
@@ -140,8 +151,7 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
       }).unwrap();
       onSuccess?.(`Status for ${user.displayName} updated.`);
     } catch (err: unknown) {
-      const apiError = err as { data?: { message?: string } };
-      onError?.(apiError?.data?.message || "Failed to toggle status.");
+      onError?.(getApiErrorMessage(err, "Failed to toggle status."));
     }
   };
 
@@ -202,6 +212,10 @@ export function UserDirectorySection({ onSuccess, onError }: UserDirectorySectio
             <div className="py-12 flex flex-col items-center justify-center gap-3">
               <RefreshCw className="size-8 text-primary animate-spin" />
               <p className="text-sm text-muted-foreground font-medium">Fetching directory users...</p>
+            </div>
+          ) : isUsersError ? (
+            <div className="py-12 text-center text-destructive text-sm">
+              Could not load users. Use the refresh button to try again.
             </div>
           ) : filteredUsers && filteredUsers.length > 0 ? (
             <div className="overflow-x-auto rounded-xl border border-border/80">

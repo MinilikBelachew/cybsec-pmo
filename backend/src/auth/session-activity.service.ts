@@ -36,7 +36,12 @@ export class SessionActivityService {
 
   async assertActive(
     sessionId: string,
-    context?: { ipAddress?: string; userAgent?: string; userId?: string },
+    context?: {
+      ipAddress?: string;
+      userAgent?: string;
+      userId?: string;
+      isExternal?: boolean;
+    },
   ): Promise<void> {
     const session = await this.sessionService.findById(sessionId);
     if (!session) {
@@ -64,7 +69,12 @@ export class SessionActivityService {
 
   async revokeForTimeout(
     sessionId: string,
-    context?: { ipAddress?: string; userAgent?: string; userId?: string },
+    context?: {
+      ipAddress?: string;
+      userAgent?: string;
+      userId?: string;
+      isExternal?: boolean;
+    },
   ): Promise<void> {
     await this.sessionService.deleteById(sessionId);
     await this.redis.del(this.activityKey(sessionId));
@@ -81,7 +91,7 @@ export class SessionActivityService {
           userAgent: context?.userAgent,
         },
         ipAddress: context?.ipAddress,
-        isExternal: false,
+        isExternal: context?.isExternal === true,
         source: 'WebAPI',
         ...(context?.userId
           ? { user: { connect: { id: context.userId } } }

@@ -56,6 +56,8 @@ export interface Project {
   phasesCompleted?: number;
   milestonesTotal?: number;
   milestonesDone?: number;
+  budgetSpent?: number;
+  budgetRemaining?: number;
 }
 
 export interface GetProjectsParams {

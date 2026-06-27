@@ -192,26 +192,41 @@ model Role {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   users                   User[]
-  permissions             Permission[]
+  rolePermissions         RolePermission[]
   alertRuleRecipients     AlertRuleRecipient[]
   reportScheduleRecipients ReportScheduleRecipient[]
 
   @@map("roles")
 }
 
+// Canonical permission catalog — one row per module+action pair.
 model Permission {
-  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  roleId      Int    @map("role_id")
-  module      String @db.VarChar(100)
-  action      String @db.VarChar(50)
-  recordScope String? @map("record_scope") @db.VarChar(50)
-  fieldScope  Json?   @map("field_scope")
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  module String @db.VarChar(100)
+  action String @db.VarChar(50)
 
-  role Role @relation(fields: [roleId], references: [id])
+  rolePermissions RolePermission[]
 
-  @@unique([roleId, module, action], map: "uq_permissions_role_module_action")
-  @@index([roleId, module, action], map: "idx_permissions_role_module")
+  @@unique([module, action], map: "uq_permissions_module_action")
+  @@index([module, action], map: "idx_permissions_module_action")
   @@map("permissions")
+}
+
+// Join table: which role has which permission, with scope overrides.
+model RolePermission {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roleId       Int     @map("role_id")
+  permissionId String  @map("permission_id") @db.Uuid
+  recordScope  String? @map("record_scope") @db.VarChar(50)
+  fieldScope   Json?   @map("field_scope")
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId], map: "uq_role_permissions_role_permission")
+  @@index([roleId], map: "idx_role_permissions_role")
+  @@index([permissionId], map: "idx_role_permissions_permission")
+  @@map("role_permissions")
 }
 
 model Session {
@@ -255,6 +270,44 @@ model AuditLog {
   @@index([objectType, objectId], map: "idx_audit_object")
   @@index([breakGlassAction], map: "idx_audit_break_glass")
   @@map("audit_logs")
+}
+
+// Long-term storage for audit rows moved past retention (same shape as AuditLog).
+model AuditLogArchive {
+  id               String   @id @db.Uuid
+  actorId          String?  @map("actor_id") @db.Uuid
+  action           String   @db.VarChar(50)
+  objectType       String   @map("object_type") @db.VarChar(100)
+  objectId         String?  @map("object_id") @db.Uuid
+  oldValue         Json?    @map("old_value")
+  newValue         Json?    @map("new_value")
+  ipAddress        String?  @map("ip_address")
+  isExternal       Boolean  @default(false) @map("is_external")
+  breakGlassAction Boolean  @default(false) @map("break_glass_action")
+  source           String?  @db.VarChar(50)
+  createdAt        DateTime @map("created_at") @db.Timestamptz
+  archivedAt       DateTime @default(now()) @map("archived_at") @db.Timestamptz
+
+  @@index([actorId], map: "idx_audit_archive_actor")
+  @@index([createdAt], map: "idx_audit_archive_created")
+  @@index([archivedAt], map: "idx_audit_archive_archived")
+  @@map("audit_logs_archive")
+}
+
+// Singleton platform settings (one row, id = "default").
+model AppSetting {
+  id                            String    @id @default("default") @db.VarChar(32)
+  auditRetentionMonths          Int       @default(12) @map("audit_retention_months")
+  auditExportMaxRows            Int       @default(10000) @map("audit_export_max_rows")
+  auditExportExcelJsonCellLimit Int       @default(30000) @map("audit_export_excel_json_cell_limit")
+  auditExportPdfJsonLimit       Int       @default(800) @map("audit_export_pdf_json_limit")
+  auditArchiveEnabled           Boolean   @default(true) @map("audit_archive_enabled")
+  lastAuditArchiveAt            DateTime? @map("last_audit_archive_at") @db.Timestamptz
+  lastAuditArchiveCount         Int       @default(0) @map("last_audit_archive_count")
+  updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  updatedById                   String?   @map("updated_by_id") @db.Uuid
+
+  @@map("app_settings")
 }
 
 // ─────────────────────────────────────────

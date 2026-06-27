@@ -1,8 +1,10 @@
 import { Prisma, PrismaClient } from '@prisma/client';
+import { assertKnownRecordScopes } from '../src/casl/record-scope.validation';
 import {
   ROLE_CATALOG,
   ROLE_ID_BY_CODE,
-  buildPermissionRows,
+  buildPermissionCatalog,
+  buildRolePermissionRows,
 } from './rbac-seed-data';
 
 const prisma = new PrismaClient();
@@ -29,28 +31,61 @@ async function main() {
     `SELECT setval(pg_get_serial_sequence('roles', 'id'), (SELECT COALESCE(MAX(id), 1) FROM roles), true)`,
   );
 
-  console.log('Seeding permissions...');
-  const permissionRows = buildPermissionRows();
+  console.log('Seeding permission catalog...');
+  const catalogRows = buildPermissionCatalog();
 
-  for (const row of permissionRows) {
+  for (const row of catalogRows) {
     await prisma.permission.upsert({
       where: {
-        roleId_module_action: {
-          roleId: row.roleId,
+        module_action: {
           module: row.module,
           action: row.action,
+        },
+      },
+      update: {},
+      create: {
+        module: row.module,
+        action: row.action,
+      },
+    });
+  }
+
+  console.log(`Permission catalog seeded (${catalogRows.length} definitions).`);
+
+  const permissionIdByKey = new Map(
+    (
+      await prisma.permission.findMany({
+        select: { id: true, module: true, action: true },
+      })
+    ).map((permission) => [`${permission.module}:${permission.action}`, permission.id]),
+  );
+
+  console.log('Seeding role_permissions...');
+  const rolePermissionRows = buildRolePermissionRows();
+  assertKnownRecordScopes(rolePermissionRows.map((row) => row.recordScope));
+
+  for (const row of rolePermissionRows) {
+    const permissionId = permissionIdByKey.get(`${row.module}:${row.action}`);
+    if (!permissionId) {
+      throw new Error(`Missing catalog permission: ${row.module}.${row.action}`);
+    }
+
+    await prisma.rolePermission.upsert({
+      where: {
+        roleId_permissionId: {
+          roleId: row.roleId,
+          permissionId,
         },
       },
       update: {
         recordScope: row.recordScope,
         fieldScope: row.fieldScope
           ? (row.fieldScope as Prisma.InputJsonValue)
-          : undefined,
+          : Prisma.DbNull,
       },
       create: {
         roleId: row.roleId,
-        module: row.module,
-        action: row.action,
+        permissionId,
         recordScope: row.recordScope,
         fieldScope: row.fieldScope
           ? (row.fieldScope as Prisma.InputJsonValue)
@@ -59,7 +94,23 @@ async function main() {
     });
   }
 
-  console.log(`Permissions seeded successfully (${permissionRows.length} rows).`);
+  console.log(
+    `Role permissions seeded successfully (${rolePermissionRows.length} grants).`,
+  );
+
+  console.log('Removing unused auth permissions...');
+  const authPermissions = await prisma.permission.findMany({
+    where: { module: 'auth' },
+    select: { id: true },
+  });
+  if (authPermissions.length > 0) {
+    const authPermissionIds = authPermissions.map((permission) => permission.id);
+    await prisma.rolePermission.deleteMany({
+      where: { permissionId: { in: authPermissionIds } },
+    });
+    await prisma.permission.deleteMany({ where: { module: 'auth' } });
+  }
+  console.log(`Removed ${authPermissions.length} auth permission definition(s).`);
 
   console.log('Seeding initial Super Admin user...');
   const adminEmail = 'bminilik12@gmail.com';
@@ -158,6 +209,14 @@ async function main() {
     });
   }
   console.log('Customers seeded successfully.');
+
+  console.log('Seeding app settings...');
+  await prisma.appSetting.upsert({
+    where: { id: 'default' },
+    update: {},
+    create: { id: 'default' },
+  });
+  console.log('App settings seeded successfully.');
 }
 
 main()

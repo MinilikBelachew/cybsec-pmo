@@ -20,6 +20,8 @@ import {
   Globe,
   Store,
   KeyRound,
+  ShieldCheck,
+  ListChecks,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -215,6 +217,28 @@ export const sidebarNav: NavSection[] = [
     icon: ClipboardList,
     href: "/dashboard/audit",
     permission: { action: "read", subject: "AuditLog" },
+  },
+  {
+    id: "roles-permissions",
+    label: "Roles & Permissions",
+    icon: ShieldCheck,
+    permission: { action: "read", subject: "Rbac" },
+    children: [
+      {
+        id: "rbac-roles",
+        label: "Roles",
+        icon: ShieldCheck,
+        href: "/dashboard/roles",
+        permission: { action: "read", subject: "Rbac" },
+      },
+      {
+        id: "rbac-permissions",
+        label: "Permissions",
+        icon: ListChecks,
+        href: "/dashboard/roles/permissions",
+        permission: { action: "read", subject: "Rbac" },
+      },
+    ],
   },
   {
     id: "settings",

@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAuth } from "@/domains/auth";
-import { Users, CheckCircle, XCircle, Settings, ShieldAlert } from "lucide-react";
+import { Users, Settings, ShieldAlert, Archive } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
 import { BreakGlassSection } from "./break-glass-section";
+import { AuditComplianceSection } from "./audit-compliance-section";
 
-type SettingsTab = "profile" | "users" | "security";
+type SettingsTab = "profile" | "users" | "security" | "audit";
 
 export function SettingsPage() {
   const ability = useAppAbility();
@@ -23,8 +25,14 @@ export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     canManageUsers ? "users" : "profile",
   );
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  const notifySuccess = useCallback((message: string) => {
+    toast.success(message);
+  }, []);
+
+  const notifyError = useCallback((message: string) => {
+    toast.error(message);
+  }, []);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -65,6 +73,21 @@ export function SettingsPage() {
         {canManageSecurity && (
           <button
             type="button"
+            onClick={() => setActiveTab("audit")}
+            className={cn(
+              "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+              activeTab === "audit"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Archive className="size-4" />
+            Audit &amp; Compliance
+          </button>
+        )}
+        {canManageSecurity && (
+          <button
+            type="button"
             onClick={() => setActiveTab("security")}
             className={cn(
               "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
@@ -79,44 +102,26 @@ export function SettingsPage() {
         )}
       </div>
 
-      {actionSuccess && (
-        <div className="p-3 text-sm font-medium text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-2.5">
-          <CheckCircle className="size-4 shrink-0" />
-          {actionSuccess}
-        </div>
-      )}
-      {actionError && (
-        <div className="p-3 text-sm font-medium text-destructive bg-destructive/10 border border-destructive/20 rounded-xl flex items-center gap-2.5">
-          <XCircle className="size-4 shrink-0" />
-          {actionError}
-        </div>
-      )}
-
       {activeTab === "profile" && <ProfileSection />}
 
       {activeTab === "users" && canManageUsers && (
         <UserDirectorySection
-          onSuccess={(message) => {
-            setActionError(null);
-            setActionSuccess(message);
-          }}
-          onError={(message) => {
-            setActionSuccess(null);
-            setActionError(message);
-          }}
+          onSuccess={notifySuccess}
+          onError={notifyError}
+        />
+      )}
+
+      {activeTab === "audit" && canManageSecurity && (
+        <AuditComplianceSection
+          onSuccess={notifySuccess}
+          onError={notifyError}
         />
       )}
 
       {activeTab === "security" && canManageSecurity && (
         <BreakGlassSection
-          onSuccess={(message) => {
-            setActionError(null);
-            setActionSuccess(message);
-          }}
-          onError={(message) => {
-            setActionSuccess(null);
-            setActionError(message);
-          }}
+          onSuccess={notifySuccess}
+          onError={notifyError}
         />
       )}
     </div>

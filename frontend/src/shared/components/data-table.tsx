@@ -83,6 +83,8 @@ export type DataTableProps<TData, TValue> = {
   bulkSelect?: DataTableBulkSelectProps;
   onSelectionChange?: (rows: TData[]) => void;
   emptyMessage?: string;
+  tableClassName?: string;
+  minTableWidth?: string;
 };
 
 function stickyCellClass(
@@ -132,6 +134,8 @@ export function DataTable<TData, TValue>({
   bulkSelect,
   onSelectionChange,
   emptyMessage,
+  tableClassName,
+  minTableWidth = "min-w-[960px]",
 }: DataTableProps<TData, TValue>) {
   const t = useTranslations("Table");
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -361,7 +365,7 @@ export function DataTable<TData, TValue>({
           )}
 
           <div className="overflow-x-auto">
-            <Table className="min-w-[960px]">
+            <Table className={cn(minTableWidth, "w-full table-fixed", tableClassName)}>
               <TableHeader>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id} className={headerRowClass}>
@@ -374,6 +378,7 @@ export function DataTable<TData, TValue>({
                           headerIndex === headerGroup.headers.length - 1 &&
                             "rounded-tr-[10px]",
                           stickyCellClass(header.column.columnDef.meta?.sticky, true),
+                          header.column.columnDef.meta?.className,
                         )}
                       >
                         {header.isPlaceholder
@@ -399,12 +404,13 @@ export function DataTable<TData, TValue>({
                         <TableCell
                           key={cell.id}
                           className={cn(
-                            "px-4 py-3 align-top whitespace-normal bg-white dark:bg-card",
+                            "px-4 py-3 align-middle whitespace-normal bg-white dark:bg-card",
                             stickyCellClass(
                               cell.column.columnDef.meta?.sticky,
                               false,
                               row.getIsSelected(),
                             ),
+                            cell.column.columnDef.meta?.className,
                           )}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}

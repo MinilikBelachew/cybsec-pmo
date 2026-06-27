@@ -5,7 +5,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { AppAbility, CaslUserContext } from '../casl/casl.types';
+import { AppAbility, CaslAction, CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -132,7 +132,8 @@ export class ProjectsService {
     ]);
 
     const projectIds = projects.map((project) => project.id);
-    const [doneTaskGroups, completedPhaseGroups, doneMilestoneGroups] = projectIds.length
+    const [doneTaskGroups, completedPhaseGroups, doneMilestoneGroups, employeeCostGroups, budgetLineItems] =
+      projectIds.length
       ? await Promise.all([
           this.prisma.task.groupBy({
             by: ['projectId'],
@@ -159,8 +160,20 @@ export class ProjectsService {
             },
             _count: { _all: true },
           }),
+          this.prisma.employeeCost.groupBy({
+            by: ['projectId'],
+            where: { projectId: { in: projectIds } },
+            _sum: { totalCost: true },
+          }),
+          this.prisma.budgetLineItem.findMany({
+            where: { budget: { projectId: { in: projectIds } } },
+            select: {
+              actual: true,
+              budget: { select: { projectId: true } },
+            },
+          }),
         ])
-      : [[], [], []];
+      : [[], [], [], [], []];
 
     const doneTaskMap = new Map(
       doneTaskGroups.map((row) => [row.projectId, row._count._all]),
@@ -171,6 +184,24 @@ export class ProjectsService {
     const doneMilestoneMap = new Map(
       doneMilestoneGroups.map((row) => [row.projectId, row._count._all]),
     );
+    const employeeSpentMap = new Map(
+      employeeCostGroups.map((row) => [
+        row.projectId,
+        Number(row._sum.totalCost ?? 0) / 1000,
+      ]),
+    );
+    const lineItemSpentMap = new Map<string, number>();
+    for (const lineItem of budgetLineItems) {
+      const projectId = lineItem.budget.projectId;
+      const current = lineItemSpentMap.get(projectId) ?? 0;
+      lineItemSpentMap.set(projectId, current + Number(lineItem.actual) / 1000);
+    }
+
+    const resolveBudgetSpent = (projectId: string) => {
+      const fromEmployee = employeeSpentMap.get(projectId) ?? 0;
+      const fromLineItems = lineItemSpentMap.get(projectId) ?? 0;
+      return fromEmployee > 0 ? fromEmployee : fromLineItems;
+    };
 
     const statusCount = (status: ProjectStatus) =>
       statusGroups.find((group) => group.status === status)?._count._all ?? 0;
@@ -183,15 +214,28 @@ export class ProjectsService {
       completed: statusCount(ProjectStatus.Closed),
     };
 
-    const data = projects.map((project) => ({
-      ...toApiProject(project as ProjectWithRelations, { ability }),
-      tasksTotal: project._count.tasks,
-      tasksDone: doneTaskMap.get(project.id) ?? 0,
-      phasesTotal: project._count.phases,
-      phasesCompleted: completedPhaseMap.get(project.id) ?? 0,
-      milestonesTotal: project._count.milestones,
-      milestonesDone: doneMilestoneMap.get(project.id) ?? 0,
-    }));
+    const data = projects.map((project) => {
+      const apiProject = toApiProject(project as ProjectWithRelations, { ability });
+      const budgetTotal = apiProject.value ?? 0;
+      const budgetSpent =
+        apiProject.value !== undefined ? resolveBudgetSpent(project.id) : undefined;
+
+      return {
+        ...apiProject,
+        tasksTotal: project._count.tasks,
+        tasksDone: doneTaskMap.get(project.id) ?? 0,
+        phasesTotal: project._count.phases,
+        phasesCompleted: completedPhaseMap.get(project.id) ?? 0,
+        milestonesTotal: project._count.milestones,
+        milestonesDone: doneMilestoneMap.get(project.id) ?? 0,
+        ...(budgetSpent !== undefined
+          ? {
+              budgetSpent,
+              budgetRemaining: Math.max(0, budgetTotal - budgetSpent),
+            }
+          : {}),
+      };
+    });
 
     return { data, stats, page, limit };
   }
@@ -409,14 +453,29 @@ export class ProjectsService {
     }
   }
 
-  async findPhases(projectId: string) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+  private async assertProjectInScope(
+    projectId: string,
+    caslUser: CaslUserContext,
+    action: CaslAction,
+  ): Promise<void> {
+    const project = await this.prisma.project.findFirst({
+      where: {
+        AND: [{ id: projectId }, this.recordScopeWhere.projectWhere(caslUser, action)],
+      },
+      select: { id: true },
+    });
+
     if (!project) {
       throw new NotFoundException({
         status: HttpStatus.NOT_FOUND,
         errors: { project: 'projectNotFound' },
       });
     }
+  }
+
+  async findPhases(projectId: string, caslUser: CaslUserContext) {
+    await this.assertProjectInScope(projectId, caslUser, 'read');
+
     const phases = await this.prisma.projectPhase.findMany({
       where: { projectId },
       orderBy: { orderIndex: 'asc' },
@@ -431,14 +490,9 @@ export class ProjectsService {
     }));
   }
 
-  async createPhase(projectId: string, dto: CreatePhaseDto) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) {
-      throw new NotFoundException({
-        status: HttpStatus.NOT_FOUND,
-        errors: { project: 'projectNotFound' },
-      });
-    }
+  async createPhase(projectId: string, dto: CreatePhaseDto, caslUser: CaslUserContext) {
+    await this.assertProjectInScope(projectId, caslUser, 'update');
+
     if (dto.startDate && dto.endDate && dto.startDate > dto.endDate) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -458,7 +512,7 @@ export class ProjectsService {
     });
   }
 
-  async updatePhase(phaseId: string, dto: UpdatePhaseDto) {
+  async updatePhase(phaseId: string, dto: UpdatePhaseDto, caslUser: CaslUserContext) {
     const existing = await this.prisma.projectPhase.findUnique({ where: { id: phaseId } });
     if (!existing) {
       throw new NotFoundException({
@@ -466,6 +520,8 @@ export class ProjectsService {
         errors: { phase: 'phaseNotFound' },
       });
     }
+
+    await this.assertProjectInScope(existing.projectId, caslUser, 'update');
 
     const startDate = dto.startDate !== undefined ? dto.startDate : existing.startDate;
     const endDate = dto.endDate !== undefined ? dto.endDate : existing.endDate;
@@ -489,7 +545,7 @@ export class ProjectsService {
     });
   }
 
-  async removePhase(phaseId: string) {
+  async removePhase(phaseId: string, caslUser: CaslUserContext) {
     const existing = await this.prisma.projectPhase.findUnique({ where: { id: phaseId } });
     if (!existing) {
       throw new NotFoundException({
@@ -497,6 +553,9 @@ export class ProjectsService {
         errors: { phase: 'phaseNotFound' },
       });
     }
+
+    await this.assertProjectInScope(existing.projectId, caslUser, 'approve');
+
     await this.prisma.$transaction([
       this.prisma.task.updateMany({
         where: { phaseId },
@@ -510,14 +569,9 @@ export class ProjectsService {
     ]);
   }
 
-  async findMilestones(projectId: string) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) {
-      throw new NotFoundException({
-        status: HttpStatus.NOT_FOUND,
-        errors: { project: 'projectNotFound' },
-      });
-    }
+  async findMilestones(projectId: string, caslUser: CaslUserContext) {
+    await this.assertProjectInScope(projectId, caslUser, 'read');
+
     const milestones = await this.prisma.projectMilestone.findMany({
       where: { projectId },
       orderBy: { targetDate: 'asc' },
@@ -529,14 +583,13 @@ export class ProjectsService {
     }));
   }
 
-  async createMilestone(projectId: string, dto: CreateMilestoneDto) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) {
-      throw new NotFoundException({
-        status: HttpStatus.NOT_FOUND,
-        errors: { project: 'projectNotFound' },
-      });
-    }
+  async createMilestone(
+    projectId: string,
+    dto: CreateMilestoneDto,
+    caslUser: CaslUserContext,
+  ) {
+    await this.assertProjectInScope(projectId, caslUser, 'update');
+
     if (dto.phaseId) {
       const phase = await this.prisma.projectPhase.findFirst({
         where: { id: dto.phaseId, projectId },
@@ -564,7 +617,11 @@ export class ProjectsService {
     };
   }
 
-  async updateMilestone(milestoneId: string, dto: UpdateMilestoneDto) {
+  async updateMilestone(
+    milestoneId: string,
+    dto: UpdateMilestoneDto,
+    caslUser: CaslUserContext,
+  ) {
     const existing = await this.prisma.projectMilestone.findUnique({ where: { id: milestoneId } });
     if (!existing) {
       throw new NotFoundException({
@@ -572,6 +629,9 @@ export class ProjectsService {
         errors: { milestone: 'milestoneNotFound' },
       });
     }
+
+    await this.assertProjectInScope(existing.projectId, caslUser, 'update');
+
     if (dto.phaseId) {
       const phase = await this.prisma.projectPhase.findFirst({
         where: { id: dto.phaseId, projectId: existing.projectId },
@@ -599,7 +659,7 @@ export class ProjectsService {
     };
   }
 
-  async removeMilestone(milestoneId: string) {
+  async removeMilestone(milestoneId: string, caslUser: CaslUserContext) {
     const existing = await this.prisma.projectMilestone.findUnique({ where: { id: milestoneId } });
     if (!existing) {
       throw new NotFoundException({
@@ -607,6 +667,9 @@ export class ProjectsService {
         errors: { milestone: 'milestoneNotFound' },
       });
     }
+
+    await this.assertProjectInScope(existing.projectId, caslUser, 'approve');
+
     await this.prisma.$transaction([
       this.prisma.invoice.updateMany({
         where: { matchedMilestoneId: milestoneId },
