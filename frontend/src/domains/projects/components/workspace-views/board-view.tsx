@@ -317,7 +317,7 @@ export function BoardView({
   }
 
   return (
-    <div className="flex gap-4 p-5 h-full overflow-x-auto overflow-y-hidden items-start bg-transparent">
+    <div className="flex gap-4 p-5 h-full overflow-x-auto overflow-y-hidden items-stretch bg-transparent">
       {COLUMNS.map((col) => {
         const colTasks = tasks.filter((t) => t.status === col.id);
         const isOver = dragOverCol === col.id && dragOverTask === null;
@@ -326,7 +326,7 @@ export function BoardView({
         return (
           <div
             key={col.id}
-            className="flex flex-col w-[260px] shrink-0"
+            className="flex flex-col w-[260px] shrink-0 h-full min-h-0"
             onDragOver={(e) => handleColDragOver(e, col.id)}
             onDrop={(e) => handleColDrop(e, col.id)}
           >
@@ -363,7 +363,7 @@ export function BoardView({
             {/* Cards area */}
             <div
               className={cn(
-                "flex flex-col gap-2 p-2 rounded-b-xl border flex-1 min-h-[160px] transition-colors duration-150",
+                "flex flex-col gap-2 p-2 rounded-b-xl border flex-1 min-h-0 overflow-y-auto transition-colors duration-150",
                 col.borderColor,
                 isOver ? "bg-primary/5 border-primary/30" : "bg-muted/10 dark:bg-muted/5"
               )}

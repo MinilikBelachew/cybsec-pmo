@@ -59,6 +59,7 @@ interface TaskDetailPanelProps {
   onClose: () => void;
   onOpenSubTask?: (taskId: string) => void;
   onUpdated?: () => void;
+  initialTab?: "comments" | "subtasks";
 }
 
 const STATUS_OPTIONS: { value: UpdateTaskFormValues["status"]; label: string }[] = [
@@ -114,6 +115,7 @@ export function TaskDetailPanel({
   onClose,
   onOpenSubTask,
   onUpdated,
+  initialTab,
 }: TaskDetailPanelProps) {
   const { data: task, isLoading, isError } = useGetTaskByIdQuery(taskId!, {
     skip: !taskId || !open,
@@ -483,22 +485,24 @@ export function TaskDetailPanel({
               <div className="flex w-full shrink-0 flex-col overflow-hidden bg-muted/20 lg:w-[360px]">
                 {hasParent ? (
                   <TaskCollaborationSections
+                    key={`${task.id}-${initialTab ?? "comments"}`}
                     taskId={task.id}
                     projectId={projectId}
                     onOpenSubTask={onOpenSubTask}
                     layout="tabs"
                     showAttachments={false}
-                    defaultTab="comments"
+                    defaultTab={initialTab ?? "comments"}
                     className="h-full"
                   />
                 ) : (
                   <TaskCollaborationSections
+                    key={`${task.id}-${initialTab ?? "subtasks"}`}
                     taskId={task.id}
                     projectId={projectId}
                     onOpenSubTask={onOpenSubTask}
                     layout="tabs"
                     showAttachments={false}
-                    defaultTab="subtasks"
+                    defaultTab={initialTab ?? "subtasks"}
                     subTaskMode="draft"
                     draftSubTasks={draftSubTasks}
                     onDraftSubTasksChange={setDraftSubTasks}

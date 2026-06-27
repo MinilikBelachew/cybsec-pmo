@@ -1,8 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo } from "react";
 import { cn } from "@/shared/utils/cn";
-import { Circle, CircleCheck, Plus, ChevronRight } from "lucide-react";
+import { Circle, CircleCheck, Plus, MoreHorizontal } from "lucide-react";
+import { type ColumnDef } from "@tanstack/react-table";
+import { createSelectColumn } from "@/shared/components/data-table-select-column";
+import { DataTable } from "@/shared/components/data-table";
+import { Button } from "@/shared/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
@@ -46,205 +56,182 @@ interface TableViewProps {
   tasks: Task[];
   toggleTask: (id: string) => void;
   onTaskClick?: (taskId: string) => void;
+  onAddTask?: (status: Status) => void;
+  onDeleteTask?: (taskId: string) => void;
+  onDuplicateTask?: (taskId: string) => void;
+  onMoveTask?: (taskId: string, toStatus: Status) => void;
+  onSetDueDate?: (taskId: string, date: string | null) => void;
 }
 
-export function TableView({ tasks, toggleTask, onTaskClick }: TableViewProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  function toggleSelect(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  function toggleAll() {
-    if (selected.size === tasks.length) setSelected(new Set());
-    else setSelected(new Set(tasks.map((t) => t.id)));
-  }
+export function TableView({
+  tasks,
+  toggleTask,
+  onTaskClick,
+  onAddTask,
+  onDeleteTask,
+  onDuplicateTask,
+  onMoveTask,
+  onSetDueDate,
+}: TableViewProps) {
+  const columns = useMemo((): ColumnDef<Task>[] => [
+    createSelectColumn<Task>(),
+    {
+      id: "title",
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) => {
+        const task = row.original;
+        return (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTask(task.id);
+              }}
+              className="shrink-0 mt-0.5"
+              aria-label="Toggle status"
+            >
+              {task.done ? (
+                <CircleCheck className="size-4 text-emerald-500" />
+              ) : (
+                <Circle className="size-4 text-muted-foreground hover:text-primary transition-colors" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => onTaskClick?.(task.id)}
+              className={cn(
+                "text-sm font-medium truncate text-left hover:text-primary transition-colors",
+                task.done && "line-through text-muted-foreground"
+              )}
+            >
+              {task.name}
+            </button>
+          </div>
+        );
+      },
+    },
+    {
+      id: "assignee",
+      accessorKey: "assigneeInitials",
+      header: "Assignee",
+      cell: ({ row }) => {
+        const task = row.original;
+        return (
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex items-center justify-center size-6 rounded-full text-[10px] font-bold text-white shrink-0",
+                task.assigneeColor
+              )}
+            >
+              {task.assigneeInitials}
+            </span>
+            <span className="text-xs text-muted-foreground">{task.assigneeInitials}</span>
+          </div>
+        );
+      },
+    },
+    {
+      id: "status",
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const task = row.original;
+        return (
+          <div className="flex items-center gap-1.5">
+            {task.status === "Done" || task.status === "Approved" ? (
+              <CircleCheck className="size-3.5 text-emerald-500 shrink-0" />
+            ) : (
+              <Circle className="size-3.5 text-muted-foreground shrink-0" />
+            )}
+            <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-md", STATUS_PILL[task.status] || STATUS_PILL["To_Do"])}>
+              {task.status === "To_Do"
+                ? "To Do"
+                : task.status === "In_Progress"
+                ? "In Progress"
+                : task.status === "Submitted_for_Review"
+                ? "Submitted for Review"
+                : task.status === "Approved"
+                ? "Approved"
+                : task.status === "Rework"
+                ? "Rework"
+                : "Done"}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      id: "dueDate",
+      accessorKey: "dueDate",
+      header: "Due date",
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.dueDate}</span>,
+    },
+    {
+      id: "priority",
+      accessorKey: "priority",
+      header: "Priority",
+      cell: ({ row }) => (
+        <span className={cn("text-xs font-medium", PRIORITY_STYLES[row.original.priority])}>
+          {PRIORITY_LABEL[row.original.priority]}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const task = row.original;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                />
+              }
+            >
+              <MoreHorizontal className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onClick={() => onTaskClick?.(task.id)}
+              >
+                Edit task
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onClick={() => onDuplicateTask?.(task.id)}
+              >
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
+                onClick={() => onDeleteTask?.(task.id)}
+              >
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+      meta: { sticky: "right" },
+    },
+  ], [toggleTask, onTaskClick, onDuplicateTask, onDeleteTask]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
-      {/* Table toolbar */}
-      <div className="flex items-center gap-2 px-5 py-2 border-b border-border/50 shrink-0 bg-transparent">
-        <div className="flex items-center gap-1.5">
-          <button className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border/60 text-xs text-muted-foreground hover:text-foreground transition-colors">
-            Group: None
-          </button>
-          <span className="px-2.5 py-1 rounded-md bg-primary/10 text-primary text-xs font-semibold border border-primary/20">
-            Shown
-          </span>
-        </div>
-      </div>
-
       {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm text-foreground">
-          <thead>
-            <tr className="border-b border-border/50 bg-transparent sticky top-0 z-10">
-              {/* Row number */}
-              <th className="w-8 px-2 py-2 text-left" />
-              {/* Checkbox */}
-              <th className="w-8 px-2 py-2">
-                <input
-                  type="checkbox"
-                  checked={selected.size === tasks.length && tasks.length > 0}
-                  onChange={toggleAll}
-                  className="rounded border-border accent-primary cursor-pointer"
-                />
-              </th>
-              {/* Name */}
-              <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide min-w-[200px]">
-                Name
-              </th>
-              {/* Assignee */}
-              <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-36">
-                Assignee
-              </th>
-              {/* Status */}
-              <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-36">
-                Status
-              </th>
-              {/* Due date */}
-              <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-28">
-                Due date
-              </th>
-              {/* Priority */}
-              <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-28">
-                Priority
-              </th>
-              {/* Add column */}
-              <th className="w-10 px-2 py-2">
-                <button className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
-                  <Plus className="size-3.5" />
-                </button>
-              </th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {tasks.map((task, idx) => {
-              const isSelected = selected.has(task.id);
-              return (
-                <tr
-                  key={task.id}
-                  className={cn(
-                    "border-b border-border/30 hover:bg-muted/30 transition-colors group",
-                    isSelected && "bg-primary/5"
-                  )}
-                >
-                  {/* Row number */}
-                  <td className="w-8 px-2 py-2 text-[11px] text-muted-foreground/50 text-right select-none">
-                    {idx + 1}
-                  </td>
-
-                  {/* Checkbox */}
-                  <td className="w-8 px-2 py-2">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(task.id)}
-                      className="rounded border-border accent-primary cursor-pointer"
-                    />
-                  </td>
-
-                  {/* Name */}
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      {/* Subtask expand */}
-                      {task.hasSubtasks ? (
-                        <ChevronRight className="size-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                      ) : (
-                        <div className="size-3 shrink-0" />
-                      )}
-
-                      {/* Status toggle */}
-                      <button onClick={() => toggleTask(task.id)} className="shrink-0" aria-label="Toggle status">
-                        {task.done ? (
-                          <CircleCheck className="size-4 text-emerald-500" />
-                        ) : (
-                          <Circle className="size-4 text-muted-foreground hover:text-primary transition-colors" />
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => onTaskClick?.(task.id)}
-                        className={cn(
-                          "text-sm font-medium truncate text-left hover:text-primary transition-colors",
-                          task.done && "line-through text-muted-foreground"
-                        )}
-                      >
-                        {task.name}
-                      </button>
-                    </div>
-                  </td>
-
-                  {/* Assignee */}
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-flex items-center justify-center size-6 rounded-full text-[10px] font-bold text-white shrink-0",
-                          task.assigneeColor
-                        )}
-                      >
-                        {task.assigneeInitials}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{task.assigneeInitials}</span>
-                    </div>
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1.5">
-                      {task.status === "Done" || task.status === "Approved" ? (
-                        <CircleCheck className="size-3.5 text-emerald-500 shrink-0" />
-                      ) : (
-                        <Circle className="size-3.5 text-muted-foreground shrink-0" />
-                      )}
-                      <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-md", STATUS_PILL[task.status] || STATUS_PILL["To_Do"])}>
-                        {task.status === "To_Do"
-                          ? "To Do"
-                          : task.status === "In_Progress"
-                          ? "In Progress"
-                          : task.status === "Submitted_for_Review"
-                          ? "Submitted for Review"
-                          : task.status === "Approved"
-                          ? "Approved"
-                          : task.status === "Rework"
-                          ? "Rework"
-                          : "Done"}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Due date */}
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{task.dueDate}</td>
-
-                  {/* Priority */}
-                  <td className="px-3 py-2">
-                    <span className={cn("text-xs font-medium", PRIORITY_STYLES[task.priority])}>
-                      {PRIORITY_LABEL[task.priority]}
-                    </span>
-                  </td>
-
-                  {/* Empty add-column cell */}
-                  <td className="w-10 px-2 py-2" />
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {/* Add row */}
-        <div className="flex items-center gap-2 px-5 py-2 hover:bg-muted/20 transition-colors cursor-pointer group border-b border-border/20">
-          <div className="w-8 shrink-0" />
-          <div className="w-8 shrink-0" />
-          <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-          <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">Add row</span>
-        </div>
+      <div className="flex-1 overflow-auto p-5">
+        <DataTable
+          columns={columns}
+          data={tasks}
+          hideSearch={true}
+          emptyMessage="No tasks found"
+        />
       </div>
     </div>
   );

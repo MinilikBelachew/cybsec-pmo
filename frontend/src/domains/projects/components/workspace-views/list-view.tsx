@@ -1,8 +1,14 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, MessageSquare, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, MessageSquare, Plus, MoreHorizontal } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -31,7 +37,10 @@ interface ListViewProps {
   toggleGroup: (status: Status) => void;
   toggleTask: (taskId: string) => void;
   onAddTask?: (status: Status, phaseId?: string | null) => void;
-  onTaskClick?: (taskId: string) => void;
+  onTaskClick?: (taskId: string, initialTab?: "comments" | "subtasks") => void;
+  onDeleteTask?: (taskId: string) => void;
+  onDuplicateTask?: (taskId: string) => void;
+  onMoveTask?: (taskId: string, toStatus: Status) => void;
   phases?: ProjectPhase[];
 }
 
@@ -83,6 +92,9 @@ export function ListView({
   toggleTask,
   onAddTask,
   onTaskClick,
+  onDeleteTask,
+  onDuplicateTask,
+  onMoveTask,
   phases = [],
 }: ListViewProps) {
   const [groupByPhase, setGroupByPhase] = React.useState(false);
@@ -203,9 +215,60 @@ export function ListView({
           {STATUS_LABEL[task.status] || task.status}
         </span>
       </div>
-      <div className="shrink-0 w-14 flex items-center justify-center gap-1 text-muted-foreground">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onTaskClick?.(task.id, "comments");
+        }}
+        className="shrink-0 w-14 flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+      >
         <MessageSquare className="size-3.5" />
         <span className="text-xs">{task.comments}</span>
+      </button>
+      <div className="shrink-0 w-10 flex items-center justify-center">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              />
+            }
+          >
+            <MoreHorizontal className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem
+              className="cursor-pointer gap-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTaskClick?.(task.id);
+              }}
+            >
+              Edit task
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer gap-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDuplicateTask?.(task.id);
+              }}
+            >
+              Duplicate
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteTask?.(task.id);
+              }}
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
@@ -248,6 +311,9 @@ export function ListView({
           </div>
           <div className="shrink-0 w-14 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
             Comments
+          </div>
+          <div className="shrink-0 w-10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
+            {/* Actions */}
           </div>
         </div>
 

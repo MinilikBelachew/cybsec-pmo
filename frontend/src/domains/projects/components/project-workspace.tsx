@@ -1,16 +1,18 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   useGetProjectByIdQuery,
   useGetTasksQuery,
+  useLazyExportTasksQuery,
   useUpdateTaskMutation,
   useGetPhasesQuery,
   useGetMilestonesQuery,
   useDeleteTaskMutation,
   useCreateTaskMutation,
+  useGetProjectManagersQuery,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
 import { useDebounce } from "@/shared/hooks/use-debounce";
@@ -33,6 +35,8 @@ import {
   ChevronRight,
   CheckCircle2,
   Clock,
+  Upload,
+  Download,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -45,10 +49,13 @@ import { BoardView } from "./workspace-views/board-view";
 import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
-import { PhaseView } from "./workspace-views/phase-view";
+import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
 import { AddTaskSheet } from "./add-task-sheet";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { PhaseMilestonePanel } from "./phase-milestone-panel";
+import { convertTasksToCSV } from "../utils/import-export";
+import { ImportTasksDialog } from "./import-tasks-dialog";
+
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -122,6 +129,7 @@ export function ProjectWorkspace() {
 
   const { userRole } = useRole();
   const roleLabel = userRole ? userRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Guest";
+  const phaseViewRef = useRef<PhaseViewRef>(null);
 
   // Fetch project details
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
@@ -156,6 +164,7 @@ export function ProjectWorkspace() {
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
   const [createTask] = useCreateTaskMutation();
+  const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
 
   const [deleteTaskConfirm, setDeleteTaskConfirm] = useState<{
     isOpen: boolean;
@@ -163,6 +172,8 @@ export function ProjectWorkspace() {
   }>({ isOpen: false, taskId: null });
 
   const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+
   const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
 
   // Fetch phases
@@ -170,6 +181,9 @@ export function ProjectWorkspace() {
 
   // Fetch milestones
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id);
+
+  // Fetch managers/users for assignee mapping
+  const { data: managers = [] } = useGetProjectManagersQuery();
 
   const recentMilestones = useMemo(() => {
     return [...milestones]
@@ -188,6 +202,51 @@ export function ProjectWorkspace() {
         };
       });
   }, [milestones]);
+
+  const handleExport = async () => {
+    const exportToast = toast.loading("Preparing tasks export...");
+    try {
+      const exportParams: GetTasksParams = {
+        projectId: id,
+        topLevelOnly: false,
+      };
+      const trimmedSearch = debouncedSearch.trim();
+      if (trimmedSearch) {
+        exportParams.search = trimmedSearch;
+      }
+      if (statusFilter !== "ALL") {
+        exportParams.status = statusFilter;
+      }
+      const priority = PRIORITY_FILTER_TO_API[priorityFilter];
+      if (priority) {
+        exportParams.priority = priority;
+      }
+
+      const tasksToExport = await triggerExportTasks(exportParams).unwrap();
+      if (!tasksToExport || tasksToExport.length === 0) {
+        toast.dismiss(exportToast);
+        toast.error("No tasks to export.");
+        return;
+      }
+
+      const csvContent = convertTasksToCSV(tasksToExport, phases, managers);
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${project?.name || "project"}_tasks.csv`);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.dismiss(exportToast);
+      toast.success("Tasks exported to CSV successfully.");
+    } catch (err) {
+      console.error(err);
+      toast.dismiss(exportToast);
+      toast.error("Failed to export tasks to CSV.");
+    }
+  };
 
   const tasks = useMemo(() => {
     if (!tasksResponse?.data) return [];
@@ -241,7 +300,13 @@ export function ProjectWorkspace() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<Status>("To_Do");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskDetailDefaultTab, setTaskDetailDefaultTab] = useState<"comments" | "subtasks" | undefined>(undefined);
   const [parentTaskId, setParentTaskId] = useState<string | null>(null);
+
+  const openTaskDetail = (taskId: string, initialTab?: "comments" | "subtasks") => {
+    setTaskDetailDefaultTab(initialTab);
+    setSelectedTaskId(taskId);
+  };
 
   // Gantt Zoom state
   const [ganttZoom, setGanttZoom] = useState(1);
@@ -542,17 +607,60 @@ export function ProjectWorkspace() {
 
           <div className="flex-1" />
 
-          {/* Action button */}
-          <Button
-            onClick={() => {
-              setParentTaskId(null);
-              setNewTaskStatus("To_Do");
-              setIsSheetOpen(true);
-            }}
-          >
-            <Plus className="mr-1.5 size-4" />
-            Add Task
-          </Button>
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            {activeView !== "phases" && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsImportOpen(true)}
+                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                >
+                  <Upload className="size-4" />
+                  Import Tasks
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={isExportingTasks}
+                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                >
+                  {isExportingTasks ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Download className="size-4" />
+                  )}
+                  Export Tasks
+                </Button>
+              </>
+            )}
+
+            {activeView === "phases" ? (
+              <Button
+                onClick={() => {
+                  phaseViewRef.current?.openAddPhase();
+                }}
+                className="h-9 text-xs rounded-xl"
+              >
+                <Plus className="mr-1.5 size-4" />
+                Add Phase
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  setParentTaskId(null);
+                  setNewTaskStatus("To_Do");
+                  setIsSheetOpen(true);
+                }}
+                className="h-9 text-xs rounded-xl"
+              >
+                <Plus className="mr-1.5 size-4" />
+                Add Task
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -564,12 +672,15 @@ export function ProjectWorkspace() {
             openGroups={openGroups}
             toggleGroup={toggleGroup}
             toggleTask={toggleTask}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
             onAddTask={(status) => {
               setParentTaskId(null);
               setNewTaskStatus(status);
               setIsSheetOpen(true);
             }}
+            onDeleteTask={handleDeleteTask}
+            onDuplicateTask={handleDuplicateTask}
+            onMoveTask={handleMoveTask}
             phases={phases}
           />
         )}
@@ -578,7 +689,7 @@ export function ProjectWorkspace() {
           <BoardView
             tasks={tasks}
             toggleTask={toggleTask}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
             onAddTask={(status) => {
               setParentTaskId(null);
               setNewTaskStatus(status);
@@ -601,6 +712,7 @@ export function ProjectWorkspace() {
             setGanttZoom={setGanttZoom}
             phases={phases}
             milestones={milestones}
+            onTaskClick={openTaskDetail}
           />
         )}
 
@@ -608,15 +720,25 @@ export function ProjectWorkspace() {
           <TableView
             tasks={tasks}
             toggleTask={toggleTask}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
+            onAddTask={(status) => {
+              setParentTaskId(null);
+              setNewTaskStatus(status);
+              setIsSheetOpen(true);
+            }}
+            onDeleteTask={handleDeleteTask}
+            onDuplicateTask={handleDuplicateTask}
+            onMoveTask={handleMoveTask}
+            onSetDueDate={handleSetDueDate}
           />
         )}
 
         {activeView === "phases" && (
           <PhaseView
+            ref={phaseViewRef}
             projectId={id}
             taskQueryParams={{ ...taskQueryParams, limit: 100 }}
-            onTaskClick={setSelectedTaskId}
+            onTaskClick={openTaskDetail}
             onAddTask={(phaseId) => {
               setSelectedPhaseIdForNewTask(phaseId);
               setNewTaskStatus("To_Do");
@@ -651,9 +773,13 @@ export function ProjectWorkspace() {
         taskId={selectedTaskId}
         projectId={id}
         open={!!selectedTaskId}
-        onClose={() => setSelectedTaskId(null)}
+        onClose={() => {
+          setSelectedTaskId(null);
+          setTaskDetailDefaultTab(undefined);
+        }}
         onOpenSubTask={(subId) => setSelectedTaskId(subId)}
         onUpdated={() => refetchTasks()}
+        initialTab={taskDetailDefaultTab}
       />
 
       <PhaseMilestonePanel
@@ -670,6 +796,14 @@ export function ProjectWorkspace() {
         description="Are you sure you want to delete this task? This action cannot be undone."
         isDeleting={isDeletingTask}
       />
+
+      <ImportTasksDialog
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        refetch={refetchTasks}
+        projectId={id}
+      />
     </div>
   );
 }
+

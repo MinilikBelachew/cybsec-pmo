@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useImperativeHandle, forwardRef } from "react";
 import { toast } from "react-hot-toast";
 import {
   useGetPhasesQuery,
@@ -40,6 +40,10 @@ import { PhaseStatus } from "../../types/projects.types";
 
 import type { GetTasksParams } from "../../types/tasks.types";
 
+export interface PhaseViewRef {
+  openAddPhase: () => void;
+}
+
 interface PhaseViewProps {
   projectId: string;
   taskQueryParams?: GetTasksParams;
@@ -47,12 +51,19 @@ interface PhaseViewProps {
   onAddTask: (phaseId: string) => void;
 }
 
-export function PhaseView({ projectId, taskQueryParams, onTaskClick, onAddTask }: PhaseViewProps) {
+export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
+  function PhaseView({ projectId, taskQueryParams, onTaskClick, onAddTask }, ref) {
   const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(projectId);
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(projectId);
   const { data: tasksResponse, isLoading: isTasksLoading } = useGetTasksQuery(
     taskQueryParams ?? { projectId, limit: 100 }
   );
+
+  useImperativeHandle(ref, () => ({
+    openAddPhase: () => {
+      setActiveForm({ type: "add-phase" });
+    },
+  }));
 
   const [createPhase, { isLoading: isCreatingPhase }] = useCreatePhaseMutation();
   const [updatePhase, { isLoading: isUpdatingPhase }] = useUpdatePhaseMutation();
@@ -748,4 +759,4 @@ export function PhaseView({ projectId, taskQueryParams, onTaskClick, onAddTask }
       </DialogPrimitive.Root>
     </div>
   );
-}
+});

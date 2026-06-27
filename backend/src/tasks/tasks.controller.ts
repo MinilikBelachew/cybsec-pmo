@@ -109,6 +109,18 @@ export class TasksController {
   }
 
   @CheckAbility('read', 'Task')
+  @Get('export')
+  @HttpCode(HttpStatus.OK)
+  async export(@Query() query: QueryTaskDto, @Request() request: AuthRequest) {
+    return this.tasksService.findManyForExport(
+      query,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('read', 'Task')
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })

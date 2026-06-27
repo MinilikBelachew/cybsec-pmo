@@ -405,6 +405,56 @@ export class TasksService {
     return tasks.map((task) => this.formatTask(task, viewerRoleCode));
   }
 
+  async findManyForExport(
+    query: QueryTaskDto,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    const filters: Record<string, unknown>[] = [
+      this.recordScopeWhere.taskWhere(caslUser, 'read'),
+    ];
+
+    if (query.projectId) {
+      filters.push({ projectId: query.projectId });
+    }
+    if (query.ownerId) {
+      filters.push({ ownerId: query.ownerId });
+    }
+    if (query.status) {
+      filters.push({ status: this.mapStatusToPrisma(query.status) });
+    }
+    if (query.priority) {
+      filters.push({ priority: query.priority });
+    }
+    if (query.parentTaskId) {
+      filters.push({ parentTaskId: query.parentTaskId });
+    } else if (query.topLevelOnly !== false) {
+      filters.push({ parentTaskId: null });
+    }
+    if (query.phaseId) {
+      filters.push({ phaseId: query.phaseId });
+    }
+    if (query.search) {
+      filters.push({
+        OR: [
+          { title: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const where = { AND: filters };
+
+    const tasks = await this.prisma.task.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: TASK_INCLUDE,
+    });
+
+    return tasks.map((task) => this.formatTask(task, viewerRoleCode));
+  }
+
   async findById(
     id: string,
     caslUser: CaslUserContext,

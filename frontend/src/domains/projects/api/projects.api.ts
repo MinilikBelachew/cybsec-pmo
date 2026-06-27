@@ -32,6 +32,16 @@ export const projectsApi = api.injectEndpoints({
           : [{ type: "Projects", id: "LIST" }],
     }),
 
+    exportProjects: builder.query<Project[], GetProjectsParams>({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        if (params.search) queryParams.append("search", params.search);
+        if (params.status) queryParams.append("status", params.status);
+        if (params.priority) queryParams.append("priority", params.priority);
+        return `/projects/export?${queryParams.toString()}`;
+      },
+    }),
+
     getProjectById: builder.query<Project, string>({
       query: (id) => `/projects/${id}`,
       providesTags: (result, error, id) => [{ type: "Projects", id }],
@@ -195,6 +205,8 @@ export const projectsApi = api.injectEndpoints({
 
 export const {
   useGetProjectsQuery,
+  useLazyExportProjectsQuery,
+  useExportProjectsQuery,
   useGetProjectByIdQuery,
   useGetDepartmentsQuery,
   useGetCustomersQuery,

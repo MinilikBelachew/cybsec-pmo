@@ -81,10 +81,10 @@ export function PhaseForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col justify-between overflow-hidden">
-      <ScrollArea className="flex-1 px-6 py-4">
+      <ScrollArea className="flex-1 px-4 py-4">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+            <h3 className="text-sm font-bold">
               {initialValues.name ? "Edit Phase Details" : "Create New Phase"}
             </h3>
           </div>
@@ -97,7 +97,7 @@ export function PhaseForm({
               <Input
                 id="phase-name"
                 placeholder="e.g. Phase 1 - Discovery"
-                className="h-9 dark:bg-slate-900/50"
+                className="h-9"
                 {...register("name")}
               />
               <FieldError message={errors.name?.message} />
@@ -108,7 +108,7 @@ export function PhaseForm({
               <Input
                 id="phase-desc"
                 placeholder="Understand scope and align resources"
-                className="h-9 dark:bg-slate-900/50"
+                className="h-9"
                 {...register("description")}
               />
               <FieldError message={errors.description?.message} />
