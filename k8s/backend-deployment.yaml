@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  type: NodePort
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30601
+  selector:
+    app: backend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: aynuayex/cybersec-backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: APP_PORT
+              value: "3000"
+            - name: API_PREFIX
+              value: "api"
+            - name: DATABASE_HOST
+              value: "postgres"
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_USERNAME
+              value: "root"
+            - name: DATABASE_PASSWORD
+              value: "secret"
+            - name: DATABASE_NAME
+              value: "api"
+            - name: DATABASE_URL
+              value: "postgresql://root:secret@postgres:5432/api?schema=public"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: FRONTEND_DOMAIN
+              value: "https://cybsec.addisanalytics.com"
+            - name: BACKEND_DOMAIN
+              value: "https://cybsec.addisanalytics.com"
+            - name: AUTH_JWT_SECRET
+              value: "change-me-to-a-secure-random-key"
+            - name: AUTH_REFRESH_SECRET
+              value: "change-me-to-another-secure-random-key"
+            - name: AUTH_FORGOT_SECRET
+              value: "change-me-to-forgot-secure-random-key"
+            - name: AUTH_CONFIRM_EMAIL_SECRET
+              value: "change-me-to-confirm-secure-random-key"
+            - name: SECURITY_ALERTS_ENABLED
+              value: "false"
+      imagePullSecrets:
+        - name: dockerhub-registry
+
