@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: aynuayex/cybersec-frontend:latest
+          image: aynuayex/cybersec-pmo:frontend
           ports:
             - containerPort: 3000
           env:

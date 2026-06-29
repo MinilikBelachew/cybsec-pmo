@@ -29,7 +29,7 @@ Your server already has active applications on several ports. To prevent any con
 Next.js compiles environment variables starting with `NEXT_PUBLIC_` **directly into the HTML/JS bundle at build time**. 
 - Because they are compiled into the static assets, they **cannot** be changed dynamically at runtime when the container starts.
 - This is why you must pass your real production domain when building the image. 
-- In [docker-compose.prod.yml](docker-compose.prod.yml), these are defined under the `args:` key of the `build` block. If you build using Docker Compose, it reads them automatically, decreasing the commands you need to run!
+- In [docker-compose.prod.yml](docker-compose.prod.yml), these are defined under the `args:` key of the `build` block. If you build using Docker Compose, it reads them automatically.
 
 ### 2. Backend Environment Variables & Root `.env` (Runtime)
 The backend container reads its runtime configuration from `backend/.env.prod` via the `env_file` directive.
@@ -42,7 +42,6 @@ To avoid hardcoding Postgres credentials directly into the `docker-compose.prod.
 ```yaml
 POSTGRES_USER: ${DATABASE_USERNAME:-root}
 POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret}
-POSTGRES_DB: ${DATABASE_NAME:-api}
 ```
 - **Best Practice Setup**: Create a `.env` file in the **root directory** of your project on the VPS (the same folder where `docker-compose.prod.yml` resides) and add your production credentials:
   ```env
@@ -60,17 +59,16 @@ POSTGRES_DB: ${DATABASE_NAME:-api}
 
 ---
 
-## 🔒 Making Your Docker Hub Images Private
-By default, pushing to Docker Hub makes your images public unless you explicitly configure the repository as **Private**:
+## 🔒 Docker Hub Private Repository Workaround (1 Free Private Limit)
+Docker Hub only allows **one free private repository** per account. Because we have two separate images (frontend and backend), we will use the **single private repository tag-based workaround**:
 
 1. Log in to the [Docker Hub Dashboard](https://hub.docker.com/).
-2. Click **Create Repository**.
-3. Set the Repository Name to match your build tag:
-   - Create one repository named `cybersec-backend`.
-   - Create another repository named `cybersec-frontend`.
-4. In the **Visibility** section of each repository, select **Private**.
-5. Click **Create**.
-*Only you can push to or pull from `aynuayex/cybersec-backend` and `aynuayex/cybersec-frontend`.*
+2. Create **one** repository named **`cybersec-pmo`**.
+3. In the **Visibility** section, select **Private**.
+4. Click **Create**.
+- We will push the backend image as: `aynuayex/cybersec-pmo:backend`
+- We will push the frontend image as: `aynuayex/cybersec-pmo:frontend`
+*This allows you to store both images completely privately in your single free repository!*
 
 ---
 
@@ -121,21 +119,25 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
    docker login -u aynuayex
    ```
 
-4. **Build and push the Backend image**:
+4. **Build the Backend image on your Mac**:
    ```bash
    cd backend
-   docker build -t aynuayex/cybersec-backend:latest .
-   docker push aynuayex/cybersec-backend:latest
+   docker build -t aynuayex/cybersec-pmo:backend .
    ```
 
-5. **Build and push the Frontend image** (passing your domain at build time):
+5. **Build the Frontend image on your Mac** (passing build args):
    ```bash
    cd ../frontend
    docker build \
      --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api \
      --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
-     -t aynuayex/cybersec-frontend:latest .
-   docker push aynuayex/cybersec-frontend:latest
+     -t aynuayex/cybersec-pmo:frontend .
+   ```
+
+6. **Push the images to your single private Docker Hub repository**:
+   ```bash
+   docker push aynuayex/cybersec-pmo:backend
+   docker push aynuayex/cybersec-pmo:frontend
    ```
 
 6. **Log in to Docker on the VPS** so it can pull the private images:

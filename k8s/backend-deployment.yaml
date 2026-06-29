@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: aynuayex/cybersec-backend:latest
+          image: aynuayex/cybersec-pmo:backend
           ports:
             - containerPort: 3000
           env:

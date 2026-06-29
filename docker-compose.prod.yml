@@ -36,7 +36,7 @@ services:
     # --------------------------------------------------------------------------
     # OPTION 2: Pull from Docker Hub (Default)
     # --------------------------------------------------------------------------
-    image: aynuayex/cybersec-backend:latest
+    image: aynuayex/cybersec-pmo:backend
 
     container_name: cybersec-backend
     restart: always
@@ -70,7 +70,7 @@ services:
     # --------------------------------------------------------------------------
     # OPTION 2: Pull from Docker Hub (Default)
     # --------------------------------------------------------------------------
-    image: aynuayex/cybersec-frontend:latest
+    image: aynuayex/cybersec-pmo:frontend
 
     container_name: cybersec-frontend
     restart: always
