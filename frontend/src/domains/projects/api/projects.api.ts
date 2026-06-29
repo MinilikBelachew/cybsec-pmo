@@ -17,6 +17,8 @@ import {
   type GetTeamCandidatesParams,
   type CreateProjectTeamPayload,
   type CreateProjectTeamResult,
+  type GetTaskAssigneeAvailabilityParams,
+  type TaskAssigneeAvailability,
 } from "../types/projects.types";
 
 export const projectsApi = api.injectEndpoints({
@@ -97,6 +99,7 @@ export const projectsApi = api.injectEndpoints({
               { type: "ProjectTeam", id: result.id },
               { type: "ProjectTeam", id: `assignees-${result.id}` },
               { type: "ProjectTeam", id: "CANDIDATES" },
+              { type: "Milestones", id: result.id },
             ]
           : [{ type: "Projects", id: "LIST" }],
     }),
@@ -236,6 +239,8 @@ export const projectsApi = api.injectEndpoints({
         const queryParams = new URLSearchParams();
         if (params.departmentId) queryParams.append("departmentId", params.departmentId);
         if (params.projectId) queryParams.append("projectId", params.projectId);
+        if (params.startDate) queryParams.append("startDate", params.startDate);
+        if (params.endDate) queryParams.append("endDate", params.endDate);
         const qs = queryParams.toString();
         return `/projects/meta/team-candidates${qs ? `?${qs}` : ""}`;
       },
@@ -292,6 +297,20 @@ export const projectsApi = api.injectEndpoints({
         { type: "Projects", id: projectId },
       ],
     }),
+
+    getTaskAssigneeAvailability: builder.query<
+      TaskAssigneeAvailability,
+      GetTaskAssigneeAvailabilityParams
+    >({
+      query: ({ projectId, ownerId, startDate, endDate, effortHours, excludeTaskId }) => {
+        const queryParams = new URLSearchParams({ ownerId });
+        if (startDate) queryParams.append("startDate", startDate);
+        if (endDate) queryParams.append("endDate", endDate);
+        if (effortHours != null) queryParams.append("effortHours", String(effortHours));
+        if (excludeTaskId) queryParams.append("excludeTaskId", excludeTaskId);
+        return `/projects/${projectId}/team/task-availability?${queryParams.toString()}`;
+      },
+    }),
   }),
 });
 
@@ -321,4 +340,5 @@ export const {
   useGetProjectTaskAssigneesQuery,
   useAddProjectTeamMembersMutation,
   useRemoveProjectTeamMemberMutation,
+  useGetTaskAssigneeAvailabilityQuery,
 } = projectsApi;

@@ -7,6 +7,7 @@ import { useLazyGetMeQuery, useLazyGetMyPermissionsQuery } from "../api/auth.api
 import { useAppDispatch } from "@/store/hooks";
 import { apiUserToUser } from "../transformers/auth.transformer";
 import { setPermissions, setUser } from "../store/auth.slice";
+import { normalizeReturnPath } from "@/shared/utils/return-path";
 
 export function AuthCallbackPage() {
   const searchParams = useSearchParams();
@@ -18,7 +19,7 @@ export function AuthCallbackPage() {
 
   useEffect(() => {
     const error = searchParams.get("error");
-    const returnTo = searchParams.get("returnTo") || "/dashboard";
+    const returnTo = normalizeReturnPath(searchParams.get("returnTo"));
 
     if (error) {
       router.replace(`/login?error=${encodeURIComponent(error)}`);

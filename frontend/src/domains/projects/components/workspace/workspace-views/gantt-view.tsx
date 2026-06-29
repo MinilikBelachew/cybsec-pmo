@@ -7,7 +7,8 @@ import { ChevronDown, ChevronRight, Plus, Circle, CircleCheck, ZoomIn, ZoomOut }
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
 
-import { type ProjectPhase, type ProjectMilestone } from "../../types/projects.types";
+import { type ProjectPhase, type ProjectMilestone } from "../../../types/projects.types";
+import { type TaskDependency } from "../../../types/tasks.types";
 
 interface Task {
   id: string;
@@ -23,10 +24,12 @@ interface Task {
   phaseColor?: string;
   rawStartDate?: string | null;
   rawEndDate?: string | null;
+  isOnCriticalPath?: boolean;
 }
 
 interface GanttViewProps {
   tasks: Task[];
+  dependencies?: TaskDependency[];
   toggleTask: (taskId: string) => void;
   ganttZoom?: number;
   setGanttZoom?: React.Dispatch<React.SetStateAction<number>>;
@@ -89,6 +92,7 @@ function getWeekNumber(d: Date): number {
 
 export function GanttView({
   tasks,
+  dependencies = [],
   toggleTask,
   ganttZoom,
   setGanttZoom,
@@ -294,14 +298,73 @@ export function GanttView({
       
       const startDay = Math.max(0, Math.round(diffStart / 86400000));
       const durationDays = Math.max(1, Math.round((diffEnd - diffStart) / 86400000) + 1);
-      return { startDay, durationDays };
+      return { startDay, durationDays, hasDates: true };
     }
 
     // Fallback mock schedule
     const startDay = (index * 2) % 15;
     const durationDays = Math.max(1, 3 + (index % 5));
-    return { startDay, durationDays };
+    return { startDay, durationDays, hasDates: false };
   };
+
+  const { taskLayout, totalTimelineRows } = useMemo(() => {
+    const layout = new Map<
+      string,
+      { row: number; startDay: number; durationDays: number; isCritical: boolean; hasDates: boolean }
+    >();
+    let row = 0;
+
+    for (const group of groupedData) {
+      row += 1;
+      const isExpanded = openPhases[group.id] !== false;
+      if (!isExpanded) continue;
+
+      group.tasks.forEach((task, idx) => {
+        const dates = getGanttDates(task, idx);
+        layout.set(task.id, {
+          row,
+          startDay: dates.startDay,
+          durationDays: dates.durationDays,
+          isCritical: Boolean(task.isOnCriticalPath),
+          hasDates: dates.hasDates,
+        });
+        row += 1;
+      });
+    }
+
+    return { taskLayout: layout, totalTimelineRows: row };
+  }, [groupedData, openPhases, dateRange]);
+
+  const dependencyArrows = useMemo(() => {
+    return dependencies
+      .map((dep) => {
+        const pred = taskLayout.get(dep.predecessorId);
+        const succ = taskLayout.get(dep.successorId);
+        if (!pred || !succ || !pred.hasDates || !succ.hasDates) {
+          return null;
+        }
+
+        const x1 = (pred.startDay + pred.durationDays) * colW - 2;
+        const x2 = succ.startDay * colW + 2;
+        const y1 = pred.row * 36 + 18;
+        const y2 = succ.row * 36 + 18;
+        const isCritical = pred.isCritical && succ.isCritical;
+        const midX = (x1 + x2) / 2;
+
+        return {
+          id: dep.id,
+          path: `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`,
+          isCritical,
+          depType: dep.depType,
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      path: string;
+      isCritical: boolean;
+      depType: string;
+    }>;
+  }, [dependencies, taskLayout, colW]);
 
   const scrollToToday = () => {
     if (scrollRef.current) {
@@ -454,6 +517,12 @@ export function GanttView({
                           <span className={cn("text-xs truncate flex-1", task.done && "line-through text-muted-foreground")}>
                             {task.name}
                           </span>
+                          {task.isOnCriticalPath && (
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-rose-500"
+                              title="Critical path"
+                            />
+                          )}
                         </div>
                       ))}
                   </React.Fragment>
@@ -526,7 +595,10 @@ export function GanttView({
                   {/* Task rows timeline */}
                   {isExpanded &&
                     group.tasks.map((task, idx) => {
-                      const { startDay, durationDays } = getGanttDates(task, idx);
+                      const layout = taskLayout.get(task.id);
+                      const { startDay, durationDays } =
+                        layout ?? getGanttDates(task, idx);
+                      const isCritical = layout?.isCritical ?? Boolean(task.isOnCriticalPath);
                       return (
                         <div
                           key={task.id}
@@ -541,22 +613,22 @@ export function GanttView({
                             const barWidth = Math.max(durationDays * colW - 4, colW - 4);
                             return (
                               <div
-                                className="absolute top-1/2 -translate-y-1/2 flex items-center gap-2 cursor-pointer group/bar"
+                                className="absolute top-1/2 -translate-y-1/2 flex items-center gap-2 cursor-pointer group/bar z-10"
                                 onClick={() => onTaskClick?.(task.id)}
                                 style={{
                                   left: startDay * colW + 2,
                                 }}
                               >
-                                {/* The Gantt Bar */}
                                 <div
                                   className={cn(
                                     "relative rounded-md h-5 overflow-hidden flex items-center hover:brightness-95 transition-all shadow-xs border",
-                                    config.bgClass
+                                    config.bgClass,
+                                    isCritical && "ring-2 ring-rose-500 border-rose-500",
                                   )}
                                   style={{
                                     width: barWidth,
                                   }}
-                                  title={`${task.name} (${config.label})`}
+                                  title={`${task.name} (${config.label})${isCritical ? " — Critical path" : ""}`}
                                 >
                                   {/* Task Name inside the bar if it fits */}
                                   {barWidth > 85 && (
@@ -579,6 +651,54 @@ export function GanttView({
                 </React.Fragment>
               );
             })}
+            {dependencyArrows.length > 0 && (
+              <svg
+                className="pointer-events-none absolute left-0 z-[15]"
+                style={{
+                  top: 56,
+                  width: dateRange.totalDays * colW,
+                  height: Math.max(totalTimelineRows * 36, 36),
+                }}
+              >
+                <defs>
+                  <marker
+                    id="gantt-dep-arrow"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"
+                  >
+                    <path d="M0,0 L8,4 L0,8 Z" className="fill-slate-400" />
+                  </marker>
+                  <marker
+                    id="gantt-dep-arrow-critical"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"
+                  >
+                    <path d="M0,0 L8,4 L0,8 Z" className="fill-rose-500" />
+                  </marker>
+                </defs>
+                {dependencyArrows.map((arrow) => (
+                  <path
+                    key={arrow.id}
+                    d={arrow.path}
+                    fill="none"
+                    strokeWidth={1.5}
+                    markerEnd={
+                      arrow.isCritical
+                        ? "url(#gantt-dep-arrow-critical)"
+                        : "url(#gantt-dep-arrow)"
+                    }
+                    className={arrow.isCritical ? "stroke-rose-500" : "stroke-slate-400"}
+                    opacity={0.85}
+                  />
+                ))}
+              </svg>
+            )}
           </div>
         </div>
       </div>
@@ -612,6 +732,14 @@ export function GanttView({
         <div className="flex items-center gap-1.5">
           <span className="size-3 rotate-45 bg-purple-600 border border-white dark:border-slate-900" />
           <span>Milestone</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-3 w-5 rounded border-2 border-rose-500 bg-transparent" />
+          <span>Critical path</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-0.5 w-4 bg-slate-400" />
+          <span>Dependency link</span>
         </div>
         {todayOffset >= 0 && (
           <div className="flex items-center gap-1.5">

@@ -127,16 +127,23 @@ export const ProjectTeamSection = forwardRef<
   const [addProjectTeamMembers, { isLoading: isAddingMembers }] =
     useAddProjectTeamMembersMutation();
 
+  const planningStart = formatDateValue(startDate);
+  const planningEnd = formatDateValue(endDate);
+  const hasPlanningWindow = Boolean(planningStart && planningEnd);
+
   const candidateQuery = useMemo(
     () => ({
       departmentId: filterByDepartment && departmentId ? departmentId : undefined,
       projectId: projectId ?? undefined,
+      ...(hasPlanningWindow
+        ? { startDate: planningStart, endDate: planningEnd }
+        : {}),
     }),
-    [departmentId, filterByDepartment, projectId],
+    [departmentId, filterByDepartment, projectId, planningStart, planningEnd, hasPlanningWindow],
   );
 
   const { data: candidates = [], isLoading: loadingCandidates } =
-    useGetTeamCandidatesQuery(candidateQuery);
+    useGetTeamCandidatesQuery(candidateQuery, { skip: !hasPlanningWindow });
 
   const assignedEmployeeIds = useMemo(() => {
     const ids = new Set<string>();
@@ -294,10 +301,16 @@ export const ProjectTeamSection = forwardRef<
         <div>
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Project team</h3>
           <p className="text-[11px] text-muted-foreground">
-            Select one or more employees and set weekly hours for each before adding to the project.
+            Assign resources with weekly hours. Availability is based on the project date range above.
           </p>
         </div>
       </div>
+
+      {!hasPlanningWindow && canEdit && (
+        <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          Set project start and end dates above to load team availability.
+        </p>
+      )}
 
       {existingTeam.length > 0 && (
         <div className="space-y-2">
@@ -344,20 +357,22 @@ export const ProjectTeamSection = forwardRef<
             <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
               <PopoverTrigger
                 type="button"
-                disabled={loadingCandidates || availableCandidates.length === 0}
+                disabled={!hasPlanningWindow || loadingCandidates || availableCandidates.length === 0}
                 className={cn(
                   "flex w-full min-h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm dark:border-white/[0.08] dark:bg-zinc-950",
                   "hover:border-slate-300 dark:hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-50",
                 )}
               >
                 <span className="text-muted-foreground">
-                  {loadingCandidates
-                    ? "Loading employees..."
-                    : availableCandidates.length === 0
-                      ? "No available employees"
-                      : checkedCandidates.length > 0
-                        ? `${checkedCandidates.length} selected — configure hours below`
-                        : "Select employees..."}
+                  {!hasPlanningWindow
+                    ? "Set project dates first"
+                    : loadingCandidates
+                      ? "Loading employees..."
+                      : availableCandidates.length === 0
+                        ? "No available employees"
+                        : checkedCandidates.length > 0
+                          ? `${checkedCandidates.length} selected — configure hours below`
+                          : "Select employees..."}
                 </span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </PopoverTrigger>

@@ -32,6 +32,31 @@ export function isAllocationActive(
   return true;
 }
 
+export function isAllocationOverlappingWindow(
+  allocation: AllocationHoursInput,
+  windowStart: Date,
+  windowEnd: Date,
+): boolean {
+  if (allocation.status !== 'Active') {
+    return false;
+  }
+
+  const allocStart = stripTime(allocation.startDate);
+  const allocEnd = allocation.endDate ? stripTime(allocation.endDate) : null;
+  const rangeStart = stripTime(windowStart);
+  const rangeEnd = stripTime(windowEnd);
+
+  if (allocStart > rangeEnd) {
+    return false;
+  }
+
+  if (allocEnd && allocEnd < rangeStart) {
+    return false;
+  }
+
+  return true;
+}
+
 export function allocationWeeklyHours(
   allocation: AllocationHoursInput,
   weeklyCapacity: number,
@@ -54,6 +79,17 @@ export function sumActiveAllocationHours(
 ): number {
   return allocations
     .filter((row) => isAllocationActive(row, asOf))
+    .reduce((total, row) => total + allocationWeeklyHours(row, weeklyCapacity), 0);
+}
+
+export function sumOverlappingAllocationHours(
+  allocations: AllocationHoursInput[],
+  weeklyCapacity: number,
+  windowStart: Date,
+  windowEnd: Date,
+): number {
+  return allocations
+    .filter((row) => isAllocationOverlappingWindow(row, windowStart, windowEnd))
     .reduce((total, row) => total + allocationWeeklyHours(row, weeklyCapacity), 0);
 }
 

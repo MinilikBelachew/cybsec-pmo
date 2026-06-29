@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { PUBLIC_PATH_PREFIXES } from "./config/routes.config";
+import { normalizeReturnPath } from "./shared/utils/return-path";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -34,9 +35,12 @@ export function proxy(request: NextRequest) {
 
   // 2. If not authenticated and NOT on a public path, redirect to login
   if (!accessToken && !isPublicPath(pathname)) {
-    // Let next-intl handle the redirection to the correct localized /login page
+    const pathWithoutLocale = pathname.replace(/^\/(en|ar)(?=\/|$)/, "") || "/";
     request.nextUrl.pathname = "/login";
-    request.nextUrl.searchParams.set("callbackUrl", pathname);
+    request.nextUrl.searchParams.set(
+      "callbackUrl",
+      normalizeReturnPath(pathWithoutLocale),
+    );
     return intlMiddleware(request);
   }
 

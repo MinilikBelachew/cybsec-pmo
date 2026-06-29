@@ -42,10 +42,12 @@ import {
   ProjectManagerDto,
 } from './dto/project.dto';
 import { QueryTeamCandidatesDto } from './dto/query-team-candidates.dto';
+import { QueryTaskAssigneeAvailabilityDto } from './dto/query-task-assignee-availability.dto';
 import {
   CreateProjectTeamResultDto,
   ProjectAllocationDto,
   ProjectTaskAssigneeDto,
+  TaskAssigneeAvailabilityDto,
   TeamCandidateDto,
 } from './dto/project-allocation.dto';
 import { CreateProjectTeamDto } from './dto/create-allocation.dto';
@@ -89,9 +91,9 @@ export class ProjectsController {
     @Body() dto: CreateProjectBundleDto,
     @Request() request: RequestWithAbility,
   ): Promise<ProjectDto> {
-    const { allocations, ...projectDto } = dto;
+    const { allocations, milestones, ...projectDto } = dto;
     const project = await this.projectsService.create(
-      projectDto,
+      { ...projectDto, milestones },
       request.user!.id,
     );
 
@@ -231,6 +233,23 @@ export class ProjectsController {
     @Request() request: RequestWithAbility,
   ): Promise<void> {
     return this.projectsService.remove(id, request.caslUser!, request.ability!);
+  }
+
+  @CheckAbility('read', 'Project')
+  @Get(':id/team/task-availability')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiOkResponse({ type: TaskAssigneeAvailabilityDto })
+  checkTaskAssigneeAvailability(
+    @Param('id') id: string,
+    @Query() query: QueryTaskAssigneeAvailabilityDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<TaskAssigneeAvailabilityDto> {
+    return this.projectTeamService.checkTaskAssigneeAvailability(
+      id,
+      query,
+      request.caslUser!,
+    );
   }
 
   @CheckAbility('read', 'Project')

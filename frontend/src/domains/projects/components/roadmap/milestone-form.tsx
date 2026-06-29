@@ -3,14 +3,14 @@
 import React from "react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { milestoneSchema, type MilestoneFormValues } from "../schemas/milestone.schema";
+import { milestoneSchema, type MilestoneFormValues } from "../../schemas/milestone/milestone.schema";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
-import { ProjectPhase } from "../types/projects.types";
+import { ProjectPhase } from "../../types/projects.types";
 import { Calendar } from "@/shared/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { CalendarIcon } from "lucide-react";

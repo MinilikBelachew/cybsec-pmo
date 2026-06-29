@@ -11,17 +11,17 @@ import {
   useCreateMilestoneMutation,
   useUpdateMilestoneMutation,
   useDeleteMilestoneMutation,
-} from "../../api/projects.api";
-import { useGetTasksQuery } from "../../api/tasks.api";
+} from "../../../api/projects.api";
+import { useGetTasksQuery } from "../../../api/tasks.api";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent } from "@/shared/ui/card";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
-import { PhaseForm } from "../phase-form";
-import { MilestoneForm } from "../milestone-form";
-import { PhaseFormValues } from "../../schemas/phase.schema";
-import { MilestoneFormValues } from "../../schemas/milestone.schema";
+import { PhaseForm } from "../../roadmap/phase-form";
+import { MilestoneForm } from "../../roadmap/milestone-form";
+import { PhaseFormValues } from "../../../schemas/phase/phase.schema";
+import { MilestoneFormValues } from "../../../schemas/milestone/milestone.schema";
 import {
   Calendar,
   CheckCircle2,
@@ -36,9 +36,9 @@ import {
   Trash2,
   Edit2,
 } from "lucide-react";
-import { PhaseStatus } from "../../types/projects.types";
+import { PhaseStatus } from "../../../types/projects.types";
 
-import type { GetTasksParams } from "../../types/tasks.types";
+import type { GetTasksParams } from "../../../types/tasks.types";
 
 export interface PhaseViewRef {
   openAddPhase: () => void;
@@ -48,7 +48,7 @@ interface PhaseViewProps {
   projectId: string;
   taskQueryParams?: GetTasksParams;
   onTaskClick: (taskId: string) => void;
-  onAddTask: (phaseId: string) => void;
+  onAddTask?: (phaseId: string) => void;
 }
 
 export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
@@ -529,13 +529,15 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                       </div>
                     </div>
 
-                    <Button
-                      onClick={() => onAddTask(phase.id)}
-                      size="xs"
-                      className="w-full gap-1 h-8 rounded-lg text-xs font-bold"
-                    >
-                      <Plus className="size-3.5" /> Add Task to Phase
-                    </Button>
+                    {onAddTask && (
+                      <Button
+                        onClick={() => onAddTask(phase.id)}
+                        size="xs"
+                        className="w-full gap-1 h-8 rounded-lg text-xs font-bold"
+                      >
+                        <Plus className="size-3.5" /> Add Task to Phase
+                      </Button>
+                    )}
                   </div>
                 </div>
 

@@ -30,25 +30,28 @@ export function NotificationSocketProvider({ children }: { children: ReactNode }
     }
 
     const token = getAccessTokenFromCookie();
-    if (!token) {
-      return;
-    }
 
     const socket = io(`${env.wsUrl}/notifications`, {
-      transports: ["websocket"],
+      transports: ["websocket", "polling"],
       withCredentials: true,
-      auth: { token },
+      auth: token ? { token } : {},
       reconnection: true,
-      reconnectionDelay: 3000,
+      reconnectionDelay: 2000,
+      reconnectionAttempts: 10,
     });
 
-    socket.on("notification.created", () => {
-      api.util.invalidateTags(["Notifications"]);
-    });
+    const invalidateRealtimeQueries = () => {
+      api.util.invalidateTags(["Notifications", "TaskProgress"]);
+    };
+
+    socket.on("connect", invalidateRealtimeQueries);
+    socket.on("notification.created", invalidateRealtimeQueries);
 
     socketRef.current = socket;
 
     return () => {
+      socket.off("connect", invalidateRealtimeQueries);
+      socket.off("notification.created", invalidateRealtimeQueries);
       socket.disconnect();
       socketRef.current = null;
     };

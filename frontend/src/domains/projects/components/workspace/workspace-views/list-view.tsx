@@ -29,7 +29,7 @@ interface Task {
   phaseColor?: string;
 }
 
-import { type ProjectPhase } from "../../types/projects.types";
+import { type ProjectPhase } from "../../../types/projects.types";
 
 interface ListViewProps {
   tasks: Task[];

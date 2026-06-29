@@ -103,6 +103,13 @@ export interface CreateProjectDto {
 
 export interface CreateProjectBundleDto extends CreateProjectDto {
   allocations?: CreateProjectTeamPayload["allocations"];
+  milestones?: Array<{
+    title: string;
+    targetDate: string;
+    weight?: number;
+    status?: string;
+    phaseId?: string;
+  }>;
 }
 
 export interface PaginatedProjectsResponse {
@@ -198,6 +205,8 @@ export interface PendingTeamMember {
 export interface GetTeamCandidatesParams {
   departmentId?: string;
   projectId?: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface CreateProjectTeamPayload {
@@ -225,4 +234,28 @@ export interface ProjectTaskAssignee {
   designation: string;
   role: string;
   department: Pick<Department, "id" | "code" | "name">;
+}
+
+export interface GetTaskAssigneeAvailabilityParams {
+  projectId: string;
+  ownerId: string;
+  startDate?: string;
+  endDate?: string;
+  effortHours?: number;
+  excludeTaskId?: string;
+}
+
+export interface TaskAssigneeAvailability {
+  canCheck: boolean;
+  message?: string;
+  employeeName?: string;
+  weeklyCapacityHours?: number;
+  allocationHours?: number;
+  otherTaskHours?: number;
+  thisTaskHours?: number;
+  allocatedHoursTotal?: number;
+  remainingHours?: number;
+  utilizationPercent?: number;
+  isOverAllocated?: boolean;
+  warnings: string[];
 }

@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   HttpStatus,
   Injectable,
   NotFoundException,
@@ -17,6 +18,8 @@ import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
 import { FilesUploadService, UploadedFileResult } from '../files/files-upload.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
+import { ProjectTeamService } from '../projects/project-team.service';
+import { TaskDependenciesService } from './task-dependencies.service';
 import { TaskStatus, PriorityLevel } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
 
@@ -68,6 +71,8 @@ export class TasksService {
     private readonly filesUploadService: FilesUploadService,
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly notificationsService: NotificationsService,
+    private readonly projectTeamService: ProjectTeamService,
+    private readonly taskDependenciesService: TaskDependenciesService,
   ) {}
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
@@ -154,6 +159,40 @@ export class TasksService {
     };
   }
 
+  private formatDateParam(value?: Date | null): string | undefined {
+    return value ? value.toISOString().slice(0, 10) : undefined;
+  }
+
+  private async withAvailabilityWarnings<T extends Record<string, unknown>>(
+    task: T,
+    params: {
+      projectId: string;
+      ownerId?: string | null;
+      startDate?: Date | null;
+      endDate?: Date | null;
+      effortHours?: number | null;
+      excludeTaskId?: string;
+    },
+  ): Promise<T & { warnings: string[] }> {
+    if (!params.ownerId) {
+      return { ...task, warnings: [] };
+    }
+
+    const availability = await this.projectTeamService.evaluateTaskAssigneeAvailability(
+      params.projectId,
+      {
+        ownerId: params.ownerId,
+        startDate: this.formatDateParam(params.startDate),
+        endDate: this.formatDateParam(params.endDate),
+        effortHours:
+          params.effortHours != null ? Number(params.effortHours) : undefined,
+        excludeTaskId: params.excludeTaskId,
+      },
+    );
+
+    return { ...task, warnings: availability.warnings };
+  }
+
   private validateTransition(oldStatus: TaskStatus, newStatus: TaskStatus) {
     if (oldStatus === newStatus) return;
     const allowed = LEGAL_TRANSITIONS[oldStatus] || [];
@@ -163,6 +202,49 @@ export class TasksService {
         errors: {
           status: `Illegal status transition from ${this.mapStatusToApi(oldStatus)} to ${this.mapStatusToApi(newStatus)}`,
         },
+      });
+    }
+  }
+
+  private validateStatusTransitionByRole(
+    oldStatus: TaskStatus,
+    newStatus: TaskStatus,
+    actorId: string,
+    taskOwnerId: string | null,
+    ability: AppAbility,
+  ) {
+    if (oldStatus === newStatus) {
+      return;
+    }
+
+    this.validateTransition(oldStatus, newStatus);
+
+    if (ability.can('approve', 'Task')) {
+      return;
+    }
+
+    const isOwner = taskOwnerId === actorId;
+    if (!isOwner) {
+      throw new ForbiddenException({
+        status: HttpStatus.FORBIDDEN,
+        errors: { status: 'statusChangeNotPermitted' },
+      });
+    }
+
+    const engineerAllowed: Record<TaskStatus, TaskStatus[]> = {
+      To_Do: [TaskStatus.In_Progress],
+      In_Progress: [TaskStatus.To_Do],
+      Submitted_for_Review: [],
+      Approved: [],
+      Rework: [TaskStatus.In_Progress],
+      Done: [],
+    };
+
+    const allowed = engineerAllowed[oldStatus] ?? [];
+    if (!allowed.includes(newStatus)) {
+      throw new ForbiddenException({
+        status: HttpStatus.FORBIDDEN,
+        errors: { status: 'statusChangeNotPermittedForRole' },
       });
     }
   }
@@ -272,7 +354,13 @@ export class TasksService {
 
     const formatted = this.formatTask(task, viewerRoleCode);
     await this.notifyTaskAssigned(task, actorId);
-    return formatted;
+    return this.withAvailabilityWarnings(formatted, {
+      projectId: dto.projectId,
+      ownerId: dto.ownerId,
+      startDate: dto.startDate ?? null,
+      endDate: dto.endDate ?? null,
+      effortHours: dto.effortHours ?? null,
+    });
   }
 
   async createBundle(
@@ -372,7 +460,13 @@ export class TasksService {
     }
 
     await this.notifyTaskAssigned(task, actorId);
-    return this.formatTask(task, viewerRoleCode);
+    return this.withAvailabilityWarnings(this.formatTask(task, viewerRoleCode), {
+      projectId: dto.projectId,
+      ownerId: dto.ownerId,
+      startDate: dto.startDate ?? null,
+      endDate: dto.endDate ?? null,
+      effortHours: dto.effortHours ?? null,
+    });
   }
 
   async findManyWithPagination(
@@ -535,7 +629,13 @@ export class TasksService {
 
     if (dto.status) {
       const nextStatus = this.mapStatusToPrisma(dto.status);
-      this.validateTransition(existing.status, nextStatus);
+      this.validateStatusTransitionByRole(
+        existing.status,
+        nextStatus,
+        actorId,
+        ownerId,
+        ability,
+      );
     }
 
     const task = await this.prisma.task.update({
@@ -555,7 +655,39 @@ export class TasksService {
     });
 
     await this.dispatchTaskUpdateNotifications(existing, task, actorId);
-    return this.formatTask(task, viewerRoleCode);
+
+    const startChanged =
+      dto.startDate !== undefined &&
+      (existing.startDate?.getTime() ?? null) !== (task.startDate?.getTime() ?? null);
+    const endChanged =
+      dto.endDate !== undefined &&
+      (existing.endDate?.getTime() ?? null) !== (task.endDate?.getTime() ?? null);
+
+    if (startChanged || endChanged) {
+      await this.taskDependenciesService.recalculateFromTaskDateChange(
+        task.projectId,
+        task.id,
+        actorId,
+        task.title,
+      );
+    }
+
+    const resultTask =
+      startChanged || endChanged
+        ? ((await this.prisma.task.findFirst({
+            where: { id },
+            include: TASK_INCLUDE,
+          })) ?? task)
+        : task;
+
+    return this.withAvailabilityWarnings(this.formatTask(resultTask, viewerRoleCode), {
+      projectId: resultTask.projectId,
+      ownerId: resultTask.ownerId,
+      startDate: resultTask.startDate,
+      endDate: resultTask.endDate,
+      effortHours: task.effortHours != null ? Number(task.effortHours) : null,
+      excludeTaskId: resultTask.id,
+    });
   }
 
   async remove(id: string, actorId: string, caslUser: CaslUserContext, ability: AppAbility) {

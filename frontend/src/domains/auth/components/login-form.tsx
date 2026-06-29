@@ -3,6 +3,7 @@
 import { Button } from "@/shared/ui/button";
 import { env } from "@/config/env.config";
 import { useSearchParams } from "next/navigation";
+import { normalizeReturnPath } from "@/shared/utils/return-path";
 
 function getErrorMessage(code: string | null): string | null {
   if (!code) return null;
@@ -23,7 +24,7 @@ export function LoginForm() {
   const error = getErrorMessage(searchParams.get("error"));
 
   const handleMicrosoftLogin = () => {
-    const returnTo = searchParams.get("callbackUrl") || "/dashboard";
+    const returnTo = normalizeReturnPath(searchParams.get("callbackUrl"));
     const url = new URL(`${env.apiUrl}/auth/entra/authorize`);
     url.searchParams.set("returnTo", returnTo);
     window.location.href = url.toString();

@@ -13,7 +13,10 @@ import {
   useCreateProjectMutation,
   useUpdateProjectMutation,
   useAddProjectTeamMembersMutation,
-  createProjectSchema,
+  useGetMilestonesQuery,
+  useCreateMilestoneMutation,
+  createProjectFormSchema,
+  editProjectFormSchema,
   toCreateProjectPayload,
   ProjectTeamSection,
   type CreateProjectFormValues,
@@ -29,15 +32,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
-import { Calendar } from "@/shared/ui/calendar";
+import { ProjectDatePicker, startOfToday } from "../shared/project-date-picker";
 import {
   FolderKanban,
   Briefcase,
   Users2,
   DollarSign,
   Loader2,
-  Calendar as CalendarIcon,
 } from "lucide-react";
 import {
   Sheet,
@@ -48,7 +49,13 @@ import {
   SheetTitle,
 } from "@/shared/ui/sheet";
 import { Button } from "@/shared/ui/button";
-import { CREATE_PROJECT_SHEET_CLASS } from "./task-sheet.constants";
+import { CREATE_PROJECT_SHEET_CLASS } from "../tasks/task-sheet.constants";
+import { BudgetValueInput } from "../shared/budget-value-input";
+import {
+  ProjectFormMilestonesSection,
+  toDraftMilestonePayload,
+  type DraftProjectMilestone,
+} from "./project-form-milestones-section";
 
 interface CreateProjectSheetProps {
   open: boolean;
@@ -104,16 +111,31 @@ function toAllocationPayload(members: PendingTeamMember[]) {
   }));
 }
 
+function toMilestoneApiPayload(draft: ReturnType<typeof toDraftMilestonePayload>[number]) {
+  return {
+    title: draft.title,
+    targetDate: new Date(draft.targetDate).toISOString(),
+    weight: draft.weight ?? undefined,
+    status: draft.status,
+  };
+}
+
 export function CreateProjectSheet({ open, onClose, refetch, project }: CreateProjectSheetProps) {
   const isEditMode = Boolean(project);
   const ability = useAppAbility();
   const canEditTeam = ability?.can("update", "Project") ?? false;
   const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
   const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
+  const [milestoneDrafts, setMilestoneDrafts] = useState<DraftProjectMilestone[]>([]);
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
   const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
   const [addProjectTeamMembers, { isLoading: isSavingTeam }] = useAddProjectTeamMembersMutation();
-  const isSubmitting = isCreating || isUpdating || isSavingTeam;
+  const [createMilestone, { isLoading: isSavingMilestones }] = useCreateMilestoneMutation();
+  const isSubmitting = isCreating || isUpdating || isSavingTeam || isSavingMilestones;
+
+  const { data: existingMilestones = [] } = useGetMilestonesQuery(project?.id ?? "", {
+    skip: !isEditMode || !project?.id || !open,
+  });
 
   const { data: departments = [] } = useGetDepartmentsQuery();
   const { data: customers = [] } = useGetCustomersQuery();
@@ -126,9 +148,12 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     control,
     register,
     reset,
+    trigger,
     formState: { errors },
   } = useForm<CreateProjectFormValues>({
-    resolver: zodResolver(createProjectSchema) as import("react-hook-form").Resolver<CreateProjectFormValues>,
+    resolver: zodResolver(
+      isEditMode ? editProjectFormSchema : createProjectFormSchema,
+    ) as import("react-hook-form").Resolver<CreateProjectFormValues>,
     defaultValues: {
       name: "",
       objective: "",
@@ -137,8 +162,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       methodology: "Agile",
       primaryPmId: "",
       secondaryPmId: "",
-      startDate: "" as any,
-      endDate: "" as any,
+      startDate: undefined,
+      endDate: undefined,
       value: "" as any,
       currency: "USD",
       engagementType: "FixedPrice",
@@ -146,12 +171,14 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       priority: "Medium",
       status: "Draft",
     },
-    mode: "onChange",
+    mode: "onSubmit",
+    reValidateMode: "onChange",
   });
 
   useEffect(() => {
     if (!open) {
       setPendingTeamMembers([]);
+      setMilestoneDrafts([]);
       return;
     }
     if (project) {
@@ -165,8 +192,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
         methodology: "Agile",
         primaryPmId: "",
         secondaryPmId: "",
-        startDate: "" as any,
-        endDate: "" as any,
+        startDate: undefined,
+        endDate: undefined,
         value: "" as any,
         currency: "USD",
         engagementType: "FixedPrice",
@@ -182,6 +209,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
       const membersToSave = mergeTeamMembers(pendingTeamMembers, draftMembers);
+      const newMilestones = toDraftMilestonePayload(milestoneDrafts);
       let targetProjectId = project?.id;
 
       if (isEditMode && project) {
@@ -202,21 +230,44 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
             );
           }
         }
+
+        if (targetProjectId && newMilestones.length > 0) {
+          for (const milestone of newMilestones) {
+            await createMilestone({
+              projectId: targetProjectId,
+              body: toMilestoneApiPayload(milestone),
+            }).unwrap();
+          }
+          toast.success(
+            `${newMilestones.length} milestone${newMilestones.length === 1 ? "" : "s"} added.`,
+          );
+        }
       } else {
         const created = await createProjectBundle({
           ...payload,
           allocations:
             membersToSave.length > 0 ? toAllocationPayload(membersToSave) : undefined,
+          milestones:
+            newMilestones.length > 0
+              ? newMilestones.map((milestone) => toMilestoneApiPayload(milestone))
+              : undefined,
         }).unwrap();
         targetProjectId = created.id;
+        const milestoneNote =
+          newMilestones.length > 0
+            ? ` and ${newMilestones.length} milestone${newMilestones.length === 1 ? "" : "s"}`
+            : "";
         toast.success(
           membersToSave.length > 0
-            ? `Project created with ${membersToSave.length} team member${membersToSave.length === 1 ? "" : "s"}.`
-            : "Project created successfully!",
+            ? `Project created with ${membersToSave.length} team member${membersToSave.length === 1 ? "" : "s"}${milestoneNote}.`
+            : newMilestones.length > 0
+              ? `Project created with ${newMilestones.length} milestone${newMilestones.length === 1 ? "" : "s"}.`
+              : "Project created successfully!",
         );
       }
 
       setPendingTeamMembers([]);
+      setMilestoneDrafts([]);
       refetch?.();
       onClose();
     } catch (err: any) {
@@ -242,6 +293,11 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const watchedBillingModel = watch("billingModel");
   const watchedStartDate = watch("startDate");
   const watchedEndDate = watch("endDate");
+
+  useEffect(() => {
+    if (!watchedStartDate || !watchedEndDate) return;
+    void trigger("endDate");
+  }, [watchedStartDate, watchedEndDate, trigger]);
   const watchedStatus = watch("status");
   const watchedPriority = watch("priority");
   const watchedCurrency = watch("currency");
@@ -251,20 +307,12 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const activePM = managers.find((m) => m.id === watchedPmId);
   const activeSecondaryPM = managers.find((m) => m.id === watchedSecondaryPmId);
 
-  const formatDateLabel = (dateVal: any) => {
-    if (!dateVal) return "Pick a date";
-    try {
-      const date = new Date(dateVal);
-      if (isNaN(date.getTime())) return "Pick a date";
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-    } catch {
-      return "Pick a date";
-    }
-  };
+  const endDateMin = (() => {
+    const today = startOfToday();
+    if (!watchedStartDate) return today;
+    const start = watchedStartDate instanceof Date ? watchedStartDate : new Date(watchedStartDate);
+    return start > today ? start : today;
+  })();
 
   return (
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -533,18 +581,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
               </div>
             </div>
 
-            <ProjectTeamSection
-              ref={teamSectionRef}
-              projectId={project?.id}
-              departmentId={watchedDeptId || undefined}
-              startDate={watchedStartDate}
-              endDate={watchedEndDate}
-              pendingMembers={pendingTeamMembers}
-              onPendingMembersChange={setPendingTeamMembers}
-              canEdit={canEditTeam}
-            />
-
-            {/* Dates */}
+            {/* Dates — before team so availability uses this range */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -554,30 +591,14 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="startDate"
                   render={({ field }) => (
-                    <Popover>
-                      <PopoverTrigger type="button" className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between cursor-pointer hover:border-slate-300 dark:hover:border-white/20 transition-all font-normal">
-                        <span className={field.value ? "text-slate-900 dark:text-white font-medium" : "text-slate-400"}>
-                          {formatDateLabel(field.value)}
-                        </span>
-                        <CalendarIcon className="size-4 text-slate-400" />
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0 bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.08] rounded-lg shadow-xl" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value ? new Date(field.value) : undefined}
-                          onSelect={(date) => {
-                            if (!date) {
-                              field.onChange("");
-                              return;
-                            }
-                            const year = date.getFullYear();
-                            const month = String(date.getMonth() + 1).padStart(2, "0");
-                            const day = String(date.getDate()).padStart(2, "0");
-                            field.onChange(`${year}-${month}-${day}`);
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <ProjectDatePicker
+                      value={field.value}
+                      onChange={(date) => {
+                        field.onChange(date);
+                        void trigger("endDate");
+                      }}
+                      minDate={isEditMode ? startOfToday() : startOfToday()}
+                    />
                   )}
                 />
                 {errors.startDate && (
@@ -595,30 +616,15 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="endDate"
                   render={({ field }) => (
-                    <Popover>
-                      <PopoverTrigger type="button" className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between cursor-pointer hover:border-slate-300 dark:hover:border-white/20 transition-all font-normal">
-                        <span className={field.value ? "text-slate-900 dark:text-white font-medium" : "text-slate-400"}>
-                          {formatDateLabel(field.value)}
-                        </span>
-                        <CalendarIcon className="size-4 text-slate-400" />
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0 bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.08] rounded-lg shadow-xl" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value ? new Date(field.value) : undefined}
-                          onSelect={(date) => {
-                            if (!date) {
-                              field.onChange("");
-                              return;
-                            }
-                            const year = date.getFullYear();
-                            const month = String(date.getMonth() + 1).padStart(2, "0");
-                            const day = String(date.getDate()).padStart(2, "0");
-                            field.onChange(`${year}-${month}-${day}`);
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <ProjectDatePicker
+                      value={field.value}
+                      onChange={(date) => {
+                        field.onChange(date);
+                        void trigger("endDate");
+                      }}
+                      minDate={endDateMin}
+                      invalid={Boolean(errors.endDate)}
+                    />
                   )}
                 />
                 {errors.endDate && (
@@ -629,17 +635,34 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
               </div>
             </div>
 
+            <ProjectTeamSection
+              ref={teamSectionRef}
+              projectId={project?.id}
+              departmentId={watchedDeptId || undefined}
+              startDate={watchedStartDate}
+              endDate={watchedEndDate}
+              pendingMembers={pendingTeamMembers}
+              onPendingMembersChange={setPendingTeamMembers}
+              canEdit={canEditTeam}
+            />
+
             <div className="grid grid-cols-2 gap-4">
               {/* Budget */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Budget Value (k) *
+                  Budget value *
                 </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 150"
-                  className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-medium"
-                  {...register("value")}
+                <Controller
+                  control={control}
+                  name="value"
+                  render={({ field }) => (
+                    <BudgetValueInput
+                      value={field.value as number | undefined}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                    />
+                  )}
                 />
                 {errors.value && (
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
@@ -782,6 +805,12 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
               </div>
             </div>
           </div>
+
+          <ProjectFormMilestonesSection
+            existingMilestones={isEditMode ? existingMilestones : []}
+            drafts={milestoneDrafts}
+            onDraftsChange={setMilestoneDrafts}
+          />
 
         </div>
 

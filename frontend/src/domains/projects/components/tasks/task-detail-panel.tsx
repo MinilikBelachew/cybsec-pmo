@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -22,7 +22,11 @@ import {
   toUpdateTaskPayload,
   toCreateTaskPayload,
   type UpdateTaskFormValues,
+  TaskProgressSection,
+  TaskDependenciesSection,
+  filterStatusOptionsForRole,
 } from "@/domains/projects";
+import { useAuth, useAppAbility } from "@/domains/auth";
 import {
   Sheet,
   SheetContent,
@@ -51,6 +55,7 @@ import {
   type DraftSubTask,
 } from "./task-collaboration-sections";
 import { TASK_DETAIL_SHEET_CLASS } from "./task-sheet.constants";
+import { TaskAssigneeAvailabilityAlert } from "./task-assignee-availability-alert";
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -60,6 +65,7 @@ interface TaskDetailPanelProps {
   onOpenSubTask?: (taskId: string) => void;
   onUpdated?: () => void;
   initialTab?: "comments" | "subtasks";
+  focusProgressReview?: boolean;
 }
 
 const STATUS_OPTIONS: { value: UpdateTaskFormValues["status"]; label: string }[] = [
@@ -116,7 +122,11 @@ export function TaskDetailPanel({
   onOpenSubTask,
   onUpdated,
   initialTab,
+  focusProgressReview = false,
 }: TaskDetailPanelProps) {
+  const { user } = useAuth();
+  const ability = useAppAbility();
+  const canCreateTask = ability?.can("create", "Task") ?? false;
   const { data: task, isLoading, isError } = useGetTaskByIdQuery(taskId!, {
     skip: !taskId || !open,
   });
@@ -151,7 +161,22 @@ export function TaskDetailPanel({
   });
 
   const watchedOwnerId = watch("ownerId");
+  const watchedStartDate = watch("startDate");
+  const watchedEndDate = watch("endDate");
+  const watchedEffortHours = watch("effortHours");
+  const watchedStatus = watch("status");
   const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
+
+  const statusOptions = useMemo(
+    () =>
+      filterStatusOptionsForRole(
+        watchedStatus ?? task?.status ?? "To_Do",
+        STATUS_OPTIONS,
+        user?.id === task?.ownerId,
+        ability?.can("approve", "Task") ?? false,
+      ),
+    [watchedStatus, task?.status, task?.ownerId, user?.id, ability],
+  );
 
   useEffect(() => {
     if (!task || !open) return;
@@ -166,9 +191,11 @@ export function TaskDetailPanel({
     if (!taskId) return;
     setIsSubmitting(true);
     try {
-      await updateTask({ id: taskId, body: toUpdateTaskPayload(values) }).unwrap();
+      const result = await updateTask({ id: taskId, body: toUpdateTaskPayload(values) }).unwrap();
+      result.warnings?.forEach((warning) => toast(warning, { icon: "⚠️" }));
 
       for (const sub of draftSubTasks) {
+        if (!canCreateTask) break;
         await createTask({
           ...toCreateTaskPayload({
             projectId,
@@ -229,6 +256,20 @@ export function TaskDetailPanel({
                     Sub-task of <span className="font-medium">{task.parentTask.title}</span>
                   </p>
                 )}
+                {task && (task.progressApproved > 0 || task.progressPending > 0) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {task.progressApproved > 0 && (
+                      <Badge className="bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 text-[10px]">
+                        {task.progressApproved}% approved
+                      </Badge>
+                    )}
+                    {task.progressPending > 0 && (
+                      <Badge className="bg-amber-500/15 text-amber-800 dark:text-amber-300 text-[10px]">
+                        {task.progressPending}% pending review
+                      </Badge>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </SheetHeader>
@@ -263,7 +304,7 @@ export function TaskDetailPanel({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {STATUS_OPTIONS.map((opt) => (
+                              {statusOptions.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>
                                   {opt.label}
                                 </SelectItem>
@@ -361,6 +402,14 @@ export function TaskDetailPanel({
                           Add project team members with linked login accounts before assigning tasks.
                         </p>
                       )}
+                      <TaskAssigneeAvailabilityAlert
+                        projectId={projectId}
+                        ownerId={watchedOwnerId}
+                        startDate={watchedStartDate}
+                        endDate={watchedEndDate}
+                        effortHours={watchedEffortHours}
+                        excludeTaskId={taskId ?? undefined}
+                      />
                     </div>
 
                     <div className="space-y-1.5">
@@ -476,6 +525,21 @@ export function TaskDetailPanel({
                       {...register("effortHours")}
                     />
                   </div>
+
+                  <TaskProgressSection
+                    task={task}
+                    focusProgressReview={focusProgressReview}
+                    onUpdated={() => {
+                      onUpdated?.();
+                    }}
+                  />
+
+                  <TaskDependenciesSection
+                    task={task}
+                    onUpdated={() => {
+                      onUpdated?.();
+                    }}
+                  />
 
                   <div className="space-y-1.5">
                     <Label htmlFor="description" className="text-xs text-muted-foreground">

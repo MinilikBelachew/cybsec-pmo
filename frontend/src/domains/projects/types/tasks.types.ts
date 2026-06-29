@@ -58,8 +58,10 @@ export interface Task {
   endDate: string | null;
   effortHours: number | null;
   progressApproved: number;
+  progressPending: number;
   status: TaskStatus;
   phaseId: string | null;
+  isOnCriticalPath?: boolean;
   createdAt: string;
   updatedAt: string;
   project?: { id: string; name: string };
@@ -69,6 +71,55 @@ export interface Task {
   subTasks?: TaskSubTask[];
   comments?: TaskComment[];
   attachments?: TaskAttachment[];
+  warnings?: string[];
+}
+
+export type ProgressUpdateStatus = "Pending" | "Approved" | "Rejected" | "Rework";
+
+export type ProgressReviewDecision = "approve" | "reject" | "rework";
+
+export interface TaskProgressUpdate {
+  id: string;
+  taskId: string;
+  engineerId: string;
+  progressPercent: number;
+  hoursSpent: number;
+  comment: string | null;
+  s3EvidenceKey: string | null;
+  evidenceUrl: string | null;
+  status: ProgressUpdateStatus;
+  reviewedBy: string | null;
+  reviewReason: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  engineer: TaskUserSummary;
+  reviewer?: TaskUserSummary | null;
+  task?: { id: string; title: string; projectId: string };
+}
+
+export interface SubmitProgressUpdatePayload {
+  taskId: string;
+  progressPercent: number;
+  hoursSpent: number;
+  comment?: string;
+  s3EvidenceKey?: string;
+}
+
+export interface ReviewProgressUpdatePayload {
+  taskId: string;
+  updateId: string;
+  decision: ProgressReviewDecision;
+  reviewReason?: string;
+}
+
+export interface PendingProgressReviewsResponse {
+  data: TaskProgressUpdate[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface PaginatedTasksResponse {
@@ -111,4 +162,41 @@ export interface AddTaskAttachmentPayload {
 export interface UpdateTaskPayload {
   id: string;
   body: Record<string, unknown>;
+}
+
+export type TaskDependencyType = "FS" | "SS" | "FF" | "SF";
+
+export interface TaskDependencyTaskSummary {
+  id: string;
+  title: string;
+  projectId: string;
+  startDate: string | null;
+  endDate: string | null;
+  ownerId: string | null;
+  owner?: TaskUserSummary | null;
+}
+
+export interface TaskDependency {
+  id: string;
+  predecessorId: string;
+  successorId: string;
+  depType: TaskDependencyType;
+  lagDays: number;
+  createdAt: string;
+  predecessor: TaskDependencyTaskSummary;
+  successor: TaskDependencyTaskSummary;
+}
+
+export interface CreateTaskDependencyPayload {
+  predecessorId: string;
+  successorId: string;
+  depType: TaskDependencyType;
+  lagDays?: number;
+}
+
+export interface ValidateTaskDependencyResponse {
+  valid: boolean;
+  cyclic: boolean;
+  predecessor: { id: string; title: string };
+  successor: { id: string; title: string };
 }

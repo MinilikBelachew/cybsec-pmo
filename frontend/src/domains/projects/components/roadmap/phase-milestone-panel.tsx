@@ -11,7 +11,7 @@ import {
   useCreateMilestoneMutation,
   useUpdateMilestoneMutation,
   useDeleteMilestoneMutation,
-} from "../api/projects.api";
+} from "../../api/projects.api";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/shared/ui/sheet";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
@@ -30,11 +30,11 @@ import {
   HelpCircle,
   FolderGit2,
 } from "lucide-react";
-import { PhaseStatus } from "../types/projects.types";
+import { PhaseStatus } from "../../types/projects.types";
 import { PhaseForm } from "./phase-form";
 import { MilestoneForm } from "./milestone-form";
-import { PhaseFormValues } from "../schemas/phase.schema";
-import { MilestoneFormValues } from "../schemas/milestone.schema";
+import { PhaseFormValues } from "../../schemas/phase/phase.schema";
+import { MilestoneFormValues } from "../../schemas/milestone/milestone.schema";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 
 function formatWeight(weight: any): string {

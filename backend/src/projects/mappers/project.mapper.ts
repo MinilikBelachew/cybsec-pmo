@@ -58,7 +58,7 @@ const STATUS_TO_PRISMA: Record<ApiProjectStatus, ProjectStatus> = {
   [ApiProjectStatus.Closed]: ProjectStatus.Closed,
 };
 
-const STATUS_FROM_PRISMA: Record<ProjectStatus, ApiProjectStatus> = {
+export const STATUS_FROM_PRISMA: Record<ProjectStatus, ApiProjectStatus> = {
   [ProjectStatus.Draft]: ApiProjectStatus.Draft,
   [ProjectStatus.Active]: ApiProjectStatus.Active,
   [ProjectStatus.On_Hold]: ApiProjectStatus.OnHold,

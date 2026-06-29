@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from "react";
-import { useParams } from "next/navigation";
+import React, { useState, useMemo, useRef, useEffect } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useRouter } from "@/i18n/routing";
 import {
   useGetProjectByIdQuery,
   useGetTasksQuery,
@@ -13,12 +14,14 @@ import {
   useDeleteTaskMutation,
   useCreateTaskMutation,
   useGetProjectTaskAssigneesQuery,
+  useGetTaskDependenciesQuery,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { useRole } from "@/shared/providers/role-provider";
+import { useAppAbility } from "@/domains/auth";
 import {
   ChevronDown,
   Plus,
@@ -50,11 +53,13 @@ import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
 import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
-import { AddTaskSheet } from "./add-task-sheet";
-import { TaskDetailPanel } from "./task-detail-panel";
-import { PhaseMilestonePanel } from "./phase-milestone-panel";
-import { convertTasksToCSV } from "../utils/import-export";
-import { ImportTasksDialog } from "./import-tasks-dialog";
+import { AddTaskSheet } from "../tasks/add-task-sheet";
+import { TaskDetailPanel } from "../tasks/task-detail-panel";
+import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
+import { convertTasksToCSV } from "../../utils/import-export";
+import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
+import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
+import { formatProjectBudget } from "../../utils/format-budget";
 
 
 type Priority = "high" | "medium" | "low" | "critical";
@@ -125,9 +130,14 @@ const PRIORITY_FILTER_TO_API: Record<string, TaskPriority | undefined> = {
 
 export function ProjectWorkspace() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const id = params.id as string;
 
   const { userRole } = useRole();
+  const ability = useAppAbility();
+  const canCreateTask = ability?.can("create", "Task") ?? false;
+  const canReviewProgress = ability?.can("approve", "Task") ?? false;
   const roleLabel = userRole ? userRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Guest";
   const phaseViewRef = useRef<PhaseViewRef>(null);
 
@@ -181,6 +191,11 @@ export function ProjectWorkspace() {
 
   // Fetch milestones
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id);
+
+  const { data: taskDependencies = [] } = useGetTaskDependenciesQuery(
+    { projectId: id },
+    { skip: !id },
+  );
 
   const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(id);
 
@@ -285,8 +300,16 @@ export function ProjectWorkspace() {
         phaseColor: t.phase?.color || "#64748b",
         rawStartDate: t.startDate,
         rawEndDate: t.endDate,
+        isOnCriticalPath: Boolean(t.isOnCriticalPath),
       };
     });
+  }, [tasksResponse]);
+
+  const overallProgressPercent = useMemo(() => {
+    const rows = tasksResponse?.data ?? [];
+    if (rows.length === 0) return 0;
+    const sum = rows.reduce((acc, task) => acc + (task.progressApproved ?? 0), 0);
+    return Math.round(sum / rows.length);
   }, [tasksResponse]);
 
   const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
@@ -300,12 +323,37 @@ export function ProjectWorkspace() {
   const [newTaskStatus, setNewTaskStatus] = useState<Status>("To_Do");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskDetailDefaultTab, setTaskDetailDefaultTab] = useState<"comments" | "subtasks" | undefined>(undefined);
+  const [focusProgressReview, setFocusProgressReview] = useState(false);
   const [parentTaskId, setParentTaskId] = useState<string | null>(null);
 
-  const openTaskDetail = (taskId: string, initialTab?: "comments" | "subtasks") => {
-    setTaskDetailDefaultTab(initialTab);
+  const openTaskDetail = (
+    taskId: string,
+    optionsOrTab?:
+      | { focusProgressReview?: boolean; initialTab?: "comments" | "subtasks" }
+      | "comments"
+      | "subtasks",
+  ) => {
+    if (typeof optionsOrTab === "string") {
+      setTaskDetailDefaultTab(optionsOrTab);
+      setFocusProgressReview(false);
+    } else {
+      setTaskDetailDefaultTab(optionsOrTab?.initialTab);
+      setFocusProgressReview(optionsOrTab?.focusProgressReview ?? false);
+    }
     setSelectedTaskId(taskId);
   };
+
+  useEffect(() => {
+    const taskIdParam = searchParams.get("taskId");
+    if (!taskIdParam) return;
+
+    const shouldFocusReview = searchParams.get("reviewProgress") === "1";
+    const shouldFocusProgress = searchParams.get("progress") === "1";
+    setTaskDetailDefaultTab(undefined);
+    setFocusProgressReview(shouldFocusReview || shouldFocusProgress);
+    setSelectedTaskId(taskIdParam);
+    router.replace(`/dashboard/projects/${id}`);
+  }, [searchParams, id, router]);
 
   // Gantt Zoom state
   const [ganttZoom, setGanttZoom] = useState(1);
@@ -431,7 +479,7 @@ export function ProjectWorkspace() {
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === "Done" || t.status === "Approved").length;
-  const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const progressPercent = overallProgressPercent;
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 overflow-hidden bg-transparent text-slate-900 dark:text-white transition-colors duration-300">
@@ -454,6 +502,14 @@ export function ProjectWorkspace() {
         </div>
       </div>
 
+      {canReviewProgress && (
+        <ProgressReviewInbox
+          projectId={id}
+          onOpenTask={(taskId, options) => openTaskDetail(taskId, options)}
+          onReviewed={() => refetchTasks()}
+        />
+      )}
+
       {/* ─── PROJECT OVERVIEW HEADER PANEL ───────────────────────────────────── */}
       <div className="px-5 py-4 bg-slate-500/5 dark:bg-white/[0.02] border-b border-slate-200/60 dark:border-white/[0.08] grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0 bg-transparent">
         {/* Progress Tracker */}
@@ -475,6 +531,9 @@ export function ProjectWorkspace() {
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
+            <p className="text-[10px] text-slate-400 dark:text-white/40">
+              Average approved progress across tasks
+            </p>
           </div>
         </div>
 
@@ -491,10 +550,8 @@ export function ProjectWorkspace() {
             <p className="text-[10px] font-bold text-slate-400 dark:text-white/40">Budget</p>
             <div className="flex items-baseline gap-1">
               <span className="text-lg font-bold text-slate-900 dark:text-white">
-                {project.currency === "USD" ? "$" : project.currency}
-                {Math.round((project.value ?? 0) / 1000)}k
+                {formatProjectBudget(project.value, project.currency)}
               </span>
-              <span className="text-[10px] text-slate-400 dark:text-white/40">/ {project.currency === "USD" ? "$" : project.currency}280k</span>
             </div>
           </div>
         </div>
@@ -610,15 +667,17 @@ export function ProjectWorkspace() {
           <div className="flex items-center gap-2">
             {activeView !== "phases" && (
               <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsImportOpen(true)}
-                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
-                >
-                  <Upload className="size-4" />
-                  Import Tasks
-                </Button>
+                {canCreateTask && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsImportOpen(true)}
+                    className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                  >
+                    <Upload className="size-4" />
+                    Import Tasks
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -646,7 +705,7 @@ export function ProjectWorkspace() {
                 <Plus className="mr-1.5 size-4" />
                 Add Phase
               </Button>
-            ) : (
+            ) : canCreateTask ? (
               <Button
                 onClick={() => {
                   setParentTaskId(null);
@@ -658,7 +717,7 @@ export function ProjectWorkspace() {
                 <Plus className="mr-1.5 size-4" />
                 Add Task
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -672,13 +731,17 @@ export function ProjectWorkspace() {
             toggleGroup={toggleGroup}
             toggleTask={toggleTask}
             onTaskClick={openTaskDetail}
-            onAddTask={(status) => {
-              setParentTaskId(null);
-              setNewTaskStatus(status);
-              setIsSheetOpen(true);
-            }}
+            onAddTask={
+              canCreateTask
+                ? (status) => {
+                    setParentTaskId(null);
+                    setNewTaskStatus(status);
+                    setIsSheetOpen(true);
+                  }
+                : undefined
+            }
             onDeleteTask={handleDeleteTask}
-            onDuplicateTask={handleDuplicateTask}
+            onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             phases={phases}
           />
@@ -689,13 +752,17 @@ export function ProjectWorkspace() {
             tasks={tasks}
             toggleTask={toggleTask}
             onTaskClick={openTaskDetail}
-            onAddTask={(status) => {
-              setParentTaskId(null);
-              setNewTaskStatus(status);
-              setIsSheetOpen(true);
-            }}
+            onAddTask={
+              canCreateTask
+                ? (status) => {
+                    setParentTaskId(null);
+                    setNewTaskStatus(status);
+                    setIsSheetOpen(true);
+                  }
+                : undefined
+            }
             onDeleteTask={handleDeleteTask}
-            onDuplicateTask={handleDuplicateTask}
+            onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
           />
@@ -706,6 +773,7 @@ export function ProjectWorkspace() {
         {activeView === "gantt" && (
           <GanttView
             tasks={tasks}
+            dependencies={taskDependencies}
             toggleTask={toggleTask}
             ganttZoom={ganttZoom}
             setGanttZoom={setGanttZoom}
@@ -720,13 +788,17 @@ export function ProjectWorkspace() {
             tasks={tasks}
             toggleTask={toggleTask}
             onTaskClick={openTaskDetail}
-            onAddTask={(status) => {
-              setParentTaskId(null);
-              setNewTaskStatus(status);
-              setIsSheetOpen(true);
-            }}
+            onAddTask={
+              canCreateTask
+                ? (status) => {
+                    setParentTaskId(null);
+                    setNewTaskStatus(status);
+                    setIsSheetOpen(true);
+                  }
+                : undefined
+            }
             onDeleteTask={handleDeleteTask}
-            onDuplicateTask={handleDuplicateTask}
+            onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
           />
@@ -738,11 +810,15 @@ export function ProjectWorkspace() {
             projectId={id}
             taskQueryParams={{ ...taskQueryParams, limit: 100 }}
             onTaskClick={openTaskDetail}
-            onAddTask={(phaseId) => {
-              setSelectedPhaseIdForNewTask(phaseId);
-              setNewTaskStatus("To_Do");
-              setIsSheetOpen(true);
-            }}
+            onAddTask={
+              canCreateTask
+                ? (phaseId) => {
+                    setSelectedPhaseIdForNewTask(phaseId);
+                    setNewTaskStatus("To_Do");
+                    setIsSheetOpen(true);
+                  }
+                : undefined
+            }
           />
         )}
       </div>
@@ -775,10 +851,12 @@ export function ProjectWorkspace() {
         onClose={() => {
           setSelectedTaskId(null);
           setTaskDetailDefaultTab(undefined);
+          setFocusProgressReview(false);
         }}
         onOpenSubTask={(subId) => setSelectedTaskId(subId)}
         onUpdated={() => refetchTasks()}
         initialTab={taskDetailDefaultTab}
+        focusProgressReview={focusProgressReview}
       />
 
       <PhaseMilestonePanel

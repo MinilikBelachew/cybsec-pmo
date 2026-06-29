@@ -17,14 +17,6 @@ export function defineAbilityFor(permissions: PermissionRow[]): AppAbility {
     }
     applied.add(key);
     can(action, subject);
-
-    if (permission.action === "edit" && subject === "Task") {
-      const createKey = `create:${subject}`;
-      if (!applied.has(createKey)) {
-        applied.add(createKey);
-        can("create", subject);
-      }
-    }
   }
 
   return build();

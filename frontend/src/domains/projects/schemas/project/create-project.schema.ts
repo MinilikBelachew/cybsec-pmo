@@ -1,6 +1,14 @@
 import { z } from "zod";
 
-export const createProjectSchema = z
+function preprocessDate(val: unknown): Date | undefined {
+  if (val === "" || val === null || val === undefined) return undefined;
+  const date = val instanceof Date ? val : new Date(String(val));
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+const dateField = z.preprocess(preprocessDate, z.date().optional());
+
+const baseProjectSchema = z
   .object({
     name: z.string().min(1, "Name is required").max(255),
     objective: z.string().min(5, "Objective must be at least 5 characters"),
@@ -10,16 +18,27 @@ export const createProjectSchema = z
     methodology: z.enum(["Agile", "Waterfall", "Hybrid"]),
     billingModel: z.enum(["TimeAndMaterial", "FixedPrice", "Retainer"]),
     priority: z.enum(["Low", "Medium", "High", "Critical"]),
-    startDate: z.coerce.date({ message: "Start date is required" }),
-    endDate: z.coerce.date({ message: "End date is required" }),
+    startDate: dateField,
+    endDate: dateField,
     value: z.coerce.number().positive("Value must be greater than zero"),
     currency: z.string().min(2).max(4).toUpperCase(),
     primaryPmId: z.string().uuid("Please assign a primary PM"),
     secondaryPmId: z.string().uuid().or(z.literal("")).nullable().optional(),
     status: z.enum(["Draft", "Active", "OnHold", "PendingClosure", "Closed"]),
   })
-  .refine((data) => data.endDate > data.startDate, {
-    message: "End date must be after the start date",
+  .refine((data) => Boolean(data.startDate), {
+    message: "Start date is required",
+    path: ["startDate"],
+  })
+  .refine((data) => Boolean(data.endDate), {
+    message: "End date is required",
+    path: ["endDate"],
+  })
+  .refine((data) => {
+    if (!data.startDate || !data.endDate) return true;
+    return data.endDate > data.startDate;
+  }, {
+    message: "End date must be after start date",
     path: ["endDate"],
   })
   .refine((data) => !data.secondaryPmId || data.secondaryPmId !== data.primaryPmId, {
@@ -27,9 +46,30 @@ export const createProjectSchema = z
     path: ["secondaryPmId"],
   });
 
-export type CreateProjectFormValues = z.infer<typeof createProjectSchema>;
+export const createProjectFormSchema = baseProjectSchema.refine((data) => {
+  if (!data.startDate) return true;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(data.startDate);
+  start.setHours(0, 0, 0, 0);
+  return start >= today;
+}, {
+  message: "Start date cannot be in the past",
+  path: ["startDate"],
+});
+
+export const editProjectFormSchema = baseProjectSchema;
+
+/** Alias for new-project forms */
+export const createProjectSchema = createProjectFormSchema;
+
+export type CreateProjectFormValues = z.infer<typeof baseProjectSchema>;
 
 export function toCreateProjectPayload(values: CreateProjectFormValues) {
+  if (!values.startDate || !values.endDate) {
+    throw new Error("Project dates are required");
+  }
+
   return {
     name: values.name,
     objective: values.objective,

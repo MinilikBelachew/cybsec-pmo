@@ -8,9 +8,9 @@ import {
   useGetCustomersQuery,
   useGetProjectManagersQuery,
   useCreateProjectMutation,
-} from "../api/projects.api";
-import { Department, Customer, ProjectManager } from "../types/projects.types";
-import { parseCSV, processRawCSVRows, ParsedProjectRow } from "../utils/import-export";
+} from "../../api/projects.api";
+import { Department, Customer, ProjectManager } from "../../types/projects.types";
+import { parseCSV, processRawCSVRows, ParsedProjectRow } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { ScrollArea } from "@/shared/ui/scroll-area";

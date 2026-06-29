@@ -26,6 +26,7 @@ import {
   toPrismaCurrency,
   toPrismaEngagementType,
   toPrismaStatus,
+  STATUS_FROM_PRISMA,
   type ProjectWithRelations,
 } from './mappers/project.mapper';
 import { RoleEnum } from '../roles/roles.enum';
@@ -46,29 +47,56 @@ export class ProjectsService {
     private readonly recordScopeWhere: RecordScopeWhereService,
   ) {}
 
-  async create(dto: CreateProjectDto, actorId: string) {
+  async create(
+    dto: CreateProjectDto & { milestones?: CreateMilestoneDto[] },
+    actorId: string,
+  ) {
+    this.assertPrimaryPmPresent(dto.primaryPmId);
+    this.assertOwnersRequiredForStatus(
+      dto.status ?? ApiProjectStatus.Draft,
+      dto.primaryPmId,
+    );
     await this.validateReferences(dto);
 
-    const project = await this.prisma.project.create({
-      data: {
-        name: dto.name,
-        objective: dto.objective,
-        departmentId: dto.departmentId,
-        customerId: dto.customerId,
-        engagementType: toPrismaEngagementType(dto.engagementType),
-        methodology: dto.methodology ?? ApiMethodology.Hybrid,
-        billingModel: toPrismaBillingModel(dto.billingModel),
-        priority: dto.priority ?? ApiPriorityLevel.Medium,
-        startDate: dto.startDate,
-        endDate: dto.endDate,
-        value: dto.value,
-        currency: toPrismaCurrency(dto.currency ?? 'USD'),
-        primaryPmId: dto.primaryPmId,
-        secondaryPmId: dto.secondaryPmId ?? null,
-        status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),
-        createdBy: actorId,
-      },
-      include: PROJECT_INCLUDE,
+    const project = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.project.create({
+        data: {
+          name: dto.name,
+          objective: dto.objective,
+          departmentId: dto.departmentId,
+          customerId: dto.customerId,
+          engagementType: toPrismaEngagementType(dto.engagementType),
+          methodology: dto.methodology ?? ApiMethodology.Hybrid,
+          billingModel: toPrismaBillingModel(dto.billingModel),
+          priority: dto.priority ?? ApiPriorityLevel.Medium,
+          startDate: dto.startDate,
+          endDate: dto.endDate,
+          value: dto.value,
+          currency: toPrismaCurrency(dto.currency ?? 'USD'),
+          primaryPmId: dto.primaryPmId,
+          secondaryPmId: dto.secondaryPmId ?? null,
+          status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),
+          createdBy: actorId,
+        },
+        include: PROJECT_INCLUDE,
+      });
+
+      if (dto.milestones?.length) {
+        for (const milestone of dto.milestones) {
+          await tx.projectMilestone.create({
+            data: {
+              projectId: created.id,
+              title: milestone.title,
+              targetDate: milestone.targetDate,
+              weight: milestone.weight ?? null,
+              status: milestone.status ?? 'Pending',
+              phaseId: milestone.phaseId ?? null,
+            },
+          });
+        }
+      }
+
+      return created;
     });
 
     return toApiProject(project as ProjectWithRelations, { ability: null });
@@ -371,6 +399,13 @@ export class ProjectsService {
       });
     }
 
+    if (dto.primaryPmId === null) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { primaryPmId: 'primaryPmCannotBeRemoved' },
+      });
+    }
+
     const merged: CreateProjectDto = {
       name: dto.name ?? existing.name,
       objective: dto.objective ?? existing.objective,
@@ -389,8 +424,14 @@ export class ProjectsService {
         dto.secondaryPmId !== undefined
           ? dto.secondaryPmId
           : existing.secondaryPmId,
-      status: dto.status,
+      status: dto.status ?? (STATUS_FROM_PRISMA[existing.status] as ApiProjectStatus),
     };
+
+    this.assertPrimaryPmPresent(merged.primaryPmId);
+    this.assertOwnersRequiredForStatus(
+      merged.status ?? ApiProjectStatus.Draft,
+      merged.primaryPmId,
+    );
 
     if (
       dto.departmentId ||
@@ -398,7 +439,8 @@ export class ProjectsService {
       dto.primaryPmId ||
       dto.secondaryPmId !== undefined ||
       dto.startDate ||
-      dto.endDate
+      dto.endDate ||
+      dto.status !== undefined
     ) {
       await this.validateReferences(merged);
     }
@@ -500,7 +542,33 @@ export class ProjectsService {
     }));
   }
 
+  private assertPrimaryPmPresent(primaryPmId?: string | null): void {
+    if (!primaryPmId) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { primaryPmId: 'primaryPmRequired' },
+      });
+    }
+  }
+
+  private assertOwnersRequiredForStatus(
+    status: ApiProjectStatus,
+    primaryPmId?: string | null,
+  ): void {
+    if (status === ApiProjectStatus.Draft) {
+      return;
+    }
+
+    this.assertPrimaryPmPresent(primaryPmId);
+  }
+
   private async validateReferences(dto: CreateProjectDto): Promise<void> {
+    const errors: Record<string, string> = {};
+
+    if (!dto.primaryPmId) {
+      errors.primaryPmId = 'primaryPmRequired';
+    }
+
     const [department, customer, primaryPm, secondaryPm] = await Promise.all([
       this.prisma.department.findFirst({
         where: { id: dto.departmentId, isActive: true },
@@ -525,8 +593,6 @@ export class ProjectsService {
           })
         : Promise.resolve(null),
     ]);
-
-    const errors: Record<string, string> = {};
 
     if (!department) errors.departmentId = 'departmentNotFound';
     if (!customer) errors.customerId = 'customerNotFound';

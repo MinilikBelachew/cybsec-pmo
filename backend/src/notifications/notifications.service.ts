@@ -210,6 +210,11 @@ export class NotificationsService {
       backoff: { type: 'exponential', delay: 5000 },
       removeOnComplete: true,
       removeOnFail: false,
+    }).catch((error) => {
+      this.logger.warn(
+        `Email notification queue unavailable for ${notification.id}`,
+        error instanceof Error ? error.message : undefined,
+      );
     });
   }
 }

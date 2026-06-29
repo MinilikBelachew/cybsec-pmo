@@ -8,6 +8,7 @@ import {
 import { Observable } from 'rxjs';
 import { AuditLogsService } from './audit-logs.service';
 import { PrismaService } from '../database/prisma.service';
+import { resolveStatusChangeAction } from './status-change-audit.util';
 
 const SENSITIVE_KEYS = [
   'password',
@@ -86,6 +87,17 @@ export class AuditLogsInterceptor implements NestInterceptor {
                 }
               }
 
+              let auditAction = auditTarget.action;
+              const statusChange = resolveStatusChangeAction(
+                auditTarget.objectType,
+                oldValue,
+                newValue,
+              );
+              if (statusChange) {
+                auditAction = statusChange.action;
+                newValue = statusChange.newValue;
+              }
+
               if (isBreakGlass) {
                 newValue =
                   newValue && typeof newValue === 'object'
@@ -95,7 +107,7 @@ export class AuditLogsInterceptor implements NestInterceptor {
 
               this.auditLogsService
                 .create({
-                  action: auditTarget.action,
+                  action: auditAction,
                   objectType: auditTarget.objectType,
                   objectId: finalObjectId,
                   oldValue: oldValue ? JSON.parse(JSON.stringify(oldValue)) : null,
@@ -115,7 +127,7 @@ export class AuditLogsInterceptor implements NestInterceptor {
                   timestamp: new Date().toISOString(),
                   level: 'AUDIT',
                   actorId,
-                  action: auditTarget.action,
+                  action: auditAction,
                   objectType: auditTarget.objectType,
                   objectId: finalObjectId,
                   oldValue,

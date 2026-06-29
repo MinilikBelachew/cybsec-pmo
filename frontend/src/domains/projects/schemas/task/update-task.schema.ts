@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Task } from "../types/tasks.types";
+import type { Task } from "../../types/tasks.types";
 import {
   requiredTaskDate,
   taskEndDateAfterStartDate,

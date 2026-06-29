@@ -1,6 +1,6 @@
-/** Create project sheet */
+/** Create project sheet — wide layout like add-task */
 export const CREATE_PROJECT_SHEET_CLASS =
-  "flex h-full w-full !max-w-[580px] flex-col gap-0 overflow-hidden p-0 rounded-l-[10px]";
+  "flex h-full w-full !max-w-[960px] flex-col gap-0 overflow-hidden p-0 rounded-l-[10px]";
 
 /** Detail / view task sheet */
 export const TASK_SHEET_CONTENT_CLASS =

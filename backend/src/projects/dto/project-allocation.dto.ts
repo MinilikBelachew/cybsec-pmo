@@ -130,6 +130,44 @@ export class CreateProjectTeamResultDto {
   warnings: string[];
 }
 
+export class TaskAssigneeAvailabilityDto {
+  @ApiProperty()
+  canCheck: boolean;
+
+  @ApiPropertyOptional()
+  message?: string;
+
+  @ApiPropertyOptional()
+  employeeName?: string;
+
+  @ApiPropertyOptional()
+  weeklyCapacityHours?: number;
+
+  @ApiPropertyOptional({ description: 'Weekly hours from project allocations' })
+  allocationHours?: number;
+
+  @ApiPropertyOptional({ description: 'Weekly hours from other assigned tasks' })
+  otherTaskHours?: number;
+
+  @ApiPropertyOptional({ description: 'Weekly hours from this task effort' })
+  thisTaskHours?: number;
+
+  @ApiPropertyOptional()
+  allocatedHoursTotal?: number;
+
+  @ApiPropertyOptional()
+  remainingHours?: number;
+
+  @ApiPropertyOptional()
+  utilizationPercent?: number;
+
+  @ApiPropertyOptional()
+  isOverAllocated?: boolean;
+
+  @ApiProperty({ type: [String] })
+  warnings: string[];
+}
+
 export class ProjectTaskAssigneeDto {
   @ApiProperty({ description: 'User id stored on tasks.owner_id' })
   userId: string;

@@ -21,6 +21,7 @@ import {
   useDeleteTaskAttachmentMutation,
   useCreateTaskMutation,
 } from "@/domains/projects";
+import { useAppAbility } from "@/domains/auth";
 import { useUploadFileMutation } from "@/domains/projects/api/files.api";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -78,6 +79,8 @@ export function TaskCollaborationSections({
   draftSubTasks = [],
   onDraftSubTasksChange,
 }: TaskCollaborationSectionsProps) {
+  const ability = useAppAbility();
+  const canCreateSubTask = ability?.can("create", "Task") ?? false;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
   const [commentText, setCommentText] = useState("");
@@ -172,6 +175,7 @@ export function TaskCollaborationSections({
   }
 
   function handleAddSubTask() {
+    if (!canCreateSubTask) return;
     if (!subTaskTitle.trim()) return;
 
     if (subTaskMode === "draft") {
@@ -233,18 +237,20 @@ export function TaskCollaborationSections({
             </>
           )}
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setShowSubTaskForm((v) => !v)}
-        >
-          <Plus className="mr-1 size-3.5" />
-          Add
-        </Button>
+        {canCreateSubTask && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setShowSubTaskForm((v) => !v)}
+          >
+            <Plus className="mr-1 size-3.5" />
+            Add
+          </Button>
+        )}
       </div>
 
-      {showSubTaskForm && (
+      {canCreateSubTask && showSubTaskForm && (
         <div className="flex gap-2">
           <Input
             value={subTaskTitle}

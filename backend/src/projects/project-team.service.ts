@@ -15,13 +15,21 @@ import {
   CreateProjectTeamResultDto,
   ProjectAllocationDto,
   ProjectTaskAssigneeDto,
+  TaskAssigneeAvailabilityDto,
   TeamCandidateDto,
 } from './dto/project-allocation.dto';
 import {
   buildAvailabilitySummary,
   isAllocationActive,
+  isAllocationOverlappingWindow,
   sumActiveAllocationHours,
+  sumOverlappingAllocationHours,
 } from './utils/allocation-availability.util';
+import { QueryTaskAssigneeAvailabilityDto } from './dto/query-task-assignee-availability.dto';
+import {
+  isDateRangeOverlapping,
+  taskWeeklyHoursFromEffort,
+} from './utils/task-availability.util';
 
 const EMPLOYEE_INCLUDE = {
   department: { select: { id: true, code: true, name: true } },
@@ -65,8 +73,13 @@ export class ProjectTeamService {
       orderBy: { name: 'asc' },
     });
 
+    const planningWindow = this.resolvePlanningWindow(
+      query.startDate,
+      query.endDate,
+    );
+
     return employees.map((employee) =>
-      this.toTeamCandidate(employee, query.projectId),
+      this.toTeamCandidate(employee, query.projectId, planningWindow),
     );
   }
 
@@ -143,6 +156,154 @@ export class ProjectTeamService {
     return assignees.sort((a, b) => a.displayName.localeCompare(b.displayName));
   }
 
+  async checkTaskAssigneeAvailability(
+    projectId: string,
+    query: QueryTaskAssigneeAvailabilityDto,
+    caslUser: CaslUserContext,
+  ): Promise<TaskAssigneeAvailabilityDto> {
+    await this.assertProjectInScope(projectId, caslUser, 'read');
+    return this.evaluateTaskAssigneeAvailability(projectId, query);
+  }
+
+  async evaluateTaskAssigneeAvailability(
+    projectId: string,
+    params: QueryTaskAssigneeAvailabilityDto,
+  ): Promise<TaskAssigneeAvailabilityDto> {
+    if (!params.ownerId) {
+      return {
+        canCheck: false,
+        message: 'Select an assignee to check availability.',
+        warnings: [],
+      };
+    }
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { startDate: true, endDate: true },
+    });
+
+    if (!project) {
+      return {
+        canCheck: false,
+        message: 'Project not found.',
+        warnings: [],
+      };
+    }
+
+    const employee = await this.prisma.employee.findFirst({
+      where: { userId: params.ownerId, isActive: true },
+      include: {
+        allocations: { where: { status: 'Active' } },
+      },
+    });
+
+    if (!employee) {
+      return {
+        canCheck: false,
+        message: 'Assignee is not linked to an active employee record.',
+        warnings: [],
+      };
+    }
+
+    const windowStart = params.startDate
+      ? new Date(params.startDate)
+      : project.startDate;
+    const windowEnd = params.endDate ? new Date(params.endDate) : project.endDate;
+
+    if (!windowStart || !windowEnd) {
+      return {
+        canCheck: false,
+        message: 'Set task start and end dates to check availability.',
+        warnings: [],
+      };
+    }
+
+    if (windowStart > windowEnd) {
+      return {
+        canCheck: false,
+        message: 'End date must be after start date.',
+        warnings: [],
+      };
+    }
+
+    const weeklyCapacity = Number(employee.weeklyHours);
+    const allocationHours = sumOverlappingAllocationHours(
+      employee.allocations,
+      weeklyCapacity,
+      windowStart,
+      windowEnd,
+    );
+
+    const otherTasks = await this.prisma.task.findMany({
+      where: {
+        ownerId: params.ownerId,
+        startDate: { not: null },
+        endDate: { not: null },
+        effortHours: { not: null },
+        status: { not: 'Done' },
+        ...(params.excludeTaskId ? { id: { not: params.excludeTaskId } } : {}),
+      },
+      select: {
+        startDate: true,
+        endDate: true,
+        effortHours: true,
+      },
+    });
+
+    let otherTaskHours = 0;
+    for (const task of otherTasks) {
+      if (
+        task.startDate &&
+        task.endDate &&
+        isDateRangeOverlapping(
+          task.startDate,
+          task.endDate,
+          windowStart,
+          windowEnd,
+        )
+      ) {
+        otherTaskHours += taskWeeklyHoursFromEffort(
+          Number(task.effortHours),
+          task.startDate,
+          task.endDate,
+        );
+      }
+    }
+
+    let thisTaskHours = 0;
+    if (params.effortHours != null && params.effortHours > 0) {
+      thisTaskHours = taskWeeklyHoursFromEffort(
+        params.effortHours,
+        windowStart,
+        windowEnd,
+      );
+    }
+
+    const totalAfter = allocationHours + otherTaskHours + thisTaskHours;
+    const summary = buildAvailabilitySummary(weeklyCapacity, totalAfter);
+    const warnings: string[] = [];
+
+    if (summary.isOverAllocated) {
+      warnings.push(
+        `${employee.name} would be over-allocated (${summary.allocatedHours}h/wk of ${weeklyCapacity}h/wk capacity including this task).`,
+      );
+    }
+
+    return {
+      canCheck: true,
+      employeeName: employee.name,
+      weeklyCapacityHours: summary.weeklyCapacityHours,
+      allocationHours: roundHours(allocationHours),
+      otherTaskHours: roundHours(otherTaskHours),
+      thisTaskHours: roundHours(thisTaskHours),
+      allocatedHoursTotal: summary.allocatedHours,
+      remainingHours: summary.remainingHours,
+      utilizationPercent: summary.utilizationPercent,
+      isOverAllocated: summary.isOverAllocated,
+      warnings,
+    };
+  }
+
   async addMembers(
     projectId: string,
     allocations: CreateAllocationDto[],
@@ -202,9 +363,17 @@ export class ProjectTeamService {
       }
 
       const weeklyCapacity = Number(employee.weeklyHours);
-      const allocatedOther = sumActiveAllocationHours(
+      const windowStart = dto.startDate
+        ? new Date(dto.startDate)
+        : project.startDate;
+      const windowEnd = dto.endDate
+        ? new Date(dto.endDate)
+        : project.endDate;
+      const allocatedOther = sumOverlappingAllocationHours(
         employee.allocations,
         weeklyCapacity,
+        windowStart,
+        windowEnd,
       );
       const newHours = this.resolveWeeklyHours(dto, weeklyCapacity);
       const totalAfter = allocatedOther + newHours;
@@ -302,26 +471,58 @@ export class ProjectTeamService {
     return 0;
   }
 
+  private resolvePlanningWindow(
+    startDate?: string,
+    endDate?: string,
+  ): { start: Date; end: Date } | undefined {
+    if (!startDate || !endDate) {
+      return undefined;
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return undefined;
+    }
+
+    return start <= end ? { start, end } : undefined;
+  }
+
   private toTeamCandidate(
     employee: EmployeeWithAllocations,
     projectId?: string,
+    planningWindow?: { start: Date; end: Date },
   ): TeamCandidateDto {
     const weeklyCapacity = Number(employee.weeklyHours);
-    const activeAllocations = employee.allocations.filter((row) =>
-      isAllocationActive(row),
-    );
+    const relevantAllocations = planningWindow
+      ? employee.allocations.filter((row) =>
+          isAllocationOverlappingWindow(
+            row,
+            planningWindow.start,
+            planningWindow.end,
+          ),
+        )
+      : employee.allocations.filter((row) => isAllocationActive(row));
 
-    const allocatedHoursOtherProjects = sumActiveAllocationHours(
+    const sumHours = (rows: typeof relevantAllocations) =>
+      planningWindow
+        ? sumOverlappingAllocationHours(
+            rows,
+            weeklyCapacity,
+            planningWindow.start,
+            planningWindow.end,
+          )
+        : sumActiveAllocationHours(rows, weeklyCapacity);
+
+    const allocatedHoursOtherProjects = sumHours(
       projectId
-        ? activeAllocations.filter((row) => row.projectId !== projectId)
-        : activeAllocations,
-      weeklyCapacity,
+        ? relevantAllocations.filter((row) => row.projectId !== projectId)
+        : relevantAllocations,
     );
 
     const allocatedHoursThisProject = projectId
-      ? sumActiveAllocationHours(
-          activeAllocations.filter((row) => row.projectId === projectId),
-          weeklyCapacity,
+      ? sumHours(
+          relevantAllocations.filter((row) => row.projectId === projectId),
         )
       : 0;
 
@@ -345,7 +546,7 @@ export class ProjectTeamService {
       isOverAllocated: summary.isOverAllocated,
       isFullyBooked: summary.isFullyBooked,
       isOnProject: projectId
-        ? activeAllocations.some((row) => row.projectId === projectId)
+        ? relevantAllocations.some((row) => row.projectId === projectId)
         : false,
     };
   }

@@ -137,12 +137,19 @@ export class EntraOauthService {
     const frontendDomain =
       this.configService.get('app.frontendDomain', { infer: true }) ??
       'http://localhost:3000';
-    const url = new URL('/en/auth/callback', frontendDomain);
-    url.searchParams.set('returnTo', returnTo);
+    const locale = this.resolveLocaleFromPath(returnTo);
+    const normalizedReturnTo = this.sanitizeReturnTo(returnTo);
+    const url = new URL(`/${locale}/auth/callback`, frontendDomain);
+    url.searchParams.set('returnTo', normalizedReturnTo);
     if (error) {
       url.searchParams.set('error', error);
     }
     return url.toString();
+  }
+
+  private resolveLocaleFromPath(path?: string): string {
+    const match = path?.match(/^\/(en|ar)(?=\/|$)/);
+    return match?.[1] ?? 'en';
   }
 
   private async consumeOAuthState(
@@ -179,7 +186,13 @@ export class EntraOauthService {
     if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) {
       return '/dashboard';
     }
-    return returnTo;
+
+    const withoutLocale = returnTo.replace(/^\/(en|ar)(?=\/|$)/, '') || '/dashboard';
+    if (withoutLocale === '/' || withoutLocale === '') {
+      return '/dashboard';
+    }
+
+    return withoutLocale.startsWith('/') ? withoutLocale : `/${withoutLocale}`;
   }
 
   private base64UrlEncode(buffer: Buffer): string {

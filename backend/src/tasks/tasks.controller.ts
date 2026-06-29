@@ -31,12 +31,21 @@ import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { TasksService } from './tasks.service';
+import { TaskProgressService } from './task-progress.service';
+import { TaskDependenciesService } from './task-dependencies.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTaskDto } from './dto/query-task.dto';
 import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
 import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
 import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
+import { CreateProgressUpdateDto } from './dto/create-progress-update.dto';
+import { ReviewProgressUpdateDto } from './dto/review-progress-update.dto';
+import { QueryProgressReviewDto } from './dto/query-progress-review.dto';
+import { CreateTaskDependencyDto } from './dto/create-task-dependency.dto';
+import { UpdateTaskDependencyDto } from './dto/update-task-dependency.dto';
+import { QueryTaskDependencyDto } from './dto/query-task-dependency.dto';
+import { ValidateTaskDependencyDto } from './dto/create-task-dependency.dto';
 import { infinityPagination } from '../utils/infinity-pagination';
 
 type AuthRequest = RequestWithAbility & {
@@ -52,7 +61,11 @@ type AuthRequest = RequestWithAbility & {
   version: '1',
 })
 export class TasksController {
-  constructor(private readonly tasksService: TasksService) {}
+  constructor(
+    private readonly tasksService: TasksService,
+    private readonly taskProgressService: TaskProgressService,
+    private readonly taskDependenciesService: TaskDependenciesService,
+  ) {}
 
   private viewerRole(request: AuthRequest): string | undefined {
     return request.user.role?.code;
@@ -117,6 +130,98 @@ export class TasksController {
       request.caslUser!,
       request.ability!,
       this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('read', 'Task')
+  @Get('progress-reviews/pending')
+  @HttpCode(HttpStatus.OK)
+  findPendingProgressReviews(
+    @Query() query: QueryProgressReviewDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskProgressService.findPendingReview(
+      query,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
+  @Get('dependencies')
+  @HttpCode(HttpStatus.OK)
+  listDependencies(
+    @Query() query: QueryTaskDependencyDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskDependenciesService.findMany(
+      query,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('approve', 'Project')
+  @Post('dependencies/validate')
+  @HttpCode(HttpStatus.OK)
+  validateDependency(
+    @Body() dto: ValidateTaskDependencyDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskDependenciesService.validate(
+      dto,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('update', 'Project')
+  @Post('dependencies')
+  @HttpCode(HttpStatus.CREATED)
+  createDependency(
+    @Body() dto: CreateTaskDependencyDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskDependenciesService.create(
+      dto,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('update', 'Project')
+  @Patch('dependencies/:dependencyId')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'dependencyId', type: String, required: true })
+  updateDependency(
+    @Param('dependencyId') dependencyId: string,
+    @Body() dto: UpdateTaskDependencyDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskDependenciesService.update(
+      dependencyId,
+      dto,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('update', 'Project')
+  @Delete('dependencies/:dependencyId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse()
+  @ApiParam({ name: 'dependencyId', type: String, required: true })
+  removeDependency(
+    @Param('dependencyId') dependencyId: string,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskDependenciesService.remove(
+      dependencyId,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
     );
   }
 
@@ -241,6 +346,57 @@ export class TasksController {
       request.caslUser!,
       request.ability!,
       this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Post(':id/progress-updates')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiParam({ name: 'id', type: String, required: true })
+  submitProgressUpdate(
+    @Param('id') id: string,
+    @Body() dto: CreateProgressUpdateDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskProgressService.submit(
+      id,
+      dto,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('read', 'Task')
+  @Get(':id/progress-updates')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  listProgressUpdates(@Param('id') id: string, @Request() request: AuthRequest) {
+    return this.taskProgressService.findForTask(
+      id,
+      request.caslUser!,
+      request.ability!,
+    );
+  }
+
+  @CheckAbility('approve', 'Task')
+  @Patch(':id/progress-updates/:updateId/review')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'updateId', type: String, required: true })
+  reviewProgressUpdate(
+    @Param('id') id: string,
+    @Param('updateId') updateId: string,
+    @Body() dto: ReviewProgressUpdateDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.taskProgressService.review(
+      id,
+      updateId,
+      dto,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
     );
   }
 

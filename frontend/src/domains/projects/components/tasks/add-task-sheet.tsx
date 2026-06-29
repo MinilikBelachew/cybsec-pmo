@@ -52,9 +52,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Calendar } from "@/shared/ui/calendar";
 import { cn } from "@/shared/utils/cn";
 import { ADD_TASK_SHEET_CLASS } from "./task-sheet.constants";
-import { defaultTaskDateRange } from "../schemas/task-date-fields";
-import { PhaseForm } from "./phase-form";
-import { type PhaseFormValues } from "../schemas/phase.schema";
+import { TaskAssigneeAvailabilityAlert } from "./task-assignee-availability-alert";
+import { defaultTaskDateRange } from "../../schemas/task/task-date-fields";
+import { PhaseForm } from "../roadmap/phase-form";
+import { type PhaseFormValues } from "../../schemas/phase/phase.schema";
 
 type WorkspaceStatus = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type SideTab = "subtasks" | "comments";
@@ -179,6 +180,9 @@ export function AddTaskSheet({
   });
 
   const watchedOwnerId = watch("ownerId");
+  const watchedStartDate = watch("startDate");
+  const watchedEndDate = watch("endDate");
+  const watchedEffortHours = watch("effortHours");
   const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
 
   const handleCreatePhase = async (values: PhaseFormValues) => {
@@ -276,7 +280,7 @@ export function AddTaskSheet({
   const onSubmit = handleSubmit(async (values) => {
     setIsSubmitting(true);
     try {
-      await createTaskBundle({
+      const result = await createTaskBundle({
         payload: {
           ...toCreateTaskPayload(values),
           comments: draftComments.map((comment) => ({
@@ -292,6 +296,8 @@ export function AddTaskSheet({
         },
         files: draftFiles,
       }).unwrap();
+
+      result.warnings?.forEach((warning) => toast(warning, { icon: "⚠️" }));
 
       const parts = ["Task created"];
       if (draftSubTasks.length) parts.push(`${draftSubTasks.length} sub-task(s)`);
@@ -433,6 +439,13 @@ export function AddTaskSheet({
                         Add project team members with linked login accounts before assigning tasks.
                       </p>
                     )}
+                    <TaskAssigneeAvailabilityAlert
+                      projectId={projectId}
+                      ownerId={watchedOwnerId}
+                      startDate={watchedStartDate}
+                      endDate={watchedEndDate}
+                      effortHours={watchedEffortHours}
+                    />
                   </div>
 
                   <div className="space-y-1.5">

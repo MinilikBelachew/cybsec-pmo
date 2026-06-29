@@ -9,6 +9,14 @@ import type {
   TaskAttachment,
   TaskComment,
   UpdateTaskPayload,
+  TaskProgressUpdate,
+  PendingProgressReviewsResponse,
+  SubmitProgressUpdatePayload,
+  ReviewProgressUpdatePayload,
+  CreateTaskDependencyPayload,
+  TaskDependency,
+  ValidateTaskDependencyResponse,
+  TaskDependencyType,
 } from "../types/tasks.types";
 
 export const tasksApi = api.injectEndpoints({
@@ -139,7 +147,7 @@ export const tasksApi = api.injectEndpoints({
         body,
       }),
       invalidatesTags: (result, error, { id, body }) => {
-        const tags: { type: "Tasks"; id: string }[] = [
+        const tags: Array<{ type: "Tasks" | "TaskDependencies"; id: string }> = [
           { type: "Tasks", id },
           { type: "Tasks", id: "LIST" },
         ];
@@ -147,6 +155,7 @@ export const tasksApi = api.injectEndpoints({
           typeof body.projectId === "string" ? body.projectId : result?.projectId;
         if (projectId) {
           tags.push({ type: "Tasks", id: `PROJECT_${projectId}` });
+          tags.push({ type: "TaskDependencies", id: projectId });
         }
         return tags;
       },
@@ -195,6 +204,135 @@ export const tasksApi = api.injectEndpoints({
       }),
       invalidatesTags: (result, error, { taskId }) => [{ type: "Tasks", id: taskId }],
     }),
+
+    getTaskProgressUpdates: builder.query<TaskProgressUpdate[], string>({
+      query: (taskId) => `/tasks/${taskId}/progress-updates`,
+      providesTags: (result, error, taskId) => [
+        { type: "Tasks", id: taskId },
+        { type: "TaskProgress", id: taskId },
+      ],
+    }),
+
+    getPendingProgressReviews: builder.query<
+      PendingProgressReviewsResponse,
+      { projectId?: string; page?: number; limit?: number }
+    >({
+      query: ({ projectId, page = 1, limit = 20 }) => {
+        const params = new URLSearchParams();
+        if (projectId) params.append("projectId", projectId);
+        params.append("page", String(page));
+        params.append("limit", String(limit));
+        return `/tasks/progress-reviews/pending?${params.toString()}`;
+      },
+      providesTags: [{ type: "TaskProgress", id: "PENDING" }],
+    }),
+
+    submitTaskProgressUpdate: builder.mutation<TaskProgressUpdate, SubmitProgressUpdatePayload>({
+      query: ({ taskId, ...body }) => ({
+        url: `/tasks/${taskId}/progress-updates`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: "Tasks", id: taskId },
+        { type: "Tasks", id: "LIST" },
+        { type: "TaskProgress", id: taskId },
+        { type: "TaskProgress", id: "PENDING" },
+      ],
+    }),
+
+    reviewTaskProgressUpdate: builder.mutation<TaskProgressUpdate, ReviewProgressUpdatePayload>({
+      query: ({ taskId, updateId, ...body }) => ({
+        url: `/tasks/${taskId}/progress-updates/${updateId}/review`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: "Tasks", id: taskId },
+        { type: "Tasks", id: "LIST" },
+        { type: "TaskProgress", id: taskId },
+        { type: "TaskProgress", id: "PENDING" },
+      ],
+    }),
+
+    getTaskDependencies: builder.query<
+      TaskDependency[],
+      { projectId?: string; taskId?: string }
+    >({
+      query: ({ projectId, taskId }) => {
+        const params = new URLSearchParams();
+        if (projectId) params.append("projectId", projectId);
+        if (taskId) params.append("taskId", taskId);
+        return `/tasks/dependencies?${params.toString()}`;
+      },
+      providesTags: (result, error, arg) => [
+        { type: "TaskDependencies", id: arg.taskId ?? "LIST" },
+        ...(arg.projectId ? [{ type: "TaskDependencies" as const, id: arg.projectId }] : []),
+      ],
+    }),
+
+    validateTaskDependency: builder.mutation<
+      ValidateTaskDependencyResponse,
+      CreateTaskDependencyPayload
+    >({
+      query: (body) => ({
+        url: "/tasks/dependencies/validate",
+        method: "POST",
+        body,
+      }),
+    }),
+
+    createTaskDependency: builder.mutation<TaskDependency, CreateTaskDependencyPayload>({
+      query: (body) => ({
+        url: "/tasks/dependencies",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result) => [
+        { type: "TaskDependencies", id: "LIST" },
+        ...(result
+          ? [
+              { type: "TaskDependencies" as const, id: result.predecessorId },
+              { type: "TaskDependencies" as const, id: result.successorId },
+              { type: "TaskDependencies" as const, id: result.predecessor.projectId },
+              { type: "Tasks" as const, id: result.successorId },
+              { type: "Tasks" as const, id: result.predecessorId },
+              { type: "Tasks" as const, id: "LIST" },
+            ]
+          : []),
+      ],
+    }),
+
+    updateTaskDependency: builder.mutation<
+      TaskDependency,
+      { id: string; body: { depType?: TaskDependencyType; lagDays?: number } }
+    >({
+      query: ({ id, body }) => ({
+        url: `/tasks/dependencies/${id}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (result) =>
+        result
+          ? [
+              { type: "TaskDependencies", id: "LIST" },
+              { type: "TaskDependencies", id: result.predecessorId },
+              { type: "TaskDependencies", id: result.successorId },
+              { type: "TaskDependencies", id: result.predecessor.projectId },
+              { type: "Tasks", id: result.successorId },
+              { type: "Tasks", id: result.predecessorId },
+              { type: "Tasks", id: "LIST" },
+            ]
+          : [{ type: "TaskDependencies", id: "LIST" }],
+    }),
+
+    deleteTaskDependency: builder.mutation<void, string>({
+      query: (id) => ({
+        url: `/tasks/dependencies/${id}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: [{ type: "TaskDependencies", id: "LIST" }, { type: "Tasks", id: "LIST" }],
+    }),
   }),
 });
 
@@ -212,4 +350,13 @@ export const {
   useGetTaskAttachmentsQuery,
   useAddTaskAttachmentMutation,
   useDeleteTaskAttachmentMutation,
+  useGetTaskProgressUpdatesQuery,
+  useGetPendingProgressReviewsQuery,
+  useSubmitTaskProgressUpdateMutation,
+  useReviewTaskProgressUpdateMutation,
+  useGetTaskDependenciesQuery,
+  useValidateTaskDependencyMutation,
+  useCreateTaskDependencyMutation,
+  useUpdateTaskDependencyMutation,
+  useDeleteTaskDependencyMutation,
 } = tasksApi;

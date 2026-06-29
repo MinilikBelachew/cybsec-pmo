@@ -24,6 +24,8 @@ function notificationIcon(eventType: string) {
       return <Plus className="size-4 text-blue-500" />;
     case "TASK_UPDATED":
       return <Clock className="size-4 text-amber-500" />;
+    case "PROGRESS_SUBMITTED":
+      return <Clock className="size-4 text-violet-500" />;
     case "PROGRESS_APPROVED":
       return <CheckCircle2 className="size-4 text-emerald-500" />;
     case "PROGRESS_REJECTED":
@@ -35,12 +37,36 @@ function notificationIcon(eventType: string) {
 }
 
 function resolveNotificationHref(notification: NotificationRecord): string | null {
-  const link = notification.payload.link;
+  const payload = notification.payload;
+  const link = payload.link;
   if (typeof link === "string" && link.length > 0) {
     return link;
   }
 
-  const projectId = notification.payload.projectId;
+  const projectId = payload.projectId;
+  const taskId = payload.taskId;
+  const progressUpdateId = payload.progressUpdateId;
+
+  if (typeof projectId === "string" && typeof taskId === "string") {
+    const params = new URLSearchParams({ taskId });
+
+    if (
+      notification.eventType === "PROGRESS_SUBMITTED" &&
+      typeof progressUpdateId === "string"
+    ) {
+      params.set("reviewProgress", "1");
+      params.set("progressUpdateId", progressUpdateId);
+    } else if (
+      notification.eventType === "PROGRESS_APPROVED" ||
+      notification.eventType === "PROGRESS_REJECTED" ||
+      notification.eventType === "PROGRESS_REWORK"
+    ) {
+      params.set("progress", "1");
+    }
+
+    return `/dashboard/projects/${projectId}?${params.toString()}`;
+  }
+
   if (typeof projectId === "string") {
     return `/dashboard/projects/${projectId}`;
   }
@@ -51,9 +77,12 @@ function resolveNotificationHref(notification: NotificationRecord): string | nul
 export function NotificationBell() {
   const router = useRouter();
   const { data: unreadData } = useGetUnreadNotificationCountQuery(undefined, {
-    pollingInterval: 60_000,
+    pollingInterval: 30_000,
   });
-  const { data, isLoading } = useGetNotificationsQuery({ page: 1, limit: 10 });
+  const { data, isLoading } = useGetNotificationsQuery(
+    { page: 1, limit: 10 },
+    { pollingInterval: 30_000 },
+  );
   const [markRead] = useMarkNotificationReadMutation();
   const [markAllRead, { isLoading: isMarkingAll }] = useMarkAllNotificationsReadMutation();
 

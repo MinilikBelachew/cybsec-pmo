@@ -8,10 +8,10 @@ import {
   useGetDepartmentsQuery,
   useGetCustomersQuery,
   useGetProjectManagersQuery,
-} from "../api/projects.api";
+} from "../../api/projects.api";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
-import { convertToCSV } from "../utils/import-export";
+import { convertToCSV } from "../../utils/import-export";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
@@ -25,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import type { GetProjectsParams, PriorityLevel, Project, ProjectStatus } from "../types/projects.types";
+import type { GetProjectsParams, PriorityLevel, Project, ProjectStatus } from "../../types/projects.types";
 import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
