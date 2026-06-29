@@ -11,11 +11,13 @@ const dateField = z.preprocess(preprocessDate, z.date().optional());
 const baseProjectSchema = z
   .object({
     name: z.string().min(1, "Name is required").max(255),
-    objective: z.string().min(5, "Objective must be at least 5 characters"),
+    objective: z
+      .string()
+      .min(5, "Objective must be at least 5 characters")
+      .max(2000, "Description must be 2000 characters or fewer"),
     departmentId: z.string().uuid("Please select a Department"),
     customerId: z.string().uuid("Please select a Customer"),
     engagementType: z.enum(["ManagedServices", "StaffAugmentation", "FixedPrice"]),
-    methodology: z.enum(["Agile", "Waterfall", "Hybrid"]),
     billingModel: z.enum(["TimeAndMaterial", "FixedPrice", "Retainer"]),
     priority: z.enum(["Low", "Medium", "High", "Critical"]),
     startDate: dateField,
@@ -76,7 +78,6 @@ export function toCreateProjectPayload(values: CreateProjectFormValues) {
     departmentId: values.departmentId,
     customerId: values.customerId,
     engagementType: values.engagementType,
-    methodology: values.methodology,
     billingModel: values.billingModel,
     priority: values.priority,
     startDate: values.startDate.toISOString().slice(0, 10),

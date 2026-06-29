@@ -3,7 +3,6 @@ import {
   ApiBillingModel,
   ApiCurrencyCode,
   ApiEngagementType,
-  ApiMethodology,
   ApiPriorityLevel,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
@@ -56,9 +55,6 @@ export class ProjectDto {
 
   @ApiProperty({ enum: ApiEngagementType })
   engagementType: ApiEngagementType;
-
-  @ApiProperty({ enum: ApiMethodology })
-  methodology: ApiMethodology;
 
   @ApiProperty({ enum: ApiBillingModel })
   billingModel: ApiBillingModel;

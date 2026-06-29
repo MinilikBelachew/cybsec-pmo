@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Flag, Plus, Trash2 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -20,10 +21,48 @@ type ProjectFormMilestonesSectionProps = {
   existingMilestones?: ProjectMilestone[];
   drafts: DraftProjectMilestone[];
   onDraftsChange: (drafts: DraftProjectMilestone[]) => void;
+  projectStartDate?: Date;
+  projectEndDate?: Date;
 };
+
+const MILESTONE_TITLE_MAX = 255;
 
 function draftId() {
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function toDateInputValue(date?: Date): string | undefined {
+  if (!date) return undefined;
+  return date.toISOString().slice(0, 10);
+}
+
+function isMilestoneDateOutOfRange(
+  targetDate: string,
+  projectStartDate?: Date,
+  projectEndDate?: Date,
+): string | null {
+  const target = new Date(targetDate);
+  if (Number.isNaN(target.getTime())) {
+    return "Enter a valid target date.";
+  }
+
+  if (projectEndDate) {
+    const end = new Date(projectEndDate);
+    end.setHours(23, 59, 59, 999);
+    if (target > end) {
+      return "Milestone target date cannot be after the project end date.";
+    }
+  }
+
+  if (projectStartDate) {
+    const start = new Date(projectStartDate);
+    start.setHours(0, 0, 0, 0);
+    if (target < start) {
+      return "Milestone target date cannot be before the project start date.";
+    }
+  }
+
+  return null;
 }
 
 export function toDraftMilestonePayload(drafts: DraftProjectMilestone[]) {
@@ -41,19 +80,43 @@ export function ProjectFormMilestonesSection({
   existingMilestones = [],
   drafts,
   onDraftsChange,
+  projectStartDate,
+  projectEndDate,
 }: ProjectFormMilestonesSectionProps) {
   const [title, setTitle] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [weight, setWeight] = useState("");
 
   function handleAddDraft() {
-    if (!title.trim() || !targetDate) return;
+    const normalizedTitle = title.trim().replace(/\s+/g, " ");
+    if (!normalizedTitle) {
+      toast.error("Milestone title is required.");
+      return;
+    }
+    if (normalizedTitle.length > MILESTONE_TITLE_MAX) {
+      toast.error(`Milestone title must be ${MILESTONE_TITLE_MAX} characters or fewer.`);
+      return;
+    }
+    if (!targetDate) {
+      toast.error("Milestone target date is required.");
+      return;
+    }
+
+    const dateError = isMilestoneDateOutOfRange(
+      targetDate,
+      projectStartDate,
+      projectEndDate,
+    );
+    if (dateError) {
+      toast.error(dateError);
+      return;
+    }
 
     onDraftsChange([
       ...drafts,
       {
         clientId: draftId(),
-        title: title.trim(),
+        title: normalizedTitle,
         targetDate,
         weight: weight ? Number(weight) : null,
         status: "Pending",
@@ -92,16 +155,16 @@ export function ProjectFormMilestonesSection({
           {existingMilestones.map((milestone) => (
             <div
               key={milestone.id}
-              className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2"
+              className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-border/60 bg-background px-3 py-2"
             >
-              <div>
-                <p className="text-sm font-medium">{milestone.title}</p>
-                <p className="text-[11px] text-muted-foreground">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{milestone.title}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
                   {new Date(milestone.targetDate).toLocaleDateString()}
                   {milestone.weight != null ? ` · ${milestone.weight}%` : ""}
                 </p>
               </div>
-              <span className="text-[10px] text-muted-foreground">{milestone.status}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">{milestone.status}</span>
             </div>
           ))}
         </div>
@@ -115,11 +178,11 @@ export function ProjectFormMilestonesSection({
           {newDrafts.map((draft) => (
             <div
               key={draft.clientId}
-              className="flex items-center justify-between rounded-lg border border-dashed border-primary/30 bg-primary/5 px-3 py-2"
+              className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-dashed border-primary/30 bg-primary/5 px-3 py-2"
             >
-              <div>
-                <p className="text-sm font-medium">{draft.title}</p>
-                <p className="text-[11px] text-muted-foreground">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{draft.title}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
                   {new Date(draft.targetDate).toLocaleDateString()}
                   {draft.weight != null ? ` · ${draft.weight}%` : ""}
                 </p>
@@ -127,7 +190,7 @@ export function ProjectFormMilestonesSection({
               <button
                 type="button"
                 onClick={() => removeDraft(draft.clientId)}
-                className="text-muted-foreground hover:text-destructive"
+                className="shrink-0 text-muted-foreground hover:text-destructive"
                 aria-label="Remove milestone"
               >
                 <Trash2 className="size-4" />
@@ -137,36 +200,42 @@ export function ProjectFormMilestonesSection({
         </div>
       )}
 
-      <div className="grid gap-3 md:grid-cols-[1fr_160px_100px_auto]">
-        <div className="space-y-1">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+        <div className="min-w-0 flex-1 space-y-1">
           <Label className="text-[11px] text-muted-foreground">Title</Label>
           <Input
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            maxLength={MILESTONE_TITLE_MAX}
+            onChange={(event) =>
+              setTitle(event.target.value.replace(/[\r\n]+/g, " "))
+            }
             placeholder="e.g. Phase 1 sign-off"
+            className="min-w-0"
           />
         </div>
-        <div className="space-y-1">
+        <div className="w-full shrink-0 space-y-1 lg:w-[160px]">
           <Label className="text-[11px] text-muted-foreground">Target date</Label>
           <Input
             type="date"
             value={targetDate}
-            onChange={(e) => setTargetDate(e.target.value)}
+            min={toDateInputValue(projectStartDate)}
+            max={toDateInputValue(projectEndDate)}
+            onChange={(event) => setTargetDate(event.target.value)}
           />
         </div>
-        <div className="space-y-1">
+        <div className="w-full shrink-0 space-y-1 lg:w-[100px]">
           <Label className="text-[11px] text-muted-foreground">Weight %</Label>
           <Input
             type="number"
             min={0}
             max={100}
             value={weight}
-            onChange={(e) => setWeight(e.target.value)}
+            onChange={(event) => setWeight(event.target.value)}
             placeholder="Optional"
           />
         </div>
-        <div className="flex items-end">
-          <Button type="button" variant="outline" onClick={handleAddDraft} className="w-full">
+        <div className="flex shrink-0 items-end">
+          <Button type="button" variant="outline" onClick={handleAddDraft} className="w-full lg:w-auto">
             <Plus className="mr-1 size-3.5" />
             Add
           </Button>

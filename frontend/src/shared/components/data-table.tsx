@@ -291,6 +291,7 @@ export function DataTable<TData, TValue>({
                     placeholder={searchPlaceholder ?? t("search")}
                     value={resolvedSearchValue}
                     onChange={(event) => handleSearchChange(event.target.value)}
+                    maxLength={200}
                     className="h-9 border-border/60 bg-white ps-9 pe-8 shadow-none dark:bg-card"
                   />
                   {resolvedSearchValue && (

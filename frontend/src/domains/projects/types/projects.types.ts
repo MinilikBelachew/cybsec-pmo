@@ -1,5 +1,4 @@
 export type EngagementType = "ManagedServices" | "StaffAugmentation" | "FixedPrice";
-export type Methodology = "Agile" | "Waterfall" | "Hybrid";
 export type BillingModel = "TimeAndMaterial" | "FixedPrice" | "Retainer";
 export type PriorityLevel = "Low" | "Medium" | "High" | "Critical";
 export type ProjectStatus = "Draft" | "Active" | "OnHold" | "PendingClosure" | "Closed";
@@ -40,7 +39,6 @@ export interface Project {
   departmentId: string;
   customerId: string;
   engagementType: EngagementType;
-  methodology: Methodology;
   billingModel: BillingModel;
   priority: PriorityLevel;
   startDate: string;
@@ -102,7 +100,6 @@ export interface CreateProjectDto {
   departmentId: string;
   customerId: string;
   engagementType: EngagementType;
-  methodology?: Methodology;
   billingModel: BillingModel;
   priority?: PriorityLevel;
   startDate: string;

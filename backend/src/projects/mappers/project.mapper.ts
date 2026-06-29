@@ -1,7 +1,6 @@
 import {
   BillingModel,
   EngagementType,
-  Methodology,
   PriorityLevel,
   ProjectStatus,
   type Project,
@@ -12,7 +11,6 @@ import {
 import {
   ApiBillingModel,
   ApiEngagementType,
-  ApiMethodology,
   ApiPriorityLevel,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
@@ -99,7 +97,6 @@ export function toApiProject(
     customerId: project.customerId,
     engagementType:
       ENGAGEMENT_FROM_PRISMA[project.engagementType] ?? ApiEngagementType.ManagedServices,
-    methodology: project.methodology as ApiMethodology,
     billingModel: BILLING_FROM_PRISMA[project.billingModel],
     priority: project.priority as ApiPriorityLevel,
     startDate: project.startDate.toISOString().slice(0, 10),

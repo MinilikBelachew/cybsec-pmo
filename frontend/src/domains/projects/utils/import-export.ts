@@ -75,7 +75,6 @@ export function convertToCSV(
     "Department",
     "Customer",
     "Engagement Type",
-    "Methodology",
     "Billing Model",
     "Priority",
     "Start Date",
@@ -108,7 +107,6 @@ export function convertToCSV(
       deptName,
       custName,
       p.engagementType,
-      p.methodology,
       p.billingModel,
       p.priority,
       p.startDate ? p.startDate.split("T")[0] : "",
@@ -130,7 +128,6 @@ export interface ParsedProjectRow {
   departmentName: string;
   customerName: string;
   engagementType: string;
-  methodology: string;
   billingModel: string;
   priority: string;
   startDate: string;
@@ -194,7 +191,8 @@ export function processRawCSVRows(
     const departmentName = getVal(deptIdx);
     const customerName = getVal(custIdx);
     const engagementType = getVal(engIdx, "FixedPrice");
-    const methodology = getVal(methIdx, "Agile");
+    // Legacy CSVs may include a methodology column; ignore it when present.
+    getVal(methIdx);
     const billingModel = getVal(billIdx, "FixedPrice");
     const priority = getVal(prioIdx, "Medium");
     const startDate = getVal(startIdx);
@@ -332,16 +330,6 @@ export function processRawCSVRows(
       normalizedEngagement = "ManagedServices";
     }
 
-    let normalizedMethodology = methodology;
-    const lowerMethodology = methodology.toLowerCase().trim();
-    if (["agile"].includes(lowerMethodology)) {
-      normalizedMethodology = "Agile";
-    } else if (["waterfall"].includes(lowerMethodology)) {
-      normalizedMethodology = "Waterfall";
-    } else if (["hybrid"].includes(lowerMethodology)) {
-      normalizedMethodology = "Hybrid";
-    }
-
     let normalizedBilling = billingModel;
     const lowerBilling = billingModel.toLowerCase().trim();
     if (["fixed price", "fixed_price", "fixedprice", "fixed"].includes(lowerBilling)) {
@@ -396,9 +384,6 @@ export function processRawCSVRows(
     if (!["ManagedServices", "StaffAugmentation", "FixedPrice"].includes(normalizedEngagement)) {
       errors.push(`Engagement Type "${engagementType}" is invalid. Please select one.`);
     }
-    if (!["Agile", "Waterfall", "Hybrid"].includes(normalizedMethodology)) {
-      errors.push(`Methodology "${methodology}" is invalid. Please select one.`);
-    }
     if (!["TimeAndMaterial", "FixedPrice", "Retainer"].includes(normalizedBilling)) {
       errors.push(`Billing Model "${billingModel}" is invalid. Please select one.`);
     }
@@ -418,7 +403,6 @@ export function processRawCSVRows(
       departmentName,
       customerName,
       engagementType: normalizedEngagement,
-      methodology: normalizedMethodology,
       billingModel: normalizedBilling,
       priority: normalizedPriority,
       startDate,

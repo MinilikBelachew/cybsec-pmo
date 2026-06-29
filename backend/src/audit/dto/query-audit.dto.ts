@@ -5,6 +5,7 @@ import {
   IsInt,
   Min,
   Max,
+  MaxLength,
   IsBoolean,
   IsIn,
   IsUUID,
@@ -102,8 +103,11 @@ export class QueryAuditDto {
     description: 'Search action, object type, actor email/name, or IP address',
   })
   @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString()
-  @Max(200)
+  @MaxLength(200)
   search?: string;
 
   @ApiPropertyOptional({ enum: AUDIT_SORT_FIELDS, default: 'createdAt' })

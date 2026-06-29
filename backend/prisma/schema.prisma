@@ -42,12 +42,6 @@ enum PhaseStatus {
   On_Hold @map("On Hold")
 }
 
-enum Methodology {
-  Agile
-  Waterfall
-  Hybrid
-}
-
 enum EngagementType {
   Advisory
   Assessment
@@ -364,7 +358,6 @@ model Project {
   departmentId      String         @map("department_id") @db.Uuid
   customerId        String         @map("customer_id") @db.Uuid
   engagementType    EngagementType @map("engagement_type")
-  methodology       Methodology    @default(Hybrid)
   billingModel      BillingModel   @map("billing_model")
   priority          PriorityLevel  @default(Medium)
   startDate         DateTime       @map("start_date") @db.Date
