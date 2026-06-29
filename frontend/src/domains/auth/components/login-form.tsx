@@ -10,6 +10,18 @@ function getErrorMessage(code: string | null): string | null {
   if (code === "access_denied") {
     return "Sign-in was cancelled. Please try again.";
   }
+  if (code === "invalid_state") {
+    return "Sign-in session expired. Please try Microsoft sign-in again.";
+  }
+  if (code === "invalid_token") {
+    return "Microsoft sign-in could not be verified. Check Entra app registration (redirect URI and client secret), then try again.";
+  }
+  if (code === "login_locked") {
+    return "Too many failed sign-in attempts. Wait 30 minutes or use emergency login.";
+  }
+  if (code === "rate_limited") {
+    return "Too many sign-in attempts. Please wait a minute and try again.";
+  }
   if (code === "session_failed" || code === "auth_failed") {
     return "Authentication failed. Please try again.";
   }
@@ -35,7 +47,7 @@ export function LoginForm() {
       <Button
         id="login-submit"
         type="button"
-        className="w-full flex items-center justify-center gap-3 py-6 text-base font-semibold transition-all duration-300 bg-white hover:bg-white/95 text-gray-950 border border-transparent rounded-xl shadow-[0_0_20px_rgba(255,255,255,0.05)] hover:shadow-[0_0_30px_rgba(255,255,255,0.15)] active:scale-[0.98] cursor-pointer"
+        className="w-full flex items-center justify-center gap-3 py-6 text-base font-semibold transition-all duration-300 bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-950 border border-transparent rounded-xl shadow-md hover:shadow-lg active:scale-[0.98] cursor-pointer"
         onClick={handleMicrosoftLogin}
       >
         <svg

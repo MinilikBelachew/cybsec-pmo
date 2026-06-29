@@ -38,6 +38,12 @@ export interface DraftSubTask {
   description?: string;
 }
 
+export interface DraftComment {
+  id: string;
+  body: string;
+  isInternal: boolean;
+}
+
 interface TaskCollaborationSectionsProps {
   taskId: string;
   projectId: string;
@@ -49,6 +55,14 @@ interface TaskCollaborationSectionsProps {
   subTaskMode?: "immediate" | "draft";
   draftSubTasks?: DraftSubTask[];
   onDraftSubTasksChange?: (subTasks: DraftSubTask[]) => void;
+  commentMode?: "immediate" | "draft";
+  draftComments?: DraftComment[];
+  onDraftCommentsChange?: (comments: DraftComment[]) => void;
+  attachmentMode?: "immediate" | "draft";
+  draftFiles?: File[];
+  onDraftFilesChange?: (files: File[]) => void;
+  pendingAttachmentDeletes?: string[];
+  onPendingAttachmentDeletesChange?: (ids: string[]) => void;
 }
 
 function formatFileSize(bytes: number | null) {
@@ -78,6 +92,14 @@ export function TaskCollaborationSections({
   subTaskMode = "immediate",
   draftSubTasks = [],
   onDraftSubTasksChange,
+  commentMode = "immediate",
+  draftComments = [],
+  onDraftCommentsChange,
+  attachmentMode = "immediate",
+  draftFiles = [],
+  onDraftFilesChange,
+  pendingAttachmentDeletes = [],
+  onPendingAttachmentDeletesChange,
 }: TaskCollaborationSectionsProps) {
   const ability = useAppAbility();
   const canCreateSubTask = ability?.can("create", "Task") ?? false;
@@ -99,8 +121,11 @@ export function TaskCollaborationSections({
 
   const comments = task?.comments ?? [];
   const attachments = task?.attachments ?? [];
+  const visibleAttachments = attachments.filter((att) => !pendingAttachmentDeletes.includes(att.id));
   const subTasks = task?.subTasks ?? [];
   const totalSubTaskCount = subTasks.length + draftSubTasks.length;
+  const totalCommentCount = comments.length + draftComments.length;
+  const totalAttachmentCount = visibleAttachments.length + draftFiles.length;
   const completedSubTasks = subTasks.filter(
     (s) => s.status === "Done" || s.status === "Approved"
   ).length;
@@ -109,13 +134,29 @@ export function TaskCollaborationSections({
 
   const tabs: { id: TabId; label: string; count?: number }[] = [
     { id: "subtasks", label: "Subtasks", count: totalSubTaskCount },
-    { id: "comments", label: "Comments", count: comments.length },
+    { id: "comments", label: "Comments", count: totalCommentCount },
+    { id: "attachments", label: "Files", count: totalAttachmentCount },
   ];
-  if (showAttachments) {
-    tabs.push({ id: "attachments", label: "Attachments", count: attachments.length });
+  if (!showAttachments) {
+    tabs.pop();
   }
 
-  async function handleAddComment() {
+  function handleAddComment() {
+    if (!commentText.trim()) return;
+
+    if (commentMode === "draft") {
+      onDraftCommentsChange?.([
+        ...draftComments,
+        { id: draftId(), body: commentText.trim(), isInternal },
+      ]);
+      setCommentText("");
+      return;
+    }
+
+    void handleAddCommentImmediate();
+  }
+
+  async function handleAddCommentImmediate() {
     if (!commentText.trim()) return;
     try {
       await addComment({
@@ -135,10 +176,20 @@ export function TaskCollaborationSections({
     }
   }
 
-  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files ?? []);
+    if (!selected.length) return;
 
+    if (attachmentMode === "draft") {
+      onDraftFilesChange?.([...draftFiles, ...selected]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    void handleFileSelectImmediate(selected[0]);
+  }
+
+  async function handleFileSelectImmediate(file: File) {
     try {
       const uploaded = await uploadFile(file).unwrap();
       await addAttachment({
@@ -161,7 +212,16 @@ export function TaskCollaborationSections({
     }
   }
 
-  async function handleDeleteAttachment(attachmentId: string) {
+  function handleDeleteAttachment(attachmentId: string) {
+    if (attachmentMode === "draft") {
+      onPendingAttachmentDeletesChange?.([...pendingAttachmentDeletes, attachmentId]);
+      return;
+    }
+
+    void handleDeleteAttachmentImmediate(attachmentId);
+  }
+
+  async function handleDeleteAttachmentImmediate(attachmentId: string) {
     try {
       await deleteAttachment({ taskId, attachmentId }).unwrap();
       toast.success("Attachment removed");
@@ -192,14 +252,21 @@ export function TaskCollaborationSections({
   }
 
   async function handleCreateSubTaskImmediate() {
-    if (!subTaskTitle.trim()) return;
+    if (!subTaskTitle.trim() || !task) return;
+    if (!task.phaseId || !task.startDate || !task.endDate) {
+      toast.error("Parent task must have a phase and dates before adding sub-tasks.");
+      return;
+    }
     try {
       await createTask({
         projectId,
         parentTaskId: taskId,
+        phaseId: task.phaseId,
         title: subTaskTitle.trim(),
         priority: "Medium",
         status: "To_Do",
+        startDate: task.startDate.slice(0, 10),
+        endDate: task.endDate.slice(0, 10),
       }).unwrap();
       setSubTaskTitle("");
       setShowSubTaskForm(false);
@@ -269,7 +336,7 @@ export function TaskCollaborationSections({
             ) : subTaskMode === "draft" ? (
               "Add to list"
             ) : (
-              "Add"
+              "Add sub-task"
             )}
           </Button>
         </div>
@@ -340,8 +407,8 @@ export function TaskCollaborationSections({
         </div>
       )}
 
-      <div className="max-h-64 space-y-2 overflow-y-auto">
-        {comments.length === 0 && (
+      <div className="max-h-80 space-y-2 overflow-y-auto">
+        {comments.length === 0 && draftComments.length === 0 && (
           <p className="py-6 text-center text-xs text-muted-foreground">No comments yet.</p>
         )}
         {comments.map((comment) => (
@@ -360,6 +427,33 @@ export function TaskCollaborationSections({
                 <span className="text-[10px] text-muted-foreground">
                   {new Date(comment.createdAt).toLocaleString()}
                 </span>
+              </div>
+            </div>
+            <p className="text-sm text-foreground/90">{comment.body}</p>
+          </div>
+        ))}
+        {draftComments.map((comment) => (
+          <div
+            key={comment.id}
+            className="rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3"
+          >
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-primary">Draft comment</span>
+              <div className="flex items-center gap-2">
+                {comment.isInternal && (
+                  <span className="flex items-center gap-0.5 text-[10px] text-amber-600">
+                    <Lock className="size-3" /> Internal
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onDraftCommentsChange?.(draftComments.filter((c) => c.id !== comment.id))
+                  }
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
               </div>
             </div>
             <p className="text-sm text-foreground/90">{comment.body}</p>
@@ -386,10 +480,16 @@ export function TaskCollaborationSections({
           <Button
             type="button"
             size="sm"
-            disabled={!commentText.trim() || isAddingComment}
+            disabled={!commentText.trim() || (commentMode === "immediate" && isAddingComment)}
             onClick={handleAddComment}
           >
-            {isAddingComment ? <Loader2 className="size-4 animate-spin" /> : "Post"}
+            {commentMode === "immediate" && isAddingComment ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : commentMode === "draft" ? (
+              "Add to list"
+            ) : (
+              "Post comment"
+            )}
           </Button>
         </div>
       </div>
@@ -402,27 +502,28 @@ export function TaskCollaborationSections({
         <div className="flex items-center gap-2">
           <Paperclip className="size-4 text-primary" />
           <h3 className="text-sm font-semibold">Attachments</h3>
-          <span className="text-xs text-muted-foreground">({attachments.length})</span>
+          <span className="text-xs text-muted-foreground">({totalAttachmentCount})</span>
         </div>
         <Button
           type="button"
           size="sm"
           variant="outline"
-          disabled={isUploading || isLinking}
+          disabled={attachmentMode === "immediate" && (isUploading || isLinking)}
           onClick={() => fileInputRef.current?.click()}
         >
-          {isUploading || isLinking ? (
+          {attachmentMode === "immediate" && (isUploading || isLinking) ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
             <>
               <Plus className="mr-1 size-3.5" />
-              Upload
+              {attachmentMode === "draft" ? "Add files" : "Upload"}
             </>
           )}
         </Button>
         <input
           ref={fileInputRef}
           type="file"
+          multiple={attachmentMode === "draft"}
           className="hidden"
           accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
           onChange={handleFileSelect}
@@ -430,10 +531,10 @@ export function TaskCollaborationSections({
       </div>
 
       <div className="space-y-2">
-        {attachments.length === 0 && (
+        {visibleAttachments.length === 0 && draftFiles.length === 0 && (
           <p className="text-xs text-muted-foreground">No attachments yet.</p>
         )}
-        {attachments.map((att) => (
+        {visibleAttachments.map((att) => (
           <div
             key={att.id}
             className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
@@ -460,6 +561,29 @@ export function TaskCollaborationSections({
               size="icon-sm"
               disabled={isDeletingAttachment}
               onClick={() => handleDeleteAttachment(att.id)}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        ))}
+        {draftFiles.map((file, index) => (
+          <div
+            key={`${file.name}-${index}`}
+            className="flex items-center gap-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-3 py-2"
+          >
+            <Paperclip className="size-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{file.name}</p>
+              <p className="text-[10px] text-primary">Draft — saves with task</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() =>
+                onDraftFilesChange?.(draftFiles.filter((_, fileIndex) => fileIndex !== index))
+              }
               className="text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="size-4" />
@@ -496,7 +620,7 @@ export function TaskCollaborationSections({
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-5">
           {activeTab === "subtasks" && subTasksSection}
           {activeTab === "comments" && commentsSection}
           {activeTab === "attachments" && showAttachments && attachmentsSection}

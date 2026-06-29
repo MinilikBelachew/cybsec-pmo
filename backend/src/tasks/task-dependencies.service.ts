@@ -120,6 +120,76 @@ export class TaskDependenciesService {
     };
   }
 
+  /**
+   * Validate a batch of dependency adds/removes as one atomic change.
+   * Each add is checked against the graph after prior adds in the batch are applied.
+   */
+  async validateBundleChanges(
+    adds: CreateTaskDependencyDto[],
+    removeIds: string[],
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+  ): Promise<void> {
+    for (const dep of adds) {
+      const { predecessor, successor } = await this.loadTaskPair(
+        dep.predecessorId,
+        dep.successorId,
+        caslUser,
+        'update',
+      );
+      this.assertSameProject(predecessor, successor);
+      this.assertNotSelfLink(dep.predecessorId, dep.successorId);
+    }
+
+    const removed = removeIds.length
+      ? await this.prisma.taskDependency.findMany({
+          where: { id: { in: removeIds } },
+          select: { predecessorId: true, successorId: true },
+        })
+      : [];
+
+    const removedPairs = new Set(
+      removed.map((edge) => `${edge.predecessorId}:${edge.successorId}`),
+    );
+
+    const existing = await this.prisma.taskDependency.findMany({
+      select: { predecessorId: true, successorId: true },
+    });
+
+    const adjacency = this.buildAdjacency(
+      existing.filter(
+        (edge) =>
+          !removedPairs.has(`${edge.predecessorId}:${edge.successorId}`),
+      ),
+    );
+
+    const seenAdds = new Set<string>();
+    for (const dep of adds) {
+      const pairKey = `${dep.predecessorId}:${dep.successorId}`;
+      if (seenAdds.has(pairKey)) {
+        continue;
+      }
+      seenAdds.add(pairKey);
+
+      if (
+        this.wouldCycleInGraph(
+          adjacency,
+          dep.predecessorId,
+          dep.successorId,
+        )
+      ) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { dependency: 'cyclicDependency' },
+        });
+      }
+
+      const list = adjacency.get(dep.predecessorId) ?? [];
+      list.push(dep.successorId);
+      adjacency.set(dep.predecessorId, list);
+    }
+  }
+
   async create(
     dto: CreateTaskDependencyDto,
     actorId: string,
@@ -355,16 +425,37 @@ export class TaskDependenciesService {
       select: { predecessorId: true, successorId: true },
     });
 
+    return this.wouldCycleInGraph(
+      this.buildAdjacency(edges),
+      predecessorId,
+      successorId,
+    );
+  }
+
+  private buildAdjacency(
+    edges: Array<{ predecessorId: string; successorId: string }>,
+  ): Map<string, string[]> {
     const adjacency = new Map<string, string[]>();
     for (const edge of edges) {
       const list = adjacency.get(edge.predecessorId) ?? [];
       list.push(edge.successorId);
       adjacency.set(edge.predecessorId, list);
     }
+    return adjacency;
+  }
 
-    const proposed = adjacency.get(predecessorId) ?? [];
-    proposed.push(successorId);
-    adjacency.set(predecessorId, proposed);
+  private wouldCycleInGraph(
+    adjacency: Map<string, string[]>,
+    predecessorId: string,
+    successorId: string,
+  ): boolean {
+    const proposed = [...(adjacency.get(predecessorId) ?? [])];
+    if (!proposed.includes(successorId)) {
+      proposed.push(successorId);
+    }
+
+    const walkFrom = new Map(adjacency);
+    walkFrom.set(predecessorId, proposed);
 
     const visited = new Set<string>();
     const stack = [successorId];
@@ -378,7 +469,7 @@ export class TaskDependenciesService {
         continue;
       }
       visited.add(current);
-      for (const next of adjacency.get(current) ?? []) {
+      for (const next of walkFrom.get(current) ?? []) {
         stack.push(next);
       }
     }

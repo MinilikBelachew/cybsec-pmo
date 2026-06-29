@@ -6,74 +6,92 @@ type AuthLayoutShellProps = {
 
 export function AuthLayoutShell({ children }: AuthLayoutShellProps) {
   return (
-    <div className="relative flex min-h-screen w-full overflow-hidden bg-[#0A0A0F] text-white">
+    <div className="relative flex min-h-screen w-full overflow-hidden bg-background text-foreground transition-colors duration-300">
+      {/* Background grid pattern */}
       <div
-        className="absolute inset-0 opacity-[0.03] pointer-events-none animate-grid-slide"
+        className="absolute inset-0 opacity-[0.05] dark:opacity-[0.03] pointer-events-none animate-grid-slide"
         style={{
           backgroundImage: `
-            radial-gradient(circle, rgba(255,255,255,0.15) 1px, transparent 1px),
-            linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px)
+            radial-gradient(circle, currentColor 1px, transparent 1px),
+            linear-gradient(to right, currentColor 1px, transparent 1px),
+            linear-gradient(to bottom, currentColor 1px, transparent 1px)
           `,
           backgroundSize: "20px 20px, 40px 40px, 40px 40px",
         }}
       />
 
-      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-purple-600/10 pointer-events-none animate-pulse-glow" />
+      {/* Ambient glowing blobs */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-purple-600/10 dark:bg-purple-600/15 pointer-events-none animate-pulse-glow" />
       <div
-        className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/10 pointer-events-none animate-pulse-glow"
+        className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/10 dark:bg-blue-600/15 pointer-events-none animate-pulse-glow"
         style={{ animationDelay: "-6s" }}
       />
 
-      <div className="relative hidden w-1/2 lg:flex flex-col justify-between p-16 z-10 border-r border-white/5 bg-gradient-to-br from-white/[0.01] to-transparent">
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1.5 items-center">
-            <div className="w-2.5 h-7 bg-purple-600 -skew-x-12 rounded-full shadow-[0_0_20px_rgba(123,63,228,0.6)]" />
-            <div className="w-2.5 h-7 bg-blue-500 -skew-x-12 rounded-full shadow-[0_0_20px_rgba(59,130,246,0.6)]" />
-          </div>
-          <span className="text-2xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/70">
-            CYBSEC PMO
-          </span>
-        </div>
+      {/* Left section - Enlarged Preview Frame with Integrated Header & Floating Text */}
+      <div className="relative hidden w-1/2 lg:flex flex-col p-6 lg:p-8 z-10 border-r border-border/60 bg-muted/10 dark:bg-transparent">
+        {/* Prominent Image Frame Container */}
+        <div className="relative flex-1 w-full rounded-3xl overflow-hidden border border-border/80 dark:border-white/10 bg-card dark:bg-[#0b0f17]">
+          {/* Light mode image */}
+          <Image
+            src="/auth_dashboard_light_v2.png"
+            alt="Cyber PMO Dashboard Preview (Light)"
+            fill
+            className="object-cover object-center pointer-events-none dark:hidden"
+            priority
+          />
 
-        <div className="my-auto relative max-w-lg mx-auto w-full aspect-square animate-float">
-          <div className="absolute inset-0 bg-gradient-to-tr from-purple-500/20 to-blue-500/20 rounded-3xl blur-2xl opacity-40" />
-          <div className="relative h-full w-full rounded-3xl overflow-hidden border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.8)] glass-panel">
-            <Image
-              src="/auth.jpg"
-              alt="Cyber PMO Dashboard Preview"
-              fill
-              className="object-cover object-center"
-              priority
-            />
-            <div className="absolute top-0 inset-x-0 h-10 bg-black/40 backdrop-blur-md border-b border-white/5 flex items-center px-4 gap-2">
-              <div className="w-3.5 h-3.5 rounded-full bg-red-500/30 border border-red-500/50" />
-              <div className="w-3.5 h-3.5 rounded-full bg-yellow-500/30 border border-yellow-500/50" />
-              <div className="w-3.5 h-3.5 rounded-full bg-green-500/30 border border-green-500/50" />
-              <div className="ml-4 text-xs font-semibold text-white/40 tracking-wider">SECURE ENVIRONMENT</div>
+          {/* Dark mode image */}
+          <Image
+            src="/auth_dashboard_dark_v2.png"
+            alt="Cyber PMO Dashboard Preview (Dark)"
+            fill
+            className="object-cover object-center pointer-events-none hidden dark:block"
+            priority
+          />
+
+          {/* Top Gradient Overlay for Header Readability */}
+          <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-background/90 via-background/40 to-transparent dark:from-black/90 dark:via-black/40 dark:to-transparent z-20 pointer-events-none" />
+
+          {/* Top Floating Title inside the image */}
+          <div className="absolute top-8 left-8 z-30 flex items-center gap-2">
+            <div className="flex gap-1.5 items-center">
+              <div className="w-2.5 h-7 bg-purple-600 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(123,63,228,0.5)]" />
+              <div className="w-2.5 h-7 bg-blue-500 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
             </div>
+            <span className="text-2xl font-black tracking-wider text-foreground dark:text-white">
+              CYBSEC PMO
+            </span>
           </div>
-        </div>
 
-        <div className="max-w-md">
-          <h2 className="text-4xl font-extrabold leading-tight tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-br from-white to-white/60">
-            Secure, Intelligent, <span className="italic font-light text-blue-400">Autonomous.</span>
-          </h2>
-          <p className="text-sm text-white/50 leading-relaxed font-light">
-            The next-generation project management office. Enterprise security meets real-time workspace
-            optimization, automated budget controls, and unified single sign-on.
-          </p>
+          {/* Bottom Gradient Overlay for Text Readability */}
+          <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-background/95 via-background/60 to-transparent dark:from-black/90 dark:via-black/50 dark:to-transparent z-20 pointer-events-none" />
+
+          {/* Floating Bottom Text layer with high z-index */}
+          <div className="absolute bottom-8 left-8 right-8 z-30 max-w-lg">
+            <h2 className="text-3xl lg:text-4xl font-extrabold leading-tight tracking-tight mb-3 text-foreground dark:text-white">
+              Secure, Intelligent, <span className="italic font-light text-blue-600 dark:text-blue-400">Autonomous.</span>
+            </h2>
+            <p className="text-sm text-muted-foreground dark:text-white/80 leading-relaxed font-light">
+              The next-generation project management office. Enterprise security meets real-time workspace
+              optimization, automated budget controls, and unified single sign-on.
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="relative flex w-full lg:w-1/2 flex-col items-center justify-center p-8 md:p-16 bg-[#0E0E15]/90">
+      {/* Right section - Auth Form Container */}
+      <div className="relative flex w-full lg:w-1/2 flex-col items-center justify-center p-8 md:p-16 bg-muted/20 dark:bg-[#0E0E15]/90">
         <div className="absolute top-1/4 right-10 w-72 h-72 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-1/4 left-10 w-72 h-72 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 w-full max-w-md p-8 sm:p-10 rounded-3xl border border-white/5 bg-gradient-to-b from-white/[0.02] to-transparent backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+        <div className="relative z-10 w-full max-w-md p-8 sm:p-10 rounded-3xl border border-border/80 dark:border-white/10 bg-card/90 dark:bg-gradient-to-b dark:from-white/[0.02] dark:to-transparent backdrop-blur-2xl">
           {children}
         </div>
       </div>
     </div>
   );
 }
+
+
+
+

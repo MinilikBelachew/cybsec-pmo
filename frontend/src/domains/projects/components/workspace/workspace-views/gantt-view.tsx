@@ -3,32 +3,17 @@
 import React, { useRef, useState, useMemo } from "react";
 import { cn } from "@/shared/utils/cn";
 import { ChevronDown, ChevronRight, Plus, Circle, CircleCheck, ZoomIn, ZoomOut } from "lucide-react";
-
-type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
-type Priority = "high" | "medium" | "low" | "critical";
-
 import { type ProjectPhase, type ProjectMilestone } from "../../../types/projects.types";
 import { type TaskDependency } from "../../../types/tasks.types";
+import {
+  type GanttTaskRow,
+  type GanttTaskStatus,
+} from "../../../utils/map-task-to-gantt";
 
-interface Task {
-  id: string;
-  name: string;
-  assigneeColor: string;
-  dueDate: string;
-  priority: Priority;
-  status: Status;
-  hasSubtasks?: boolean;
-  done: boolean;
-  phaseId?: string | null;
-  phaseName?: string;
-  phaseColor?: string;
-  rawStartDate?: string | null;
-  rawEndDate?: string | null;
-  isOnCriticalPath?: boolean;
-}
+type Status = GanttTaskStatus;
 
 interface GanttViewProps {
-  tasks: Task[];
+  tasks: GanttTaskRow[];
   dependencies?: TaskDependency[];
   toggleTask: (taskId: string) => void;
   ganttZoom?: number;
@@ -273,7 +258,7 @@ export function GanttView({
     return Math.max(0, Math.min(dateRange.totalDays - 1, diffDays));
   };
 
-  const getGanttDates = (task: Task, index: number) => {
+  const getGanttDates = (task: GanttTaskRow, index: number) => {
     let start = toLocalMidnight(task.rawStartDate);
     let end = toLocalMidnight(task.rawEndDate);
 
@@ -583,7 +568,7 @@ export function GanttView({
                             "absolute top-1/2 -translate-y-1/2 size-3.5 rotate-45 border-2 flex items-center justify-center cursor-help shrink-0 shadow-xs hover:scale-125 transition-transform z-20",
                             m.status === "Done"
                               ? "bg-emerald-500 border-white dark:border-slate-900"
-                              : "bg-purple-600 border-white dark:border-slate-900"
+                              : "bg-primary border-white dark:border-slate-900"
                           )}
                           style={{ left: dayOffset * colW + colW / 2 - 7 }}
                           title={`Milestone: ${m.title} (${new Date(m.targetDate).toLocaleDateString()})`}
@@ -730,7 +715,7 @@ export function GanttView({
           <span>Done</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-3 rotate-45 bg-purple-600 border border-white dark:border-slate-900" />
+          <span className="size-3 rotate-45 bg-primary border border-white dark:border-slate-900" />
           <span>Milestone</span>
         </div>
         <div className="flex items-center gap-1.5">

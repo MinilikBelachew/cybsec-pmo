@@ -36,7 +36,7 @@ export function EmergencyLoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <label htmlFor="emergency-email" className="text-sm font-medium text-white/80">
+        <label htmlFor="emergency-email" className="text-sm font-medium text-foreground/90">
           Admin email
         </label>
         <Input
@@ -46,12 +46,12 @@ export function EmergencyLoginForm() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="h-11 bg-white/5 border-white/10 text-white placeholder:text-white/40"
+          className="h-11 bg-background/80 dark:bg-white/5 border-input text-foreground placeholder:text-muted-foreground"
         />
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="emergency-secret" className="text-sm font-medium text-white/80">
+        <label htmlFor="emergency-secret" className="text-sm font-medium text-foreground/90">
           Vault emergency secret
         </label>
         <Input
@@ -61,12 +61,12 @@ export function EmergencyLoginForm() {
           required
           value={secret}
           onChange={(e) => setSecret(e.target.value)}
-          className="h-11 bg-white/5 border-white/10 text-white placeholder:text-white/40"
+          className="h-11 bg-background/80 dark:bg-white/5 border-input text-foreground placeholder:text-muted-foreground"
         />
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="emergency-reason" className="text-sm font-medium text-white/80">
+        <label htmlFor="emergency-reason" className="text-sm font-medium text-foreground/90">
           Incident reason (required for audit)
         </label>
         <textarea
@@ -79,8 +79,8 @@ export function EmergencyLoginForm() {
           onChange={(e) => setReason(e.target.value)}
           placeholder="e.g. Microsoft Entra ID outage — incident INC-2026-014"
           className={cn(
-            "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white",
-            "placeholder:text-white/40 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+            "w-full rounded-lg border border-input bg-background/80 dark:bg-white/5 px-3 py-2 text-sm text-foreground",
+            "placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
           )}
         />
       </div>
@@ -94,10 +94,11 @@ export function EmergencyLoginForm() {
       <Button
         type="submit"
         disabled={isLoading}
-        className="w-full py-6 text-base font-semibold"
+        className="w-full py-6 text-base font-semibold cursor-pointer"
       >
         {isLoading ? "Authenticating…" : "Emergency sign-in"}
       </Button>
     </form>
   );
 }
+

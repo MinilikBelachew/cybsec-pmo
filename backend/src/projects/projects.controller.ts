@@ -145,6 +145,13 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
+  @Get('portfolio-stats')
+  @HttpCode(HttpStatus.OK)
+  getPortfolioStats(@Request() request: RequestWithAbility) {
+    return this.projectsService.getPortfolioStats(request.caslUser!);
+  }
+
+  @CheckAbility('read', 'Project')
   @Get()
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: InfinityPaginationResponse(ProjectDto) })
@@ -152,12 +159,21 @@ export class ProjectsController {
     @Query() query: QueryProjectDto,
     @Request() request: RequestWithAbility,
   ): Promise<InfinityPaginationResponseDto<ProjectDto> & {
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
     stats: {
       total: number;
       active: number;
       atRisk: number;
       delayed: number;
       completed: number;
+      totalValue: number;
     };
   }> {
     const page = query?.page ?? 1;
@@ -172,8 +188,18 @@ export class ProjectsController {
       request.ability!,
     );
 
+    const total = result.total;
+
     return {
       ...infinityPagination(result.data, { page, limit }),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 0,
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
       stats: result.stats,
     };
   }

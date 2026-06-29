@@ -125,6 +125,18 @@ export interface PendingProgressReviewsResponse {
 export interface PaginatedTasksResponse {
   data: Task[];
   hasNextPage: boolean;
+  meta?: {
+    total: number;
+  };
+}
+
+export interface TaskActiveStats {
+  total: number;
+  todo: number;
+  inProgress: number;
+  rework: number;
+  done: number;
+  overdue: number;
 }
 
 export interface GetTasksParams {
@@ -141,6 +153,12 @@ export interface GetTasksParams {
 }
 
 export interface CreateTaskBundlePayload {
+  payload: Record<string, unknown>;
+  files?: File[];
+}
+
+export interface UpdateTaskBundlePayload {
+  taskId: string;
   payload: Record<string, unknown>;
   files?: File[];
 }

@@ -1,10 +1,23 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 import {
   ApiPriorityLevel,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
+
+export const PROJECT_SORT_FIELDS = [
+  'name',
+  'priority',
+  'status',
+  'startDate',
+  'endDate',
+  'createdAt',
+  'value',
+  'primaryPm',
+] as const;
+
+export type ProjectSortField = (typeof PROJECT_SORT_FIELDS)[number];
 
 export class QueryProjectDto {
   @ApiPropertyOptional({ default: 1 })
@@ -33,4 +46,14 @@ export class QueryProjectDto {
   @IsEnum(ApiPriorityLevel)
   @IsOptional()
   priority?: ApiPriorityLevel;
+
+  @ApiPropertyOptional({ enum: PROJECT_SORT_FIELDS, default: 'createdAt' })
+  @IsOptional()
+  @IsIn(PROJECT_SORT_FIELDS)
+  sortBy?: ProjectSortField;
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'desc' })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
 }

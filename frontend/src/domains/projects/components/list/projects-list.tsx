@@ -1,8 +1,11 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
+import { type SortingState } from "@tanstack/react-table";
+import { DataTable } from "@/shared/components/data-table";
 import {
   useGetProjectsQuery,
+  useGetPortfolioStatsQuery,
   useLazyExportProjectsQuery,
   useDeleteProjectMutation,
   useGetDepartmentsQuery,
@@ -11,6 +14,7 @@ import {
 } from "../../api/projects.api";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
+import { createProjectListColumns } from "./project-list-columns";
 import { convertToCSV } from "../../utils/import-export";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
@@ -25,11 +29,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import type { GetProjectsParams, PriorityLevel, Project, ProjectStatus } from "../../types/projects.types";
+import type { GetProjectsParams, PriorityLevel, Project, ProjectSortField, ProjectStatus } from "../../types/projects.types";
 import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
-  ChevronDown, X, Star, ArrowUpRight, Calendar, Milestone,
+  ChevronDown, X, ArrowUpRight, Calendar, Milestone,
   Pencil, Trash2, Activity, CheckCircle2, PauseCircle,
   Upload,
   Download,
@@ -82,16 +86,19 @@ const METHODOLOGY_EMOJI: Record<string, string> = {
 };
 
 const DEPT_COLOR: Record<string, string> = {
-  Engineering: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+  Engineering: "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary",
   Delivery: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
   Finance: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
   HR: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
   Product: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  SOC: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+  SOC: "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary",
   GRC: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
   Cloud: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
   AppSec: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
 };
+
+const DEFAULT_DEPT_COLOR =
+  "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary";
 
 const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: string; text: string }> = {
   Critical: { label: "Critical", dot: "bg-red-500", bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-400" },
@@ -121,7 +128,6 @@ type ProcessedProject = ReturnType<typeof enrichProject>;
 
 function enrichProject(
   project: NonNullable<ReturnType<typeof useGetProjectsQuery>["data"]>["data"][number],
-  starredIds: string[],
 ) {
   const tasksTotal = project.tasksTotal ?? 0;
   const tasksDone = project.tasksDone ?? 0;
@@ -145,20 +151,19 @@ function enrichProject(
       initials: project.primaryPm?.displayName
         ? project.primaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase()
         : "PM",
-      color: "bg-violet-500",
+      color: "bg-primary",
     },
   ];
   if (project.secondaryPm?.displayName) {
     team.push({
       initials: project.secondaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase(),
-      color: "bg-sky-500",
+      color: "bg-primary/70",
     });
   }
 
   return {
     ...project,
     description: project.objective || "No objective description provided.",
-    starred: starredIds.includes(project.id),
     progress,
     tasksTotal,
     tasksDone,
@@ -290,8 +295,6 @@ function PortfolioStatCard({
   numericValue,
   chartMax,
   icon: Icon,
-  active,
-  onClick,
   theme,
 }: {
   title: string;
@@ -300,19 +303,14 @@ function PortfolioStatCard({
   numericValue: number;
   chartMax: number;
   icon: React.ElementType;
-  active?: boolean;
-  onClick: () => void;
   theme: CardTheme;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       className={cn(
-        "relative flex min-h-[82px] flex-col rounded-xl border bg-card p-3 px-3.5 text-left transition-all bg-gradient-to-l",
+        "relative flex min-h-[82px] flex-col rounded-xl border bg-card p-3 px-3.5 text-left bg-gradient-to-l",
         theme.border,
         theme.gradient,
-        active ? cn("ring-1 bg-muted/15 shadow-xs", theme.activeRing) : "hover:shadow-xs",
       )}
     >
       <div className="flex items-start justify-between gap-2 w-full">
@@ -326,7 +324,7 @@ function PortfolioStatCard({
         <span className="text-[10px] text-muted-foreground/75 truncate">{subtitle}</span>
         <MiniTrendChart value={numericValue} max={chartMax} colorClass={theme.chartColor} />
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -393,6 +391,17 @@ function FilterCardDropdown<T extends string>({
   );
 }
 
+const PROJECT_SORTABLE_COLUMNS = new Set<string>([
+  "name",
+  "primaryPm",
+  "priority",
+  "startDate",
+  "status",
+  "endDate",
+  "createdAt",
+  "value",
+]);
+
 export function ProjectsList() {
   const ability = useAppAbility();
   const canCreate = ability?.can("create", "Project") ?? false;
@@ -403,7 +412,9 @@ export function ProjectsList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityLevel | "all">("all");
-  const [starredIds, setStarredIds] = useState<string[]>([]);
+  const [listPageIndex, setListPageIndex] = useState(0);
+  const [listPageSize, setListPageSize] = useState(10);
+  const [listSorting, setListSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
@@ -415,53 +426,60 @@ export function ProjectsList() {
   const { data: managers = [] } = useGetProjectManagersQuery();
   const debouncedSearch = useDebounce(search, 300);
 
+  useEffect(() => {
+    setListPageIndex(0);
+  }, [debouncedSearch, statusFilter, priorityFilter, listPageSize, listSorting]);
+
   const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
   const [triggerExportProjects, { isFetching: isExporting }] = useLazyExportProjectsQuery();
 
   const queryParams = useMemo((): GetProjectsParams => {
-    const params: GetProjectsParams = { page: 1, limit: 100 };
+    const isListView = view === "list";
+    const params: GetProjectsParams = isListView
+      ? { page: listPageIndex + 1, limit: listPageSize }
+      : { page: 1, limit: 100 };
+
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) params.search = trimmedSearch;
     if (statusFilter !== "all") params.status = statusFilter;
     if (priorityFilter !== "all") params.priority = priorityFilter;
+
+    const activeSort = listSorting[0];
+    const sortBy =
+      isListView && activeSort && PROJECT_SORTABLE_COLUMNS.has(activeSort.id)
+        ? (activeSort.id as ProjectSortField)
+        : "createdAt";
+
+    params.sortBy = sortBy;
+    params.sortOrder = activeSort?.desc ? "desc" : "asc";
+
     return params;
-  }, [debouncedSearch, statusFilter, priorityFilter]);
+  }, [
+    view,
+    listPageIndex,
+    listPageSize,
+    listSorting,
+    debouncedSearch,
+    statusFilter,
+    priorityFilter,
+  ]);
 
-  const { data, isLoading, isError, refetch } = useGetProjectsQuery(queryParams);
+  const { data, isLoading, isFetching, isError, refetch } = useGetProjectsQuery(queryParams);
+  const { data: portfolioStats } = useGetPortfolioStatsQuery();
 
-  useEffect(() => {
-    const saved = localStorage.getItem("pmo_starred_projects");
-    if (saved) {
-      try {
-        setStarredIds(JSON.parse(saved));
-      } catch (e) {}
-    }
-  }, []);
-
-  const toggleStar = (id: string) => {
-    const next = starredIds.includes(id)
-      ? starredIds.filter((x) => x !== id)
-      : [...starredIds, id];
-    setStarredIds(next);
-    localStorage.setItem("pmo_starred_projects", JSON.stringify(next));
+  const portfolioKpis = portfolioStats ?? {
+    total: 0,
+    active: 0,
+    atRisk: 0,
+    delayed: 0,
+    completed: 0,
+    totalValue: 0,
   };
 
   const processedProjects = useMemo(() => {
     if (!data?.data) return [];
-    return data.data.map((project) => enrichProject(project, starredIds));
-  }, [data, starredIds]);
-
-  const totalValue = useMemo(() => {
-    return processedProjects.reduce((acc, p) => acc + (p.value ?? 0), 0);
-  }, [processedProjects]);
-
-  const stats = data?.stats ?? {
-    total: processedProjects.length,
-    active: processedProjects.filter((p) => p.status === "Active").length,
-    atRisk: processedProjects.filter((p) => p.status === "PendingClosure").length,
-    delayed: processedProjects.filter((p) => p.status === "OnHold").length,
-    completed: processedProjects.filter((p) => p.status === "Closed").length,
-  };
+    return data.data.map((project) => enrichProject(project));
+  }, [data]);
 
   const hasActiveFilters =
     Boolean(debouncedSearch.trim()) || statusFilter !== "all" || priorityFilter !== "all";
@@ -528,7 +546,7 @@ export function ProjectsList() {
           </p>
           <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {stats.total} projects · {stats.active} active · {stats.atRisk} at risk
+            {portfolioKpis.total} projects · {portfolioKpis.active} active · {portfolioKpis.atRisk} at risk
           </p>
         </div>
         {canCreate && (
@@ -547,56 +565,46 @@ export function ProjectsList() {
         <PortfolioStatCard
           title="Total value"
           subtitle="All in portfolio"
-          value={formatPortfolioValue(totalValue)}
-          numericValue={totalValue}
-          chartMax={Math.max(totalValue, 1)}
+          value={formatPortfolioValue(portfolioKpis.totalValue)}
+          numericValue={portfolioKpis.totalValue}
+          chartMax={Math.max(portfolioKpis.totalValue, 1)}
           icon={FolderKanban}
-          active={statusFilter === "all"}
-          onClick={() => setStatusFilter("all")}
           theme={CARD_THEMES.total}
         />
         <PortfolioStatCard
           title="Active"
           subtitle="In delivery"
-          value={stats.active}
-          numericValue={stats.active}
-          chartMax={Math.max(stats.total, 1)}
+          value={portfolioKpis.active}
+          numericValue={portfolioKpis.active}
+          chartMax={Math.max(portfolioKpis.total, 1)}
           icon={Activity}
-          active={statusFilter === "Active"}
-          onClick={() => setStatusFilter("Active")}
           theme={CARD_THEMES.active}
         />
         <PortfolioStatCard
           title="At risk"
           subtitle="Pending closure"
-          value={stats.atRisk}
-          numericValue={stats.atRisk}
-          chartMax={Math.max(stats.total, 1)}
+          value={portfolioKpis.atRisk}
+          numericValue={portfolioKpis.atRisk}
+          chartMax={Math.max(portfolioKpis.total, 1)}
           icon={AlertTriangle}
-          active={statusFilter === "PendingClosure"}
-          onClick={() => setStatusFilter("PendingClosure")}
           theme={CARD_THEMES.atRisk}
         />
         <PortfolioStatCard
           title="Delayed"
           subtitle="On hold"
-          value={stats.delayed}
-          numericValue={stats.delayed}
-          chartMax={Math.max(stats.total, 1)}
+          value={portfolioKpis.delayed}
+          numericValue={portfolioKpis.delayed}
+          chartMax={Math.max(portfolioKpis.total, 1)}
           icon={PauseCircle}
-          active={statusFilter === "OnHold"}
-          onClick={() => setStatusFilter("OnHold")}
           theme={CARD_THEMES.delayed}
         />
         <PortfolioStatCard
           title="Completed"
           subtitle="Closed projects"
-          value={stats.completed}
-          numericValue={stats.completed}
-          chartMax={Math.max(stats.total, 1)}
+          value={portfolioKpis.completed}
+          numericValue={portfolioKpis.completed}
+          chartMax={Math.max(portfolioKpis.total, 1)}
           icon={CheckCircle2}
-          active={statusFilter === "Closed"}
-          onClick={() => setStatusFilter("Closed")}
           theme={CARD_THEMES.completed}
         />
       </div>
@@ -641,7 +649,7 @@ export function ProjectsList() {
 
         {/* Count */}
         <span className="text-xs text-muted-foreground">
-          {processedProjects.length} of {stats.total}
+          {processedProjects.length} of {portfolioKpis.total}
           {hasActiveFilters ? " matching" : ""}
         </span>
 
@@ -696,7 +704,7 @@ export function ProjectsList() {
       </div>
 
       {/* ── Content View ── */}
-      {isLoading && (
+      {isLoading && view === "grid" && (
         <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
           <p className="text-sm font-semibold animate-pulse">Loading projects...</p>
         </div>
@@ -708,7 +716,7 @@ export function ProjectsList() {
         </div>
       )}
 
-      {!isLoading && !isError && processedProjects.length === 0 && (
+      {!isLoading && !isError && view === "grid" && processedProjects.length === 0 && (
         <div className="flex flex-col items-center justify-center py-24 text-center space-y-3">
           <div className="size-14 rounded-2xl bg-muted/40 border border-border/40 flex items-center justify-center">
             <FolderKanban className="size-7 text-muted-foreground" />
@@ -728,27 +736,34 @@ export function ProjectsList() {
         </div>
       )}
 
-      {!isLoading && !isError && processedProjects.length > 0 && (
-        view === "grid" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {processedProjects.map((p) => (
-              <ProjectGridCard
-                key={p.id}
-                project={p}
-                onToggleStar={toggleStar}
-                onEdit={canUpdate ? setEditProject : undefined}
-                onDelete={canDelete ? setDeleteTarget : undefined}
-              />
-            ))}
-          </div>
-        ) : (
-          <ProjectListView
-            projects={processedProjects}
-            onToggleStar={toggleStar}
-            onEdit={canUpdate ? setEditProject : undefined}
-            onDelete={canDelete ? setDeleteTarget : undefined}
-          />
-        )
+      {!isLoading && !isError && view === "grid" && processedProjects.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {processedProjects.map((p) => (
+            <ProjectGridCard
+              key={p.id}
+              project={p}
+              onEdit={canUpdate ? setEditProject : undefined}
+              onDelete={canDelete ? setDeleteTarget : undefined}
+            />
+          ))}
+        </div>
+      )}
+
+      {view === "list" && (
+        <ProjectListView
+          projects={processedProjects}
+          isLoading={isLoading || isFetching}
+          pageIndex={listPageIndex}
+          pageSize={listPageSize}
+          pageCount={data?.meta?.totalPages ?? 0}
+          totalRows={data?.meta?.total ?? 0}
+          sorting={listSorting}
+          onPageChange={setListPageIndex}
+          onPageSizeChange={setListPageSize}
+          onSortingChange={setListSorting}
+          onEdit={canUpdate ? setEditProject : undefined}
+          onDelete={canDelete ? setDeleteTarget : undefined}
+        />
       )}
 
       {/* ── New Project Side Sheet ── */}
@@ -785,12 +800,10 @@ export function ProjectsList() {
 
 function ProjectGridCard({
   project: p,
-  onToggleStar,
   onEdit,
   onDelete,
 }: {
   project: ProcessedProject;
-  onToggleStar: (id: string) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProcessedProject) => void;
 }) {
@@ -810,7 +823,7 @@ function ProjectGridCard({
                 <span className={cn("size-1.5 rounded-full", s.dot)} />
                 {s.label}
               </span>
-              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", DEPT_COLOR[p.department?.name ?? ""] || DEPT_COLOR.Engineering)}>
+              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", DEPT_COLOR[p.department?.name ?? ""] || DEFAULT_DEPT_COLOR)}>
                 {p.department?.name || "Direct"}
               </span>
               <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -822,19 +835,8 @@ function ProjectGridCard({
             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{p.description}</p>
           </div>
 
-          <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleStar(p.id);
-              }}
-              className={cn("rounded-lg p-1 transition-colors", p.starred ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400")}
-            >
-              <Star className={cn("size-4", p.starred && "fill-amber-400")} />
-            </button>
-
-            {showActions && (
+          {showActions && (
+            <div className="flex shrink-0 items-center gap-0.5">
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
@@ -868,8 +870,8 @@ function ProjectGridCard({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -922,7 +924,7 @@ function ProjectGridCard({
             {p.team.slice(0, 4).map((member: { initials: string; color: string }, index: number) => (
               <span
                 key={index}
-                className={cn("inline-flex size-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-white", member.color)}
+                className={cn("inline-flex size-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-primary-foreground", member.color)}
                 title={member.initials}
               >
                 {member.initials}
@@ -966,150 +968,69 @@ function StatPill({ icon: Icon, label, value }: { icon: React.ElementType; label
 
 function ProjectListView({
   projects,
-  onToggleStar,
+  isLoading,
+  pageIndex,
+  pageSize,
+  pageCount,
+  totalRows,
+  sorting,
+  onPageChange,
+  onPageSizeChange,
+  onSortingChange,
   onEdit,
   onDelete,
 }: {
   projects: ProcessedProject[];
-  onToggleStar: (id: string) => void;
+  isLoading: boolean;
+  pageIndex: number;
+  pageSize: number;
+  pageCount: number;
+  totalRows: number;
+  sorting: SortingState;
+  onPageChange: (pageIndex: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  onSortingChange: (sorting: SortingState) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProcessedProject) => void;
 }) {
   const router = useRouter();
+
+  const handleNavigate = useCallback(
+    (projectId: string) => {
+      router.push(`/dashboard/projects/${projectId}`);
+    },
+    [router],
+  );
+
+  const columns = useMemo(
+    () =>
+      createProjectListColumns({
+        onNavigate: handleNavigate,
+        onEdit,
+        onDelete,
+      }),
+    [handleNavigate, onEdit, onDelete],
+  );
+
   return (
-    <div className="rounded-2xl border border-border/60 overflow-hidden bg-card">
-      
-      {/* Table Header */}
-      <div className="grid grid-cols-[2fr_1fr_1fr_120px_100px_80px_80px_40px] gap-3 px-5 py-3 border-b border-border/50 bg-muted/30">
-        {["Project", "PM", "Priority", "Progress", "Timeline", "Tasks", "Milestones", ""].map((h) => (
-          <div key={h} className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            {h}
-          </div>
-        ))}
-      </div>
-
-      {/* Rows */}
-      <div className="divide-y divide-border/30">
-        {projects.map((p) => {
-          const s = STATUS_CONFIG[p.status] || STATUS_CONFIG.Draft;
-          const priority = PRIORITY_CONFIG[p.priority as PriorityLevel] ?? PRIORITY_CONFIG.Medium;
-          return (
-            <div
-              key={p.id}
-              onClick={() => router.push(`/dashboard/projects/${p.id}`)}
-              className="grid grid-cols-[2fr_1fr_1fr_120px_100px_80px_80px_40px] gap-3 px-5 py-3.5 items-center hover:bg-muted/20 transition-colors group cursor-pointer"
-            >
-              {/* Star + Name */}
-              <div className="flex items-center gap-3 min-w-0">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleStar(p.id);
-                  }}
-                  className={cn(
-                    "shrink-0",
-                    p.starred ? "text-amber-400" : "text-muted-foreground/20 hover:text-amber-400 transition-colors"
-                  )}
-                >
-                  <Star className={cn("size-3.5", p.starred && "fill-amber-400")} />
-                </button>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold truncate">{p.name}</span>
-                    <span className={cn("inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0", s.bg, s.text, s.border)}>
-                      <span className={cn("size-1.5 rounded-full", s.dot)} />
-                      {s.label}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground truncate mt-0.5">{p.description}</p>
-                </div>
-              </div>
-
-              {/* PM */}
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={cn("inline-flex items-center justify-center size-6 rounded-full text-[9px] font-bold text-white shrink-0", p.team[0]?.color || "bg-violet-500")}>
-                  {p.team[0]?.initials || "PM"}
-                </span>
-                <span className="text-xs text-muted-foreground truncate">{p.primaryPm?.displayName || "Unassigned"}</span>
-              </div>
-
-              {/* Priority */}
-              <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full w-fit", priority.bg, priority.text)}>
-                {priority.label}
-              </span>
-
-              {/* Progress */}
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full",
-                      p.progress >= 80 ? "bg-emerald-500" :
-                      p.progress >= 50 ? "bg-primary" :
-                      p.progress >= 30 ? "bg-amber-400" : "bg-rose-400"
-                    )}
-                    style={{ width: `${p.progress}%` }}
-                  />
-                </div>
-                <span className="text-[11px] font-bold text-foreground w-8 text-end shrink-0">{p.progress}%</span>
-              </div>
-
-              {/* Timeline */}
-              <div className="text-[10px] text-muted-foreground">
-                <div>{p.startDate ? p.startDate.slice(0, 10) : "—"}</div>
-                <div className="text-muted-foreground/60">→ {p.endDate ? p.endDate.slice(0, 10) : "—"}</div>
-              </div>
-
-              {/* Tasks */}
-              <div className="text-xs font-semibold text-foreground">
-                {p.tasksDone}
-                <span className="text-muted-foreground font-normal">/{p.tasksTotal}</span>
-              </div>
-
-              {/* Milestones */}
-              <div className="text-xs font-semibold text-foreground">
-                {p.milestonesDone}
-                <span className="text-muted-foreground font-normal">/{p.milestonesTotal}</span>
-              </div>
-
-              {/* Actions */}
-              {(onEdit || onDelete) && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <button
-                        type="button"
-                        className="rounded-lg p-1 text-muted-foreground opacity-0 transition-all hover:bg-muted/65 hover:text-foreground group-hover:opacity-100"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    }
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    {onEdit && (
-                      <DropdownMenuItem className="cursor-pointer gap-2" onClick={() => onEdit(p)}>
-                        <Pencil className="size-3.5" />
-                        Edit
-                      </DropdownMenuItem>
-                    )}
-                    {onDelete && (
-                      <DropdownMenuItem
-                        className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
-                        onClick={() => onDelete(p)}
-                      >
-                        <Trash2 className="size-3.5" />
-                        Delete
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <DataTable
+      columns={columns}
+      data={projects}
+      getRowId={(row) => row.id}
+      manual
+      hideSearch
+      pageCount={pageCount}
+      totalRows={totalRows}
+      pageIndex={pageIndex}
+      pageSize={pageSize}
+      onPageChange={onPageChange}
+      onPageSizeChange={onPageSizeChange}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
+      isLoading={isLoading}
+      emptyMessage="No projects match your filters."
+      minTableWidth="min-w-[1100px]"
+    />
   );
 }
 

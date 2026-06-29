@@ -57,6 +57,7 @@ import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
 import { convertTasksToCSV } from "../../utils/import-export";
+import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { formatProjectBudget } from "../../utils/format-budget";
@@ -262,48 +263,10 @@ export function ProjectWorkspace() {
     }
   };
 
-  const tasks = useMemo(() => {
-    if (!tasksResponse?.data) return [];
-    
-    const priorityMap: Record<string, Priority> = {
-      "Low": "low",
-      "Medium": "medium",
-      "High": "high",
-      "Critical": "critical",
-    };
-
-    const colors = [
-      "bg-purple-500", "bg-sky-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"
-    ];
-
-    return tasksResponse.data.map((t: any) => {
-      const initials = t.owner?.displayName
-        ? t.owner.displayName.split(" ").map((w: string) => w[0]).join("").toUpperCase()
-        : "UA";
-      const colorIndex = t.owner?.id ? t.owner.id.charCodeAt(0) % colors.length : 0;
-      
-      return {
-        id: t.id,
-        name: t.title,
-        assigneeInitials: initials,
-        assigneeColor: colors[colorIndex],
-        dueDate: t.endDate
-          ? new Date(t.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-          : "No due date",
-        priority: priorityMap[t.priority] || "medium",
-        status: t.status || "To_Do",
-        comments: t.comments?.length ?? 0,
-        hasSubtasks: t.subTasks && t.subTasks.length > 0,
-        done: t.status === "Done" || t.status === "Approved",
-        phaseId: t.phaseId,
-        phaseName: t.phase?.name || "Unassigned",
-        phaseColor: t.phase?.color || "#64748b",
-        rawStartDate: t.startDate,
-        rawEndDate: t.endDate,
-        isOnCriticalPath: Boolean(t.isOnCriticalPath),
-      };
-    });
-  }, [tasksResponse]);
+  const tasks = useMemo(
+    () => mapTasksToGanttRows(tasksResponse?.data ?? []),
+    [tasksResponse],
+  );
 
   const overallProgressPercent = useMemo(() => {
     const rows = tasksResponse?.data ?? [];
@@ -451,7 +414,7 @@ export function ProjectWorkspace() {
   if (isLoading) {
     return (
       <div className="flex h-96 items-center justify-center text-slate-500 dark:text-white/40">
-        <Loader2 className="mr-2 size-6 animate-spin text-purple-600" />
+        <Loader2 className="mr-2 size-6 animate-spin text-primary" />
         Loading workspace details...
       </div>
     );
@@ -488,12 +451,7 @@ export function ProjectWorkspace() {
         <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
         <span className="text-xs text-slate-400 dark:text-white/20">/</span>
         <span className="text-sm font-semibold text-slate-950 dark:text-white">{project.name}</span>
-        <button className="ml-1 text-slate-400 dark:text-white/30 hover:text-amber-400 transition-colors">
-          <Star className="size-3.5 fill-current text-amber-500 animate-none" />
-        </button>
-        <button className="text-slate-400 dark:text-white/30 hover:text-slate-950 dark:hover:text-white transition-colors">
-          <List className="size-3.5" />
-        </button>
+      
 
         <div className="ml-auto flex items-center gap-2">
           <div className="text-[10px] text-slate-400 dark:text-white/40 font-medium px-2 py-0.5 rounded-md border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-white/5">
@@ -523,11 +481,11 @@ export function ProjectWorkspace() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs font-semibold">
               <span>Overall Progress</span>
-              <span className="text-purple-600 dark:text-purple-400">{progressPercent}%</span>
+              <span className="text-primary">{progressPercent}%</span>
             </div>
             <div className="h-1.5 w-full bg-slate-200/80 dark:bg-white/5 rounded-full overflow-hidden">
               <div
-                className="h-full bg-purple-600 dark:bg-purple-400 transition-all duration-1000 ease-out"
+                className="h-full bg-primary transition-all duration-1000 ease-out"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -560,7 +518,7 @@ export function ProjectWorkspace() {
         <div className="md:col-span-2 space-y-2 bg-transparent">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-slate-400 dark:text-white/40">Recent Milestones</span>
-            <button onClick={() => setIsPhasePanelOpen(true)} className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline">Manage Roadmap</button>
+            <button onClick={() => setIsPhasePanelOpen(true)} className="text-[10px] font-bold text-primary hover:underline">Manage Roadmap</button>
           </div>
           <div className="flex items-center gap-1">
             {recentMilestones.length === 0 ? (
@@ -570,19 +528,19 @@ export function ProjectWorkspace() {
                 <React.Fragment key={m.id}>
                   <div className={`flex-1 p-2 rounded-lg border transition-all cursor-default relative overflow-hidden group ${
                     m.status === 'done'        ? "bg-emerald-50/50 border-emerald-200/50 dark:bg-emerald-950/10 dark:border-emerald-800/30" :
-                    m.status === 'in-progress' ? "bg-purple-600/5 border-purple-500/20 ring-1 ring-purple-500/20 shadow-sm" :
+                    m.status === 'in-progress' ? "bg-primary/5 border-primary/20 ring-1 ring-primary/20 shadow-sm" :
                     "bg-slate-100/50 dark:bg-white/5 border-slate-200 dark:border-white/5"
                   }`}>
                     <div className="flex items-center justify-between mb-1">
                       <span className={`text-[8px] font-bold uppercase tracking-tighter ${
                         m.status === 'done'        ? "text-emerald-600" :
-                        m.status === 'in-progress' ? "text-purple-600 dark:text-purple-400" :
+                        m.status === 'in-progress' ? "text-primary" :
                         "text-slate-400 dark:text-white/30"
                       }`}>
                         {m.dueDate}
                       </span>
                       {m.status === 'done' && <CheckCircle2 className="size-2 text-emerald-500" />}
-                      {m.status === 'in-progress' && <Clock className="size-2 text-purple-600 dark:text-purple-400 animate-pulse" />}
+                      {m.status === 'in-progress' && <Clock className="size-2 text-primary animate-pulse" />}
                     </div>
                     <p className="text-[10px] font-bold truncate leading-tight">{m.name}</p>
                   </div>
@@ -602,7 +560,7 @@ export function ProjectWorkspace() {
             onClick={() => setActiveView(id)}
             className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors border-b-2 -mb-px ${
               activeView === id
-                ? "border-purple-600 text-purple-600 dark:border-purple-400 dark:text-purple-400"
+                ? "border-primary text-primary"
                 : "border-transparent text-slate-400 hover:text-slate-900 dark:text-white/45 dark:hover:text-white"
             }`}
           >

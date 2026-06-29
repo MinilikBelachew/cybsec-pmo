@@ -39,6 +39,7 @@ import { QueryTaskDto } from './dto/query-task.dto';
 import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
 import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
 import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
+import { UpdateTaskBundleDto } from './dto/update-task-bundle.dto';
 import { CreateProgressUpdateDto } from './dto/create-progress-update.dto';
 import { ReviewProgressUpdateDto } from './dto/review-progress-update.dto';
 import { QueryProgressReviewDto } from './dto/query-progress-review.dto';
@@ -110,15 +111,29 @@ export class TasksController {
       limit = 50;
     }
 
-    return infinityPagination(
-      await this.tasksService.findManyWithPagination(
-        { ...query, page, limit },
+    const listQuery = { ...query, page, limit };
+
+    const [tasks, total] = await Promise.all([
+      this.tasksService.findManyWithPagination(
+        listQuery,
         request.caslUser!,
         request.ability!,
         this.viewerRole(request),
       ),
-      { page, limit },
-    );
+      this.tasksService.countMany(listQuery, request.caslUser!),
+    ]);
+
+    return {
+      ...infinityPagination(tasks, { page, limit }),
+      meta: { total },
+    };
+  }
+
+  @CheckAbility('read', 'Task')
+  @Get('stats')
+  @HttpCode(HttpStatus.OK)
+  getActiveTaskStats(@Request() request: AuthRequest) {
+    return this.tasksService.getActiveTaskStats(request.caslUser!);
   }
 
   @CheckAbility('read', 'Task')
@@ -232,6 +247,29 @@ export class TasksController {
   findOne(@Param('id') id: string, @Request() request: AuthRequest) {
     return this.tasksService.findById(
       id,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Patch(':id/bundle')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FilesInterceptor('files', 20))
+  @ApiParam({ name: 'id', type: String, required: true })
+  async updateBundle(
+    @Param('id') id: string,
+    @Body('payload') payloadJson: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Request() request: AuthRequest,
+  ) {
+    const dto = await this.parseUpdateBundlePayload(payloadJson);
+    return this.tasksService.updateBundle(
+      id,
+      dto,
+      files ?? [],
+      request.user.id,
       request.caslUser!,
       request.ability!,
       this.viewerRole(request),
@@ -419,6 +457,46 @@ export class TasksController {
     }
 
     const dto = plainToInstance(CreateTaskBundleDto, parsed);
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    if (errors.length > 0) {
+      const fieldErrors: Record<string, string> = {};
+      for (const error of errors) {
+        if (error.constraints) {
+          fieldErrors[error.property] = Object.values(error.constraints)[0];
+        }
+      }
+      throw new BadRequestException({
+        status: HttpStatus.BAD_REQUEST,
+        errors: fieldErrors,
+      });
+    }
+
+    return dto;
+  }
+
+  private async parseUpdateBundlePayload(payloadJson: string): Promise<UpdateTaskBundleDto> {
+    if (!payloadJson) {
+      throw new BadRequestException({
+        status: HttpStatus.BAD_REQUEST,
+        errors: { payload: 'payloadRequired' },
+      });
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payloadJson);
+    } catch {
+      throw new BadRequestException({
+        status: HttpStatus.BAD_REQUEST,
+        errors: { payload: 'invalidJson' },
+      });
+    }
+
+    const dto = plainToInstance(UpdateTaskBundleDto, parsed);
     const errors = await validate(dto, {
       whitelist: true,
       forbidNonWhitelisted: true,
