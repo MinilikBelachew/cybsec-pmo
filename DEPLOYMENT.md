@@ -29,7 +29,7 @@ Your server already has active applications on several ports. To prevent any con
 Next.js compiles environment variables starting with `NEXT_PUBLIC_` **directly into the HTML/JS bundle at build time**. 
 - Because they are compiled into the static assets, they **cannot** be changed dynamically at runtime when the container starts.
 - This is why you must pass your real production domain when building the image. 
-- In [docker-compose.prod.yml](docker-compose.prod.yml), these are defined under the `args:` key of the `build` block. If you build using Docker Compose, it reads them automatically.
+- In [docker-compose.prod.yml](docker-compose.prod.yml), these are defined under the `args:` key of the `build` block. If you build using Docker Compose, it reads them automatically, decreasing the commands you need to run!
 
 ### 2. Backend Environment Variables & Root `.env` (Runtime)
 The backend container reads its runtime configuration from `backend/.env.prod` via the `env_file` directive.
@@ -41,7 +41,8 @@ The backend container reads its runtime configuration from `backend/.env.prod` v
 To avoid hardcoding Postgres credentials directly into the `docker-compose.prod.yml` file, we use Compose environment interpolation:
 ```yaml
 POSTGRES_USER: ${DATABASE_USERNAME:-root}
-POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret}
+POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret123}
+POSTGRES_DB: ${DATABASE_NAME:-cybersec}
 ```
 - **Best Practice Setup**: Create a `.env` file in the **root directory** of your project on the VPS (the same folder where `docker-compose.prod.yml` resides) and add your production credentials:
   ```env
@@ -119,25 +120,23 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
    docker login -u aynuayex
    ```
 
-4. **Build the Backend image on your Mac**:
+4. **Build and push the Backend image**:
    ```bash
    cd backend
    docker build -t aynuayex/cybersec-pmo:backend .
+   docker push aynuayex/cybersec-pmo:backend
    ```
 
-5. **Build the Frontend image on your Mac** (passing build args):
+5. **Build and push the Frontend image** (passing your domain at build time):
    ```bash
    cd ../frontend
-   docker build \
-     --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api \
-     --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
-     -t aynuayex/cybersec-pmo:frontend .
-   ```
-
-6. **Push the images to your single private Docker Hub repository**:
-   ```bash
-   docker push aynuayex/cybersec-pmo:backend
-   docker push aynuayex/cybersec-pmo:frontend
+    docker build \
+      --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1 \
+      --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
+      --build-arg NEXT_PUBLIC_ENTRA_CLIENT_ID=1977447d-18f8-4fa3-9be1-4d2b196e0ede \
+      --build-arg NEXT_PUBLIC_ENTRA_TENANT_ID=301b9d6d-03a0-4afa-994d-367a03b30b5a \
+      -t aynuayex/cybersec-pmo:frontend .
+    docker push aynuayex/cybersec-pmo:frontend
    ```
 
 6. **Log in to Docker on the VPS** so it can pull the private images:
@@ -208,7 +207,7 @@ Since host port `5432` was already taken, we mapped the container database port 
 
 ### 1. Install K3s on the VPS
 ```bash
-curl -sfL https://get.k3s.io | sh -
+curl -sfL https://get.k3s.io | sh -s - --disable traefik
 ```
 
 ### 2. Configure Kubernetes for Private Docker Hub Registry
@@ -237,13 +236,13 @@ kubectl apply -f frontend-deployment.yaml
 ### 4.1 Create the configuration file
 On the VPS, create Nginx site config:
 ```bash
-sudo nano /etc/nginx/sites-available/cybsec.addisanalytics.com
+sudo nano /etc/nginx/sites-available/cybsec.conf
 ```
 Copy and paste the contents of [nginx.conf](nginx/nginx.conf).
 
 ### 4.2 Enable and reload Nginx
 ```bash
-sudo ln -s /etc/nginx/sites-available/cybsec.addisanalytics.com /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/cybsec.conf /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```
