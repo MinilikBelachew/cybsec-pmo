@@ -1,10 +1,15 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
 
+const HEALTH_LABELS: Record<string, string> = {
+  onTrack: "On Track",
+  atRisk: "At Risk",
+  delayed: "Delayed",
+};
+
 export function PortfolioStrip({ stats }: { stats: any }) {
-  const t = useTranslations("Dashboard");
+
 
   const p = stats?.projects || { active: 0, atRisk: 0, delayed: 0, completed: 0, total: 0 };
   const total = p.total || 1;
@@ -18,8 +23,8 @@ export function PortfolioStrip({ stats }: { stats: any }) {
   return (
     <div className="p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-bold text-foreground">{t("portfolioHealth")}</span>
-        <span className="text-xs font-semibold text-muted-foreground">{t("projectsCount", { count: p.total })}</span>
+        <span className="text-sm font-bold text-foreground">Portfolio Health</span>
+        <span className="text-xs font-semibold text-muted-foreground">{p.total} projects</span>
       </div>
 
       {/* Segmented bar */}
@@ -39,7 +44,7 @@ export function PortfolioStrip({ stats }: { stats: any }) {
           <div key={h.id} className="border-r border-border/30 last:border-0 pr-2">
             <div className="flex items-center gap-1.5">
               <span className={cn("size-2 rounded-full", h.color)} />
-              <span className="text-[10px] text-muted-foreground capitalize">{t(h.id)}</span>
+              <span className="text-[10px] text-muted-foreground capitalize">{HEALTH_LABELS[h.id] || h.id}</span>
               <span className="text-[10px] font-bold text-muted-foreground ml-auto">{h.pct}%</span>
             </div>
             <p className={cn("text-lg font-bold mt-0.5", h.text)}>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
 import { useAuth } from "@/domains/auth";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/utils/cn";
@@ -44,7 +43,6 @@ type Tab = typeof TABS[number]["id"];
 
 export function DashboardHome() {
   const { user } = useAuth();
-  const t = useTranslations("Dashboard");
 
   const [tab, setTab] = useState<Tab>("portfolio");
   const [showBudget, setShowBudget] = useState(true);
@@ -84,7 +82,7 @@ export function DashboardHome() {
             onClick={handleReload}
             className="flex items-center gap-1 font-semibold text-[#ff6000] hover:underline cursor-pointer"
           >
-            <RefreshCw className="size-3" /> {t("reload") || "Reload"}
+            <RefreshCw className="size-3" /> Reload
           </button>
         </div>
       </div>
@@ -93,7 +91,7 @@ export function DashboardHome() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-background/80 backdrop-blur-md p-4 rounded-xl border border-border/40">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-bold tracking-tight">Welcome back, {user?.name || "User"}!</h1>
+            <h1 className="text-lg font-semibold tracking-tight">Welcome back, {user?.name || "User"}!</h1>
             <div className="flex gap-1.5">
               {user?.roles?.map((role) => (
                 <Badge key={role} variant="secondary" className="capitalize text-[10px] px-1.5 py-0.5 rounded">
@@ -103,7 +101,7 @@ export function DashboardHome() {
             </div>
           </div>
           <p className="text-muted-foreground text-xs mt-0.5">
-            {t("executiveView")} · {t("portfolioDashboard")}
+            PMO Executive View · Portfolio Dashboard
           </p>
         </div>
 
@@ -120,7 +118,7 @@ export function DashboardHome() {
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {t(`${tabItem.id}Tab`)}
+              {tabItem.label}
             </button>
           ))}
         </div>
@@ -134,7 +132,7 @@ export function DashboardHome() {
             {/* Total Balance style Budget Card */}
             <div className="lg:col-span-2 p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 flex flex-col justify-between min-h-[160px]">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-bold text-muted-foreground uppercase">{t("portfolioBudget") || "Total Portfolio Budget"}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase">Total Portfolio Budget</p>
                 <button
                   onClick={() => setShowBudget((s) => !s)}
                   className="text-muted-foreground hover:text-foreground cursor-pointer"
@@ -143,16 +141,16 @@ export function DashboardHome() {
                 </button>
               </div>
               <div className="flex items-baseline gap-2 mt-4">
-                <p className="text-3xl font-extrabold tracking-tight text-foreground">
+                <p className="text-2xl font-bold tracking-tight text-foreground">
                   {showBudget ? `$${Number(stats?.projects.totalValue || 0).toLocaleString()}.00` : "••••••••••"}
                 </p>
-                <span className="text-xs font-bold text-muted-foreground">USD</span>
+                <span className="text-xs font-semibold text-muted-foreground">USD</span>
               </div>
               <div className="mt-4 pt-3 border-t border-border/30 flex items-center justify-between text-xs">
-                <Badge className="bg-violet-50 text-violet-700 hover:bg-violet-50 border-violet-100 flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5">
+                <Badge className="bg-violet-50 text-violet-700 hover:bg-violet-50 border-violet-100 flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5">
                   <TrendingUp className="size-2.5" /> +2.8%
                 </Badge>
-                <span className="text-muted-foreground">{t("vsLastQuarter") || "vs last quarter"}</span>
+                <span className="text-muted-foreground">vs last quarter</span>
               </div>
             </div>
 

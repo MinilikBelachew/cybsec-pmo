@@ -1,6 +1,5 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "next/navigation";
 import { Activity, FolderKanban, Users, FileText, Clock } from "lucide-react";
@@ -16,6 +15,17 @@ const MODULE_COLOR: Record<string, string> = {
   settings: "bg-muted text-muted-foreground",
 };
 
+const ACTION_NAMES: Record<string, string> = {
+  updatedTaskStatus: "updated task status",
+  loggedRisk: "logged risk",
+  createdProject: "created project",
+  submittedTimesheet: "submitted timesheet",
+  addedTeamMember: "added team member",
+  uploadedDocument: "uploaded document",
+  changedRBAC: "changed RBAC",
+  closedIssue: "closed issue",
+};
+
 function getIcon(mod: string) {
   switch (mod) {
     case "project": return FolderKanban;
@@ -27,19 +37,18 @@ function getIcon(mod: string) {
 }
 
 export function AuditFeed({ data }: { data: AuditLogFeedItem[] }) {
-  const t = useTranslations("Dashboard");
   const router = useRouter();
   const rows = data || [];
 
   return (
     <div className="p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 flex flex-col h-full space-y-3 justify-between">
       <div className="flex items-center justify-between shrink-0">
-        <p className="text-sm font-bold">{t("auditLog")}</p>
+        <p className="text-sm font-bold">Audit Log</p>
         <span
           onClick={() => router.push("/dashboard/audit")}
           className="text-xs text-[#ff6000] font-semibold cursor-pointer hover:underline"
         >
-          {t("viewAllActivities")}
+          View all activities
         </span>
       </div>
 
@@ -57,10 +66,10 @@ export function AuditFeed({ data }: { data: AuditLogFeedItem[] }) {
               <div className="flex-1 min-w-0">
                 <p className="text-xs leading-snug">
                   <span className="font-semibold text-foreground">{entry.actor}</span>
-                  <span className="text-muted-foreground"> {t(entry.actionKey)} </span>
+                  <span className="text-muted-foreground"> {ACTION_NAMES[entry.actionKey] || entry.actionKey} </span>
                   <span className="font-medium text-foreground truncate">{entry.target}</span>
                 </p>
-                <p className="text-[9px] text-muted-foreground/60 mt-0.5">{t("timeAgo", { time: entry.time })}</p>
+                <p className="text-[9px] text-muted-foreground/60 mt-0.5">{entry.time} ago</p>
               </div>
             </div>
           );

@@ -47,6 +47,8 @@ import {
   Clock,
   Upload,
   Download,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -228,6 +230,32 @@ export function ProjectWorkspace() {
   const canReviewProgress = ability?.can("approve", "Task") ?? false;
   const roleLabel = userRole ? userRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Guest";
   const phaseViewRef = useRef<PhaseViewRef>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error("Failed to enter fullscreen mode:", err);
+      });
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   // Fetch project details
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
@@ -546,7 +574,15 @@ export function ProjectWorkspace() {
   const progressPercent = overallProgressPercent;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 overflow-hidden bg-transparent text-foreground transition-colors duration-300">
+    <div
+      ref={containerRef}
+      className={cn(
+        "flex flex-col overflow-hidden text-foreground transition-colors duration-300",
+        isFullscreen
+          ? "h-screen w-screen p-6 bg-background"
+          : "h-[calc(100vh-6rem)] -m-6 bg-transparent"
+      )}
+    >
       {/* ─── BREADCRUMB / TITLE BAR ────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
         <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
@@ -654,21 +690,35 @@ export function ProjectWorkspace() {
       </div>
 
       {/* ─── TABS NAV ────────────────────────────────────────────────────────── */}
-      <div className="flex items-center px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
-        {VIEWS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveView(id)}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors border-b-2 -mb-px ${
-              activeView === id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Icon className="size-3.5" />
-            {label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
+        <div className="flex items-center">
+          {VIEWS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveView(id)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors border-b-2 -mb-px ${
+                activeView === id
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={toggleFullscreen}
+          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Mode"}
+        >
+          {isFullscreen ? (
+            <Minimize2 className="size-4" />
+          ) : (
+            <Maximize2 className="size-4" />
+          )}
+        </button>
       </div>
 
       {/* ─── TOOLBAR & SEARCH / FILTERS ──────────────────────────────────────── */}
