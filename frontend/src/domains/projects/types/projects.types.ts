@@ -67,12 +67,24 @@ export interface Project {
   budgetRemaining?: number;
 }
 
+export type ProjectSortField =
+  | "name"
+  | "priority"
+  | "status"
+  | "startDate"
+  | "endDate"
+  | "createdAt"
+  | "value"
+  | "primaryPm";
+
 export interface GetProjectsParams {
   page?: number;
   limit?: number;
   search?: string;
   status?: ProjectStatus;
   priority?: PriorityLevel;
+  sortBy?: ProjectSortField;
+  sortOrder?: "asc" | "desc";
 }
 
 export interface ProjectPortfolioStats {
@@ -81,6 +93,7 @@ export interface ProjectPortfolioStats {
   atRisk: number;
   delayed: number;
   completed: number;
+  totalValue: number;
 }
 
 export interface CreateProjectDto {
@@ -115,6 +128,14 @@ export interface CreateProjectBundleDto extends CreateProjectDto {
 export interface PaginatedProjectsResponse {
   data: Project[];
   hasNextPage: boolean;
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
   stats?: ProjectPortfolioStats;
 }
 

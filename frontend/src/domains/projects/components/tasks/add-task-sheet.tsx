@@ -52,14 +52,14 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Calendar } from "@/shared/ui/calendar";
 import { cn } from "@/shared/utils/cn";
-import { ADD_TASK_SHEET_CLASS } from "./task-sheet.constants";
+import { ADD_TASK_SHEET_CLASS, TASK_SHEET_COLUMN_CLASS, TASK_SHEET_FOOTER_PADDING, TASK_SHEET_MAIN_PADDING } from "./task-sheet.constants";
 import { TaskAssigneeAvailabilityAlert } from "./task-assignee-availability-alert";
 import { defaultTaskDateRange } from "../../schemas/task/task-date-fields";
 import { PhaseForm } from "../roadmap/phase-form";
 import { type PhaseFormValues } from "../../schemas/phase/phase.schema";
 
 type WorkspaceStatus = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
-type SideTab = "subtasks" | "comments";
+type SideTab = "subtasks" | "comments" | "attachments";
 
 const WORKSPACE_STATUS_TO_API: Record<WorkspaceStatus, CreateTaskFormValues["status"]> = {
   "To_Do": "To_Do",
@@ -327,7 +327,7 @@ export function AddTaskSheet({
       <Sheet open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <SheetContent side="right" className={ADD_TASK_SHEET_CLASS} showCloseButton>
         <form onSubmit={onSubmit} className="flex h-full flex-col">
-          <SheetHeader className="shrink-0 border-b border-border px-6 py-4 text-left">
+          <SheetHeader className="shrink-0 border-b border-border px-8 py-5 text-left">
             <SheetTitle className="flex items-center gap-2 text-lg font-bold">
               <CheckSquare className="size-5 text-primary" />
               {parentTaskId ? "New Sub-task" : "New Task"}
@@ -345,10 +345,9 @@ export function AddTaskSheet({
           </SheetHeader>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-            {/* ── Left: task fields + attachments ── */}
-            <div className="flex-1 overflow-y-auto border-b border-border px-6 py-5 lg:border-b-0 lg:border-r">
-              <div className="space-y-4">
-                <div className="space-y-1.5">
+            <div className={cn(TASK_SHEET_COLUMN_CLASS, "overflow-y-auto border-b border-border lg:border-b-0 lg:border-r", TASK_SHEET_MAIN_PADDING)}>
+              <div className="space-y-5">
+                <div className="space-y-3">
                   <Input
                     id="title"
                     placeholder="Task title..."
@@ -356,9 +355,16 @@ export function AddTaskSheet({
                     {...register("title")}
                   />
                   <FieldError message={errors.title?.message} />
+                  <textarea
+                    id="description"
+                    rows={4}
+                    placeholder="Add a description..."
+                    className="flex min-h-[100px] w-full rounded-lg border border-input bg-transparent px-3 py-2.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                    {...register("description")}
+                  />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Status</Label>
                     <Controller
@@ -403,7 +409,7 @@ export function AddTaskSheet({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Assignee</Label>
                     <Controller
@@ -493,7 +499,7 @@ export function AddTaskSheet({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Start date *</Label>
                     <Controller
@@ -553,19 +559,6 @@ export function AddTaskSheet({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="description" className="text-xs text-muted-foreground">
-                    Description
-                  </Label>
-                  <textarea
-                    id="description"
-                    rows={4}
-                    placeholder="Add a description..."
-                    className="flex min-h-[96px] w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-                    {...register("description")}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
                   <Label htmlFor="effortHours" className="text-xs text-muted-foreground">
                     Effort (hours)
                   </Label>
@@ -578,67 +571,11 @@ export function AddTaskSheet({
                     {...register("effortHours")}
                   />
                 </div>
-
-                {/* Attachments — draft files */}
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-2 text-sm font-semibold">
-                      <Paperclip className="size-4 text-primary" />
-                      Attachments
-                      {draftFiles.length > 0 && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          {draftFiles.length}
-                        </Badge>
-                      )}
-                    </Label>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {draftFiles.map((file, index) => (
-                      <div
-                        key={`${file.name}-${index}`}
-                        className="group relative flex flex-col gap-1 rounded-xl border border-border bg-muted/20 p-3"
-                      >
-                        <FileText className="size-5 text-primary" />
-                        <p className="truncate text-xs font-medium">{file.name}</p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {formatFileSize(file.size)}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftFiles((prev) => prev.filter((_, i) => i !== index))
-                          }
-                          className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
-                    ))}
-
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border text-muted-foreground transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-                    >
-                      <Plus className="size-5" />
-                      <span className="text-[10px] font-medium">Add files</span>
-                    </button>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                    onChange={handleFilesSelected}
-                  />
-                </div>
               </div>
             </div>
 
-            {/* ── Right: sub-tasks & comments tabs ── */}
-            <div className="flex w-full shrink-0 flex-col overflow-hidden bg-muted/20 lg:w-[340px]">
+            {/* ── Right: sub-tasks, comments & attachments ── */}
+            <div className={cn(TASK_SHEET_COLUMN_CLASS, "bg-muted/20")}>
               <div className="flex shrink-0 border-b border-border">
                 {!parentTaskId && (
                   <button
@@ -678,12 +615,30 @@ export function AddTaskSheet({
                     </Badge>
                   )}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setSideTab("attachments")}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 px-4 py-3 text-xs font-semibold transition",
+                    sideTab === "attachments"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Paperclip className="size-3.5" />
+                  Files
+                  {draftFiles.length > 0 && (
+                    <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                      {draftFiles.length}
+                    </Badge>
+                  )}
+                </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 overflow-y-auto p-5">
                 {sideTab === "subtasks" && (
                   <div className="space-y-3">
-                    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+                    <div className="space-y-3 rounded-xl border border-border bg-background p-4">
                       <Input
                         value={subTaskTitle}
                         onChange={(e) => setSubTaskTitle(e.target.value)}
@@ -746,7 +701,7 @@ export function AddTaskSheet({
 
                 {sideTab === "comments" && (
                   <div className="space-y-3">
-                    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+                    <div className="space-y-3 rounded-xl border border-border bg-background p-4">
                       <textarea
                         value={commentDraft}
                         onChange={(e) => setCommentDraft(e.target.value)}
@@ -808,15 +763,65 @@ export function AddTaskSheet({
                     )}
                   </div>
                 )}
+
+                {sideTab === "attachments" && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      {draftFiles.map((file, index) => (
+                        <div
+                          key={`${file.name}-${index}`}
+                          className="group relative flex flex-col gap-1 rounded-xl border border-border bg-background p-3"
+                        >
+                          <FileText className="size-5 text-primary" />
+                          <p className="truncate text-xs font-medium">{file.name}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {formatFileSize(file.size)}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftFiles((prev) => prev.filter((_, i) => i !== index))
+                            }
+                            className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex min-h-[100px] flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border bg-background text-muted-foreground transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                      >
+                        <Plus className="size-5" />
+                        <span className="text-[10px] font-medium">Add files</span>
+                      </button>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                      onChange={handleFilesSelected}
+                    />
+                    {draftFiles.length === 0 && (
+                      <p className="text-center text-xs text-muted-foreground py-6">
+                        No files yet. They will be uploaded with the main task.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          <SheetFooter className="shrink-0 flex-row justify-between gap-2 border-t border-border px-6 py-4">
-            <p className="text-xs text-muted-foreground self-center">
+          <SheetFooter className={cn("shrink-0 flex-row justify-between gap-2 border-t border-border", TASK_SHEET_FOOTER_PADDING)}>
+            <p className="max-w-md text-xs leading-relaxed text-muted-foreground self-center">
               {draftSubTasks.length + draftComments.length + draftFiles.length > 0
                 ? `${draftSubTasks.length} sub-task(s) · ${draftComments.length} comment(s) · ${draftFiles.length} file(s) ready`
-                : "All items save together on create"}
+                : "Sub-tasks, comments, and files are staged here — everything is created together when you submit."}
             </p>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>

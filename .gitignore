@@ -6,3 +6,8 @@
 !/backend/
 !/ecosystem.config.js
 !/.gitignore
+!/docker-compose.prod.yml
+!/k8s/
+!/nginx/
+!/DEPLOYMENT.md
+

@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function AuthCallbackRoute() {
   return (
-    <Suspense fallback={<div className="text-center text-sm text-white/50">Signing in…</div>}>
+    <Suspense fallback={<div className="text-center text-sm text-muted-foreground">Signing in…</div>}>
       <AuthCallbackPage />
     </Suspense>
   );

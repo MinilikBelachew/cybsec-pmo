@@ -30,8 +30,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
@@ -85,6 +85,7 @@ export type DataTableProps<TData, TValue> = {
   emptyMessage?: string;
   tableClassName?: string;
   minTableWidth?: string;
+  onRowClick?: (row: TData) => void;
 };
 
 function stickyCellClass(
@@ -136,6 +137,7 @@ export function DataTable<TData, TValue>({
   emptyMessage,
   tableClassName,
   minTableWidth = "min-w-[960px]",
+  onRowClick,
 }: DataTableProps<TData, TValue>) {
   const t = useTranslations("Table");
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -334,19 +336,20 @@ export function DataTable<TData, TValue>({
                     {t("columns")}
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      {t("toggleColumns")}
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {hideableColumns.map((column) => (
-                      <DropdownMenuCheckboxItem
-                        key={column.id}
-                        checked={column.getIsVisible()}
-                        onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                      >
-                        {column.id}
-                      </DropdownMenuCheckboxItem>
-                    ))}
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        {t("toggleColumns")}
+                      </DropdownMenuLabel>
+                      {hideableColumns.map((column) => (
+                        <DropdownMenuCheckboxItem
+                          key={column.id}
+                          checked={column.getIsVisible()}
+                          onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                        >
+                          {column.id}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
@@ -401,9 +404,11 @@ export function DataTable<TData, TValue>({
                     <TableRow
                       key={row.id}
                       data-state={row.getIsSelected() ? "selected" : undefined}
+                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                       className={cn(
                         "border-border/40 transition-colors hover:bg-muted/20",
                         row.getIsSelected() && "bg-primary/5 hover:bg-primary/8",
+                        onRowClick && "cursor-pointer",
                       )}
                     >
                       {row.getVisibleCells().map((cell) => (

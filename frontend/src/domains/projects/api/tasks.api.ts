@@ -9,6 +9,7 @@ import type {
   TaskAttachment,
   TaskComment,
   UpdateTaskPayload,
+  UpdateTaskBundlePayload,
   TaskProgressUpdate,
   PendingProgressReviewsResponse,
   SubmitProgressUpdatePayload,
@@ -17,6 +18,7 @@ import type {
   TaskDependency,
   ValidateTaskDependencyResponse,
   TaskDependencyType,
+  TaskActiveStats,
 } from "../types/tasks.types";
 
 export const tasksApi = api.injectEndpoints({
@@ -49,6 +51,11 @@ export const tasksApi = api.injectEndpoints({
       },
     }),
 
+    getActiveTaskStats: builder.query<TaskActiveStats, void>({
+      query: () => "/tasks/stats",
+      providesTags: [{ type: "Tasks", id: "STATS" }],
+    }),
+
     exportTasks: builder.query<Task[], GetTasksParams>({
       query: (params) => {
         const queryParams = new URLSearchParams();
@@ -76,7 +83,10 @@ export const tasksApi = api.injectEndpoints({
         body,
       }),
       invalidatesTags: (result, _error, body) => {
-        const tags: { type: "Tasks"; id: string }[] = [{ type: "Tasks", id: "LIST" }];
+        const tags: { type: "Tasks"; id: string }[] = [
+          { type: "Tasks", id: "LIST" },
+          { type: "Tasks", id: "STATS" },
+        ];
         if (typeof body.projectId === "string") {
           tags.push({ type: "Tasks", id: `PROJECT_${body.projectId}` });
         }
@@ -124,7 +134,10 @@ export const tasksApi = api.injectEndpoints({
         }
       },
       invalidatesTags: (result, _error, { payload }) => {
-        const tags: { type: "Tasks"; id: string }[] = [{ type: "Tasks", id: "LIST" }];
+        const tags: { type: "Tasks"; id: string }[] = [
+          { type: "Tasks", id: "LIST" },
+          { type: "Tasks", id: "STATS" },
+        ];
         const projectId =
           typeof payload.projectId === "string"
             ? payload.projectId
@@ -150,9 +163,40 @@ export const tasksApi = api.injectEndpoints({
         const tags: Array<{ type: "Tasks" | "TaskDependencies"; id: string }> = [
           { type: "Tasks", id },
           { type: "Tasks", id: "LIST" },
+          { type: "Tasks", id: "STATS" },
         ];
         const projectId =
           typeof body.projectId === "string" ? body.projectId : result?.projectId;
+        if (projectId) {
+          tags.push({ type: "Tasks", id: `PROJECT_${projectId}` });
+          tags.push({ type: "TaskDependencies", id: projectId });
+        }
+        return tags;
+      },
+    }),
+
+    updateTaskBundle: builder.mutation<Task, UpdateTaskBundlePayload>({
+      query: ({ taskId, payload, files = [] }) => {
+        const formData = new FormData();
+        formData.append("payload", JSON.stringify(payload));
+        for (const file of files) {
+          formData.append("files", file);
+        }
+        return {
+          url: `/tasks/${taskId}/bundle`,
+          method: "PATCH",
+          body: formData,
+        };
+      },
+      invalidatesTags: (result, _error, { taskId, payload }) => {
+        const tags: Array<{ type: "Tasks" | "TaskDependencies"; id: string }> = [
+          { type: "Tasks", id: taskId },
+          { type: "Tasks", id: "LIST" },
+          { type: "Tasks", id: "STATS" },
+          { type: "TaskDependencies", id: "LIST" },
+        ];
+        const projectId =
+          typeof payload.projectId === "string" ? payload.projectId : result?.projectId;
         if (projectId) {
           tags.push({ type: "Tasks", id: `PROJECT_${projectId}` });
           tags.push({ type: "TaskDependencies", id: projectId });
@@ -166,7 +210,10 @@ export const tasksApi = api.injectEndpoints({
         url: `/tasks/${id}`,
         method: "DELETE",
       }),
-      invalidatesTags: [{ type: "Tasks", id: "LIST" }],
+      invalidatesTags: [
+        { type: "Tasks", id: "LIST" },
+        { type: "Tasks", id: "STATS" },
+      ],
     }),
 
     getTaskComments: builder.query<TaskComment[], string>({
@@ -236,6 +283,7 @@ export const tasksApi = api.injectEndpoints({
       invalidatesTags: (result, error, { taskId }) => [
         { type: "Tasks", id: taskId },
         { type: "Tasks", id: "LIST" },
+        { type: "Tasks", id: "STATS" },
         { type: "TaskProgress", id: taskId },
         { type: "TaskProgress", id: "PENDING" },
       ],
@@ -250,6 +298,7 @@ export const tasksApi = api.injectEndpoints({
       invalidatesTags: (result, error, { taskId }) => [
         { type: "Tasks", id: taskId },
         { type: "Tasks", id: "LIST" },
+        { type: "Tasks", id: "STATS" },
         { type: "TaskProgress", id: taskId },
         { type: "TaskProgress", id: "PENDING" },
       ],
@@ -338,12 +387,14 @@ export const tasksApi = api.injectEndpoints({
 
 export const {
   useGetTasksQuery,
+  useGetActiveTaskStatsQuery,
   useLazyExportTasksQuery,
   useExportTasksQuery,
   useGetTaskByIdQuery,
   useCreateTaskMutation,
   useCreateTaskBundleMutation,
   useUpdateTaskMutation,
+  useUpdateTaskBundleMutation,
   useDeleteTaskMutation,
   useGetTaskCommentsQuery,
   useAddTaskCommentMutation,

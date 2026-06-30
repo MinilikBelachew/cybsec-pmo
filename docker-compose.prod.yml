@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: cybersec-postgres
+    restart: always
+    ports:
+      # Exposed to host port 5433 to avoid conflict with existing host Postgres (on port 5432)
+      # This allows database access and Prisma Studio connections
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-root}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret123}
+      POSTGRES_DB: ${DATABASE_NAME:-cybersec}
+
+  redis:
+    image: redis:7-alpine
+    container_name: cybersec-redis
+    restart: always
+    ports:
+      # Exposed to host port 6378 to avoid conflict with existing host Redis (on port 6379)
+      - "6378:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    # --------------------------------------------------------------------------
+    # OPTION 1: Build Locally on Server
+    # (Uncomment the "build:" block below if you want to build directly on VPS)
+    # --------------------------------------------------------------------------
+    # build:
+    #   context: ./backend
+    #   dockerfile: Dockerfile
+
+    # --------------------------------------------------------------------------
+    # OPTION 2: Pull from Docker Hub (Default)
+    # --------------------------------------------------------------------------
+    image: aynuayex/cybersec-pmo:backend
+
+    container_name: cybersec-backend
+    restart: always
+    ports:
+      - "6010:3000" # Expose backend API on port 6010
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - ./backend/.env.prod
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_URL: postgresql://${DATABASE_USERNAME:-root}:${DATABASE_PASSWORD:-secret}@postgres:5432/${DATABASE_NAME:-api}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+  frontend:
+    # --------------------------------------------------------------------------
+    # OPTION 1: Build Locally on Server
+    # (Uncomment the "build:" block below if you want to build directly on VPS)
+    # --------------------------------------------------------------------------
+    # build:
+    #   context: ./frontend
+    #   dockerfile: Dockerfile
+    #   args:
+    #     - NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api
+    #     - NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com
+
+    # --------------------------------------------------------------------------
+    # OPTION 2: Pull from Docker Hub (Default)
+    # --------------------------------------------------------------------------
+    image: aynuayex/cybersec-pmo:frontend
+
+    container_name: cybersec-frontend
+    restart: always
+    ports:
+      - "3010:3000" # Expose frontend on port 3010
+    environment:
+      NODE_ENV: production
+
+volumes:
+  postgres_data:
+  redis_data:

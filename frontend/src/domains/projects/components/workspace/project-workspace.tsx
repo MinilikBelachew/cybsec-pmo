@@ -57,6 +57,7 @@ import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
 import { convertTasksToCSV } from "../../utils/import-export";
+import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { formatProjectBudget } from "../../utils/format-budget";
@@ -262,48 +263,10 @@ export function ProjectWorkspace() {
     }
   };
 
-  const tasks = useMemo(() => {
-    if (!tasksResponse?.data) return [];
-    
-    const priorityMap: Record<string, Priority> = {
-      "Low": "low",
-      "Medium": "medium",
-      "High": "high",
-      "Critical": "critical",
-    };
-
-    const colors = [
-      "bg-purple-500", "bg-sky-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"
-    ];
-
-    return tasksResponse.data.map((t: any) => {
-      const initials = t.owner?.displayName
-        ? t.owner.displayName.split(" ").map((w: string) => w[0]).join("").toUpperCase()
-        : "UA";
-      const colorIndex = t.owner?.id ? t.owner.id.charCodeAt(0) % colors.length : 0;
-      
-      return {
-        id: t.id,
-        name: t.title,
-        assigneeInitials: initials,
-        assigneeColor: colors[colorIndex],
-        dueDate: t.endDate
-          ? new Date(t.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-          : "No due date",
-        priority: priorityMap[t.priority] || "medium",
-        status: t.status || "To_Do",
-        comments: t.comments?.length ?? 0,
-        hasSubtasks: t.subTasks && t.subTasks.length > 0,
-        done: t.status === "Done" || t.status === "Approved",
-        phaseId: t.phaseId,
-        phaseName: t.phase?.name || "Unassigned",
-        phaseColor: t.phase?.color || "#64748b",
-        rawStartDate: t.startDate,
-        rawEndDate: t.endDate,
-        isOnCriticalPath: Boolean(t.isOnCriticalPath),
-      };
-    });
-  }, [tasksResponse]);
+  const tasks = useMemo(
+    () => mapTasksToGanttRows(tasksResponse?.data ?? []),
+    [tasksResponse],
+  );
 
   const overallProgressPercent = useMemo(() => {
     const rows = tasksResponse?.data ?? [];
@@ -485,15 +448,10 @@ export function ProjectWorkspace() {
     <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 overflow-hidden bg-transparent text-foreground transition-colors duration-300">
       {/* ─── BREADCRUMB / TITLE BAR ────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
-        <span className="text-xs text-muted-foreground">Team Space</span>
-        <span className="text-xs text-muted-foreground/50">/</span>
-        <span className="text-sm font-semibold text-foreground">{project.name}</span>
-        <button className="ml-1 text-muted-foreground/75 hover:text-amber-400 transition-colors">
-          <Star className="size-3.5 fill-current text-amber-500 animate-none" />
-        </button>
-        <button className="text-muted-foreground/75 hover:text-foreground transition-colors">
-          <List className="size-3.5" />
-        </button>
+        <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
+        <span className="text-xs text-slate-400 dark:text-white/20">/</span>
+        <span className="text-sm font-semibold text-slate-950 dark:text-white">{project.name}</span>
+      
 
         <div className="ml-auto flex items-center gap-2">
           <div className="text-[10px] text-muted-foreground font-medium px-2 py-0.5 rounded-md border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-white/5">

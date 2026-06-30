@@ -15,12 +15,10 @@ import {
   useGetProjectByIdQuery,
   useGetProjectTaskAssigneesQuery,
   useGetPhasesQuery,
-  useUpdateTaskMutation,
-  useCreateTaskMutation,
+  useUpdateTaskBundleMutation,
   updateTaskSchema,
   taskToFormValuesOrDefaults,
   toUpdateTaskPayload,
-  toCreateTaskPayload,
   type UpdateTaskFormValues,
   TaskProgressSection,
   TaskDependenciesSection,
@@ -31,8 +29,6 @@ import {
   Sheet,
   SheetContent,
   SheetFooter,
-  SheetHeader,
-  SheetTitle,
 } from "@/shared/ui/sheet";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -51,10 +47,16 @@ import { Calendar } from "@/shared/ui/calendar";
 import { cn } from "@/shared/utils/cn";
 import {
   TaskCollaborationSections,
-  TaskAttachmentsBlock,
+  type DraftComment,
   type DraftSubTask,
 } from "./task-collaboration-sections";
-import { TASK_DETAIL_SHEET_CLASS } from "./task-sheet.constants";
+import type { DraftDependencyAdd } from "./task-dependencies-section";
+import {
+  TASK_DETAIL_SHEET_CLASS,
+  TASK_SHEET_COLUMN_CLASS,
+  TASK_SHEET_FOOTER_PADDING,
+  TASK_SHEET_MAIN_PADDING,
+} from "./task-sheet.constants";
 import { TaskAssigneeAvailabilityAlert } from "./task-assignee-availability-alert";
 
 interface TaskDetailPanelProps {
@@ -126,7 +128,6 @@ export function TaskDetailPanel({
 }: TaskDetailPanelProps) {
   const { user } = useAuth();
   const ability = useAppAbility();
-  const canCreateTask = ability?.can("create", "Task") ?? false;
   const { data: task, isLoading, isError } = useGetTaskByIdQuery(taskId!, {
     skip: !taskId || !open,
   });
@@ -134,10 +135,14 @@ export function TaskDetailPanel({
   const { data: assignees = [], isLoading: loadingAssignees } =
     useGetProjectTaskAssigneesQuery(projectId, { skip: !open });
   const { data: phases = [], isLoading: loadingPhases } = useGetPhasesQuery(projectId, { skip: !open });
-  const [updateTask, { isLoading: isSaving }] = useUpdateTaskMutation();
-  const [createTask] = useCreateTaskMutation();
-  const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
+  const [updateTaskBundle, { isLoading: isSaving }] = useUpdateTaskBundleMutation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
+  const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
+  const [pendingAttachmentDeletes, setPendingAttachmentDeletes] = useState<string[]>([]);
+  const [draftDependencyAdds, setDraftDependencyAdds] = useState<DraftDependencyAdd[]>([]);
+  const [pendingDependencyRemoves, setPendingDependencyRemoves] = useState<string[]>([]);
 
   const {
     register,
@@ -179,46 +184,63 @@ export function TaskDetailPanel({
   );
 
   useEffect(() => {
-    if (!task || !open) return;
-    reset(taskToFormValuesOrDefaults(task));
+    if (!open) return;
     setDraftSubTasks([]);
-  }, [task, open, reset]);
+    setDraftComments([]);
+    setDraftFiles([]);
+    setPendingAttachmentDeletes([]);
+    setDraftDependencyAdds([]);
+    setPendingDependencyRemoves([]);
+  }, [taskId, open]);
 
-  const hasPendingChanges = isDirty || draftSubTasks.length > 0;
+  useEffect(() => {
+    if (!task || !open || task.id !== taskId) return;
+    reset(taskToFormValuesOrDefaults(task));
+  }, [task, taskId, open, reset]);
+
+  const hasDraftChanges =
+    draftSubTasks.length > 0 ||
+    draftComments.length > 0 ||
+    draftFiles.length > 0 ||
+    pendingAttachmentDeletes.length > 0 ||
+    draftDependencyAdds.length > 0 ||
+    pendingDependencyRemoves.length > 0;
+
+  const hasPendingChanges = isDirty || hasDraftChanges;
   const isBusy = isSaving || isSubmitting;
+  const hasParent = !!task?.parentTaskId;
 
   const onSave = handleSubmit(async (values) => {
     if (!taskId) return;
     setIsSubmitting(true);
     try {
-      const result = await updateTask({ id: taskId, body: toUpdateTaskPayload(values) }).unwrap();
+      const result = await updateTaskBundle({
+        taskId,
+        payload: {
+          ...toUpdateTaskPayload(values),
+          comments: draftComments.map((comment) => ({
+            body: comment.body,
+            isInternal: comment.isInternal,
+          })),
+          subTasks: hasParent
+            ? []
+            : draftSubTasks.map((sub) => ({
+                title: sub.title,
+                description: sub.description ?? null,
+              })),
+          removeAttachmentIds: pendingAttachmentDeletes,
+          addDependencies: draftDependencyAdds.map((dep) => ({
+            predecessorId: dep.predecessorId,
+            successorId: dep.successorId,
+            depType: dep.depType,
+            lagDays: dep.lagDays,
+          })),
+          removeDependencyIds: pendingDependencyRemoves,
+        },
+        files: draftFiles,
+      }).unwrap();
       result.warnings?.forEach((warning) => toast(warning, { icon: "⚠️" }));
-
-      for (const sub of draftSubTasks) {
-        if (!canCreateTask) break;
-        await createTask({
-          ...toCreateTaskPayload({
-            projectId,
-            parentTaskId: taskId,
-            phaseId: values.phaseId,
-            title: sub.title,
-            description: sub.description ?? "",
-            priority: "Medium",
-            status: "To_Do",
-            ownerId: null,
-            startDate: values.startDate,
-            endDate: values.endDate,
-            effortHours: undefined,
-          }),
-        }).unwrap();
-      }
-
-      setDraftSubTasks([]);
-      toast.success(
-        draftSubTasks.length
-          ? `Task updated · ${draftSubTasks.length} sub-task(s) created`
-          : "Task updated"
-      );
+      toast.success("Task updated");
       onUpdated?.();
       onClose();
     } catch (err: unknown) {
@@ -234,30 +256,28 @@ export function TaskDetailPanel({
     }
   });
 
-  const hasParent = !!task?.parentTaskId;
-
   return (
     <Sheet open={open && !!taskId} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <SheetContent side="right" className={TASK_DETAIL_SHEET_CLASS} showCloseButton>
         <form onSubmit={onSave} className="flex h-full flex-col">
-          <SheetHeader className="shrink-0 border-b border-border px-6 py-4 text-left">
-            {isLoading ? (
-              <SheetTitle className="text-lg font-bold">Loading task...</SheetTitle>
-            ) : (
-              <>
-                <Input
-                  className="h-auto border-0 border-b border-transparent px-0 text-lg font-bold shadow-none focus-visible:border-input focus-visible:ring-0"
-                  placeholder="Task title..."
-                  {...register("title")}
-                />
-                <FieldError message={errors.title?.message} />
-                {task?.parentTask && (
-                  <p className="text-xs text-muted-foreground">
-                    Sub-task of <span className="font-medium">{task.parentTask.title}</span>
-                  </p>
-                )}
-                {task && (task.progressApproved > 0 || task.progressPending > 0) && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+          {isLoading && (
+            <div className="flex flex-1 items-center justify-center text-muted-foreground">
+              <Loader2 className="mr-2 size-5 animate-spin" />
+              Loading task...
+            </div>
+          )}
+
+          {isError && (
+            <div className="flex flex-1 items-center justify-center p-6">
+              <p className="text-sm text-destructive">Failed to load task details.</p>
+            </div>
+          )}
+
+          {task && (
+            <>
+              {(task.progressApproved > 0 || task.progressPending > 0) && (
+                <div className="shrink-0 border-b border-border px-8 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     {task.progressApproved > 0 && (
                       <Badge className="bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 text-[10px]">
                         {task.progressApproved}% approved
@@ -269,29 +289,33 @@ export function TaskDetailPanel({
                       </Badge>
                     )}
                   </div>
-                )}
-              </>
-            )}
-          </SheetHeader>
+                </div>
+              )}
 
-          {isLoading && (
-            <div className="flex flex-1 items-center justify-center text-muted-foreground">
-              <Loader2 className="mr-2 size-5 animate-spin" />
-              Loading...
-            </div>
-          )}
-
-          {isError && (
-            <div className="flex flex-1 items-center justify-center p-6">
-              <p className="text-sm text-destructive">Failed to load task details.</p>
-            </div>
-          )}
-
-          {task && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-              {/* Left: editable metadata + description + attachments */}
-              <div className="flex-1 overflow-y-auto border-b border-border px-6 py-5 lg:border-b-0 lg:border-r">
-                <div className="space-y-4">
+              <div className={cn(TASK_SHEET_COLUMN_CLASS, "overflow-y-auto border-b border-border lg:border-b-0 lg:border-r", TASK_SHEET_MAIN_PADDING)}>
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <Input
+                      className="h-auto border-0 border-b border-input rounded-none px-0 text-lg font-bold shadow-none focus-visible:ring-0"
+                      placeholder="Task title..."
+                      {...register("title")}
+                    />
+                    <FieldError message={errors.title?.message} />
+                    <textarea
+                      id="description"
+                      rows={4}
+                      placeholder="Add a description..."
+                      className="flex min-h-[100px] w-full rounded-lg border border-input bg-transparent px-3 py-2.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                      {...register("description")}
+                    />
+                    {task.parentTask && (
+                      <p className="text-xs text-muted-foreground">
+                        Sub-task of <span className="font-medium">{task.parentTask.title}</span>
+                      </p>
+                    )}
+                  </div>
+
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Status</Label>
@@ -526,79 +550,74 @@ export function TaskDetailPanel({
                     />
                   </div>
 
-                  <TaskProgressSection
-                    task={task}
-                    focusProgressReview={focusProgressReview}
-                    onUpdated={() => {
-                      onUpdated?.();
-                    }}
-                  />
+                  <div className="space-y-4 rounded-xl border border-border/60 bg-muted/15 p-4">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Linked activity
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Progress submissions save immediately. Dependencies are saved with Save changes.
+                      </p>
+                    </div>
 
-                  <TaskDependenciesSection
-                    task={task}
-                    onUpdated={() => {
-                      onUpdated?.();
-                    }}
-                  />
+                    <TaskProgressSection
+                      task={task}
+                      focusProgressReview={focusProgressReview}
+                      onUpdated={() => {
+                        onUpdated?.();
+                      }}
+                    />
 
-                  <div className="space-y-1.5">
-                    <Label htmlFor="description" className="text-xs text-muted-foreground">
-                      Description
-                    </Label>
-                    <textarea
-                      id="description"
-                      rows={5}
-                      placeholder="Add a description..."
-                      className="flex min-h-[120px] w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-                      {...register("description")}
+                    <TaskDependenciesSection
+                      task={task}
+                      mode="draft"
+                      draftAdds={draftDependencyAdds}
+                      onDraftAddsChange={setDraftDependencyAdds}
+                      pendingRemoves={pendingDependencyRemoves}
+                      onPendingRemovesChange={setPendingDependencyRemoves}
                     />
                   </div>
-
-                  <TaskAttachmentsBlock taskId={task.id} />
                 </div>
               </div>
 
-              {/* Right: subtasks & comments tabs */}
-              <div className="flex w-full shrink-0 flex-col overflow-hidden bg-muted/20 lg:w-[360px]">
-                {hasParent ? (
-                  <TaskCollaborationSections
-                    key={`${task.id}-${initialTab ?? "comments"}`}
-                    taskId={task.id}
-                    projectId={projectId}
-                    onOpenSubTask={onOpenSubTask}
-                    layout="tabs"
-                    showAttachments={false}
-                    defaultTab={initialTab ?? "comments"}
-                    className="h-full"
-                  />
-                ) : (
-                  <TaskCollaborationSections
-                    key={`${task.id}-${initialTab ?? "subtasks"}`}
-                    taskId={task.id}
-                    projectId={projectId}
-                    onOpenSubTask={onOpenSubTask}
-                    layout="tabs"
-                    showAttachments={false}
-                    defaultTab={initialTab ?? "subtasks"}
-                    subTaskMode="draft"
-                    draftSubTasks={draftSubTasks}
-                    onDraftSubTasksChange={setDraftSubTasks}
-                    className="h-full"
-                  />
-                )}
+              {/* Right: subtasks, comments & attachments */}
+              <div className={cn(TASK_SHEET_COLUMN_CLASS, "bg-muted/20")}>
+                <TaskCollaborationSections
+                  key={`${task.id}-${initialTab ?? (hasParent ? "comments" : "subtasks")}`}
+                  taskId={task.id}
+                  projectId={projectId}
+                  onOpenSubTask={onOpenSubTask}
+                  layout="tabs"
+                  showAttachments
+                  defaultTab={initialTab ?? (hasParent ? "comments" : "subtasks")}
+                  className="h-full"
+                  subTaskMode={hasParent ? "immediate" : "draft"}
+                  draftSubTasks={draftSubTasks}
+                  onDraftSubTasksChange={setDraftSubTasks}
+                  commentMode="draft"
+                  draftComments={draftComments}
+                  onDraftCommentsChange={setDraftComments}
+                  attachmentMode="draft"
+                  draftFiles={draftFiles}
+                  onDraftFilesChange={setDraftFiles}
+                  pendingAttachmentDeletes={pendingAttachmentDeletes}
+                  onPendingAttachmentDeletesChange={setPendingAttachmentDeletes}
+                />
               </div>
             </div>
+            </>
           )}
 
-          <SheetFooter className="shrink-0 flex-row justify-between gap-2 border-t border-border px-6 py-4">
-            <div className="self-center">
+          <SheetFooter className={cn("shrink-0 flex-row justify-between gap-2 border-t border-border", TASK_SHEET_FOOTER_PADDING)}>
+            <div className="max-w-md self-center">
               {hasPendingChanges ? (
                 <Badge variant="secondary" className="text-[10px]">
                   Unsaved changes
-                  {draftSubTasks.length > 0 ? ` · ${draftSubTasks.length} sub-task draft(s)` : ""}
                 </Badge>
               ) : (
-                <span className="text-xs text-muted-foreground">Edit fields and save</span>
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  Comments, sub-tasks, files, and links save together on Save changes.
+                </span>
               )}
             </div>
             <div className="flex gap-2">

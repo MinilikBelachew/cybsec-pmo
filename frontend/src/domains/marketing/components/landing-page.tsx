@@ -1,10 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
+import { cn } from "@/shared/utils/cn";
 import {
   Shield,
   FolderKanban,
-  CheckSquare,
-  Lock,
   ArrowRight,
   TrendingUp,
   Activity,
@@ -20,6 +19,14 @@ import {
   UserCheck,
   CheckCircle,
   HelpCircle,
+  GitMerge,
+  DollarSign,
+  AlertTriangle,
+  MessageSquare,
+  Landmark,
+  Target,
+  FileText,
+  Link as LinkIcon,
 } from "lucide-react";
 
 type LandingPageProps = {
@@ -29,10 +36,10 @@ type LandingPageProps = {
 export function LandingPage({ locale }: LandingPageProps) {
 
   return (
-    <div className="relative min-h-screen bg-slate-50 dark:bg-[#07070F] text-slate-900 dark:text-white overflow-x-hidden transition-colors duration-300">
+    <div className="relative h-screen w-full bg-slate-50 dark:bg-[#07070F] text-slate-900 dark:text-white overflow-x-hidden transition-colors duration-300">
       {/* ── GRADIENT OVERLAYS (Framer Style Glows) ────────────────────────── */}
-      <div className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full bg-purple-500/10 dark:bg-purple-600/15 pointer-events-none blur-[120px] -translate-y-1/2" />
-      <div className="absolute top-[45%] right-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-500/10 dark:bg-blue-600/10 pointer-events-none blur-[120px]" />
+      <div className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full bg-blue-500/10 dark:bg-blue-600/15 pointer-events-none blur-[120px] -translate-y-1/2" />
+      <div className="absolute top-[45%] right-[-10%] w-[500px] h-[500px] rounded-full bg-blue-600/10 dark:bg-blue-500/10 pointer-events-none blur-[120px]" />
 
       {/* ── TOP NAVIGATION ────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 dark:border-white/[0.05] bg-white/70 dark:bg-[#07070F]/70 backdrop-blur-md">
@@ -40,8 +47,8 @@ export function LandingPage({ locale }: LandingPageProps) {
           {/* Logo */}
           <div className="flex items-center gap-2">
             <div className="flex gap-1.5 items-center">
-              <div className="w-2.5 h-6 bg-purple-600 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(123,63,228,0.5)]" />
-              <div className="w-2.5 h-6 bg-blue-500 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
+              <div className="w-2.5 h-6 bg-blue-600 -skew-x-12 rounded-full" />
+              <div className="w-2.5 h-6 bg-blue-400 -skew-x-12 rounded-full" />
             </div>
             <span className="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-slate-950 to-slate-700 dark:from-white dark:to-white/80">
               CYBSEC PMO
@@ -59,7 +66,7 @@ export function LandingPage({ locale }: LandingPageProps) {
           {/* CTA Button */}
           <Link
             href={`/${locale}/dashboard`}
-            className="inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition active:scale-[0.98]"
+            className="inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition active:scale-[0.98]"
           >
             Get started
             <ArrowUpRight className="size-3.5" />
@@ -67,30 +74,30 @@ export function LandingPage({ locale }: LandingPageProps) {
         </div>
       </header>
 
-      {/* ── HERO SECTION ──────────────────────────────────────────────────── */}
-      <section className="relative z-10 max-w-7xl mx-auto px-6 pt-20 lg:pt-28 pb-24 grid lg:grid-cols-12 gap-16 items-center">
+      {/* ── HERO SECTION (Reduced Text Sizes, No Shadows) ─────────────────── */}
+      <section className="relative z-10 max-w-7xl mx-auto px-6 pt-16 lg:pt-24 pb-24 grid lg:grid-cols-12 gap-16 items-center">
         {/* Left: Headings and CTA */}
-        <div className="lg:col-span-6 space-y-8 text-center lg:text-left">
-          <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight leading-[1.05] text-slate-950 dark:text-white">
+        <div className="lg:col-span-6 space-y-6 text-center lg:text-left">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight leading-[1.1] text-slate-950 dark:text-white">
             Build Safer <br />
-            with <span className="text-purple-600 dark:text-[#A78BFA]">Intelligent PMO</span>
+            with <span className="text-blue-600 dark:text-blue-400">Intelligent PMO</span>
           </h1>
 
-          <p className="text-lg text-slate-600 dark:text-white/60 leading-relaxed font-light max-w-xl mx-auto lg:mx-0">
+          <p className="text-base text-slate-600 dark:text-white/60 leading-relaxed font-light max-w-xl mx-auto lg:mx-0">
             Create, automate, and monitor your enterprise project portfolios with a modern SSO-powered security management platform.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
             <Link
               href={`/${locale}/dashboard`}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-8 py-4 text-sm font-bold rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition active:scale-[0.98]"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-7 py-3.5 text-sm font-bold rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition active:scale-[0.98]"
             >
               Get started
               <ArrowUpRight className="size-4" />
             </Link>
             <Link
               href={`/${locale}/dashboard/settings`}
-              className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-sm font-bold rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-white/80 transition"
+              className="w-full sm:w-auto inline-flex items-center justify-center px-7 py-3.5 text-sm font-bold rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-white/80 transition"
             >
               Join Directory
             </Link>
@@ -99,13 +106,20 @@ export function LandingPage({ locale }: LandingPageProps) {
 
         {/* Right: Technical Flowchart Visual */}
         <div className="lg:col-span-6 relative w-full aspect-square max-w-lg mx-auto rounded-3xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white/40 dark:bg-zinc-950/40 backdrop-blur-md p-2">
-          <div className="absolute inset-0 bg-gradient-to-tr from-purple-500/10 to-blue-500/10 opacity-30 rounded-3xl" />
-          <div className="relative h-full w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-white/5">
+          <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 to-blue-600/10 opacity-30 rounded-3xl" />
+          <div className="relative h-full w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-white/5 bg-[#0b0f17]">
             <Image
-              src="/auth.jpg"
-              alt="CYBSEC PMO Console"
+              src="/auth_dashboard_light_v2.png"
+              alt="CYBSEC PMO Console Light"
               fill
-              className="object-cover object-top hover:scale-[1.01] transition-transform duration-700"
+              className="object-cover object-top hover:scale-[1.01] transition-transform duration-700 dark:hidden"
+              priority
+            />
+            <Image
+              src="/auth_dashboard_dark_v2.png"
+              alt="CYBSEC PMO Console Dark"
+              fill
+              className="object-cover object-top hover:scale-[1.01] transition-transform duration-700 hidden dark:block"
               priority
             />
           </div>
@@ -113,20 +127,20 @@ export function LandingPage({ locale }: LandingPageProps) {
       </section>
 
       {/* ── HORIZONTALLY SCROLLING LOGO CAROUSEL ──────────────────────────── */}
-      <section className="relative z-10 w-full py-12 border-y border-slate-200/80 dark:border-white/[0.05] bg-white/30 dark:bg-black/10 overflow-hidden">
+      <section className="relative z-10 w-full py-12 border-y border-slate-200/80 dark:border-white/[0.05] bg-white/30 dark:bg-black/10 overflow-hidden flex flex-col items-center justify-center">
         <div className="max-w-7xl mx-auto px-6 mb-8 text-center">
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-white/30">
             Enterprise Integrations & Infrastructure Partners
           </p>
         </div>
         
-        <div className="relative w-full overflow-hidden flex items-center justify-center">
+        <div className="relative w-full overflow-hidden flex items-center justify-center mx-auto">
           {/* Fading side overlays */}
           <div className="absolute inset-y-0 left-0 w-24 sm:w-48 bg-gradient-to-r from-slate-50 dark:from-[#07070F] to-transparent z-10 pointer-events-none" />
           <div className="absolute inset-y-0 right-0 w-24 sm:w-48 bg-gradient-to-l from-slate-50 dark:from-[#07070F] to-transparent z-10 pointer-events-none" />
 
           {/* Scrolling ticker track */}
-          <div className="animate-marquee flex gap-16 items-center shrink-0">
+          <div className="animate-marquee flex gap-16 items-center shrink-0 justify-center">
             {/* Set 1 */}
             <div className="flex gap-16 items-center shrink-0">
               {/* Microsoft */}
@@ -224,68 +238,54 @@ export function LandingPage({ locale }: LandingPageProps) {
         </div>
       </section>
 
-      {/* ── FEATURES GRID (Clean solid styling, no heavy shadows) ────────────────── */}
-      <section id="features" className="relative z-10 max-w-7xl mx-auto px-6 py-24 border-t border-slate-200 dark:border-white/[0.05]">
-        <div className="text-center space-y-4 mb-20">
-          <h2 className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-950 dark:text-white">
-            Everything in one place
-          </h2>
-          <p className="text-slate-600 dark:text-white/40 max-w-lg mx-auto text-base">
-            Four powerful pillars that make managing portfolios faster, smarter, and safer.
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-          {/* Card 1 */}
-          <div className="p-8 rounded-3xl border border-slate-200/80 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/50 hover:border-purple-500/30 transition flex flex-col justify-between min-h-[260px] group">
-            <div>
-              <div className="size-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-6">
-                <Sparkles className="size-6 text-purple-600 dark:text-purple-400" />
-              </div>
-              <h3 className="text-xl font-bold mb-3 text-slate-900 dark:text-white">AI-Powered Insights</h3>
-              <p className="text-sm text-slate-600 dark:text-white/60 leading-relaxed font-light">
-                Automate complex project statuses with intelligent variance alerts that learn from your project milestones.
-              </p>
-            </div>
+      {/* ── CHALLENGES SECTION (3x3 Grid with Corner Glows) ───────────────── */}
+      <section id="features" className="py-24 relative z-10 overflow-hidden border-t border-slate-200 dark:border-white/[0.05]">
+        <div className="container mx-auto px-6 max-w-7xl">
+          <div className="flex flex-col items-center text-center mb-16 space-y-4">
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-950 dark:text-white">
+              Everything in One Place: Overcoming PMO Challenges
+            </h2>
+            <p className="text-slate-600 dark:text-white/40 max-w-xl mx-auto text-base">
+              Solve complex enterprise portfolio bottlenecks with unified automation, security governance, and real-time execution tracking.
+            </p>
           </div>
 
-          {/* Card 2 */}
-          <div className="p-8 rounded-3xl border border-slate-200/80 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/50 hover:border-purple-500/30 transition flex flex-col justify-between min-h-[260px] group">
-            <div>
-              <div className="size-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-6">
-                <Layers className="size-6 text-purple-600 dark:text-purple-400" />
-              </div>
-              <h3 className="text-xl font-bold mb-3 text-slate-900 dark:text-white">SSO User Directory</h3>
-              <p className="text-sm text-slate-600 dark:text-white/60 leading-relaxed font-light">
-                Add new enterprise engineers, PMs, and clients in seconds. Synchronize directly with Microsoft Active Directory.
-              </p>
-            </div>
-          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border border-slate-200 dark:border-white/10 overflow-hidden rounded-2xl bg-white/40 dark:bg-zinc-950/20 backdrop-blur-md">
+            {[
+              { id: "1", icon: <GitMerge className="size-6" />, text: "Eliminate cross-project dependency friction and siloed team communication paths." },
+              { id: "2", icon: <Activity className="size-6" />, text: "Gain real-time portfolio velocity tracking and automated project variance insights." },
+              { id: "3", icon: <DollarSign className="size-6" />, text: "Control enterprise budget utilization and prevent unexpected financial burn overruns." },
+              { id: "4", icon: <AlertTriangle className="size-6" />, text: "Proactively identify and mitigate critical cybersecurity risk vulnerabilities." },
+              { id: "5", icon: <MessageSquare className="size-6" />, text: "Streamline stakeholder collaboration with unified automated audit trails." },
+              { id: "6", icon: <Landmark className="size-6" />, text: "Enforce multi-tenant organizational governance and role-based permissions." },
+              { id: "7", icon: <Target className="size-6" />, text: "Align deliverable timelines and milestone target dates with interactive Gantt tracking." },
+              { id: "8", icon: <FileText className="size-6" />, text: "Automate compliance report generation for SOC 2, ISO 27001, and NIST CSF." },
+              { id: "9", icon: <LinkIcon className="size-6" />, text: "Integrate seamlessly with Microsoft Entra ID, Zoho, Teams, and Keka infrastructure." },
+            ].map((item, idx) => (
+              <div 
+                key={item.id} 
+                className={cn(
+                  "group relative p-8 md:p-12 transition-all duration-500 hover:bg-blue-500/5 dark:hover:bg-blue-600/10 flex flex-col items-start gap-6 border-slate-200 dark:border-white/10",
+                  idx % 3 !== 2 ? "lg:border-r" : "",
+                  idx < 6 ? "lg:border-b" : "",
+                  idx % 2 !== 1 ? "sm:border-r lg:border-r" : "sm:border-0 lg:border-r",
+                  "border-b sm:border-b"
+                )}
+              >
+                {/* Corner Glows */}
+                <div className="absolute top-0 left-0 size-8 border-t-2 border-l-2 border-transparent group-hover:border-blue-500 transition-all duration-500 opacity-0 group-hover:opacity-100" />
+                <div className="absolute top-0 right-0 size-8 border-t-2 border-r-2 border-transparent group-hover:border-blue-500 transition-all duration-500 opacity-0 group-hover:opacity-100" />
+                <div className="absolute bottom-0 left-0 size-8 border-b-2 border-l-2 border-transparent group-hover:border-blue-500 transition-all duration-500 opacity-0 group-hover:opacity-100" />
+                <div className="absolute bottom-0 right-0 size-8 border-b-2 border-r-2 border-transparent group-hover:border-blue-500 transition-all duration-500 opacity-0 group-hover:opacity-100" />
 
-          {/* Card 3 */}
-          <div className="p-8 rounded-3xl border border-slate-200/80 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/50 hover:border-purple-500/30 transition flex flex-col justify-between min-h-[260px] group">
-            <div>
-              <div className="size-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-6">
-                <Zap className="size-6 text-purple-600 dark:text-purple-400" />
+                <div className="size-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform duration-500">
+                  {item.icon}
+                </div>
+                <p className="text-sm md:text-base font-medium leading-relaxed text-slate-600 dark:text-white/70 group-hover:text-slate-950 dark:group-hover:text-white transition-colors duration-500">
+                  {item.text}
+                </p>
               </div>
-              <h3 className="text-xl font-bold mb-3 text-slate-900 dark:text-white">Fast Performance</h3>
-              <p className="text-sm text-slate-600 dark:text-white/60 leading-relaxed font-light">
-                Optimized database calls compile dashboard updates in under 50ms, rendering real-time task updates instantly.
-              </p>
-            </div>
-          </div>
-
-          {/* Card 4 */}
-          <div className="p-8 rounded-3xl border border-slate-200/80 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/50 hover:border-purple-500/30 transition flex flex-col justify-between min-h-[260px] group">
-            <div>
-              <div className="size-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-6">
-                <Shield className="size-6 text-purple-600 dark:text-purple-400" />
-              </div>
-              <h3 className="text-xl font-bold mb-3 text-slate-900 dark:text-white">Secure Platform</h3>
-              <p className="text-sm text-slate-600 dark:text-white/60 leading-relaxed font-light">
-                Multi-tenant workspace isolation with automatic role check middleware to lock down restricted sections.
-              </p>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -295,11 +295,11 @@ export function LandingPage({ locale }: LandingPageProps) {
         <div className="grid lg:grid-cols-12 gap-16 items-center">
           {/* Left Side: Text Details */}
           <div className="lg:col-span-5 space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-purple-500/20 bg-purple-500/10 text-xs font-bold text-purple-600 dark:text-purple-400">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-blue-500/20 bg-blue-500/10 text-xs font-bold text-blue-600 dark:text-blue-400">
               <FolderKanban className="size-3.5" />
               PORTFOLIO TIMELINES
             </div>
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-950 dark:text-white">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
               Manage Deliverables via Visual Gantt Charts
             </h2>
             <p className="text-slate-600 dark:text-white/60 leading-relaxed font-light">
@@ -339,7 +339,7 @@ export function LandingPage({ locale }: LandingPageProps) {
       {/* ── KANBAN BOARD / ACTIVE WORKFLOWS SECTION ───────────────────────── */}
       <section className="relative z-10 max-w-7xl mx-auto px-6 py-24 border-t border-slate-200 dark:border-white/[0.05]">
         <div className="text-center space-y-4 mb-16">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
             Unified Task Execution Board
           </h2>
           <p className="text-slate-600 dark:text-white/40 max-w-md mx-auto text-sm">
@@ -386,7 +386,7 @@ export function LandingPage({ locale }: LandingPageProps) {
               <div className="text-xs font-bold">Setup SSO Authentication Router</div>
               <p className="text-[11px] text-slate-500 dark:text-white/40 font-light">Configure Microsoft Entra client endpoints and scopes.</p>
               <div className="flex justify-between items-center pt-2">
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">Active</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">Active</span>
                 <span className="text-[9px] font-semibold text-slate-400">June 21</span>
               </div>
             </div>
@@ -411,10 +411,10 @@ export function LandingPage({ locale }: LandingPageProps) {
         </div>
       </section>
 
-      {/* ── FLOWCHART CONNECTOR SECTION (Framer Style Node Connections) ──── */}
+      {/* ── FLOWCHART CONNECTOR SECTION ───────────────────────────────────── */}
       <section className="relative z-10 max-w-7xl mx-auto px-6 py-20 border-t border-slate-200 dark:border-white/[0.05]">
         <div className="text-center space-y-4 mb-16">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
             Built for Secure Workspace Collaboration
           </h2>
           <p className="text-slate-500 dark:text-white/40 max-w-md mx-auto text-sm">
@@ -424,54 +424,54 @@ export function LandingPage({ locale }: LandingPageProps) {
 
         {/* Central Gateway Flowchart */}
         <div className="relative max-w-4xl mx-auto h-[450px] rounded-3xl border border-slate-200 dark:border-white/5 bg-white/30 dark:bg-zinc-950/20 backdrop-blur-md overflow-hidden flex items-center justify-center p-8">
-          <div className="absolute inset-0 bg-gradient-to-b from-purple-500/5 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-blue-500/5 to-transparent pointer-events-none" />
           
           {/* Connector SVG Grid Overlay */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="purpleGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+              <linearGradient id="blueGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#2563EB" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#60A5FA" stopOpacity="0" />
               </linearGradient>
             </defs>
             {/* Horizontal connection lines */}
-            <path d="M 150 225 L 300 225 M 540 225 L 690 225" stroke="url(#purpleGlow)" strokeWidth="2" strokeDasharray="6,4" />
+            <path d="M 150 225 L 300 225 M 540 225 L 690 225" stroke="url(#blueGlow)" strokeWidth="2" strokeDasharray="6,4" />
             {/* Vertical connection lines */}
-            <path d="M 420 120 L 420 170 M 420 280 L 420 330" stroke="url(#purpleGlow)" strokeWidth="2" strokeDasharray="6,4" />
+            <path d="M 420 120 L 420 170 M 420 280 L 420 330" stroke="url(#blueGlow)" strokeWidth="2" strokeDasharray="6,4" />
           </svg>
 
-          {/* Node 1: Left Node (Microsoft Azure SSO Endpoint) */}
+          {/* Node 1: Left Node */}
           <div className="absolute left-[8%] sm:left-[15%] w-48 p-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/60 text-center space-y-2 z-10 transition hover:scale-105">
-            <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Identity Provider</span>
-            <div className="text-xs font-bold truncate">microsoft.onmicrosoft.com</div>
-            <div className="w-full bg-blue-500/10 text-blue-500 py-1 rounded text-[10px] border border-blue-500/20">Authenticated</div>
+            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">Identity Provider</span>
+            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">microsoft.onmicrosoft.com</div>
+            <div className="w-full bg-blue-500/10 text-blue-600 dark:text-blue-400 py-1 rounded text-[10px] border border-blue-500/20">Authenticated</div>
           </div>
 
-          {/* Node 2: Central Gateway Node (SSO Proxy Gateway) */}
-          <div className="w-60 p-6 rounded-2xl border border-purple-500/40 bg-slate-900 text-white text-center space-y-4 z-10 transition hover:scale-105">
-            <div className="size-10 rounded-xl bg-purple-500/20 flex items-center justify-center mx-auto border border-purple-500/40">
-              <Cpu className="size-5 text-purple-400 animate-pulse" />
+          {/* Node 2: Central Gateway Node */}
+          <div className="w-60 p-6 rounded-2xl border border-blue-500/30 dark:border-blue-500/50 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white text-center space-y-4 z-10 transition hover:scale-105">
+            <div className="size-10 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center mx-auto border border-blue-500/30 dark:border-blue-500/40">
+              <Cpu className="size-5 text-blue-600 dark:text-blue-400 animate-pulse" />
             </div>
             <div>
-              <div className="text-sm font-bold">JIT Gateway Proxy</div>
-              <div className="text-[10px] text-purple-400">Verifying session tokens...</div>
+              <div className="text-sm font-bold text-slate-900 dark:text-white">JIT Gateway Proxy</div>
+              <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">Verifying session tokens...</div>
             </div>
           </div>
 
-          {/* Node 3: Right Node (User Database Sync) */}
+          {/* Node 3: Right Node */}
           <div className="absolute right-[8%] sm:right-[15%] w-48 p-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/60 text-center space-y-2 z-10 transition hover:scale-105">
-            <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-widest">Database Sync</span>
-            <div className="text-xs font-bold truncate">Prisma Client Seeding</div>
+            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">Database Sync</span>
+            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">Prisma Client Seeding</div>
             <div className="w-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 py-1 rounded text-[10px] border border-emerald-500/20">Registered User</div>
           </div>
 
           {/* Node 4: Top Floating Node */}
-          <div className="absolute top-[8%] w-44 p-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/40 text-center text-[10px] font-bold z-10 transition hover:scale-105">
+          <div className="absolute top-[8%] w-44 p-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/60 text-slate-900 dark:text-white text-center text-[10px] font-bold z-10 transition hover:scale-105">
             🔒 Token Verified
           </div>
 
           {/* Node 5: Bottom Floating Node */}
-          <div className="absolute bottom-[8%] w-44 p-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/40 text-center text-[10px] font-bold z-10 transition hover:scale-105">
+          <div className="absolute bottom-[8%] w-44 p-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/60 text-slate-900 dark:text-white text-center text-[10px] font-bold z-10 transition hover:scale-105">
             👤 Role Assigned
           </div>
         </div>
@@ -492,7 +492,7 @@ export function LandingPage({ locale }: LandingPageProps) {
           {/* FAQ 1 */}
           <div className="space-y-2 p-5 rounded-2xl border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/30">
             <div className="flex gap-2.5 items-center font-bold text-slate-900 dark:text-white text-sm">
-              <HelpCircle className="size-4 text-purple-600 dark:text-purple-400 shrink-0" />
+              <HelpCircle className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <h4>How does Just-in-Time (JIT) provisioning work?</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-white/60 leading-relaxed font-light">
@@ -503,7 +503,7 @@ export function LandingPage({ locale }: LandingPageProps) {
           {/* FAQ 2 */}
           <div className="space-y-2 p-5 rounded-2xl border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/30">
             <div className="flex gap-2.5 items-center font-bold text-slate-900 dark:text-white text-sm">
-              <HelpCircle className="size-4 text-purple-600 dark:text-purple-400 shrink-0" />
+              <HelpCircle className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <h4>Can we edit a user's system roles?</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-white/60 leading-relaxed font-light">
@@ -514,7 +514,7 @@ export function LandingPage({ locale }: LandingPageProps) {
           {/* FAQ 3 */}
           <div className="space-y-2 p-5 rounded-2xl border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/30">
             <div className="flex gap-2.5 items-center font-bold text-slate-900 dark:text-white text-sm">
-              <HelpCircle className="size-4 text-purple-600 dark:text-purple-400 shrink-0" />
+              <HelpCircle className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <h4>Is the platform optimized for mobile access?</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-white/60 leading-relaxed font-light">
@@ -525,43 +525,12 @@ export function LandingPage({ locale }: LandingPageProps) {
           {/* FAQ 4 */}
           <div className="space-y-2 p-5 rounded-2xl border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-[#0E0E1B]/30">
             <div className="flex gap-2.5 items-center font-bold text-slate-900 dark:text-white text-sm">
-              <HelpCircle className="size-4 text-purple-600 dark:text-purple-400 shrink-0" />
+              <HelpCircle className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <h4>What identity providers are supported?</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-white/60 leading-relaxed font-light">
               We natively support Microsoft Entra ID (formerly Azure Active Directory) including support for multi-factor authentication (MFA) and custom conditional access policies.
             </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── CALL TO ACTION SECTION ────────────────────────────────────────── */}
-      <section className="relative z-10 max-w-7xl mx-auto px-6 py-20">
-        <div className="relative rounded-3xl overflow-hidden border border-slate-200 dark:border-white/15 bg-white dark:bg-[#0E0E1A] p-12 sm:p-20 text-center space-y-8 shadow-sm">
-          {/* Intense gradient glow in CTA */}
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 to-indigo-500/5 dark:from-purple-900/20 dark:to-blue-900/20 pointer-events-none" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-purple-500/10 dark:bg-purple-600/10 rounded-full blur-3xl pointer-events-none animate-pulse-glow" />
-
-          {/* Original logo badge in CTA */}
-          <div className="flex gap-1.5 items-center justify-center relative z-10">
-            <div className="w-2.5 h-6 bg-purple-600 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(123,63,228,0.5)]" />
-            <div className="w-2.5 h-6 bg-blue-500 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
-          </div>
-
-          <div className="relative z-10 space-y-4 max-w-2xl mx-auto">
-            <h2 className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-950 dark:text-white leading-tight">
-              Start building the future today.
-            </h2>
-          </div>
-
-          <div className="relative z-10 flex justify-center">
-            <Link
-              href={`/${locale}/dashboard`}
-              className="inline-flex items-center gap-1.5 px-8 py-4 text-sm font-bold rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition active:scale-[0.98] shadow-lg shadow-purple-600/25"
-            >
-              Get Started
-              <ArrowUpRight className="size-4" />
-            </Link>
           </div>
         </div>
       </section>
@@ -573,8 +542,8 @@ export function LandingPage({ locale }: LandingPageProps) {
           <div className="md:col-span-5 space-y-4">
             <div className="flex items-center gap-2">
               <div className="flex gap-1.5 items-center">
-                <div className="w-2.5 h-6 bg-purple-600 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(123,63,228,0.5)]" />
-                <div className="w-2.5 h-6 bg-blue-500 -skew-x-12 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
+                <div className="w-2.5 h-6 bg-blue-600 -skew-x-12 rounded-full" />
+                <div className="w-2.5 h-6 bg-blue-400 -skew-x-12 rounded-full" />
               </div>
               <span className="text-xl font-bold tracking-tight">CYBSEC PMO</span>
             </div>

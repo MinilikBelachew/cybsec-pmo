@@ -13,6 +13,9 @@ import {
   Res,
   Body,
   ForbiddenException,
+  BadRequestException,
+  UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { EntraOauthService } from './entra-oauth.service';
@@ -31,6 +34,7 @@ import {
   extractUserAgent,
 } from './utils/request-context.util';
 import { LoginSecurityExceptionFilter } from './filters/login-security-exception.filter';
+import { LoginSecurityException } from './exceptions/login-security.exception';
 import { AuthBreakGlassDto } from './dto/auth-break-glass.dto';
 import { AuthEmergencyLoginDto } from './dto/auth-emergency-login.dto';
 import { PermissionDto } from './dto/permission.dto';
@@ -77,6 +81,8 @@ function clearAuthCookies(res: ExpressResponse) {
   version: '1',
 })
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly service: AuthService,
     private readonly entraOauthService: EntraOauthService,
@@ -153,14 +159,35 @@ export class AuthController {
       res.redirect(
         this.entraOauthService.getFrontendCallbackUrl(returnTo),
       );
-    } catch {
+    } catch (err) {
+      const errorCode = this.resolveEntraCallbackErrorCode(err);
+      this.logger.warn(
+        `Entra callback failed (${errorCode})`,
+        err instanceof Error ? err.message : String(err),
+      );
+
       res.redirect(
         this.entraOauthService.getFrontendCallbackUrl(
           fallbackReturnTo,
-          'auth_failed',
+          errorCode,
         ),
       );
     }
+  }
+
+  private resolveEntraCallbackErrorCode(err: unknown): string {
+    if (err instanceof LoginSecurityException) {
+      return err.securityCode === 'AUTH_LOGIN_LOCKED'
+        ? 'login_locked'
+        : 'rate_limited';
+    }
+    if (err instanceof BadRequestException) {
+      return 'invalid_state';
+    }
+    if (err instanceof UnauthorizedException) {
+      return 'invalid_token';
+    }
+    return 'auth_failed';
   }
 
   @ApiBearerAuth()

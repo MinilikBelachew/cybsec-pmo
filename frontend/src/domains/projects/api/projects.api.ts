@@ -19,10 +19,16 @@ import {
   type CreateProjectTeamResult,
   type GetTaskAssigneeAvailabilityParams,
   type TaskAssigneeAvailability,
+  type ProjectPortfolioStats,
 } from "../types/projects.types";
 
 export const projectsApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    getPortfolioStats: builder.query<ProjectPortfolioStats, void>({
+      query: () => "/projects/portfolio-stats",
+      providesTags: [{ type: "PortfolioStats", id: "SUMMARY" }],
+    }),
+
     getProjects: builder.query<PaginatedProjectsResponse, GetProjectsParams>({
       query: (params) => {
         const queryParams = new URLSearchParams();
@@ -31,6 +37,8 @@ export const projectsApi = api.injectEndpoints({
         if (params.search) queryParams.append("search", params.search);
         if (params.status) queryParams.append("status", params.status);
         if (params.priority) queryParams.append("priority", params.priority);
+        if (params.sortBy) queryParams.append("sortBy", params.sortBy);
+        if (params.sortOrder) queryParams.append("sortOrder", params.sortOrder);
         return `/projects?${queryParams.toString()}`;
       },
       providesTags: (result) =>
@@ -83,7 +91,10 @@ export const projectsApi = api.injectEndpoints({
         method: "POST",
         body,
       }),
-      invalidatesTags: [{ type: "Projects", id: "LIST" }],
+      invalidatesTags: [
+        { type: "Projects", id: "LIST" },
+        { type: "PortfolioStats", id: "SUMMARY" },
+      ],
     }),
 
     createProjectBundle: builder.mutation<Project, CreateProjectBundleDto>({
@@ -96,12 +107,16 @@ export const projectsApi = api.injectEndpoints({
         result
           ? [
               { type: "Projects", id: "LIST" },
+              { type: "PortfolioStats", id: "SUMMARY" },
               { type: "ProjectTeam", id: result.id },
               { type: "ProjectTeam", id: `assignees-${result.id}` },
               { type: "ProjectTeam", id: "CANDIDATES" },
               { type: "Milestones", id: result.id },
             ]
-          : [{ type: "Projects", id: "LIST" }],
+          : [
+              { type: "Projects", id: "LIST" },
+              { type: "PortfolioStats", id: "SUMMARY" },
+            ],
     }),
 
     updateProject: builder.mutation<Project, { id: string; body: Partial<CreateProjectDto> }>({
@@ -113,6 +128,7 @@ export const projectsApi = api.injectEndpoints({
       invalidatesTags: (result, error, { id }) => [
         { type: "Projects", id },
         { type: "Projects", id: "LIST" },
+        { type: "PortfolioStats", id: "SUMMARY" },
       ],
     }),
 
@@ -121,7 +137,10 @@ export const projectsApi = api.injectEndpoints({
         url: `/projects/${id}`,
         method: "DELETE",
       }),
-      invalidatesTags: [{ type: "Projects", id: "LIST" }],
+      invalidatesTags: [
+        { type: "Projects", id: "LIST" },
+        { type: "PortfolioStats", id: "SUMMARY" },
+      ],
     }),
 
     getPhases: builder.query<ProjectPhase[], string>({
@@ -315,6 +334,7 @@ export const projectsApi = api.injectEndpoints({
 });
 
 export const {
+  useGetPortfolioStatsQuery,
   useGetProjectsQuery,
   useLazyExportProjectsQuery,
   useExportProjectsQuery,

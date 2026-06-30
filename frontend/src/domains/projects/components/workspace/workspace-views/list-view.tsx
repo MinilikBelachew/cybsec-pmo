@@ -175,7 +175,7 @@ export function ListView({
         type="button"
         onClick={() => onTaskClick?.(task.id)}
         className={cn(
-          "flex-1 text-sm min-w-0 truncate text-left hover:text-purple-600 dark:hover:text-purple-400 transition-colors",
+          "flex-1 text-sm min-w-0 truncate text-left hover:text-primary transition-colors",
           task.done ? "line-through text-muted-foreground" : "text-foreground"
         )}
       >
@@ -283,7 +283,7 @@ export function ListView({
             type="checkbox"
             checked={groupByPhase}
             onChange={(e) => setGroupByPhase(e.target.checked)}
-            className="rounded border-slate-300 dark:border-white/10 accent-purple-600 focus:ring-purple-500"
+            className="rounded border-slate-300 dark:border-white/10 accent-primary focus:ring-primary"
           />
           Group by Phase
         </label>

@@ -31,12 +31,37 @@ const DEP_TYPES: { value: TaskDependencyType; label: string }[] = [
   { value: "SF", label: "SF — Start to Finish" },
 ];
 
+export interface DraftDependencyAdd {
+  clientId: string;
+  predecessorId: string;
+  successorId: string;
+  depType: TaskDependencyType;
+  lagDays: number;
+}
+
 interface TaskDependenciesSectionProps {
   task: Task;
   onUpdated?: () => void;
+  mode?: "immediate" | "draft";
+  draftAdds?: DraftDependencyAdd[];
+  onDraftAddsChange?: (adds: DraftDependencyAdd[]) => void;
+  pendingRemoves?: string[];
+  onPendingRemovesChange?: (ids: string[]) => void;
 }
 
-export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSectionProps) {
+function draftDependencyId() {
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function TaskDependenciesSection({
+  task,
+  onUpdated,
+  mode = "immediate",
+  draftAdds = [],
+  onDraftAddsChange,
+  pendingRemoves = [],
+  onPendingRemovesChange,
+}: TaskDependenciesSectionProps) {
   const ability = useAppAbility();
   const canEdit = ability?.can("update", "Project") ?? false;
 
@@ -51,7 +76,7 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
   );
 
   const { data: tasksPage } = useGetTasksQuery(
-    { projectId: task.projectId, limit: 50, page: 1, topLevelOnly: true },
+    { projectId: task.projectId, limit: 100, page: 1 },
     { skip: !task.projectId },
   );
 
@@ -73,8 +98,120 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
     [dependencies, task.id],
   );
 
+  const linkedPredecessorIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const dep of predecessors) {
+      if (!pendingRemoves.includes(dep.id)) {
+        ids.add(dep.predecessorId);
+      }
+    }
+    for (const dep of draftAdds) {
+      if (dep.successorId === task.id) {
+        ids.add(dep.predecessorId);
+      }
+    }
+    return ids;
+  }, [predecessors, pendingRemoves, draftAdds, task.id]);
+
+  const linkedSuccessorIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const dep of successors) {
+      if (!pendingRemoves.includes(dep.id)) {
+        ids.add(dep.successorId);
+      }
+    }
+    for (const dep of draftAdds) {
+      if (dep.predecessorId === task.id) {
+        ids.add(dep.successorId);
+      }
+    }
+    return ids;
+  }, [successors, pendingRemoves, draftAdds, task.id]);
+
+  const availablePredecessors = useMemo(
+    () => projectTasks.filter((row) => !linkedPredecessorIds.has(row.id)),
+    [projectTasks, linkedPredecessorIds],
+  );
+
+  const availableSuccessors = useMemo(
+    () => projectTasks.filter((row) => !linkedSuccessorIds.has(row.id)),
+    [projectTasks, linkedSuccessorIds],
+  );
+
+  const taskTitleById = useMemo(() => {
+    const map = new Map(projectTasks.map((row) => [row.id, row.title]));
+    for (const dep of dependencies) {
+      map.set(dep.predecessor.id, dep.predecessor.title);
+      map.set(dep.successor.id, dep.successor.title);
+    }
+    map.set(task.id, task.title);
+    return map;
+  }, [projectTasks, dependencies, task.id, task.title]);
+
+  function taskPickLabel(taskId: string) {
+    return taskTitleById.get(taskId) ?? "Select task…";
+  }
+
+  const predecessorItems = useMemo(() => {
+    const existing = predecessors
+      .filter((dep) => !pendingRemoves.includes(dep.id))
+      .map((dep) => ({
+        id: dep.id,
+        label: dep.predecessor.title,
+        meta: `${dep.depType}${dep.lagDays ? ` +${dep.lagDays}d` : ""}`,
+      }));
+    const draft = draftAdds
+      .filter((dep) => dep.successorId === task.id)
+      .map((dep) => ({
+        id: dep.clientId,
+        label: taskTitleById.get(dep.predecessorId) ?? "Task",
+        meta: `${dep.depType}${dep.lagDays ? ` +${dep.lagDays}d` : ""} · draft`,
+        isDraft: true,
+      }));
+    return [...existing, ...draft];
+  }, [predecessors, pendingRemoves, draftAdds, task.id, taskTitleById]);
+
+  const successorItems = useMemo(() => {
+    const existing = successors
+      .filter((dep) => !pendingRemoves.includes(dep.id))
+      .map((dep) => ({
+        id: dep.id,
+        label: dep.successor.title,
+        meta: `${dep.depType}${dep.lagDays ? ` +${dep.lagDays}d` : ""}`,
+      }));
+    const draft = draftAdds
+      .filter((dep) => dep.predecessorId === task.id)
+      .map((dep) => ({
+        id: dep.clientId,
+        label: taskTitleById.get(dep.successorId) ?? "Task",
+        meta: `${dep.depType}${dep.lagDays ? ` +${dep.lagDays}d` : ""} · draft`,
+        isDraft: true,
+      }));
+    return [...existing, ...draft];
+  }, [successors, pendingRemoves, draftAdds, task.id, taskTitleById]);
+
   async function handleAddPredecessor() {
     if (!predecessorPick) return;
+
+    if (linkedPredecessorIds.has(predecessorPick)) {
+      toast.error("That predecessor is already linked.");
+      return;
+    }
+
+    if (mode === "draft") {
+      onDraftAddsChange?.([
+        ...draftAdds,
+        {
+          clientId: draftDependencyId(),
+          predecessorId: predecessorPick,
+          successorId: task.id,
+          depType,
+          lagDays: Number(lagDays) || 0,
+        },
+      ]);
+      setPredecessorPick("");
+      return;
+    }
 
     try {
       await createDependency({
@@ -100,6 +237,26 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
   async function handleAddSuccessor() {
     if (!successorPick) return;
 
+    if (linkedSuccessorIds.has(successorPick)) {
+      toast.error("That successor is already linked.");
+      return;
+    }
+
+    if (mode === "draft") {
+      onDraftAddsChange?.([
+        ...draftAdds,
+        {
+          clientId: draftDependencyId(),
+          predecessorId: task.id,
+          successorId: successorPick,
+          depType,
+          lagDays: Number(lagDays) || 0,
+        },
+      ]);
+      setSuccessorPick("");
+      return;
+    }
+
     try {
       await createDependency({
         predecessorId: task.id,
@@ -121,7 +278,21 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
     }
   }
 
-  async function handleRemove(dependency: TaskDependency) {
+  function handleRemove(dependencyId: string, isDraft?: boolean) {
+    if (mode === "draft") {
+      if (isDraft) {
+        onDraftAddsChange?.(draftAdds.filter((dep) => dep.clientId !== dependencyId));
+        return;
+      }
+      onPendingRemovesChange?.([...pendingRemoves, dependencyId]);
+      return;
+    }
+
+    const dep = [...predecessors, ...successors].find((row) => row.id === dependencyId);
+    if (dep) void handleRemoveImmediate(dep);
+  }
+
+  async function handleRemoveImmediate(dependency: TaskDependency) {
     try {
       await deleteDependency(dependency.id).unwrap();
       toast.success("Dependency removed.");
@@ -153,33 +324,19 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
           <DependencyList
             title="Predecessors (must happen before this task)"
             emptyLabel="No predecessors"
-            items={predecessors.map((dep) => ({
-              id: dep.id,
-              label: dep.predecessor.title,
-              meta: `${dep.depType}${dep.lagDays ? ` +${dep.lagDays}d` : ""}`,
-            }))}
+            items={predecessorItems}
             canEdit={canEdit}
             isDeleting={isDeleting}
-            onRemove={(id) => {
-              const dep = predecessors.find((row) => row.id === id);
-              if (dep) void handleRemove(dep);
-            }}
+            onRemove={(id, isDraft) => handleRemove(id, isDraft)}
           />
 
           <DependencyList
             title="Successors (blocked by this task)"
             emptyLabel="No successors"
-            items={successors.map((dep) => ({
-              id: dep.id,
-              label: dep.successor.title,
-              meta: `${dep.depType}${dep.lagDays ? ` +${dep.lagDays}d` : ""}`,
-            }))}
+            items={successorItems}
             canEdit={canEdit}
             isDeleting={isDeleting}
-            onRemove={(id) => {
-              const dep = successors.find((row) => row.id === id);
-              if (dep) void handleRemove(dep);
-            }}
+            onRemove={(id, isDraft) => handleRemove(id, isDraft)}
           />
         </>
       )}
@@ -223,11 +380,13 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
                 onValueChange={(v) => setPredecessorPick(v === "none" ? "" : (v ?? ""))}
               >
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select task…" />
+                  <SelectValue placeholder="Select task…">
+                    {predecessorPick ? taskPickLabel(predecessorPick) : null}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Select task…</SelectItem>
-                  {projectTasks.map((row) => (
+                  {availablePredecessors.map((row) => (
                     <SelectItem key={row.id} value={row.id}>
                       {row.title}
                     </SelectItem>
@@ -240,11 +399,13 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
                 type="button"
                 variant="outline"
                 className="h-9 w-full lg:w-auto"
-                disabled={!predecessorPick || isCreating}
+                disabled={!predecessorPick || (mode === "immediate" && isCreating)}
                 onClick={() => void handleAddPredecessor()}
               >
-                {isCreating && <Loader2 className="mr-1 size-3.5 animate-spin" />}
-                Link predecessor
+                {mode === "immediate" && isCreating && (
+                  <Loader2 className="mr-1 size-3.5 animate-spin" />
+                )}
+                {mode === "draft" ? "Add to list" : "Link predecessor"}
               </Button>
             </div>
           </div>
@@ -257,11 +418,13 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
                 onValueChange={(v) => setSuccessorPick(v === "none" ? "" : (v ?? ""))}
               >
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select task…" />
+                  <SelectValue placeholder="Select task…">
+                    {successorPick ? taskPickLabel(successorPick) : null}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Select task…</SelectItem>
-                  {projectTasks.map((row) => (
+                  {availableSuccessors.map((row) => (
                     <SelectItem key={row.id} value={row.id}>
                       {row.title}
                     </SelectItem>
@@ -274,11 +437,13 @@ export function TaskDependenciesSection({ task, onUpdated }: TaskDependenciesSec
                 type="button"
                 variant="outline"
                 className="h-9 w-full lg:w-auto"
-                disabled={!successorPick || isCreating}
+                disabled={!successorPick || (mode === "immediate" && isCreating)}
                 onClick={() => void handleAddSuccessor()}
               >
-                {isCreating && <Loader2 className="mr-1 size-3.5 animate-spin" />}
-                Link successor
+                {mode === "immediate" && isCreating && (
+                  <Loader2 className="mr-1 size-3.5 animate-spin" />
+                )}
+                {mode === "draft" ? "Add to list" : "Link successor"}
               </Button>
             </div>
           </div>
@@ -298,10 +463,10 @@ function DependencyList({
 }: {
   title: string;
   emptyLabel: string;
-  items: Array<{ id: string; label: string; meta: string }>;
+  items: Array<{ id: string; label: string; meta: string; isDraft?: boolean }>;
   canEdit: boolean;
   isDeleting: boolean;
-  onRemove: (id: string) => void;
+  onRemove: (id: string, isDraft?: boolean) => void;
 }) {
   return (
     <div className="space-y-2">
@@ -322,7 +487,7 @@ function DependencyList({
               <button
                 type="button"
                 disabled={isDeleting}
-                onClick={() => onRemove(item.id)}
+                onClick={() => onRemove(item.id, item.isDraft)}
                 className="text-muted-foreground hover:text-destructive"
                 aria-label="Remove dependency"
               >

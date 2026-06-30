@@ -247,11 +247,11 @@ export function SidebarNav() {
                       className={cn(
                         "group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[13px] transition-all duration-150 whitespace-nowrap",
                         active
-                          ? "bg-primary/10 text-primary font-semibold"
+                          ? "bg-muted text-foreground font-semibold"
                           : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                       )}
                     >
-                      <Icon className="size-3.5 shrink-0" />
+                      <Icon className={cn("size-3.5 shrink-0", active ? "text-primary" : "")} />
                       <span className="flex-1 truncate text-[13px] whitespace-nowrap">{item.label}</span>
                       <button
                         onClick={(e) => togglePin(item.id, e)}
@@ -279,11 +279,11 @@ export function SidebarNav() {
                     className={cn(
                       "flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-semibold transition-all duration-150 whitespace-nowrap",
                       sectionActive
-                        ? "bg-primary/10 text-primary"
+                        ? "bg-muted text-foreground"
                         : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                     )}
                   >
-                    <Icon className="size-4 shrink-0" />
+                    <Icon className={cn("size-4 shrink-0", sectionActive ? "text-primary" : "")} />
                     <span className="truncate whitespace-nowrap">{section.label}</span>
                   </Link>
                 );
@@ -300,11 +300,11 @@ export function SidebarNav() {
                     className={cn(
                       "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-bold transition-all duration-150 text-left whitespace-nowrap",
                       hasActiveChild
-                        ? "text-primary"
+                        ? "text-foreground"
                         : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                     )}
                   >
-                    <Icon className="size-4 shrink-0" />
+                    <Icon className={cn("size-4 shrink-0", hasActiveChild ? "text-primary" : "")} />
                     <span className="flex-1 truncate whitespace-nowrap">{section.label}</span>
                     <ChevronDown className={cn("size-3.5 shrink-0 transition-transform duration-200", isOpen && "rotate-180")} />
                   </button>
@@ -323,11 +323,11 @@ export function SidebarNav() {
                             className={cn(
                               "group flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150 whitespace-nowrap",
                               childActive
-                                ? "bg-primary/10 text-primary font-semibold"
+                                ? "bg-muted text-foreground font-semibold"
                                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                             )}
                           >
-                            <CIcon className="size-3.5 shrink-0" />
+                            <CIcon className={cn("size-3.5 shrink-0", childActive ? "text-primary" : "")} />
                             <span className="flex-1 truncate whitespace-nowrap">{child.label}</span>
                             <button
                               onClick={(e) => togglePin(child.id, e)}

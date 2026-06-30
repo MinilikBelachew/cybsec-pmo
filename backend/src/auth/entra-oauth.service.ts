@@ -122,7 +122,9 @@ export class EntraOauthService {
 
     if (!response.ok || !tokenResponse.id_token) {
       throw new UnauthorizedException(
-        tokenResponse.error_description || 'Microsoft token exchange failed',
+        tokenResponse.error_description ||
+          tokenResponse.error ||
+          'Microsoft token exchange failed',
       );
     }
 

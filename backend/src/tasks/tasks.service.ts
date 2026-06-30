@@ -15,12 +15,13 @@ import { QueryTaskDto } from './dto/query-task.dto';
 import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
 import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
 import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
+import { UpdateTaskBundleDto } from './dto/update-task-bundle.dto';
 import { FilesUploadService, UploadedFileResult } from '../files/files-upload.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { ProjectTeamService } from '../projects/project-team.service';
 import { TaskDependenciesService } from './task-dependencies.service';
-import { TaskStatus, PriorityLevel } from '@prisma/client';
+import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
 
 const EXTERNAL_ROLES = [RoleEnum.client, RoleEnum.vendor];
@@ -469,6 +470,254 @@ export class TasksService {
     });
   }
 
+  async updateBundle(
+    id: string,
+    dto: UpdateTaskBundleDto,
+    files: Express.Multer.File[],
+    actorId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    const existing = await this.prisma.task.findFirst({
+      where: {
+        AND: [{ id }, this.recordScopeWhere.taskWhere(caslUser, 'update')],
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { task: 'taskNotFound' },
+      });
+    }
+
+    const comments = dto.comments ?? [];
+    for (const comment of comments) {
+      const isInternal = comment.isInternal ?? true;
+      if (this.isExternalRole(viewerRoleCode) && isInternal) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { isInternal: 'externalUsersCannotPostInternalComments' },
+        });
+      }
+    }
+
+    const subTasks = existing.parentTaskId ? [] : (dto.subTasks ?? []);
+    const removeAttachmentIds = dto.removeAttachmentIds ?? [];
+    const addDependencies = dto.addDependencies ?? [];
+    const removeDependencyIds = dto.removeDependencyIds ?? [];
+
+    await this.taskDependenciesService.validateBundleChanges(
+      addDependencies,
+      removeDependencyIds,
+      caslUser,
+      ability,
+    );
+
+    const projectId = dto.projectId ?? existing.projectId;
+    const ownerId = dto.ownerId !== undefined ? dto.ownerId : existing.ownerId;
+    const parentTaskId =
+      dto.parentTaskId !== undefined ? dto.parentTaskId : existing.parentTaskId;
+    const phaseId = dto.phaseId !== undefined ? dto.phaseId : existing.phaseId;
+
+    if (dto.projectId || dto.ownerId !== undefined || dto.parentTaskId !== undefined || dto.phaseId !== undefined) {
+      await this.validateReferences(projectId, ownerId, parentTaskId, phaseId);
+    }
+
+    if (dto.status) {
+      const nextStatus = this.mapStatusToPrisma(dto.status);
+      this.validateStatusTransitionByRole(
+        existing.status,
+        nextStatus,
+        actorId,
+        ownerId,
+        ability,
+      );
+    }
+
+    const uploadedFiles: UploadedFileResult[] = [];
+    for (const file of files) {
+      uploadedFiles.push(await this.filesUploadService.upload(file));
+    }
+
+    const impactedSuccessorIds = new Set<string>();
+
+    const resolvedPhaseId =
+      dto.phaseId !== undefined ? dto.phaseId : existing.phaseId;
+    const resolvedStartDate =
+      dto.startDate !== undefined ? dto.startDate : existing.startDate;
+    const resolvedEndDate =
+      dto.endDate !== undefined ? dto.endDate : existing.endDate;
+
+    const task = await this.prisma.$transaction(async (tx) => {
+      await tx.task.update({
+        where: { id },
+        data: {
+          title: dto.title ?? undefined,
+          description: dto.description ?? undefined,
+          priority: (dto.priority as PriorityLevel) ?? undefined,
+          ownerId: dto.ownerId !== undefined ? dto.ownerId : undefined,
+          phaseId: dto.phaseId !== undefined ? dto.phaseId : undefined,
+          startDate: dto.startDate !== undefined ? dto.startDate : undefined,
+          endDate: dto.endDate !== undefined ? dto.endDate : undefined,
+          effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
+          status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
+        },
+      });
+
+      for (const sub of subTasks) {
+        await tx.task.create({
+          data: {
+            projectId: existing.projectId,
+            parentTaskId: id,
+            phaseId: resolvedPhaseId,
+            title: sub.title,
+            description: sub.description ?? null,
+            priority: PriorityLevel.Medium,
+            status: TaskStatus.To_Do,
+            startDate: resolvedStartDate,
+            endDate: resolvedEndDate,
+          },
+        });
+      }
+
+      for (const comment of comments) {
+        await tx.taskComment.create({
+          data: {
+            taskId: id,
+            authorId: actorId,
+            body: comment.body.trim(),
+            isInternal: comment.isInternal ?? true,
+          },
+        });
+      }
+
+      if (removeAttachmentIds.length) {
+        await tx.taskAttachment.deleteMany({
+          where: { id: { in: removeAttachmentIds }, taskId: id },
+        });
+      }
+
+      for (const uploaded of uploadedFiles) {
+        await tx.taskAttachment.create({
+          data: {
+            taskId: id,
+            uploadedBy: actorId,
+            s3Key: uploaded.storageKey,
+            filename: uploaded.filename,
+            mimeType: uploaded.mimeType ?? null,
+            sizeBytes: uploaded.sizeBytes != null ? BigInt(uploaded.sizeBytes) : null,
+          },
+        });
+      }
+
+      if (removeDependencyIds.length) {
+        const deps = await tx.taskDependency.findMany({
+          where: {
+            id: { in: removeDependencyIds },
+            OR: [{ predecessorId: id }, { successorId: id }],
+          },
+        });
+        for (const dep of deps) {
+          impactedSuccessorIds.add(dep.successorId);
+        }
+        await tx.taskDependency.deleteMany({
+          where: { id: { in: deps.map((dep) => dep.id) } },
+        });
+      }
+
+      const uniqueAdds = new Map<
+        string,
+        (typeof addDependencies)[number]
+      >();
+      for (const dep of addDependencies) {
+        uniqueAdds.set(`${dep.predecessorId}:${dep.successorId}`, dep);
+      }
+
+      for (const dep of uniqueAdds.values()) {
+        const depType = dep.depType ?? 'FS';
+        const lagDays = dep.lagDays ?? 0;
+        const existingDep = await tx.taskDependency.findUnique({
+          where: {
+            predecessorId_successorId: {
+              predecessorId: dep.predecessorId,
+              successorId: dep.successorId,
+            },
+          },
+        });
+
+        if (existingDep) {
+          if (
+            existingDep.depType !== depType ||
+            existingDep.lagDays !== lagDays
+          ) {
+            await tx.taskDependency.update({
+              where: { id: existingDep.id },
+              data: { depType, lagDays },
+            });
+          }
+        } else {
+          await tx.taskDependency.create({
+            data: {
+              predecessorId: dep.predecessorId,
+              successorId: dep.successorId,
+              depType,
+              lagDays,
+            },
+          });
+        }
+        impactedSuccessorIds.add(dep.successorId);
+      }
+
+      return tx.task.findFirst({
+        where: { id },
+        include: TASK_INCLUDE,
+      });
+    });
+
+    if (!task) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { task: 'taskUpdateFailed' },
+      });
+    }
+
+    await this.dispatchTaskUpdateNotifications(existing, task, actorId);
+
+    const startChanged =
+      dto.startDate !== undefined &&
+      (existing.startDate?.getTime() ?? null) !== (task.startDate?.getTime() ?? null);
+    const endChanged =
+      dto.endDate !== undefined &&
+      (existing.endDate?.getTime() ?? null) !== (task.endDate?.getTime() ?? null);
+
+    if (startChanged || endChanged) {
+      await this.taskDependenciesService.recalculateFromTaskDateChange(
+        task.projectId,
+        task.id,
+        actorId,
+        task.title,
+      );
+    } else if (impactedSuccessorIds.size > 0) {
+      await this.taskDependenciesService.recalculateFromTaskDateChange(
+        task.projectId,
+        Array.from(impactedSuccessorIds)[0],
+        actorId,
+        task.title,
+      );
+    }
+
+    return this.withAvailabilityWarnings(this.formatTask(task, viewerRoleCode), {
+      projectId: task.projectId,
+      ownerId: task.ownerId,
+      startDate: task.startDate,
+      endDate: task.endDate,
+      effortHours: task.effortHours != null ? Number(task.effortHours) : null,
+      excludeTaskId: task.id,
+    });
+  }
+
   async findManyWithPagination(
     query: QueryTaskDto,
     caslUser: CaslUserContext,
@@ -477,40 +726,7 @@ export class TasksService {
   ) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
-    const filters: Record<string, unknown>[] = [
-      this.recordScopeWhere.taskWhere(caslUser, 'read'),
-    ];
-
-    if (query.projectId) {
-      filters.push({ projectId: query.projectId });
-    }
-    if (query.ownerId) {
-      filters.push({ ownerId: query.ownerId });
-    }
-    if (query.status) {
-      filters.push({ status: this.mapStatusToPrisma(query.status) });
-    }
-    if (query.priority) {
-      filters.push({ priority: query.priority });
-    }
-    if (query.parentTaskId) {
-      filters.push({ parentTaskId: query.parentTaskId });
-    } else if (query.topLevelOnly !== false) {
-      filters.push({ parentTaskId: null });
-    }
-    if (query.phaseId) {
-      filters.push({ phaseId: query.phaseId });
-    }
-    if (query.search) {
-      filters.push({
-        OR: [
-          { title: { contains: query.search, mode: 'insensitive' } },
-          { description: { contains: query.search, mode: 'insensitive' } },
-        ],
-      });
-    }
-
-    const where = { AND: filters };
+    const where = this.buildTaskListWhere(query, caslUser);
 
     const tasks = await this.prisma.task.findMany({
       where,
@@ -523,13 +739,64 @@ export class TasksService {
     return tasks.map((task) => this.formatTask(task, viewerRoleCode));
   }
 
-  async findManyForExport(
+  async countMany(query: QueryTaskDto, caslUser: CaslUserContext) {
+    return this.prisma.task.count({
+      where: this.buildTaskListWhere(query, caslUser),
+    });
+  }
+
+  async getActiveTaskStats(caslUser: CaslUserContext) {
+    const baseWhere: Prisma.TaskWhereInput = {
+      AND: [
+        this.recordScopeWhere.taskWhere(caslUser, 'read'),
+        { parentTaskId: null },
+      ],
+    };
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const [statusGroups, overdue] = await Promise.all([
+      this.prisma.task.groupBy({
+        by: ['status'],
+        where: baseWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.task.count({
+        where: {
+          AND: [
+            baseWhere,
+            {
+              endDate: { lt: endOfToday },
+              status: { notIn: [TaskStatus.Done, TaskStatus.Approved] },
+            },
+          ],
+        },
+      }),
+    ]);
+
+    const byStatus = new Map(
+      statusGroups.map((group) => [group.status, group._count._all]),
+    );
+
+    const todo = byStatus.get(TaskStatus.To_Do) ?? 0;
+    const inProgress =
+      (byStatus.get(TaskStatus.In_Progress) ?? 0) +
+      (byStatus.get(TaskStatus.Submitted_for_Review) ?? 0);
+    const rework = byStatus.get(TaskStatus.Rework) ?? 0;
+    const done =
+      (byStatus.get(TaskStatus.Done) ?? 0) +
+      (byStatus.get(TaskStatus.Approved) ?? 0);
+    const total = statusGroups.reduce((sum, group) => sum + group._count._all, 0);
+
+    return { total, todo, inProgress, rework, done, overdue };
+  }
+
+  private buildTaskListWhere(
     query: QueryTaskDto,
     caslUser: CaslUserContext,
-    ability: AppAbility,
-    viewerRoleCode?: string,
-  ) {
-    const filters: Record<string, unknown>[] = [
+  ): Prisma.TaskWhereInput {
+    const filters: Prisma.TaskWhereInput[] = [
       this.recordScopeWhere.taskWhere(caslUser, 'read'),
     ];
 
@@ -562,7 +829,16 @@ export class TasksService {
       });
     }
 
-    const where = { AND: filters };
+    return { AND: filters };
+  }
+
+  async findManyForExport(
+    query: QueryTaskDto,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    const where = this.buildTaskListWhere(query, caslUser);
 
     const tasks = await this.prisma.task.findMany({
       where,

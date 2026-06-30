@@ -13,6 +13,7 @@ export * from "./components/tasks/task-progress-section";
 export * from "./components/tasks/progress-review-inbox";
 export * from "./components/tasks/task-dependencies-section";
 export * from "./components/workspace/project-workspace";
+export { GanttView } from "./components/workspace/workspace-views/gantt-view";
 export * from "./components/list/projects-list";
 export * from "./components/list/create-project-sheet";
 export * from "./components/tasks/task-detail-panel";

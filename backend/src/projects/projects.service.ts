@@ -9,12 +9,12 @@ import { AppAbility, CaslAction, CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { QueryProjectDto } from './dto/query-project.dto';
+import { QueryProjectDto, type ProjectSortField } from './dto/query-project.dto';
 import { CreatePhaseDto } from './dto/create-phase.dto';
 import { UpdatePhaseDto } from './dto/update-phase.dto';
 import { CreateMilestoneDto } from './dto/create-milestone.dto';
 import { UpdateMilestoneDto } from './dto/update-milestone.dto';
-import { ProjectStatus, TaskStatus, PhaseStatus } from '@prisma/client';
+import { ProjectStatus, TaskStatus, PhaseStatus, Prisma } from '@prisma/client';
 import {
   ApiMethodology,
   ApiPriorityLevel,
@@ -39,6 +39,31 @@ const PROJECT_INCLUDE = {
 } as const;
 
 const PM_ROLE_CODES = [RoleEnum.pm, RoleEnum.pmo_lead];
+
+function buildProjectOrderBy(
+  sortBy?: ProjectSortField,
+  sortOrder: 'asc' | 'desc' = 'desc',
+): Prisma.ProjectOrderByWithRelationInput {
+  switch (sortBy) {
+    case 'name':
+      return { name: sortOrder };
+    case 'priority':
+      return { priority: sortOrder };
+    case 'status':
+      return { status: sortOrder };
+    case 'startDate':
+      return { startDate: sortOrder };
+    case 'endDate':
+      return { endDate: sortOrder };
+    case 'value':
+      return { value: sortOrder };
+    case 'primaryPm':
+      return { primaryPm: { displayName: sortOrder } };
+    case 'createdAt':
+    default:
+      return { createdAt: sortOrder };
+  }
+}
 
 @Injectable()
 export class ProjectsService {
@@ -133,13 +158,14 @@ export class ProjectsService {
     }
 
     const where = { AND: filters };
+    const orderBy = buildProjectOrderBy(query.sortBy, query.sortOrder ?? 'desc');
 
-    const [projects, statusGroups] = await Promise.all([
+    const [projects, total, portfolioStats] = await Promise.all([
       this.prisma.project.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           ...PROJECT_INCLUDE,
           _count: {
@@ -151,11 +177,8 @@ export class ProjectsService {
           },
         },
       }),
-      this.prisma.project.groupBy({
-        by: ['status'],
-        where: scopeWhere,
-        _count: { _all: true },
-      }),
+      this.prisma.project.count({ where }),
+      this.getPortfolioStats(caslUser),
     ]);
 
     const projectIds = projects.map((project) => project.id);
@@ -230,15 +253,13 @@ export class ProjectsService {
       return fromEmployee > 0 ? fromEmployee : fromLineItems;
     };
 
-    const statusCount = (status: ProjectStatus) =>
-      statusGroups.find((group) => group.status === status)?._count._all ?? 0;
-
     const stats = {
-      total: statusGroups.reduce((sum, group) => sum + group._count._all, 0),
-      active: statusCount(ProjectStatus.Active),
-      atRisk: statusCount(ProjectStatus.Pending_Closure),
-      delayed: statusCount(ProjectStatus.On_Hold),
-      completed: statusCount(ProjectStatus.Closed),
+      total: portfolioStats.total,
+      active: portfolioStats.active,
+      atRisk: portfolioStats.atRisk,
+      delayed: portfolioStats.delayed,
+      completed: portfolioStats.completed,
+      totalValue: portfolioStats.totalValue,
     };
 
     const data = projects.map((project) => {
@@ -264,7 +285,36 @@ export class ProjectsService {
       };
     });
 
-    return { data, stats, page, limit };
+    return { data, stats, page, limit, total };
+  }
+
+  async getPortfolioStats(caslUser: CaslUserContext) {
+    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+
+    const [statusGroups, valueAgg] = await Promise.all([
+      this.prisma.project.groupBy({
+        by: ['status'],
+        where: scopeWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.project.aggregate({
+        where: scopeWhere,
+        _sum: { value: true },
+      }),
+    ]);
+
+    const byStatus = new Map(
+      statusGroups.map((group) => [group.status, group._count._all]),
+    );
+
+    return {
+      total: statusGroups.reduce((sum, group) => sum + group._count._all, 0),
+      active: byStatus.get(ProjectStatus.Active) ?? 0,
+      atRisk: byStatus.get(ProjectStatus.Pending_Closure) ?? 0,
+      delayed: byStatus.get(ProjectStatus.On_Hold) ?? 0,
+      completed: byStatus.get(ProjectStatus.Closed) ?? 0,
+      totalValue: Number(valueAgg._sum.value ?? 0),
+    };
   }
 
   async findManyForExport(

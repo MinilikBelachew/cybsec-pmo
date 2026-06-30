@@ -42,8 +42,9 @@ export function AuthCallbackPage() {
 
   return (
     <div className="space-y-2 text-center">
-      <h1 className="text-2xl font-semibold text-white">Signing you in</h1>
-      <p className="text-sm text-white/60">{message}</p>
+      <h1 className="text-2xl font-semibold text-foreground">Signing you in</h1>
+      <p className="text-sm text-muted-foreground">{message}</p>
     </div>
   );
 }
+
