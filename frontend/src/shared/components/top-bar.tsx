@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { usePathname, useRouter } from "@/i18n/routing";
 import { useAuth } from "@/domains/auth";
 import { ROLE_CATALOG } from "@/config/roles.config";
-import { ThemeToggle } from "./theme-toggle";
+import { NotificationBell } from "@/shared/components/notification-bell";
+import { CustomizeModal } from "@/shared/components/customize-modal";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
 import {
@@ -41,12 +42,12 @@ import {
   Download,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
-import { NotificationBell } from "@/shared/components/notification-bell";
 
 export function TopBar() {
   const { user, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
   const currentRoleLabel =
     ROLE_CATALOG.find((r) => r.code === user?.backendRoleCode)?.label ??
@@ -119,8 +120,6 @@ export function TopBar() {
 
       {/* ── Right Actions ── */}
       <div className="flex items-center gap-2 flex-1 justify-end">
-        <ThemeToggle />
-
         <Badge variant="secondary" className="hidden md:inline-flex h-8 px-2.5 text-xs font-semibold">
           {currentRoleLabel}
         </Badge>
@@ -233,10 +232,25 @@ export function TopBar() {
                   <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
                   <span>Risk Register</span>
                 </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <p className="px-2.5 py-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                  Tools
+                </p>
+                <DropdownMenuItem
+                  onClick={() => setCustomizeOpen(true)}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted/50 cursor-pointer"
+                >
+                  <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>Themes</span>
+                </DropdownMenuItem>
               </div>
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <CustomizeModal open={customizeOpen} onClose={() => setCustomizeOpen(false)} />
       </div>
     </header>
   );
