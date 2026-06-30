@@ -594,7 +594,7 @@ export function TaskDetailPanel({
                   subTaskMode={hasParent ? "immediate" : "draft"}
                   draftSubTasks={draftSubTasks}
                   onDraftSubTasksChange={setDraftSubTasks}
-                  commentMode="draft"
+                  commentMode={initialTab === "comments" ? "immediate" : "draft"}
                   draftComments={draftComments}
                   onDraftCommentsChange={setDraftComments}
                   attachmentMode="draft"

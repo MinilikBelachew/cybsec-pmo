@@ -1,4 +1,5 @@
 import { api } from "@/core/api/api";
+import type { RootState } from "@/store";
 import type {
   AddTaskAttachmentPayload,
   AddTaskCommentPayload,
@@ -20,6 +21,19 @@ import type {
   TaskDependencyType,
   TaskActiveStats,
 } from "../types/tasks.types";
+
+type CachedQueryEntry = {
+  endpointName?: string;
+  originalArgs?: GetTasksParams;
+};
+
+function forEachGetTasksQuery(getState: () => unknown, fn: (args: GetTasksParams) => void) {
+  const queries = (getState() as RootState).api.queries as Record<string, CachedQueryEntry | undefined>;
+  for (const query of Object.values(queries)) {
+    if (query?.endpointName !== "getTasks" || !query.originalArgs) continue;
+    fn(query.originalArgs);
+  }
+}
 
 export const tasksApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -159,6 +173,48 @@ export const tasksApi = api.injectEndpoints({
         method: "PATCH",
         body,
       }),
+      async onQueryStarted({ id, body }, { dispatch, queryFulfilled, getState }) {
+        const patchResults: Array<{ undo: () => void }> = [];
+
+        const taskByIdState = tasksApi.endpoints.getTaskById.select(id)(getState());
+        if (taskByIdState?.data) {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTaskById", id, (draft) => {
+                Object.assign(draft, body);
+              }),
+            ),
+          );
+        }
+
+        forEachGetTasksQuery(getState, (args) => {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTasks", args, (draft) => {
+                const task = draft.data.find((item) => item.id === id);
+                if (task) Object.assign(task, body);
+              }),
+            ),
+          );
+        });
+
+        try {
+          const { data } = await queryFulfilled;
+          if (taskByIdState?.data) {
+            dispatch(tasksApi.util.updateQueryData("getTaskById", id, () => data));
+          }
+          forEachGetTasksQuery(getState, (args) => {
+            dispatch(
+              tasksApi.util.updateQueryData("getTasks", args, (draft) => {
+                const index = draft.data.findIndex((item) => item.id === id);
+                if (index !== -1) draft.data[index] = { ...draft.data[index], ...data };
+              }),
+            );
+          });
+        } catch {
+          patchResults.forEach((patch) => patch.undo());
+        }
+      },
       invalidatesTags: (result, error, { id, body }) => {
         const tags: Array<{ type: "Tasks" | "TaskDependencies"; id: string }> = [
           { type: "Tasks", id },
@@ -227,6 +283,85 @@ export const tasksApi = api.injectEndpoints({
         method: "POST",
         body: { body, isInternal },
       }),
+      async onQueryStarted({ taskId, body, isInternal = true }, { dispatch, queryFulfilled, getState }) {
+        const patchResults: Array<{ undo: () => void }> = [];
+        const commentsState = tasksApi.endpoints.getTaskComments.select(taskId)(getState());
+        const optimisticId = `optimistic-${Date.now()}`;
+
+        if (commentsState?.data) {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTaskComments", taskId, (draft) => {
+                draft.push({
+                  id: optimisticId,
+                  taskId,
+                  authorId: "",
+                  body,
+                  isInternal,
+                  createdAt: new Date().toISOString(),
+                  author: { id: "", displayName: "You", email: "" },
+                });
+              }),
+            ),
+          );
+        }
+
+        const taskByIdState = tasksApi.endpoints.getTaskById.select(taskId)(getState());
+        if (taskByIdState?.data) {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTaskById", taskId, (draft) => {
+                const next = {
+                  id: optimisticId,
+                  taskId,
+                  authorId: "",
+                  body,
+                  isInternal,
+                  createdAt: new Date().toISOString(),
+                  author: { id: "", displayName: "You", email: "" },
+                };
+                draft.comments = [...(draft.comments ?? []), next];
+              }),
+            ),
+          );
+        }
+
+        forEachGetTasksQuery(getState, (args) => {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTasks", args, (draft) => {
+                const task = draft.data.find((item) => item.id === taskId);
+                if (!task) return;
+                const next = {
+                  id: optimisticId,
+                  taskId,
+                  authorId: "",
+                  body,
+                  isInternal,
+                  createdAt: new Date().toISOString(),
+                  author: { id: "", displayName: "You", email: "" },
+                };
+                task.comments = [...(task.comments ?? []), next];
+              }),
+            ),
+          );
+        });
+
+        try {
+          const { data } = await queryFulfilled;
+          if (commentsState?.data) {
+            dispatch(
+              tasksApi.util.updateQueryData("getTaskComments", taskId, (draft) => {
+                const index = draft.findIndex((comment) => comment.id === optimisticId);
+                if (index !== -1) draft[index] = data;
+                else draft.push(data);
+              }),
+            );
+          }
+        } catch {
+          patchResults.forEach((patch) => patch.undo());
+        }
+      },
       invalidatesTags: (result, error, { taskId }) => [{ type: "Tasks", id: taskId }],
     }),
 

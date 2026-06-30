@@ -21,7 +21,7 @@ import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { useRole } from "@/shared/providers/role-provider";
-import { useAppAbility } from "@/domains/auth";
+import { useAppAbility, useAuth } from "@/domains/auth";
 import { cn } from "@/shared/utils/cn";
 import {
   DropdownMenu,
@@ -55,7 +55,7 @@ import { Badge } from "@/shared/ui/badge";
 
 // Import child views
 import { ListView } from "./workspace-views/list-view";
-import { BoardView } from "./workspace-views/board-view";
+import { BoardView, type BoardQuickCreatePayload } from "./workspace-views/board-view";
 import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
@@ -223,8 +223,12 @@ export function ProjectWorkspace() {
   const id = params.id as string;
 
   const { userRole } = useRole();
+  const { user } = useAuth();
   const ability = useAppAbility();
-  const canCreateTask = ability?.can("create", "Task") ?? false;
+  /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
+  const canManageTasks = ability?.can("create", "Task") ?? false;
+  const canCreateTask = canManageTasks;
+  const canAssignTask = canManageTasks;
   const canReviewProgress = ability?.can("approve", "Task") ?? false;
   const roleLabel = userRole ? userRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Guest";
   const phaseViewRef = useRef<PhaseViewRef>(null);
@@ -352,7 +356,7 @@ export function ProjectWorkspace() {
 
   const tasks = useMemo(
     () => mapTasksToGanttRows(tasksResponse?.data ?? []),
-    [tasksResponse],
+    [tasksResponse?.data],
   );
 
   const overallProgressPercent = useMemo(() => {
@@ -497,6 +501,68 @@ export function ProjectWorkspace() {
     } catch (err) {
       console.error("Failed to update due date:", err);
       toast.error("Failed to update due date");
+    }
+  };
+
+  const handleBoardQuickCreateTask = async (status: Status, payload: BoardQuickCreatePayload) => {
+    const phaseId = selectedPhaseIdForNewTask ?? phases[0]?.id;
+    if (!phaseId) {
+      toast.error("Add a project phase before creating tasks");
+      throw new Error("No phase available");
+    }
+
+    try {
+      await createTask({
+        projectId: id,
+        phaseId,
+        title: payload.title,
+        status,
+        priority: payload.priority,
+        ownerId: payload.ownerId ?? null,
+        startDate: payload.startDate,
+        endDate: payload.endDate,
+      }).unwrap();
+      toast.success("Task created");
+    } catch (err) {
+      console.error("Failed to create task:", err);
+      toast.error("Failed to create task");
+      throw err;
+    }
+  };
+
+  const handleRenameTask = async (taskId: string, title: string) => {
+    try {
+      await updateTask({ id: taskId, body: { title } }).unwrap();
+      toast.success("Task renamed");
+    } catch (err) {
+      console.error("Failed to rename task:", err);
+      toast.error("Failed to rename task");
+      throw err;
+    }
+  };
+
+  const handleAssignTask = async (taskId: string, ownerId: string | null) => {
+    try {
+      await updateTask({ id: taskId, body: { ownerId } }).unwrap();
+      toast.success(ownerId ? "Assignee updated" : "Task unassigned");
+    } catch (err) {
+      console.error("Failed to assign task:", err);
+      toast.error("Failed to update assignee");
+      throw err;
+    }
+  };
+
+  const handleUpdateTaskDates = async (
+    taskId: string,
+    dates: { startDate: string; endDate: string },
+  ) => {
+    try {
+      await updateTask({ id: taskId, body: dates }).unwrap();
+      toast.success("Dates updated");
+    } catch (err) {
+      console.error("Failed to update task dates:", err);
+      toast.error("Failed to update dates");
+      throw err;
     }
   };
 
@@ -791,15 +857,15 @@ export function ProjectWorkspace() {
             tasks={tasks}
             toggleTask={toggleTask}
             onTaskClick={openTaskDetail}
-            onAddTask={
-              canCreateTask
-                ? (status) => {
-                    setParentTaskId(null);
-                    setNewTaskStatus(status);
-                    setIsSheetOpen(true);
-                  }
-                : undefined
-            }
+            canApproveTask={canReviewProgress}
+            onCreateTask={canCreateTask ? handleBoardQuickCreateTask : undefined}
+            onRenameTask={canManageTasks ? handleRenameTask : undefined}
+            onAssignTask={canAssignTask ? handleAssignTask : undefined}
+            onUpdateTaskDates={canManageTasks ? handleUpdateTaskDates : undefined}
+            canAssignTask={canAssignTask}
+            canEditDates={canManageTasks}
+            currentUserId={user?.id}
+            assignees={assignees}
             onDeleteTask={handleDeleteTask}
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}

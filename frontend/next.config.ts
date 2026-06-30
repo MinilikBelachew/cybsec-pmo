@@ -3,32 +3,68 @@ import createNextIntlPlugin from 'next-intl/plugin';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
+function getBackendOrigin(): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+  try {
+    const url = new URL(apiUrl.startsWith("http") ? apiUrl : "http://localhost:6001/api/v1");
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "http://localhost:6001";
+  }
+}
+
+const backendOrigin = getBackendOrigin();
+const backendWsOrigin = backendOrigin.replace(/^http/i, "ws");
+
 const nextConfig: NextConfig = {
   output: 'standalone',
+  async rewrites() {
+    return [
+      {
+        source: "/socket.io/:path*",
+        destination: `${backendOrigin}/socket.io/:path*`,
+      },
+    ];
+  },
   async headers() {
+    const connectSrc = [
+      "'self'",
+      "ws:",
+      "wss:",
+      backendOrigin,
+      backendWsOrigin,
+      "https://login.microsoftonline.com",
+      "https://login.microsoft.com",
+      "https://sts.windows.net",
+      "https://graph.microsoft.com",
+    ];
+
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' blob: data: https://login.microsoftonline.com",
+      "font-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self' https://login.microsoftonline.com",
+      "frame-ancestors 'none'",
+      `connect-src ${connectSrc.join(" ")}`,
+      "frame-src 'self' https://login.microsoftonline.com https://login.microsoft.com",
+      "block-all-mixed-content",
+    ];
+
+    if (process.env.NODE_ENV === "production") {
+      cspDirectives.push("upgrade-insecure-requests");
+    }
+
     return [
       {
         source: "/(.*)",
         headers: [
           {
             key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline'", // unsafe-eval for Next.js HMR/dev, unsafe-inline for inline scripts
-              "style-src 'self' 'unsafe-inline'", // unsafe-inline for Tailwind/Next.js styles
-              "img-src 'self' blob: data: https://login.microsoftonline.com",
-              "font-src 'self'",
-              "object-src 'none'",
-              "base-uri 'self'",
-              "form-action 'self' https://login.microsoftonline.com",
-              "frame-ancestors 'none'",
-              // Allow MSAL to connect to Microsoft identity endpoints
-              "connect-src 'self' https://login.microsoftonline.com https://login.microsoft.com https://sts.windows.net https://graph.microsoft.com http://localhost:6001",
-              // Allow MSAL redirect bridge iframes
-              "frame-src 'self' https://login.microsoftonline.com https://login.microsoft.com",
-              "block-all-mixed-content",
-              "upgrade-insecure-requests",
-            ].join("; "),
+            value: cspDirectives.join("; "),
           },
           {
             key: "X-Frame-Options",

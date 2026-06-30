@@ -12,8 +12,6 @@ import { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import {
   parseCSV,
   processRawTaskCSVRows,
-  parseMSPDIXML,
-  processMSPDITasks,
   ParsedTaskRow,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
@@ -29,7 +27,6 @@ import {
   PlayCircle,
   Download,
   ChevronDown,
-  FileCode2,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 
@@ -146,10 +143,7 @@ function EnumSelect({ value, options, onChange, placeholder = "Select...", class
   );
 }
 
-type ImportTab = "csv" | "mpp";
-
 export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportTasksDialogProps) {
-  const [activeTab, setActiveTab] = useState<ImportTab>("csv");
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedTaskRow[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -236,55 +230,29 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    if (activeTab === "csv") {
-      if (!selectedFile.name.endsWith(".csv")) {
-        toast.error("Please upload a valid CSV file.");
-        return;
-      }
-      setFile(selectedFile);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const text = event.target?.result as string;
-          const csvData = parseCSV(text);
-          if (csvData.length <= 1) {
-            toast.error("The CSV file is empty or only contains headers.");
-            return;
-          }
-          const processed = processRawTaskCSVRows(csvData, phases, assignees);
-          setParsedRows(processed);
-          toast.success(`Loaded ${processed.length} rows from CSV`);
-        } catch (err) {
-          console.error(err);
-          toast.error("Failed to parse CSV file.");
-        }
-      };
-      reader.readAsText(selectedFile);
-    } else {
-      if (!selectedFile.name.endsWith(".xml")) {
-        toast.error("Please upload a valid MS Project XML file.");
-        return;
-      }
-      setFile(selectedFile);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const text = event.target?.result as string;
-          const parsedXML = parseMSPDIXML(text);
-          if (parsedXML.tasks.length === 0) {
-            toast.error("No tasks found in the XML file.");
-            return;
-          }
-          const processed = processMSPDITasks(parsedXML, phases, assignees);
-          setParsedRows(processed);
-          toast.success(`Loaded ${processed.length} rows from MS Project XML`);
-        } catch (err) {
-          console.error(err);
-          toast.error("Failed to parse MS Project XML file.");
-        }
-      };
-      reader.readAsText(selectedFile);
+    if (!selectedFile.name.endsWith(".csv")) {
+      toast.error("Please upload a valid CSV file.");
+      return;
     }
+    setFile(selectedFile);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const csvData = parseCSV(text);
+        if (csvData.length <= 1) {
+          toast.error("The CSV file is empty or only contains headers.");
+          return;
+        }
+        const processed = processRawTaskCSVRows(csvData, phases, assignees);
+        setParsedRows(processed);
+        toast.success(`Loaded ${processed.length} rows from CSV`);
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to parse CSV file.");
+      }
+    };
+    reader.readAsText(selectedFile);
   };
 
   const handleReset = () => {
@@ -295,12 +263,6 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  };
-
-  const handleTabChange = (tab: ImportTab) => {
-    if (tab === activeTab) return;
-    setActiveTab(tab);
-    handleReset();
   };
 
   const handleClose = () => {
@@ -361,26 +323,11 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     );
   };
 
-  // For MPP mode: also exclude summary tasks from valid/importable rows
   const validRows = useMemo(
-    () => parsedRows.filter((r) => r.errors.length === 0 && !r.isSummary),
+    () => parsedRows.filter((r) => r.errors.length === 0),
     [parsedRows]
   );
   const hasErrors = useMemo(() => parsedRows.some((r) => r.errors.length > 0), [parsedRows]);
-
-  // MPP validation stats
-  const mppStats = useMemo(() => {
-    if (activeTab !== "mpp") return null;
-    let ready = 0, errors = 0, warnings = 0, skippedSummary = 0, milestones = 0;
-    for (const row of parsedRows) {
-      if (row.errors.length > 0) errors++;
-      else if (row.isSummary) skippedSummary++;
-      else ready++;
-      if (row.warnings.length > 0) warnings++;
-      if (row.isMilestone) milestones++;
-    }
-    return { total: parsedRows.length, ready, errors, warnings, skippedSummary, milestones };
-  }, [activeTab, parsedRows]);
 
   const handleImport = async () => {
     if (validRows.length === 0) {
@@ -435,46 +382,13 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <div className="flex items-center gap-3">
-              {activeTab === "csv" ? (
-                <FileSpreadsheet className="size-5 text-primary" />
-              ) : (
-                <FileCode2 className="size-5 text-primary" />
-              )}
+              <FileSpreadsheet className="size-5 text-primary" />
               <DialogPrimitive.Title className="text-sm font-bold text-foreground">
                 Import Tasks
               </DialogPrimitive.Title>
-              {/* Tab Switcher */}
-              {!file && !isImporting && (
-                <div className="flex items-center gap-0.5 ml-2 p-0.5 rounded-lg bg-muted/50 border border-border/50">
-                  <button
-                    onClick={() => handleTabChange("csv")}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer",
-                      activeTab === "csv"
-                        ? "bg-background text-foreground shadow-sm border border-border/60"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <FileSpreadsheet className="size-3" />
-                    CSV
-                  </button>
-                  <button
-                    onClick={() => handleTabChange("mpp")}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer",
-                      activeTab === "mpp"
-                        ? "bg-background text-foreground shadow-sm border border-border/60"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <FileCode2 className="size-3" />
-                    MS Project XML
-                  </button>
-                </div>
-              )}
             </div>
             <div className="flex items-center gap-2">
-              {!isImporting && activeTab === "csv" && (
+              {!isImporting && (
                 <Button
                   variant="outline"
                   size="xs"
@@ -508,41 +422,21 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  accept={activeTab === "csv" ? ".csv" : ".xml"}
+                  accept=".csv"
                   className="hidden"
                 />
                 <div className="size-12 rounded-xl bg-primary/5 border border-primary/20 flex items-center justify-center text-primary">
-                  {activeTab === "csv" ? <Upload className="size-6" /> : <FileCode2 className="size-6" />}
+                  <Upload className="size-6" />
                 </div>
-                {activeTab === "csv" ? (
-                  <>
-                    <div className="text-center space-y-1">
-                      <p className="text-sm font-bold text-foreground">Click to select or drag CSV file</p>
-                      <p className="text-xs text-muted-foreground">Supported format: CSV only (.csv)</p>
-                    </div>
-                    <div className="mt-4 p-3 bg-muted/40 border border-border/50 rounded-xl max-w-md text-[10px] text-muted-foreground space-y-1 font-medium leading-relaxed">
-                      <p className="font-bold text-foreground mb-1 uppercase tracking-wider">Required Column Headers:</p>
-                      <p>• Title</p>
-                      <p>• Description, Priority, Status, Assignee, Phase, Start Date, End Date, Effort Hours</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-center space-y-1">
-                      <p className="text-sm font-bold text-foreground">Click to select or drag MS Project XML file</p>
-                      <p className="text-xs text-muted-foreground">Supported format: MSPDI XML only (.xml)</p>
-                    </div>
-                    <div className="mt-4 p-4 bg-muted/40 border border-border/50 rounded-xl max-w-lg text-[11px] text-muted-foreground space-y-2 font-medium leading-relaxed">
-                      <p className="font-bold text-foreground uppercase tracking-wider text-[10px]">How to export from MS Project:</p>
-                      <p className="pl-1">1. Open your project plan in Microsoft Project desktop or online app.</p>
-                      <p className="pl-1">2. Navigate to <span className="font-semibold text-foreground">File → Save As</span>.</p>
-                      <p className="pl-1">3. Select <span className="font-semibold text-foreground">XML Format (*.xml)</span> as the file type and save.</p>
-                      <p className="pl-1 text-[10px] text-amber-600 dark:text-amber-400 mt-1 font-semibold">
-                        Note: Parent/summary tasks will be parsed but automatically excluded from import.
-                      </p>
-                    </div>
-                  </>
-                )}
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-bold text-foreground">Click to select or drag CSV file</p>
+                  <p className="text-xs text-muted-foreground">Supported format: CSV only (.csv)</p>
+                </div>
+                <div className="mt-4 p-3 bg-muted/40 border border-border/50 rounded-xl max-w-md text-[10px] text-muted-foreground space-y-1 font-medium leading-relaxed">
+                  <p className="font-bold text-foreground mb-1 uppercase tracking-wider">Required Column Headers:</p>
+                  <p>• Title</p>
+                  <p>• Description, Priority, Status, Assignee, Phase, Start Date, End Date, Effort Hours</p>
+                </div>
               </div>
             ) : (
               /* Preview Area */
@@ -586,31 +480,6 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   </div>
                 ) : (
                   <>
-                  {/* MPP Validation Report */}
-                  {activeTab === "mpp" && mppStats && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                      <div className="bg-muted/30 border border-border/60 rounded-xl p-2.5 text-center">
-                        <p className="text-[9px] uppercase font-extrabold text-muted-foreground tracking-wider">Total</p>
-                        <p className="text-base font-black text-foreground mt-0.5">{mppStats.total}</p>
-                      </div>
-                      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-2.5 text-center">
-                        <p className="text-[9px] uppercase font-extrabold text-emerald-600 dark:text-emerald-400 tracking-wider">Ready</p>
-                        <p className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{mppStats.ready}</p>
-                      </div>
-                      <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-2.5 text-center">
-                        <p className="text-[9px] uppercase font-extrabold text-rose-600 dark:text-rose-400 tracking-wider">Errors</p>
-                        <p className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">{mppStats.errors}</p>
-                      </div>
-                      <div className="bg-slate-500/5 border border-border rounded-xl p-2.5 text-center">
-                        <p className="text-[9px] uppercase font-extrabold text-muted-foreground tracking-wider">Skipped</p>
-                        <p className="text-base font-black text-muted-foreground mt-0.5">{mppStats.skippedSummary}</p>
-                      </div>
-                      <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-2.5 text-center">
-                        <p className="text-[9px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wider">Milestones</p>
-                        <p className="text-base font-black text-indigo-600 dark:text-indigo-400 mt-0.5">{mppStats.milestones}</p>
-                      </div>
-                    </div>
-                  )}
                   {/* Task Preview Table */}
                   <div className="border border-border rounded-xl overflow-hidden flex flex-col bg-card">
                     <ScrollArea className="w-full">
@@ -813,10 +682,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
             <div className="text-xs text-muted-foreground font-semibold">
               {file && !isImporting && (
                 <span>
-                  {activeTab === "mpp"
-                    ? `${validRows.length} of ${(mppStats?.total ?? 0) - (mppStats?.skippedSummary ?? 0)} non-summary tasks ready to import.`
-                    : `${validRows.length} of ${parsedRows.length} tasks ready to import.`
-                  }
+                  {`${validRows.length} of ${parsedRows.length} tasks ready to import.`}
                   {hasErrors && (
                     <span className="text-rose-500 ml-1">
                       ({parsedRows.filter(r => r.errors.length > 0).length} tasks contain errors)
@@ -843,7 +709,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >
                   <PlayCircle className="size-4" />
-                  {activeTab === "mpp" ? "Import from MS Project" : "Import Tasks"}
+                  Import Tasks
                 </Button>
               )}
             </div>

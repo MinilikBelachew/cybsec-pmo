@@ -1,22 +1,28 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { toast } from "react-hot-toast";
 import { cn } from "@/shared/utils/cn";
 import {
   Plus,
-  CircleCheck,
   Flag,
   Calendar as CalendarIcon,
   MessageSquare,
-  ChevronRight,
-  ChevronLeft,
-  MoreHorizontal,
-  GripVertical,
-  AlertCircle,
-  Clock,
   CheckSquare,
+  Loader2,
+  User,
+  CornerDownLeft,
+  Pencil,
+  Search,
+  Send,
 } from "lucide-react";
-import { Calendar } from "@/shared/ui/calendar";
+import type { ProjectTaskAssignee } from "@/domains/projects/types/projects.types";
+import { useGetTaskCommentsQuery, useAddTaskCommentMutation } from "@/domains/projects";
+import { defaultTaskDateRange } from "../../../schemas/task/task-date-fields";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { Button } from "@/shared/ui/button";
+import { BoardTaskDatePicker } from "./board-task-date-picker";
+import { filterStatusOptionsForRole } from "../../tasks/task-progress-section";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -25,6 +31,8 @@ interface Task {
   id: string;
   name: string;
   assigneeInitials: string;
+  assigneeName?: string | null;
+  assigneeId?: string | null;
   assigneeColor: string;
   dueDate: string;
   priority: Priority;
@@ -45,99 +53,97 @@ interface Task {
 interface ColumnDef {
   id: Status;
   label: string;
+  shortLabel: string;
   wipLimit?: number;
-  borderColor: string;
-  headerBg: string;
-  headerText: string;
-  dotClass: string;
-  accentBar: string;
+  pillBg: string;
+  pillText: string;
+  countText: string;
+  columnBg: string;
+  columnBgDrag: string;
 }
 
 const COLUMNS: ColumnDef[] = [
   {
     id: "To_Do",
     label: "To Do",
+    shortLabel: "TO DO",
     wipLimit: 5,
-    borderColor: "border-border/50",
-    headerBg: "bg-muted/50",
-    headerText: "text-foreground",
-    dotClass: "border-2 border-muted-foreground/50 bg-transparent",
-    accentBar: "bg-muted-foreground/20",
+    pillBg: "bg-slate-500",
+    pillText: "text-white",
+    countText: "text-slate-500",
+    columnBg: "bg-slate-500/[0.04] dark:bg-slate-400/10",
+    columnBgDrag: "bg-slate-500/[0.07] dark:bg-slate-400/15",
   },
   {
     id: "In_Progress",
     label: "In Progress",
+    shortLabel: "IN PROGRESS",
     wipLimit: 3,
-    borderColor: "border-blue-200 dark:border-blue-800/60",
-    headerBg: "bg-blue-50/80 dark:bg-blue-900/20",
-    headerText: "text-blue-700 dark:text-blue-300",
-    dotClass: "bg-blue-500",
-    accentBar: "bg-blue-400",
+    pillBg: "bg-blue-500",
+    pillText: "text-white",
+    countText: "text-blue-600 dark:text-blue-400",
+    columnBg: "bg-blue-500/[0.05] dark:bg-blue-400/10",
+    columnBgDrag: "bg-blue-500/[0.08] dark:bg-blue-400/15",
   },
   {
     id: "Submitted_for_Review",
     label: "Submitted for Review",
+    shortLabel: "IN REVIEW",
     wipLimit: 3,
-    borderColor: "border-amber-200 dark:border-amber-800/60",
-    headerBg: "bg-amber-50/80 dark:bg-amber-900/20",
-    headerText: "text-amber-750 dark:text-amber-300",
-    dotClass: "bg-amber-500",
-    accentBar: "bg-amber-400",
+    pillBg: "bg-amber-500",
+    pillText: "text-white",
+    countText: "text-amber-600 dark:text-amber-400",
+    columnBg: "bg-amber-500/[0.05] dark:bg-amber-400/10",
+    columnBgDrag: "bg-amber-500/[0.08] dark:bg-amber-400/15",
   },
   {
     id: "Approved",
     label: "Approved",
-    borderColor: "border-teal-200 dark:border-teal-800/60",
-    headerBg: "bg-teal-50/80 dark:bg-teal-900/20",
-    headerText: "text-teal-700 dark:text-teal-300",
-    dotClass: "bg-teal-500",
-    accentBar: "bg-teal-400",
+    shortLabel: "APPROVED",
+    pillBg: "bg-teal-500",
+    pillText: "text-white",
+    countText: "text-teal-600 dark:text-teal-400",
+    columnBg: "bg-teal-500/[0.05] dark:bg-teal-400/10",
+    columnBgDrag: "bg-teal-500/[0.08] dark:bg-teal-400/15",
   },
   {
     id: "Rework",
     label: "Rework",
-    borderColor: "border-rose-200 dark:border-rose-800/60",
-    headerBg: "bg-rose-50/80 dark:bg-rose-900/20",
-    headerText: "text-rose-700 dark:text-rose-300",
-    dotClass: "bg-rose-500",
-    accentBar: "bg-rose-400",
+    shortLabel: "REWORK",
+    pillBg: "bg-rose-500",
+    pillText: "text-white",
+    countText: "text-rose-600 dark:text-rose-400",
+    columnBg: "bg-rose-500/[0.05] dark:bg-rose-400/10",
+    columnBgDrag: "bg-rose-500/[0.08] dark:bg-rose-400/15",
   },
   {
     id: "Done",
     label: "Done",
-    borderColor: "border-emerald-200 dark:border-emerald-800/60",
-    headerBg: "bg-emerald-50/80 dark:bg-emerald-900/20",
-    headerText: "text-emerald-700 dark:text-emerald-300",
-    dotClass: "bg-emerald-500",
-    accentBar: "bg-emerald-400",
+    shortLabel: "DONE",
+    pillBg: "bg-emerald-500",
+    pillText: "text-white",
+    countText: "text-emerald-600 dark:text-emerald-400",
+    columnBg: "bg-emerald-500/[0.05] dark:bg-emerald-400/10",
+    columnBgDrag: "bg-emerald-500/[0.08] dark:bg-emerald-400/15",
   },
 ];
 
-const PRIORITY_CONFIG: Record<Priority, { label: string; icon: string; text: string; bg: string }> = {
-  critical: {
-    label: "Critical",
-    icon: "💀",
-    text: "text-red-600 dark:text-red-400 font-bold",
-    bg: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800",
-  },
-  high: {
-    label: "High",
-    icon: "🔴",
-    text: "text-rose-600 dark:text-rose-400",
-    bg: "bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800",
-  },
-  medium: {
-    label: "Medium",
-    icon: "🟡",
-    text: "text-amber-600 dark:text-amber-400",
-    bg: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800",
-  },
-  low: {
-    label: "Low",
-    icon: "🔵",
-    text: "text-sky-600 dark:text-sky-400",
-    bg: "bg-sky-50 dark:bg-sky-900/20 border-sky-200 dark:border-sky-800",
-  },
+const STATUS_OPTIONS: { value: Status; label: string }[] = [
+  { value: "To_Do", label: "To Do" },
+  { value: "In_Progress", label: "In Progress" },
+  { value: "Submitted_for_Review", label: "Submitted for Review" },
+  { value: "Approved", label: "Approved" },
+  { value: "Rework", label: "Rework" },
+  { value: "Done", label: "Done" },
+];
+
+const STATUS_PILL: Record<Status, string> = {
+  To_Do: "bg-slate-500/10 text-slate-600 dark:text-slate-300",
+  In_Progress: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  Submitted_for_Review: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  Approved: "bg-teal-500/10 text-teal-700 dark:text-teal-300",
+  Rework: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  Done: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
 };
 
 const TAG_COLORS = [
@@ -220,11 +226,36 @@ const BOARD_EXTRAS: Record<string, Partial<Task>> = {
   },
 };
 
+type ApiPriority = "Low" | "Medium" | "High" | "Critical";
+
+export type BoardQuickCreatePayload = {
+  title: string;
+  ownerId?: string | null;
+  startDate: string;
+  endDate: string;
+  priority: ApiPriority;
+};
+
+const API_PRIORITY_OPTIONS: { value: ApiPriority; label: string }[] = [
+  { value: "Low", label: "Low" },
+  { value: "Medium", label: "Medium" },
+  { value: "High", label: "High" },
+  { value: "Critical", label: "Critical" },
+];
+
 interface BoardViewProps {
   tasks: Task[];
   toggleTask: (id: string) => void;
-  onAddTask?: (status: Status) => void;
+  onCreateTask?: (status: Status, payload: BoardQuickCreatePayload) => Promise<void>;
+  onRenameTask?: (taskId: string, title: string) => Promise<void>;
+  onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
+  onUpdateTaskDates?: (taskId: string, dates: { startDate: string; endDate: string }) => Promise<void>;
+  canAssignTask?: boolean;
+  canEditDates?: boolean;
+  currentUserId?: string;
+  assignees?: ProjectTaskAssignee[];
   onTaskClick?: (taskId: string) => void;
+  canApproveTask?: boolean;
   onDeleteTask?: (taskId: string) => void;
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
@@ -234,18 +265,27 @@ interface BoardViewProps {
 export function BoardView({
   tasks: externalTasks,
   toggleTask,
-  onAddTask,
+  onCreateTask,
+  onRenameTask,
+  onAssignTask,
+  onUpdateTaskDates,
+  canAssignTask = false,
+  canEditDates = false,
+  currentUserId,
+  assignees = [],
   onTaskClick,
+  canApproveTask = false,
   onDeleteTask,
   onDuplicateTask,
   onMoveTask,
   onSetDueDate,
 }: BoardViewProps) {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [addingInColumn, setAddingInColumn] = useState<Status | null>(null);
 
-  useEffect(() => {
-    setTasks(externalTasks.map((t) => ({ ...t, ...(BOARD_EXTRAS[t.id] ?? {}) })));
-  }, [externalTasks]);
+  const tasks = useMemo(
+    () => externalTasks.map((t) => ({ ...t, ...(BOARD_EXTRAS[t.id] ?? {}) })),
+    [externalTasks],
+  );
 
   const dragTaskId = useRef<string | null>(null);
   const dragFromCol = useRef<Status | null>(null);
@@ -253,22 +293,8 @@ export function BoardView({
   const [dragOverTask, setDragOverTask] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
 
-  const moveTask = useCallback((taskId: string, toStatus: Status, beforeTaskId?: string) => {
-    setTasks((prev) => {
-      const task = prev.find((t) => t.id === taskId);
-      if (!task) return prev;
-      const without = prev.filter((t) => t.id !== taskId);
-      const updated = { ...task, status: toStatus, done: toStatus === "Done" || toStatus === "Approved" };
-      if (!beforeTaskId) return [...without, updated];
-      const idx = without.findIndex((t) => t.id === beforeTaskId);
-      const result = [...without];
-      result.splice(idx === -1 ? result.length : idx, 0, updated);
-      return result;
-    });
-
-    if (onMoveTask) {
-      onMoveTask(taskId, toStatus);
-    }
+  const moveTask = useCallback((taskId: string, toStatus: Status) => {
+    onMoveTask?.(taskId, toStatus);
   }, [onMoveTask]);
 
   function handleDragStart(e: React.DragEvent, taskId: string, fromStatus: Status) {
@@ -308,16 +334,16 @@ export function BoardView({
     setDragOverTask(taskId);
   }
 
-  function handleTaskDrop(e: React.DragEvent, beforeTaskId: string, colId: Status) {
+  function handleTaskDrop(e: React.DragEvent, _beforeTaskId: string, colId: Status) {
     e.preventDefault();
     e.stopPropagation();
-    if (dragTaskId.current) moveTask(dragTaskId.current, colId, beforeTaskId);
+    if (dragTaskId.current) moveTask(dragTaskId.current, colId);
     setDragOverCol(null);
     setDragOverTask(null);
   }
 
   return (
-    <div className="flex gap-4 p-5 h-full overflow-x-auto overflow-y-hidden items-stretch bg-transparent">
+    <div className="flex gap-3 p-4 h-full overflow-x-auto overflow-y-hidden items-stretch bg-white dark:bg-background">
       {COLUMNS.map((col) => {
         const colTasks = tasks.filter((t) => t.status === col.id);
         const isOver = dragOverCol === col.id && dragOverTask === null;
@@ -326,99 +352,708 @@ export function BoardView({
         return (
           <div
             key={col.id}
-            className="flex flex-col w-[260px] shrink-0 h-full min-h-0"
+            className="flex flex-col w-[280px] shrink-0 h-full min-h-0"
             onDragOver={(e) => handleColDragOver(e, col.id)}
             onDrop={(e) => handleColDrop(e, col.id)}
           >
-            {/* Column header */}
-            <div className={cn("flex items-center gap-2 px-3 py-2.5 rounded-t-xl border border-b-0", col.borderColor, col.headerBg)}>
-              {/* Accent dot */}
-              <span className={cn("size-2.5 rounded-full shrink-0", col.dotClass)} />
-
-              <span className={cn("text-xs font-bold tracking-wide flex-1", col.headerText)}>{col.label}</span>
-
-              {/* Count + WIP */}
-              <div className="flex items-center gap-1.5">
+            <div
+              className={cn(
+                "flex flex-col flex-1 min-h-0 rounded-2xl px-2.5 pt-2.5 pb-2 transition-colors duration-150",
+                isOver ? col.columnBgDrag : col.columnBg
+              )}
+            >
+              <div className="flex items-center gap-2 px-0.5 pb-2.5">
                 <span
                   className={cn(
-                    "text-[10px] font-bold px-1.5 py-0.5 rounded-md",
-                    overLimit ? "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400" : "bg-background/60 text-muted-foreground"
+                    "inline-flex items-center rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide",
+                    col.pillBg,
+                    col.pillText
+                  )}
+                >
+                  {col.shortLabel}
+                </span>
+                <span
+                  className={cn(
+                    "text-sm font-semibold tabular-nums",
+                    overLimit ? "text-rose-500" : col.countText
                   )}
                 >
                   {colTasks.length}
                   {col.wipLimit ? `/${col.wipLimit}` : ""}
                 </span>
-                <button
-                  onClick={() => onAddTask && onAddTask(col.id)}
-                  className="size-5 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
-                >
-                  <Plus className="size-3.5" />
-                </button>
               </div>
-            </div>
 
-            {/* Accent bar */}
-            <div className={cn("h-0.5 w-full", col.accentBar)} />
+              <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
+                {colTasks.map((task) => (
+                  <div key={task.id}>
+                    {dragOverTask === task.id && <div className="h-0.5 rounded-full bg-primary mb-1.5 mx-1" />}
+                    <BoardCard
+                      task={task}
+                      isDragging={dragging === task.id}
+                      onTaskClick={onTaskClick}
+                      onMoveTask={onMoveTask}
+                      canApproveTask={canApproveTask}
+                      onRenameTask={onRenameTask}
+                      onAssignTask={onAssignTask}
+                      onUpdateTaskDates={onUpdateTaskDates}
+                      canAssignTask={canAssignTask}
+                      canEditDates={canEditDates}
+                      currentUserId={currentUserId}
+                      assignees={assignees}
+                      onDragStart={(e) => handleDragStart(e, task.id, col.id)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleTaskDragOver(e, task.id, col.id)}
+                      onDrop={(e) => handleTaskDrop(e, task.id, col.id)}
+                    />
+                  </div>
+                ))}
 
-            {/* Cards area */}
-            <div
-              className={cn(
-                "flex flex-col gap-2 p-2 rounded-b-xl border flex-1 min-h-0 overflow-y-auto transition-colors duration-150",
-                col.borderColor,
-                isOver ? "bg-primary/5 border-primary/30" : "bg-muted/10 dark:bg-muted/5"
-              )}
-            >
-              {colTasks.map((task) => (
-                <div key={task.id}>
-                  {/* Drop indicator above */}
-                  {dragOverTask === task.id && <div className="h-0.5 rounded-full bg-primary mb-1.5 mx-1" />}
-                  <BoardCard
-                    task={task}
-                    isDragging={dragging === task.id}
-                    onToggle={toggleTask}
-                    onTaskClick={onTaskClick}
-                    onDragStart={(e) => handleDragStart(e, task.id, col.id)}
-                    onDragEnd={handleDragEnd}
-                    onDragOver={(e) => handleTaskDragOver(e, task.id, col.id)}
-                    onDrop={(e) => handleTaskDrop(e, task.id, col.id)}
-                    onDeleteTask={onDeleteTask}
-                    onDuplicateTask={onDuplicateTask}
-                    onMoveTask={onMoveTask}
-                    onSetDueDate={onSetDueDate}
+                {colTasks.length === 0 && (
+                  <div className="flex items-center justify-center rounded-xl min-h-[72px]">
+                    <p className="text-[11px] text-muted-foreground/40">Drop tasks here</p>
+                  </div>
+                )}
+
+                {onCreateTask && (
+                  <ColumnInlineAddTask
+                    status={col.id}
+                    isActive={addingInColumn === col.id}
+                    onOpen={() => setAddingInColumn(col.id)}
+                    onClose={() => setAddingInColumn(null)}
+                    onCreateTask={onCreateTask}
+                    assignees={assignees}
                   />
-                </div>
-              ))}
-
-              {/* Empty drop zone hint */}
-              {colTasks.length === 0 && (
-                <div
-                  className={cn(
-                    "flex-1 flex items-center justify-center rounded-xl border-2 border-dashed transition-colors duration-150 min-h-[80px]",
-                    isOver ? "border-primary/40 bg-primary/5" : "border-border/30"
-                  )}
-                >
-                  <p className="text-[11px] text-muted-foreground/50">Drop here</p>
-                </div>
-              )}
-
-              {/* Add task */}
-              <button
-                onClick={() => onAddTask && onAddTask(col.id)}
-                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors mt-0.5 group"
-              >
-                <Plus className="size-3.5 group-hover:text-primary transition-colors" />
-                Add Task
-              </button>
+                )}
+              </div>
             </div>
           </div>
         );
       })}
-
-      {/* Add group */}
-      <button className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border-2 border-dashed border-border/50 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-all shrink-0 self-start mt-0">
-        <Plus className="size-3.5" /> Add group
-      </button>
     </div>
+  );
+}
+
+function ColumnInlineAddTask({
+  status,
+  isActive,
+  onOpen,
+  onClose,
+  onCreateTask,
+  assignees,
+}: {
+  status: Status;
+  isActive: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onCreateTask: (status: Status, payload: BoardQuickCreatePayload) => Promise<void>;
+  assignees: ProjectTaskAssignee[];
+}) {
+  const [title, setTitle] = useState("");
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [priority, setPriority] = useState<ApiPriority>("Medium");
+  const [expandedField, setExpandedField] = useState<"assignee" | "dates" | "priority" | null>(null);
+  const [showErrors, setShowErrors] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const resetForm = useCallback(() => {
+    const { startDate: defaultStart, endDate: defaultEnd } = defaultTaskDateRange();
+    setTitle("");
+    setOwnerId(null);
+    setStartDate(defaultStart.toISOString().slice(0, 10));
+    setEndDate(defaultEnd.toISOString().slice(0, 10));
+    setPriority("Medium");
+    setExpandedField(null);
+    setShowErrors(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isActive) return;
+    resetForm();
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isActive, resetForm]);
+
+  const selectedAssignee = assignees.find((a) => a.userId === ownerId);
+
+  const titleMissing = !title.trim();
+  const assigneeMissing = expandedField === "assignee" && !ownerId;
+  const datesMissing = expandedField === "dates" && (!startDate || !endDate);
+  const datesInvalid =
+    expandedField === "dates" &&
+    !!startDate &&
+    !!endDate &&
+    new Date(endDate) < new Date(startDate);
+  const canSave = !isSubmitting;
+
+  const handleCancel = () => {
+    if (isSubmitting) return;
+    resetForm();
+    onClose();
+  };
+
+  const handleSubmit = async () => {
+    setShowErrors(true);
+    if (titleMissing || assigneeMissing || datesMissing || datesInvalid || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      await onCreateTask(status, {
+        title: title.trim(),
+        ownerId,
+        startDate,
+        endDate,
+        priority,
+      });
+      resetForm();
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const formatDateLabel = (value: string) => {
+    if (!value) return "";
+    const d = new Date(value);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+
+  if (!isActive) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex items-center gap-1.5 w-full px-1 py-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 transition-colors group"
+      >
+        <Plus className="size-3.5 group-hover:scale-105 transition-transform" />
+        Add Task
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border/70 bg-card shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 p-2.5 border-b border-border/40">
+        <input
+          ref={inputRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleSubmit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              handleCancel();
+            }
+          }}
+          placeholder="Task Name..."
+          disabled={isSubmitting}
+          className={cn(
+            "flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50 disabled:opacity-50",
+            showErrors && titleMissing && "placeholder:text-destructive/70"
+          )}
+        />
+        <button
+          type="button"
+          onClick={() => void handleSubmit()}
+          disabled={!canSave}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isSubmitting ? <Loader2 className="size-3 animate-spin" /> : <CornerDownLeft className="size-3" />}
+          Save
+        </button>
+      </div>
+
+      <div className="px-2.5 py-1.5 space-y-0.5">
+        {expandedField === "assignee" ? (
+          <div className="py-1 space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Assignee</p>
+            <div className="max-h-28 overflow-y-auto space-y-0.5 rounded-md border border-border/50 p-1">
+              {assignees.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">No assignees available</p>
+              ) : (
+                assignees.map((assignee) => (
+                  <button
+                    key={assignee.userId}
+                    type="button"
+                    onClick={() => {
+                      setOwnerId(assignee.userId);
+                      setExpandedField(null);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60",
+                      ownerId === assignee.userId && "bg-primary/10 text-primary"
+                    )}
+                  >
+                    <User className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-medium">{assignee.displayName || assignee.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+            {showErrors && assigneeMissing && (
+              <p className="text-[11px] text-destructive">Select an assignee</p>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setExpandedField("assignee")}
+            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            <User className="size-3.5 shrink-0" />
+            {selectedAssignee ? (
+              <span className="font-medium text-foreground">{selectedAssignee.displayName || selectedAssignee.name}</span>
+            ) : (
+              <span>Add assignee</span>
+            )}
+          </button>
+        )}
+
+        {expandedField === "dates" ? (
+          <div className="py-1 space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Dates</p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Start</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:border-ring"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Due</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:border-ring"
+                />
+              </label>
+            </div>
+            {showErrors && (datesMissing || datesInvalid) && (
+              <p className="text-[11px] text-destructive">
+                {datesInvalid ? "Due date must be on or after start date" : "Start and due dates are required"}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpandedField(null)}
+              className="text-[11px] font-medium text-primary hover:underline"
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setExpandedField("dates")}
+            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            <CalendarIcon className="size-3.5 shrink-0" />
+            {startDate && endDate ? (
+              <span className="font-medium text-foreground">
+                {formatDateLabel(startDate)} – {formatDateLabel(endDate)}
+              </span>
+            ) : (
+              <span>Add dates</span>
+            )}
+          </button>
+        )}
+
+        {expandedField === "priority" ? (
+          <div className="py-1 space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Priority</p>
+            <div className="flex flex-wrap gap-1">
+              {API_PRIORITY_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setPriority(option.value);
+                    setExpandedField(null);
+                  }}
+                  className={cn(
+                    "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+                    priority === option.value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border/60 text-muted-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setExpandedField("priority")}
+            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            <Flag className="size-3.5 shrink-0" />
+            <span className={priority !== "Medium" ? "font-medium text-foreground" : undefined}>
+              {priority === "Medium" ? "Add priority" : priority}
+            </span>
+          </button>
+        )}
+      </div>
+
+      {showErrors && titleMissing && (
+        <p className="px-2.5 pb-2 text-[11px] text-destructive">Task name is required</p>
+      )}
+    </div>
+  );
+}
+
+const ASSIGNEE_AVATAR_COLORS = [
+  "bg-slate-600",
+  "bg-violet-600",
+  "bg-sky-600",
+  "bg-emerald-600",
+  "bg-amber-600",
+  "bg-rose-600",
+];
+
+function assigneeAvatarInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function assigneeAvatarColor(userId: string) {
+  return ASSIGNEE_AVATAR_COLORS[userId.charCodeAt(0) % ASSIGNEE_AVATAR_COLORS.length];
+}
+
+function BoardAssigneePicker({
+  assignees,
+  currentUserId,
+  selectedUserId,
+  onAssign,
+  children,
+}: {
+  assignees: ProjectTaskAssignee[];
+  currentUserId?: string;
+  selectedUserId?: string | null;
+  onAssign: (userId: string | null) => Promise<void>;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [isAssigning, setIsAssigning] = useState(false);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return assignees;
+    return assignees.filter((a) => {
+      const name = (a.displayName || a.name).toLowerCase();
+      return name.includes(q) || a.email.toLowerCase().includes(q);
+    });
+  }, [assignees, query]);
+
+  const handleSelect = async (userId: string | null) => {
+    if (isAssigning) return;
+    setIsAssigning(true);
+    try {
+      await onAssign(userId);
+      setOpen(false);
+      setQuery("");
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <PopoverTrigger
+        type="button"
+        disabled={isAssigning}
+        className="text-left disabled:opacity-50"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </PopoverTrigger>
+      <PopoverContent align="start" side="bottom" className="w-64 p-0" onClick={(e) => e.stopPropagation()}>
+        <div className="border-b border-border/50 p-2">
+          <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5">
+            <Search className="size-3.5 shrink-0 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search or enter email..."
+              className="flex-1 min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+              autoFocus
+            />
+          </div>
+        </div>
+
+        <div className="max-h-56 overflow-y-auto p-1.5">
+          {selectedUserId && (
+            <button
+              type="button"
+              onClick={() => void handleSelect(null)}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+            >
+              Unassigned
+            </button>
+          )}
+
+          <p className="px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            People
+          </p>
+
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-xs text-muted-foreground">No people found</p>
+          ) : (
+            filtered.map((assignee) => {
+              const name = assignee.displayName || assignee.name;
+              const isMe = currentUserId === assignee.userId;
+              const isSelected = selectedUserId === assignee.userId;
+
+              return (
+                <button
+                  key={assignee.userId}
+                  type="button"
+                  onClick={() => void handleSelect(assignee.userId)}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/50",
+                    isSelected && "bg-primary/10"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white",
+                      assigneeAvatarColor(assignee.userId)
+                    )}
+                  >
+                    {assigneeAvatarInitials(name)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                    {isMe ? "Me" : name}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function BoardStatusPicker({
+  task,
+  currentUserId,
+  canApproveTask,
+  onStatusChange,
+}: {
+  task: Task;
+  currentUserId?: string;
+  canApproveTask: boolean;
+  onStatusChange: (taskId: string, status: Status) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const statusOptions = useMemo(
+    () =>
+      filterStatusOptionsForRole(
+        task.status,
+        STATUS_OPTIONS,
+        currentUserId === task.assigneeId,
+        canApproveTask,
+      ),
+    [task.status, task.assigneeId, currentUserId, canApproveTask],
+  );
+
+  const canChange = statusOptions.length > 1;
+  const currentLabel = STATUS_OPTIONS.find((o) => o.value === task.status)?.label ?? task.status;
+
+  const pill = (
+    <span
+      className={cn(
+        "text-[9px] font-bold px-1.5 py-0.5 rounded-md",
+        STATUS_PILL[task.status],
+        canChange && "cursor-pointer hover:opacity-80"
+      )}
+    >
+      {currentLabel}
+    </span>
+  );
+
+  if (!canChange) {
+    return pill;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        type="button"
+        className="text-left"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {pill}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-52 p-1.5" onClick={(e) => e.stopPropagation()}>
+        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Status
+        </p>
+        {statusOptions.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => {
+              if (opt.value !== task.status) {
+                onStatusChange(task.id, opt.value);
+              }
+              setOpen(false);
+            }}
+            className={cn(
+              "flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors hover:bg-muted/50",
+              opt.value === task.status && "bg-primary/10 text-primary"
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function BoardCommentPicker({
+  taskId,
+  commentCount,
+}: {
+  taskId: string;
+  commentCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const { data: comments = [], isLoading, isFetching } = useGetTaskCommentsQuery(taskId, {
+    skip: !open,
+  });
+  const [addComment, { isLoading: isAdding }] = useAddTaskCommentMutation();
+
+  const handleSubmit = async () => {
+    const body = commentText.trim();
+    if (!body || isAdding) return;
+    try {
+      await addComment({ taskId, body, isInternal: true }).unwrap();
+      setCommentText("");
+      toast.success("Comment added");
+    } catch (err: unknown) {
+      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to add comment",
+      );
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setCommentText("");
+      }}
+    >
+      <PopoverTrigger
+        type="button"
+        className="inline-flex items-center gap-0.5 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Comments"
+      >
+        <MessageSquare className="size-3.5" />
+        {commentCount > 0 && (
+          <span className="text-[10px] font-medium tabular-nums">{commentCount}</span>
+        )}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0" onClick={(e) => e.stopPropagation()}>
+        <div className="border-b border-border/50 px-3 py-2">
+          <p className="text-xs font-semibold text-foreground">Comments</p>
+        </div>
+
+        <div className="max-h-52 overflow-y-auto p-2 space-y-2">
+          {isLoading || isFetching ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : comments.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">No comments yet.</p>
+          ) : (
+            comments.map((comment) => (
+              <div key={comment.id} className="rounded-lg border border-border/60 bg-muted/10 p-2.5">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-foreground">
+                    {comment.author.displayName}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(comment.createdAt).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                <p className="text-xs text-foreground/90 whitespace-pre-wrap">{comment.body}</p>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="border-t border-border/50 p-2 space-y-2">
+          <textarea
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            placeholder="Write a comment..."
+            rows={2}
+            className="flex w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void handleSubmit();
+              }
+            }}
+          />
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              disabled={!commentText.trim() || isAdding}
+              onClick={() => void handleSubmit()}
+            >
+              {isAdding ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <>
+                  <Send className="size-3" />
+                  Post
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -426,250 +1061,152 @@ export function BoardView({
 interface BoardCardProps {
   task: Task;
   isDragging: boolean;
-  onToggle: (id: string) => void;
   onTaskClick?: (id: string) => void;
+  onMoveTask?: (taskId: string, toStatus: Status) => void;
+  canApproveTask?: boolean;
+  onRenameTask?: (taskId: string, title: string) => Promise<void>;
+  onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
+  onUpdateTaskDates?: (taskId: string, dates: { startDate: string; endDate: string }) => Promise<void>;
+  canAssignTask?: boolean;
+  canEditDates?: boolean;
+  currentUserId?: string;
+  assignees?: ProjectTaskAssignee[];
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
-  onDeleteTask?: (taskId: string) => void;
-  onDuplicateTask?: (taskId: string) => void;
-  onMoveTask?: (taskId: string, toStatus: Status) => void;
-  onSetDueDate?: (taskId: string, date: string | null) => void;
 }
 
 function BoardCard({
   task,
   isDragging,
-  onToggle,
   onTaskClick,
+  onMoveTask,
+  canApproveTask = false,
+  onRenameTask,
+  onAssignTask,
+  onUpdateTaskDates,
+  canAssignTask = false,
+  canEditDates = false,
+  currentUserId,
+  assignees = [],
   onDragStart,
   onDragEnd,
   onDragOver,
   onDrop,
-  onDeleteTask,
-  onDuplicateTask,
-  onMoveTask,
-  onSetDueDate,
 }: BoardCardProps) {
-  const [showMenu, setShowMenu] = useState(false);
-  const [menuState, setMenuState] = useState<"main" | "move" | "date">("main");
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(task.name);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!showMenu) {
-      setMenuState("main");
-      return;
+    if (!isEditingName) {
+      setNameDraft(task.name);
     }
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showMenu]);
+  }, [task.name, isEditingName]);
+
+  useEffect(() => {
+    if (!isEditingName) return;
+    const frame = requestAnimationFrame(() => nameInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isEditingName]);
 
   const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
   const dueSoon = task.dueDate && !task.dueDate.includes("-") ? !overdue && isDueSoon(task.dueDate) : false;
-  const pConfig = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
   const hasProgress = task.progress !== undefined;
   const hasSubs = (task.subtasksTotal ?? 0) > 0;
+  const assigneeLabel = task.assigneeName?.trim() || "Unassigned";
+
+  const saveName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === task.name) {
+      setNameDraft(task.name);
+      setIsEditingName(false);
+      return;
+    }
+    if (!onRenameTask) {
+      setIsEditingName(false);
+      return;
+    }
+    setIsSavingName(true);
+    try {
+      await onRenameTask(task.id, trimmed);
+      setIsEditingName(false);
+    } catch {
+      setNameDraft(task.name);
+    } finally {
+      setIsSavingName(false);
+    }
+  };
 
   return (
     <div
-      draggable
+      draggable={!isEditingName}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDrop={onDrop}
       className={cn(
-        "group relative bg-card border rounded-xl transition-all duration-150 cursor-grab active:cursor-grabbing select-none",
-        isDragging ? "opacity-40 scale-95 shadow-none border-primary/30" : "border-border/60 hover:border-primary/30 hover:shadow-md hover:shadow-primary/5",
-        task.done && "opacity-60"
+        "group relative rounded-xl transition-all duration-150 cursor-grab active:cursor-grabbing select-none",
+        "bg-white dark:bg-zinc-950 shadow-[0_1px_3px_rgba(15,23,42,0.05)]",
+        isDragging ? "opacity-40 scale-95 shadow-none" : "",
+        task.done && "opacity-60",
+        isEditingName && "cursor-default"
       )}
     >
-      {/* Priority accent strip */}
-      <div
-        className={cn(
-          "absolute top-0 left-0 w-1 h-full rounded-l-xl",
-          task.priority === "critical" && "bg-red-500",
-          task.priority === "high" && "bg-rose-400",
-          task.priority === "medium" && "bg-amber-400",
-          task.priority === "low" && "bg-sky-300"
-        )}
-      />
-
-      <div className="pl-3 pr-3 pt-3 pb-2.5 space-y-2.5">
-        {/* Top row: drag handle + actions */}
+      <div className="px-3 pt-2.5 pb-2.5 space-y-2">
+        {/* Task name + edit action */}
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <GripVertical className="size-3.5 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors shrink-0 -ml-1" />
-            {/* Status toggle */}
-            <button onClick={() => onToggle(task.id)} className="shrink-0 mt-0.5" aria-label="Toggle done">
-              {task.done ? (
-                <CircleCheck className="size-4 text-emerald-500" />
-              ) : (
-                <div className="size-4 rounded-full border-2 border-muted-foreground/40 hover:border-primary transition-colors" />
-              )}
-            </button>
-          </div>
-
-          {/* More menu */}
-          <div className="relative shrink-0" ref={menuRef}>
+          {isEditingName ? (
+            <input
+              ref={nameInputRef}
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void saveName();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setNameDraft(task.name);
+                  setIsEditingName(false);
+                }
+              }}
+              onBlur={() => void saveName()}
+              disabled={isSavingName}
+              className="flex-1 min-w-0 bg-transparent text-sm font-semibold leading-snug outline-none border-b border-primary/40 pb-0.5"
+            />
+          ) : (
             <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="opacity-0 group-hover:opacity-100 transition-opacity size-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTaskClick?.(task.id);
+              }}
+              className={cn(
+                "text-sm font-semibold leading-snug text-left flex-1 min-w-0 hover:text-primary transition-colors",
+                task.done ? "line-through text-muted-foreground" : "text-foreground"
+              )}
             >
-              <MoreHorizontal className="size-3.5" />
+              {task.name}
             </button>
-            {showMenu && (
-              <div
-                className={cn(
-                  "absolute top-full end-0 mt-1 z-30 bg-popover border border-border/60 rounded-xl shadow-lg p-1.5 transition-all duration-150 bg-white dark:bg-slate-900",
-                  menuState === "date" ? "w-[270px]" : "min-w-[140px]"
-                )}
-              >
-                {menuState === "main" && (
-                  <div className="space-y-0.5">
-                    <button
-                      onClick={() => {
-                        onTaskClick?.(task.id);
-                        setShowMenu(false);
-                      }}
-                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors"
-                    >
-                      Edit task
-                    </button>
-                    <button
-                      onClick={() => {
-                        onDuplicateTask?.(task.id);
-                        setShowMenu(false);
-                      }}
-                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors"
-                    >
-                      Duplicate
-                    </button>
-                    <button
-                      onClick={() => setMenuState("move")}
-                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors flex items-center justify-between"
-                    >
-                      <span>Move to…</span>
-                      <ChevronRight className="size-3 text-muted-foreground" />
-                    </button>
-                    <button
-                      onClick={() => setMenuState("date")}
-                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors flex items-center justify-between"
-                    >
-                      <span>Set due date</span>
-                      <ChevronRight className="size-3 text-muted-foreground" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        onDeleteTask?.(task.id);
-                        setShowMenu(false);
-                      }}
-                      className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-
-                {menuState === "move" && (
-                  <div>
-                    <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border/40 mb-1">
-                      <button
-                        onClick={() => setMenuState("main")}
-                        className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-                      >
-                        <ChevronLeft className="size-3.5" />
-                      </button>
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Move task</span>
-                    </div>
-                    <div className="space-y-0.5">
-                      {(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"] as const)
-                        .filter((status) => status !== task.status)
-                        .map((status) => (
-                          <button
-                            key={status}
-                            onClick={() => {
-                              onMoveTask?.(task.id, status);
-                              setShowMenu(false);
-                            }}
-                            className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-muted/60 transition-colors"
-                          >
-                            {status === "To_Do"
-                              ? "To Do"
-                              : status === "In_Progress"
-                              ? "In Progress"
-                              : status === "Submitted_for_Review"
-                              ? "Submitted for Review"
-                              : status === "Approved"
-                              ? "Approved"
-                              : status === "Rework"
-                              ? "Rework"
-                              : "Done"}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                {menuState === "date" && (
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border/40 mb-1">
-                      <button
-                        onClick={() => setMenuState("main")}
-                        className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-                      >
-                        <ChevronLeft className="size-3.5" />
-                      </button>
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Set due date</span>
-                    </div>
-                    <div className="p-1 flex justify-center">
-                      <Calendar
-                        mode="single"
-                        selected={task.rawEndDate ? new Date(task.rawEndDate) : undefined}
-                        onSelect={(date) => {
-                          if (date) {
-                            const formattedDate = date.toISOString().slice(0, 10);
-                            onSetDueDate?.(task.id, formattedDate);
-                          }
-                          setShowMenu(false);
-                        }}
-                      />
-                    </div>
-                    <button
-                      onClick={() => {
-                        onSetDueDate?.(task.id, null);
-                        setShowMenu(false);
-                      }}
-                      className="w-full text-center py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-lg transition-colors border-t border-border/40 mt-1"
-                    >
-                      Clear due date
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Task name */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onTaskClick?.(task.id);
-          }}
-          className={cn(
-            "text-sm font-semibold leading-snug text-left w-full hover:text-primary transition-colors",
-            task.done ? "line-through text-muted-foreground" : "text-foreground"
           )}
-        >
-          {task.name}
-        </button>
+
+          {onRenameTask && !isEditingName && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditingName(true);
+              }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 size-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-border/50 bg-background/80"
+              aria-label="Edit task name"
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          )}
+        </div>
 
         {/* Description snippet */}
         {task.description && <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{task.description}</p>}
@@ -727,36 +1264,75 @@ function BoardCard({
         )}
 
         {/* Bottom meta row */}
-        <div className="flex items-center gap-2 pt-0.5 border-t border-border/30">
-          {/* Assignee */}
-          <span className={cn("inline-flex items-center justify-center size-5 rounded-full text-[9px] font-bold text-white shrink-0", task.assigneeColor)}>
-            {task.assigneeInitials}
-          </span>
+        <div className="flex items-center gap-2 pt-1">
+          {canAssignTask && onAssignTask ? (
+            <BoardAssigneePicker
+              assignees={assignees}
+              currentUserId={currentUserId}
+              selectedUserId={task.assigneeId}
+              onAssign={(ownerId) => onAssignTask(task.id, ownerId)}
+            >
+              {task.assigneeId ? (
+                <span className="text-[10px] font-medium truncate max-w-[100px] text-foreground transition-colors hover:text-primary">
+                  {assigneeLabel}
+                </span>
+              ) : (
+                <User className="size-3.5 text-muted-foreground transition-colors hover:text-foreground" />
+              )}
+            </BoardAssigneePicker>
+          ) : task.assigneeId ? (
+            <span className="text-[10px] font-medium text-muted-foreground truncate max-w-[100px]">
+              {assigneeLabel}
+            </span>
+          ) : (
+            <User className="size-3.5 text-muted-foreground" aria-label="Unassigned" />
+          )}
 
-          {/* Due date */}
-          <div
-            className={cn(
-              "flex items-center gap-1 text-[10px] font-medium",
-              overdue ? "text-rose-500" : dueSoon ? "text-amber-500" : "text-muted-foreground"
-            )}
-          >
-            {overdue ? <AlertCircle className="size-3 shrink-0" /> : dueSoon ? <Clock className="size-3 shrink-0" /> : <CalendarIcon className="size-3 shrink-0" />}
-            {task.dueDate}
-          </div>
+          {canEditDates && onUpdateTaskDates ? (
+            <BoardTaskDatePicker
+              startDate={task.rawStartDate}
+              endDate={task.rawEndDate}
+              onSave={(dates) => onUpdateTaskDates(task.id, dates)}
+            >
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center rounded-md p-0.5 transition-colors hover:bg-muted/50",
+                  overdue ? "text-rose-500" : dueSoon ? "text-amber-500" : "text-muted-foreground hover:text-foreground"
+                )}
+                aria-label="Set dates"
+              >
+                <CalendarIcon className="size-3.5 shrink-0" />
+              </span>
+            </BoardTaskDatePicker>
+          ) : (
+            <span
+              className={cn(
+                "inline-flex items-center justify-center text-muted-foreground",
+                overdue && "text-rose-500",
+                dueSoon && !overdue && "text-amber-500"
+              )}
+              aria-label="Dates"
+            >
+              <CalendarIcon className="size-3.5 shrink-0" />
+            </span>
+          )}
 
-          {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Priority badge */}
-          <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-md border", pConfig.bg, pConfig.text)}>{pConfig.label}</span>
-
-          {/* Comments */}
-          {task.comments > 0 && (
-            <div className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-              <MessageSquare className="size-3" />
-              {task.comments}
-            </div>
+          {onMoveTask ? (
+            <BoardStatusPicker
+              task={task}
+              currentUserId={currentUserId}
+              canApproveTask={canApproveTask}
+              onStatusChange={onMoveTask}
+            />
+          ) : (
+            <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-md", STATUS_PILL[task.status])}>
+              {STATUS_OPTIONS.find((o) => o.value === task.status)?.label}
+            </span>
           )}
+
+          <BoardCommentPicker taskId={task.id} commentCount={task.comments} />
         </div>
       </div>
     </div>

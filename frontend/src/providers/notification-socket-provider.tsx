@@ -6,16 +6,15 @@ import { useAuth } from "@/domains/auth";
 import { env } from "@/config/env.config";
 import { api } from "@/core/api/api";
 
-function getAccessTokenFromCookie(): string | null {
-  if (typeof document === "undefined") {
+async function fetchWsToken(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/ws-token", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { token?: string };
+    return data.token ?? null;
+  } catch {
     return null;
   }
-
-  const match = document.cookie
-    .split("; ")
-    .find((row) => row.startsWith("access_token="));
-
-  return match ? decodeURIComponent(match.split("=")[1]) : null;
 }
 
 export function NotificationSocketProvider({ children }: { children: ReactNode }) {
@@ -29,30 +28,37 @@ export function NotificationSocketProvider({ children }: { children: ReactNode }
       return;
     }
 
-    const token = getAccessTokenFromCookie();
+    let cancelled = false;
 
-    const socket = io(`${env.wsUrl}/notifications`, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-      auth: token ? { token } : {},
-      reconnection: true,
-      reconnectionDelay: 2000,
-      reconnectionAttempts: 10,
-    });
+    const connect = async () => {
+      const token = await fetchWsToken();
+      if (cancelled || !token) return;
 
-    const invalidateRealtimeQueries = () => {
-      api.util.invalidateTags(["Notifications", "TaskProgress"]);
+      const socket = io(`${env.wsUrl}/notifications`, {
+        path: "/socket.io",
+        transports: ["websocket", "polling"],
+        withCredentials: true,
+        auth: { token },
+        reconnection: true,
+        reconnectionDelay: 2000,
+        reconnectionAttempts: 10,
+      });
+
+      const invalidateRealtimeQueries = () => {
+        api.util.invalidateTags(["Notifications", "TaskProgress"]);
+      };
+
+      socket.on("connect", invalidateRealtimeQueries);
+      socket.on("notification.created", invalidateRealtimeQueries);
+
+      socketRef.current = socket;
     };
 
-    socket.on("connect", invalidateRealtimeQueries);
-    socket.on("notification.created", invalidateRealtimeQueries);
-
-    socketRef.current = socket;
+    void connect();
 
     return () => {
-      socket.off("connect", invalidateRealtimeQueries);
-      socket.off("notification.created", invalidateRealtimeQueries);
-      socket.disconnect();
+      cancelled = true;
+      socketRef.current?.disconnect();
       socketRef.current = null;
     };
   }, [user?.id]);

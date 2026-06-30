@@ -14,6 +14,8 @@ export interface GanttTaskRow {
   id: string;
   name: string;
   assigneeInitials: string;
+  assigneeName: string | null;
+  assigneeId: string | null;
   assigneeColor: string;
   dueDate: string;
   priority: GanttPriority;
@@ -68,6 +70,8 @@ export function mapTaskToGanttRow(
     id: task.id,
     name: task.title,
     assigneeInitials: initials,
+    assigneeName: task.owner?.displayName ?? null,
+    assigneeId: task.ownerId ?? null,
     assigneeColor: ASSIGNEE_COLORS[colorIndex],
     dueDate: task.endDate
       ? new Date(task.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
