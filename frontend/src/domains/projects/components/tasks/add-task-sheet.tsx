@@ -91,6 +91,8 @@ interface AddTaskSheetProps {
   defaultStatus?: WorkspaceStatus;
   defaultPhaseId?: string | null;
   projectName?: string;
+  defaultStartDate?: string | null;
+  defaultEndDate?: string | null;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -132,6 +134,8 @@ export function AddTaskSheet({
   defaultStatus = "To_Do",
   defaultPhaseId = null,
   projectName = "Workspace",
+  defaultStartDate = null,
+  defaultEndDate = null,
 }: AddTaskSheetProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sideTab, setSideTab] = useState<SideTab>("subtasks");
@@ -175,8 +179,8 @@ export function AddTaskSheet({
       priority: "Medium",
       status: WORKSPACE_STATUS_TO_API[defaultStatus],
       ownerId: null,
-      startDate: defaultDates.startDate,
-      endDate: defaultDates.endDate,
+      startDate: defaultStartDate ? new Date(defaultStartDate) : defaultDates.startDate,
+      endDate: defaultEndDate ? new Date(defaultEndDate) : defaultDates.endDate,
       effortHours: undefined,
     },
   });
@@ -237,11 +241,11 @@ export function AddTaskSheet({
       priority: "Medium",
       status: WORKSPACE_STATUS_TO_API[defaultStatus],
       ownerId: null,
-      startDate: dates.startDate,
-      endDate: dates.endDate,
+      startDate: defaultStartDate ? new Date(defaultStartDate) : dates.startDate,
+      endDate: defaultEndDate ? new Date(defaultEndDate) : dates.endDate,
       effortHours: undefined,
     });
-  }, [open, projectId, parentTaskId, defaultStatus, defaultPhaseId, reset]);
+  }, [open, projectId, parentTaskId, defaultStatus, defaultPhaseId, defaultStartDate, defaultEndDate, reset]);
 
   const handleClose = () => {
     resetDrafts();

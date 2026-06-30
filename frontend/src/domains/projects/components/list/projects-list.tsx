@@ -360,15 +360,14 @@ function FilterCardDropdown<T extends string>({
         </span>
         <ChevronDown className="size-3.5 opacity-50" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64 p-2">
+      <DropdownMenuContent align="start" className="w-64 p-2 shadow-none">
         <div className="space-y-1">
           {options.map((option) => (
-            <button
+            <DropdownMenuItem
               key={option.value}
-              type="button"
               onClick={() => onChange(option.value)}
               className={cn(
-                "flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                "flex w-full items-start gap-3 rounded-xl border px-2.5 py-1.5 text-left transition-colors cursor-pointer select-none focus:outline-none focus:bg-muted/50 focus:border-border/60",
                 value === option.value
                   ? "border-primary/30 bg-primary/5"
                   : "border-transparent hover:border-border/60 hover:bg-muted/50",
@@ -376,10 +375,10 @@ function FilterCardDropdown<T extends string>({
             >
               <span className={cn("mt-1.5 size-2.5 shrink-0 rounded-full", option.dot)} />
               <span className="min-w-0">
-                <span className="block text-sm font-semibold">{option.label}</span>
-                <span className="block text-[11px] text-muted-foreground">{option.description}</span>
+                <span className="block text-xs font-medium">{option.label}</span>
+                <span className="block text-[10px] text-muted-foreground">{option.description}</span>
               </span>
-            </button>
+            </DropdownMenuItem>
           ))}
         </div>
       </DropdownMenuContent>
