@@ -263,7 +263,6 @@ interface BoardViewProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   onSetDueDate?: (taskId: string, date: string | null) => void;
-  assignees?: ProjectTaskAssignee[];
 }
 
 export function BoardView({
@@ -283,7 +282,6 @@ export function BoardView({
   onDuplicateTask,
   onMoveTask,
   onSetDueDate,
-  assignees = [],
 }: BoardViewProps) {
   const [addingInColumn, setAddingInColumn] = useState<Status | null>(null);
 
