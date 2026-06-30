@@ -11,6 +11,7 @@ import {
   useCreateMilestoneMutation,
   useUpdateMilestoneMutation,
   useDeleteMilestoneMutation,
+  useGetProjectByIdQuery,
 } from "../../api/projects.api";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/shared/ui/sheet";
 import { Button } from "@/shared/ui/button";
@@ -64,6 +65,7 @@ interface PhaseMilestonePanelProps {
 }
 
 export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilestonePanelProps) {
+  const { data: project } = useGetProjectByIdQuery(projectId);
   const { data: phases = [] } = useGetPhasesQuery(projectId);
   const { data: milestones = [] } = useGetMilestonesQuery(projectId);
 
@@ -341,6 +343,8 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                   isSaving={isPhaseSaving}
                   existingPhases={phases}
                   phaseId={activeForm.id}
+                  projectStartDate={project?.startDate}
+                  projectEndDate={project?.endDate}
                 />
               ) : (
                 <MilestoneForm
@@ -349,6 +353,8 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                   onSubmit={handleSaveMilestone}
                   onCancel={() => setActiveForm({ type: null })}
                   isSaving={isMilestoneSaving}
+                  projectStartDate={project?.startDate}
+                  projectEndDate={project?.endDate}
                 />
               )
             ) : (

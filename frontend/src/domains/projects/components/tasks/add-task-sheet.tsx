@@ -27,6 +27,7 @@ import {
   createTaskSchema,
   toCreateTaskPayload,
   type CreateTaskFormValues,
+  useGetProjectByIdQuery,
 } from "@/domains/projects";
 import {
   Sheet,
@@ -152,6 +153,7 @@ export function AddTaskSheet({
   const { data: assignees = [], isLoading: loadingAssignees } =
     useGetProjectTaskAssigneesQuery(projectId, { skip: !projectId });
   const { data: phases = [], isLoading: loadingPhases } = useGetPhasesQuery(projectId);
+  const { data: project } = useGetProjectByIdQuery(projectId, { skip: !projectId });
   const defaultDates = defaultTaskDateRange();
 
   const {
@@ -861,6 +863,8 @@ export function AddTaskSheet({
             onCancel={() => setShowCreatePhase(false)}
             isSaving={isSavingPhase}
             existingPhases={phases}
+            projectStartDate={project?.startDate}
+            projectEndDate={project?.endDate}
           />
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>

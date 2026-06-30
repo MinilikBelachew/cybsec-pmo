@@ -450,8 +450,8 @@ export function ProjectWorkspace() {
 
   if (isLoading) {
     return (
-      <div className="flex h-96 items-center justify-center text-slate-500 dark:text-white/40">
-        <Loader2 className="mr-2 size-6 animate-spin text-purple-600" />
+      <div className="flex h-96 items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 size-6 animate-spin text-primary" />
         Loading workspace details...
       </div>
     );
@@ -482,21 +482,21 @@ export function ProjectWorkspace() {
   const progressPercent = overallProgressPercent;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 overflow-hidden bg-transparent text-slate-900 dark:text-white transition-colors duration-300">
+    <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 overflow-hidden bg-transparent text-foreground transition-colors duration-300">
       {/* ─── BREADCRUMB / TITLE BAR ────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
-        <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
-        <span className="text-xs text-slate-400 dark:text-white/20">/</span>
-        <span className="text-sm font-semibold text-slate-950 dark:text-white">{project.name}</span>
-        <button className="ml-1 text-slate-400 dark:text-white/30 hover:text-amber-400 transition-colors">
+        <span className="text-xs text-muted-foreground">Team Space</span>
+        <span className="text-xs text-muted-foreground/50">/</span>
+        <span className="text-sm font-semibold text-foreground">{project.name}</span>
+        <button className="ml-1 text-muted-foreground/75 hover:text-amber-400 transition-colors">
           <Star className="size-3.5 fill-current text-amber-500 animate-none" />
         </button>
-        <button className="text-slate-400 dark:text-white/30 hover:text-slate-950 dark:hover:text-white transition-colors">
+        <button className="text-muted-foreground/75 hover:text-foreground transition-colors">
           <List className="size-3.5" />
         </button>
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="text-[10px] text-slate-400 dark:text-white/40 font-medium px-2 py-0.5 rounded-md border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-white/5">
+          <div className="text-[10px] text-muted-foreground font-medium px-2 py-0.5 rounded-md border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-white/5">
             {roleLabel}
           </div>
         </div>
@@ -515,7 +515,7 @@ export function ProjectWorkspace() {
         {/* Progress Tracker */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-white/40">Project Health</span>
+            <span className="text-[10px] font-bold text-muted-foreground">Project Health</span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
               on track
             </span>
@@ -523,15 +523,15 @@ export function ProjectWorkspace() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs font-semibold">
               <span>Overall Progress</span>
-              <span className="text-purple-600 dark:text-purple-400">{progressPercent}%</span>
+              <span className="text-primary">{progressPercent}%</span>
             </div>
             <div className="h-1.5 w-full bg-slate-200/80 dark:bg-white/5 rounded-full overflow-hidden">
               <div
-                className="h-full bg-purple-600 dark:bg-purple-400 transition-all duration-1000 ease-out"
+                className="h-full bg-primary transition-all duration-1000 ease-out"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
-            <p className="text-[10px] text-slate-400 dark:text-white/40">
+            <p className="text-[10px] text-muted-foreground">
               Average approved progress across tasks
             </p>
           </div>
@@ -540,16 +540,16 @@ export function ProjectWorkspace() {
         {/* Commercial/Financial Info */}
         <div className="grid grid-cols-2 gap-3 border-x border-slate-200/60 dark:border-white/[0.08] px-4 bg-transparent">
           <div className="space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 dark:text-white/40">Tasks</p>
+            <p className="text-[10px] font-bold text-muted-foreground">Tasks</p>
             <div className="flex items-baseline gap-1">
-              <span className="text-lg font-bold text-slate-900 dark:text-white">{completedTasks}</span>
-              <span className="text-[10px] text-slate-400 dark:text-white/40">/ {totalTasks}</span>
+              <span className="text-lg font-bold text-foreground">{completedTasks}</span>
+              <span className="text-[10px] text-muted-foreground">/ {totalTasks}</span>
             </div>
           </div>
           <div className="space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 dark:text-white/40">Budget</p>
+            <p className="text-[10px] font-bold text-muted-foreground">Budget</p>
             <div className="flex items-baseline gap-1">
-              <span className="text-lg font-bold text-slate-900 dark:text-white">
+              <span className="text-lg font-bold text-foreground">
                 {formatProjectBudget(project.value, project.currency)}
               </span>
             </div>
@@ -559,34 +559,34 @@ export function ProjectWorkspace() {
         {/* Key Milestones */}
         <div className="md:col-span-2 space-y-2 bg-transparent">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-white/40">Recent Milestones</span>
-            <button onClick={() => setIsPhasePanelOpen(true)} className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline">Manage Roadmap</button>
+            <span className="text-[10px] font-bold text-muted-foreground">Recent Milestones</span>
+            <button onClick={() => setIsPhasePanelOpen(true)} className="text-[10px] font-bold text-primary hover:underline">Manage Roadmap</button>
           </div>
           <div className="flex items-center gap-1">
             {recentMilestones.length === 0 ? (
-              <span className="text-[10px] text-slate-400 dark:text-white/30 italic px-1">No milestones defined.</span>
+              <span className="text-[10px] text-muted-foreground/70 italic px-1">No milestones defined.</span>
             ) : (
               recentMilestones.map((m, i) => (
                 <React.Fragment key={m.id}>
                   <div className={`flex-1 p-2 rounded-lg border transition-all cursor-default relative overflow-hidden group ${
                     m.status === 'done'        ? "bg-emerald-50/50 border-emerald-200/50 dark:bg-emerald-950/10 dark:border-emerald-800/30" :
-                    m.status === 'in-progress' ? "bg-purple-600/5 border-purple-500/20 ring-1 ring-purple-500/20 shadow-sm" :
+                    m.status === 'in-progress' ? "bg-primary/5 border-primary/20 ring-1 ring-primary/20 shadow-sm" :
                     "bg-slate-100/50 dark:bg-white/5 border-slate-200 dark:border-white/5"
                   }`}>
                     <div className="flex items-center justify-between mb-1">
                       <span className={`text-[8px] font-bold uppercase tracking-tighter ${
                         m.status === 'done'        ? "text-emerald-600" :
-                        m.status === 'in-progress' ? "text-purple-600 dark:text-purple-400" :
-                        "text-slate-400 dark:text-white/30"
+                        m.status === 'in-progress' ? "text-primary" :
+                        "text-muted-foreground/70"
                       }`}>
                         {m.dueDate}
                       </span>
                       {m.status === 'done' && <CheckCircle2 className="size-2 text-emerald-500" />}
-                      {m.status === 'in-progress' && <Clock className="size-2 text-purple-600 dark:text-purple-400 animate-pulse" />}
+                      {m.status === 'in-progress' && <Clock className="size-2 text-primary animate-pulse" />}
                     </div>
                     <p className="text-[10px] font-bold truncate leading-tight">{m.name}</p>
                   </div>
-                  {i < recentMilestones.length - 1 && <ChevronRight className="size-3 text-slate-300 dark:text-white/10 shrink-0" />}
+                  {i < recentMilestones.length - 1 && <ChevronRight className="size-3 text-muted-foreground/30 shrink-0" />}
                 </React.Fragment>
               ))
             )}
@@ -602,8 +602,8 @@ export function ProjectWorkspace() {
             onClick={() => setActiveView(id)}
             className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors border-b-2 -mb-px ${
               activeView === id
-                ? "border-purple-600 text-purple-600 dark:border-purple-400 dark:text-purple-400"
-                : "border-transparent text-slate-400 hover:text-slate-900 dark:text-white/45 dark:hover:text-white"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             <Icon className="size-3.5" />
@@ -616,7 +616,7 @@ export function ProjectWorkspace() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Search */}
         <div className="relative w-full max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
             placeholder="Search tasks..."
             value={searchQuery}
@@ -629,7 +629,7 @@ export function ProjectWorkspace() {
         <div className="flex flex-wrap items-center gap-2">
           {/* Status Filter */}
           <div className="flex items-center gap-1.5 rounded-xl border border-slate-200/60 dark:border-white/5 bg-slate-50 dark:bg-white/5 px-2.5 py-1 text-xs">
-            <span className="text-slate-400 dark:text-white/30">Status:</span>
+            <span className="text-muted-foreground">Status:</span>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -647,7 +647,7 @@ export function ProjectWorkspace() {
 
           {/* Priority Filter */}
           <div className="flex items-center gap-1.5 rounded-xl border border-slate-200/60 dark:border-white/5 bg-slate-50 dark:bg-white/5 px-2.5 py-1 text-xs">
-            <span className="text-slate-400 dark:text-white/30">Priority:</span>
+            <span className="text-muted-foreground">Priority:</span>
             <select
               value={priorityFilter}
               onChange={(e) => setPriorityFilter(e.target.value)}

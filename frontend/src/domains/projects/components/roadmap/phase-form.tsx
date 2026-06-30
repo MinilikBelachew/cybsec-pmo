@@ -24,6 +24,8 @@ interface PhaseFormProps {
   isSaving: boolean;
   existingPhases?: ProjectPhase[];
   phaseId?: string;
+  projectStartDate?: string;
+  projectEndDate?: string;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -38,8 +40,9 @@ export function PhaseForm({
   isSaving,
   existingPhases = [],
   phaseId,
+  projectStartDate,
+  projectEndDate,
 }: PhaseFormProps) {
-  // Dynamically define schema with overlap checking
   const schema = useMemo(() => {
     return phaseSchema
       .refine(
@@ -66,8 +69,40 @@ export function PhaseForm({
           message: "Phase dates overlap with an existing phase in this project",
           path: ["startDate"],
         }
+      )
+      .refine(
+        (data) => {
+          if (!projectStartDate || !data.startDate) return true;
+          const projStart = new Date(projectStartDate);
+          const phaseStart = new Date(data.startDate);
+          projStart.setHours(0, 0, 0, 0);
+          phaseStart.setHours(0, 0, 0, 0);
+          return phaseStart >= projStart;
+        },
+        {
+          message: projectStartDate 
+            ? `Start date must be on or after project start date (${new Date(projectStartDate).toLocaleDateString()})` 
+            : "Start date is before project start date",
+          path: ["startDate"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (!projectEndDate || !data.endDate) return true;
+          const projEnd = new Date(projectEndDate);
+          const phaseEnd = new Date(data.endDate);
+          projEnd.setHours(0, 0, 0, 0);
+          phaseEnd.setHours(0, 0, 0, 0);
+          return phaseEnd <= projEnd;
+        },
+        {
+          message: projectEndDate 
+            ? `End date must be on or before project end date (${new Date(projectEndDate).toLocaleDateString()})` 
+            : "End date is after project end date",
+          path: ["endDate"],
+        }
       );
-  }, [existingPhases, phaseId]);
+  }, [existingPhases, phaseId, projectStartDate, projectEndDate]);
 
   const {
     register,
@@ -81,8 +116,8 @@ export function PhaseForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col justify-between overflow-hidden">
-      <ScrollArea className="flex-1 px-4 py-4">
-        <div className="space-y-4">
+      <ScrollArea className="flex-1">
+        <div className="space-y-4 px-4 py-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold">
               {initialValues.name ? "Edit Phase Details" : "Create New Phase"}
@@ -136,6 +171,23 @@ export function PhaseForm({
                           mode="single"
                           selected={field.value ? new Date(field.value) : undefined}
                           onSelect={(date) => field.onChange(date ? toDateString(date) : "")}
+                          disabled={(date) => {
+                            if (projectStartDate) {
+                              const start = new Date(projectStartDate);
+                              start.setHours(0, 0, 0, 0);
+                              const d = new Date(date);
+                              d.setHours(0, 0, 0, 0);
+                              if (d < start) return true;
+                            }
+                            if (projectEndDate) {
+                              const end = new Date(projectEndDate);
+                              end.setHours(0, 0, 0, 0);
+                              const d = new Date(date);
+                              d.setHours(0, 0, 0, 0);
+                              if (d > end) return true;
+                            }
+                            return false;
+                          }}
                         />
                       </PopoverContent>
                     </Popover>
@@ -164,6 +216,23 @@ export function PhaseForm({
                           mode="single"
                           selected={field.value ? new Date(field.value) : undefined}
                           onSelect={(date) => field.onChange(date ? toDateString(date) : "")}
+                          disabled={(date) => {
+                            if (projectStartDate) {
+                              const start = new Date(projectStartDate);
+                              start.setHours(0, 0, 0, 0);
+                              const d = new Date(date);
+                              d.setHours(0, 0, 0, 0);
+                              if (d < start) return true;
+                            }
+                            if (projectEndDate) {
+                              const end = new Date(projectEndDate);
+                              end.setHours(0, 0, 0, 0);
+                              const d = new Date(date);
+                              d.setHours(0, 0, 0, 0);
+                              if (d > end) return true;
+                            }
+                            return false;
+                          }}
                         />
                       </PopoverContent>
                     </Popover>
