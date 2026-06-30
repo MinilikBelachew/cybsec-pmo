@@ -20,7 +20,6 @@ import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/task
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
-import { useRole } from "@/shared/providers/role-provider";
 import { useAppAbility } from "@/domains/auth";
 import { cn } from "@/shared/utils/cn";
 import {
@@ -224,11 +223,9 @@ export function ProjectWorkspace() {
   const router = useRouter();
   const id = params.id as string;
 
-  const { userRole } = useRole();
   const ability = useAppAbility();
   const canCreateTask = ability?.can("create", "Task") ?? false;
   const canReviewProgress = ability?.can("approve", "Task") ?? false;
-  const roleLabel = userRole ? userRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Guest";
   const phaseViewRef = useRef<PhaseViewRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -588,13 +585,6 @@ export function ProjectWorkspace() {
         <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
         <span className="text-xs text-slate-400 dark:text-white/20">/</span>
         <span className="text-sm font-semibold text-slate-950 dark:text-white">{project.name}</span>
-      
-
-        <div className="ml-auto flex items-center gap-2">
-          <div className="text-[10px] text-muted-foreground font-medium px-2 py-0.5 rounded-md border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-white/5">
-            {roleLabel}
-          </div>
-        </div>
       </div>
 
       {canReviewProgress && (
