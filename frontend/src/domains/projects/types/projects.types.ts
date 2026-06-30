@@ -225,6 +225,7 @@ export interface GetTeamCandidatesParams {
   projectId?: string;
   startDate?: string;
   endDate?: string;
+  search?: string;
 }
 
 export interface CreateProjectTeamPayload {

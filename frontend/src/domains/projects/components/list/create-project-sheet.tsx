@@ -54,7 +54,9 @@ import { BudgetValueInput } from "../shared/budget-value-input";
 import {
   ProjectFormMilestonesSection,
   toDraftMilestonePayload,
+  isMilestoneDateOutOfRange,
   type DraftProjectMilestone,
+  type ProjectFormMilestonesSectionHandle,
 } from "./project-form-milestones-section";
 
 interface CreateProjectSheetProps {
@@ -156,8 +158,10 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const ability = useAppAbility();
   const canEditTeam = ability?.can("update", "Project") ?? false;
   const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
+  const milestoneSectionRef = useRef<ProjectFormMilestonesSectionHandle>(null);
   const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
   const [milestoneDrafts, setMilestoneDrafts] = useState<DraftProjectMilestone[]>([]);
+  const [milestoneError, setMilestoneError] = useState<string | null>(null);
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
   const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
   const [addProjectTeamMembers, { isLoading: isSavingTeam }] = useAddProjectTeamMembersMutation();
@@ -209,8 +213,10 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     if (!open) {
       setPendingTeamMembers([]);
       setMilestoneDrafts([]);
+      setMilestoneError(null);
       return;
     }
+    setMilestoneError(null);
     if (project) {
       reset(projectToFormValues(project));
     } else {
@@ -233,14 +239,72 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     }
   }, [open, project, reset]);
 
-  const onSubmit = handleSubmit(async (values) => {
+  const onFormError = (formErrors: any) => {
+    console.log("Validation errors:", formErrors);
+    setTimeout(() => {
+      const firstErrorElement = document.querySelector("p.text-rose-500");
+      if (firstErrorElement) {
+        firstErrorElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 50);
+  };
+
+  const onValidSubmit = async (values: CreateProjectFormValues) => {
+    setMilestoneError(null);
+    let currentMilestoneDrafts = milestoneDrafts;
+    const unsaved = milestoneSectionRef.current?.getUnsavedMilestone();
+    if (unsaved && (unsaved.title || unsaved.targetDate || unsaved.weight)) {
+      if (!unsaved.title) {
+        setMilestoneError("Milestone title is required.");
+        document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      if (!unsaved.targetDate) {
+        setMilestoneError("Milestone target date is required.");
+        document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      const dateError = isMilestoneDateOutOfRange(
+        unsaved.targetDate,
+        values.startDate,
+        values.endDate,
+      );
+      if (dateError) {
+        setMilestoneError(`${dateError}`);
+        document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+
+      if (unsaved.weight) {
+        const wVal = Number(unsaved.weight);
+        if (Number.isNaN(wVal) || wVal < 0 || wVal > 100) {
+          setMilestoneError("Milestone weight % must be between 0 and 100.");
+          document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+      }
+
+      const newDraft = {
+        clientId: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        title: unsaved.title.trim().replace(/\s+/g, " "),
+        targetDate: unsaved.targetDate,
+        weight: unsaved.weight ? Number(unsaved.weight) : null,
+        status: "Pending",
+      };
+
+      currentMilestoneDrafts = [...milestoneDrafts, newDraft];
+      setMilestoneDrafts(currentMilestoneDrafts);
+      milestoneSectionRef.current?.clearUnsavedMilestone();
+    }
+
     const milestoneDateError = validateMilestoneDraftDates(
-      milestoneDrafts,
+      currentMilestoneDrafts,
       values.startDate,
       values.endDate,
     );
     if (milestoneDateError) {
-      toast.error(milestoneDateError);
+      setMilestoneError(milestoneDateError);
+      document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
@@ -248,7 +312,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
       const membersToSave = mergeTeamMembers(pendingTeamMembers, draftMembers);
-      const newMilestones = toDraftMilestonePayload(milestoneDrafts);
+      const newMilestones = toDraftMilestonePayload(currentMilestoneDrafts);
       let targetProjectId = project?.id;
 
       if (isEditMode && project) {
@@ -320,7 +384,9 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
         toast.error(apiError?.data?.message ?? "Failed to save project. Please try again.");
       }
     }
-  });
+  };
+
+  const onSubmit = handleSubmit(onValidSubmit, onFormError);
 
   const watchedName = watch("name");
   const watchedObjective = watch("objective");
@@ -828,11 +894,16 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
           </div>
 
           <ProjectFormMilestonesSection
+            ref={milestoneSectionRef}
             existingMilestones={isEditMode ? existingMilestones : []}
             drafts={milestoneDrafts}
-            onDraftsChange={setMilestoneDrafts}
+            onDraftsChange={(newDrafts) => {
+              setMilestoneDrafts(newDrafts);
+              setMilestoneError(null);
+            }}
             projectStartDate={watchedStartDate}
             projectEndDate={watchedEndDate}
+            error={milestoneError || undefined}
           />
 
         </div>

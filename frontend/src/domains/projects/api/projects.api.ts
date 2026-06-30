@@ -260,6 +260,7 @@ export const projectsApi = api.injectEndpoints({
         if (params.projectId) queryParams.append("projectId", params.projectId);
         if (params.startDate) queryParams.append("startDate", params.startDate);
         if (params.endDate) queryParams.append("endDate", params.endDate);
+        if (params.search) queryParams.append("search", params.search);
         const qs = queryParams.toString();
         return `/projects/meta/team-candidates${qs ? `?${qs}` : ""}`;
       },

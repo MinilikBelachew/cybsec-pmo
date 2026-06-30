@@ -21,3 +21,4 @@ export * from "./components/roadmap/phase-form";
 export * from "./components/roadmap/milestone-form";
 export * from "./components/list/project-team-section";
 export * from "./components/roadmap/phase-milestone-panel";
+export * from "./components/shared/employee-tooltip";

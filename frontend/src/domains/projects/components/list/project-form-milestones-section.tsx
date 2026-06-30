@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 import { Flag, Plus, Trash2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { Button } from "@/shared/ui/button";
@@ -17,12 +17,18 @@ export type DraftProjectMilestone = {
   persistedId?: string;
 };
 
+export interface ProjectFormMilestonesSectionHandle {
+  getUnsavedMilestone: () => { title: string; targetDate: string; weight: string };
+  clearUnsavedMilestone: () => void;
+}
+
 type ProjectFormMilestonesSectionProps = {
   existingMilestones?: ProjectMilestone[];
   drafts: DraftProjectMilestone[];
   onDraftsChange: (drafts: DraftProjectMilestone[]) => void;
   projectStartDate?: Date;
   projectEndDate?: Date;
+  error?: string;
 };
 
 const MILESTONE_TITLE_MAX = 255;
@@ -36,7 +42,7 @@ function toDateInputValue(date?: Date): string | undefined {
   return date.toISOString().slice(0, 10);
 }
 
-function isMilestoneDateOutOfRange(
+export function isMilestoneDateOutOfRange(
   targetDate: string,
   projectStartDate?: Date,
   projectEndDate?: Date,
@@ -76,29 +82,49 @@ export function toDraftMilestonePayload(drafts: DraftProjectMilestone[]) {
     }));
 }
 
-export function ProjectFormMilestonesSection({
+export const ProjectFormMilestonesSection = forwardRef<
+  ProjectFormMilestonesSectionHandle,
+  ProjectFormMilestonesSectionProps
+>(function ProjectFormMilestonesSection({
   existingMilestones = [],
   drafts,
   onDraftsChange,
   projectStartDate,
   projectEndDate,
-}: ProjectFormMilestonesSectionProps) {
+  error,
+}, ref) {
   const [title, setTitle] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [weight, setWeight] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [showFields, setShowFields] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    getUnsavedMilestone: () => {
+      if (!showFields) return { title: "", targetDate: "", weight: "" };
+      return { title, targetDate, weight };
+    },
+    clearUnsavedMilestone: () => {
+      setTitle("");
+      setTargetDate("");
+      setWeight("");
+      setLocalError(null);
+      setShowFields(false);
+    },
+  }));
 
   function handleAddDraft() {
     const normalizedTitle = title.trim().replace(/\s+/g, " ");
     if (!normalizedTitle) {
-      toast.error("Milestone title is required.");
+      setLocalError("Milestone title is required.");
       return;
     }
     if (normalizedTitle.length > MILESTONE_TITLE_MAX) {
-      toast.error(`Milestone title must be ${MILESTONE_TITLE_MAX} characters or fewer.`);
+      setLocalError(`Milestone title must be ${MILESTONE_TITLE_MAX} characters or fewer.`);
       return;
     }
     if (!targetDate) {
-      toast.error("Milestone target date is required.");
+      setLocalError("Milestone target date is required.");
       return;
     }
 
@@ -108,10 +134,19 @@ export function ProjectFormMilestonesSection({
       projectEndDate,
     );
     if (dateError) {
-      toast.error(dateError);
+      setLocalError(dateError);
       return;
     }
 
+    if (weight) {
+      const wVal = Number(weight);
+      if (Number.isNaN(wVal) || wVal < 0 || wVal > 100) {
+        setLocalError("Milestone weight % must be between 0 and 100.");
+        return;
+      }
+    }
+
+    setLocalError(null);
     onDraftsChange([
       ...drafts,
       {
@@ -134,7 +169,10 @@ export function ProjectFormMilestonesSection({
   const newDrafts = drafts.filter((draft) => !draft.persistedId);
 
   return (
-    <section className="space-y-4 rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]">
+    <section
+      id="project-milestones-section"
+      className="space-y-4 rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]"
+    >
       <div className="flex items-center gap-2">
         <Flag className="size-4 text-primary" />
         <div>
@@ -200,47 +238,85 @@ export function ProjectFormMilestonesSection({
         </div>
       )}
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-        <div className="min-w-0 flex-1 space-y-1">
-          <Label className="text-[11px] text-muted-foreground">Title</Label>
-          <Input
-            value={title}
-            maxLength={MILESTONE_TITLE_MAX}
-            onChange={(event) =>
-              setTitle(event.target.value.replace(/[\r\n]+/g, " "))
-            }
-            placeholder="e.g. Phase 1 sign-off"
-            className="min-w-0"
-          />
+      {showFields ? (
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label className="text-[11px] text-muted-foreground">Title</Label>
+            <Input
+              value={title}
+              maxLength={MILESTONE_TITLE_MAX}
+              onChange={(event) => {
+                setTitle(event.target.value.replace(/[\r\n]+/g, " "));
+                setLocalError(null);
+              }}
+              placeholder="e.g. Phase 1 sign-off"
+              className="min-w-0"
+            />
+          </div>
+          <div className="w-full shrink-0 space-y-1 lg:w-[160px]">
+            <Label className="text-[11px] text-muted-foreground">Target date</Label>
+            <Input
+              type="date"
+              value={targetDate}
+              onChange={(event) => {
+                setTargetDate(event.target.value);
+                setLocalError(null);
+              }}
+            />
+          </div>
+          <div className="w-full shrink-0 space-y-1 lg:w-[100px]">
+            <Label className="text-[11px] text-muted-foreground">Weight %</Label>
+            <Input
+              type="number"
+              value={weight}
+              onChange={(event) => {
+                setWeight(event.target.value);
+                setLocalError(null);
+              }}
+              placeholder="Optional"
+            />
+          </div>
+          <div className="flex shrink-0 items-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setTitle("");
+                setTargetDate("");
+                setWeight("");
+                setLocalError(null);
+                setShowFields(false);
+              }}
+              className="w-full lg:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleAddDraft} className="w-full lg:w-auto">
+              <Plus className="mr-1 size-3.5" />
+              Add
+            </Button>
+          </div>
         </div>
-        <div className="w-full shrink-0 space-y-1 lg:w-[160px]">
-          <Label className="text-[11px] text-muted-foreground">Target date</Label>
-          <Input
-            type="date"
-            value={targetDate}
-            min={toDateInputValue(projectStartDate)}
-            max={toDateInputValue(projectEndDate)}
-            onChange={(event) => setTargetDate(event.target.value)}
-          />
-        </div>
-        <div className="w-full shrink-0 space-y-1 lg:w-[100px]">
-          <Label className="text-[11px] text-muted-foreground">Weight %</Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={weight}
-            onChange={(event) => setWeight(event.target.value)}
-            placeholder="Optional"
-          />
-        </div>
-        <div className="flex shrink-0 items-end">
-          <Button type="button" variant="outline" onClick={handleAddDraft} className="w-full lg:w-auto">
-            <Plus className="mr-1 size-3.5" />
-            Add
-          </Button>
-        </div>
-      </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setShowFields(true);
+            setLocalError(null);
+          }}
+          className="w-full lg:w-auto"
+        >
+          <Plus className="mr-1 size-3.5" />
+          Add Milestones
+        </Button>
+      )}
+
+      {(localError || error) && (
+        <p className="text-[11px] font-semibold text-rose-500 mt-2">
+          {localError || error}
+        </p>
+      )}
     </section>
   );
-}
+});

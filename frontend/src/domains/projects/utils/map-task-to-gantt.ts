@@ -27,6 +27,7 @@ export interface GanttTaskRow {
   rawStartDate?: string | null;
   rawEndDate?: string | null;
   isOnCriticalPath?: boolean;
+  owner?: Task["owner"];
 }
 
 const PRIORITY_MAP: Record<string, GanttPriority> = {
@@ -83,6 +84,7 @@ export function mapTaskToGanttRow(
     rawStartDate: task.startDate,
     rawEndDate: task.endDate,
     isOnCriticalPath: Boolean(task.isOnCriticalPath),
+    owner: task.owner,
   };
 }
 

@@ -823,6 +823,7 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             phases={phases}
+            assignees={assignees}
           />
         )}
 
@@ -844,6 +845,7 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
+            assignees={assignees}
           />
         )}
 

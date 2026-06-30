@@ -63,6 +63,15 @@ export class ProjectTeamService {
       where: {
         isActive: true,
         ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+        ...(query.search
+          ? {
+              OR: [
+                { name: { contains: query.search, mode: 'insensitive' as const } },
+                { email: { contains: query.search, mode: 'insensitive' as const } },
+                { designation: { contains: query.search, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
       },
       include: {
         ...EMPLOYEE_INCLUDE,

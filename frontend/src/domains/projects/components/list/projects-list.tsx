@@ -16,6 +16,7 @@ import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { createProjectListColumns } from "./project-list-columns";
 import { exportProjectsToXLSX } from "../../utils/import-export";
+import { EmployeeTooltip } from "../shared/employee-tooltip";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
@@ -148,12 +149,16 @@ function enrichProject(
         ? project.primaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase()
         : "PM",
       color: "bg-primary",
+      user: project.primaryPm,
+      roleName: "Primary Project Manager",
     },
   ];
   if (project.secondaryPm?.displayName) {
     team.push({
       initials: project.secondaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase(),
       color: "bg-primary/70",
+      user: project.secondaryPm,
+      roleName: "Secondary Project Manager",
     });
   }
 
@@ -906,14 +911,22 @@ function ProjectGridCard({
 
         <div className="flex items-center justify-between border-t border-border/40 pt-1">
           <div className="flex items-center -space-x-1.5">
-            {p.team.slice(0, 4).map((member: { initials: string; color: string }, index: number) => (
-              <span
+            {p.team.slice(0, 4).map((member: { initials: string; color: string; user?: any; roleName?: string }, index: number) => (
+              <EmployeeTooltip
                 key={index}
-                className={cn("inline-flex size-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-primary-foreground", member.color)}
-                title={member.initials}
+                employee={{
+                  displayName: member.user?.displayName,
+                  email: member.user?.email,
+                  role: member.roleName,
+                  designation: "Project Manager",
+                }}
               >
-                {member.initials}
-              </span>
+                <span
+                  className={cn("inline-flex size-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-primary-foreground cursor-default", member.color)}
+                >
+                  {member.initials}
+                </span>
+              </EmployeeTooltip>
             ))}
           </div>
 

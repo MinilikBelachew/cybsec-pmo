@@ -7,6 +7,7 @@ import { ThemeProvider } from "./theme-provider";
 import { ThemeColorInitializer } from "@/shared/components/theme-color-initializer";
 import { Toaster } from "react-hot-toast";
 import { NotificationSocketProvider } from "./notification-socket-provider";
+import { TooltipProvider } from "@/shared/ui/tooltip";
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -18,9 +19,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
         disableTransitionOnChange
       >
         <ThemeColorInitializer />
-        <NotificationSocketProvider>
-          {children}
-        </NotificationSocketProvider>
+        <TooltipProvider>
+          <NotificationSocketProvider>
+            {children}
+          </NotificationSocketProvider>
+        </TooltipProvider>
         <Toaster position="top-right" reverseOrder={false} />
       </ThemeProvider>
     </Provider>

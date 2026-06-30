@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsOptional, IsUUID } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class QueryTeamCandidatesDto {
   @ApiPropertyOptional({ format: 'uuid' })
@@ -30,4 +30,11 @@ export class QueryTeamCandidatesDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Search candidates by name, email, or designation.',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

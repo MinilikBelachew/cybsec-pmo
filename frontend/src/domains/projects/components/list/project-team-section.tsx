@@ -16,6 +16,7 @@ import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { cn } from "@/shared/utils/cn";
+import { useDebounce } from "@/shared/hooks/use-debounce";
 
 interface ProjectTeamSectionProps {
   projectId?: string | null;
@@ -116,7 +117,10 @@ export const ProjectTeamSection = forwardRef<
 ) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const [checkedCandidatesMap, setCheckedCandidatesMap] = useState<Record<string, TeamCandidate>>({});
   const [draftConfig, setDraftConfig] = useState<Record<string, DraftMemberConfig>>({});
+  const [searchVal, setSearchVal] = useState("");
+  const debouncedSearch = useDebounce(searchVal, 300);
 
   const { data: existingTeam = [], refetch: refetchTeam } = useGetProjectTeamQuery(
     projectId ?? "",
@@ -135,11 +139,12 @@ export const ProjectTeamSection = forwardRef<
     () => ({
       departmentId: filterByDepartment && departmentId ? departmentId : undefined,
       projectId: projectId ?? undefined,
+      search: debouncedSearch || undefined,
       ...(hasPlanningWindow
         ? { startDate: planningStart, endDate: planningEnd }
         : {}),
     }),
-    [departmentId, filterByDepartment, projectId, planningStart, planningEnd, hasPlanningWindow],
+    [departmentId, filterByDepartment, projectId, debouncedSearch, planningStart, planningEnd, hasPlanningWindow],
   );
 
   const { data: candidates = [], isLoading: loadingCandidates } =
@@ -157,11 +162,8 @@ export const ProjectTeamSection = forwardRef<
   );
 
   const checkedCandidates = useMemo(
-    () =>
-      checkedIds
-        .map((id) => availableCandidates.find((candidate) => candidate.employeeId === id))
-        .filter((candidate): candidate is TeamCandidate => Boolean(candidate)),
-    [availableCandidates, checkedIds],
+    () => Object.values(checkedCandidatesMap),
+    [checkedCandidatesMap],
   );
 
   useImperativeHandle(
@@ -176,6 +178,10 @@ export const ProjectTeamSection = forwardRef<
   const toggleCandidate = (candidate: TeamCandidate, checked: boolean) => {
     if (checked) {
       setCheckedIds((prev) => [...prev, candidate.employeeId]);
+      setCheckedCandidatesMap((prev) => ({
+        ...prev,
+        [candidate.employeeId]: candidate,
+      }));
       setDraftConfig((prev) => ({
         ...prev,
         [candidate.employeeId]: {
@@ -187,6 +193,11 @@ export const ProjectTeamSection = forwardRef<
     }
 
     setCheckedIds((prev) => prev.filter((id) => id !== candidate.employeeId));
+    setCheckedCandidatesMap((prev) => {
+      const next = { ...prev };
+      delete next[candidate.employeeId];
+      return next;
+    });
     setDraftConfig((prev) => {
       const next = { ...prev };
       delete next[candidate.employeeId];
@@ -237,6 +248,7 @@ export const ProjectTeamSection = forwardRef<
           `${teamResult.created.length} team member${teamResult.created.length === 1 ? "" : "s"} added to project.`,
         );
         setCheckedIds([]);
+        setCheckedCandidatesMap({});
         setDraftConfig({});
         setPickerOpen(false);
         refetchTeam();
@@ -249,6 +261,7 @@ export const ProjectTeamSection = forwardRef<
 
     onPendingMembersChange([...pendingMembers, ...draftMembers]);
     setCheckedIds([]);
+    setCheckedCandidatesMap({});
     setDraftConfig({});
     setPickerOpen(false);
   };
@@ -328,7 +341,7 @@ export const ProjectTeamSection = forwardRef<
                   {member.employee.department.name} · {member.employee.designation} · {member.role}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  {member.hours ?? 0}h/wk on this project · {member.remainingHoursTotal}h/wk remaining overall
+                  {member.hours ?? 0}h/week on this project · {member.remainingHoursTotal}h/week remaining overall
                 </p>
               </div>
               {canEdit && (
@@ -354,10 +367,18 @@ export const ProjectTeamSection = forwardRef<
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
               Add team members
             </label>
-            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+            <Popover
+              open={pickerOpen}
+              onOpenChange={(open) => {
+                setPickerOpen(open);
+                if (!open) {
+                  setSearchVal("");
+                }
+              }}
+            >
               <PopoverTrigger
                 type="button"
-                disabled={!hasPlanningWindow || loadingCandidates || availableCandidates.length === 0}
+                disabled={!hasPlanningWindow || loadingCandidates || (availableCandidates.length === 0 && !searchVal)}
                 className={cn(
                   "flex w-full min-h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm dark:border-white/[0.08] dark:bg-zinc-950",
                   "hover:border-slate-300 dark:hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-50",
@@ -368,7 +389,7 @@ export const ProjectTeamSection = forwardRef<
                     ? "Set project dates first"
                     : loadingCandidates
                       ? "Loading employees..."
-                      : availableCandidates.length === 0
+                      : (availableCandidates.length === 0 && !searchVal)
                         ? "No available employees"
                         : checkedCandidates.length > 0
                           ? `${checkedCandidates.length} selected — configure hours below`
@@ -377,48 +398,68 @@ export const ProjectTeamSection = forwardRef<
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </PopoverTrigger>
               <PopoverContent align="start" className="w-[var(--anchor-width)] p-0">
+                <div className="p-2 border-b border-slate-200 dark:border-white/[0.08] bg-slate-50/50 dark:bg-zinc-900/50">
+                  <Input
+                    placeholder="Search name, email, designation..."
+                    value={searchVal}
+                    onChange={(e) => setSearchVal(e.target.value)}
+                    className="h-8 text-xs w-full"
+                    autoFocus
+                  />
+                </div>
                 <div className="max-h-72 overflow-y-auto p-2">
-                  {availableCandidates.map((candidate) => {
-                    const isChecked = checkedIds.includes(candidate.employeeId);
+                  {loadingCandidates ? (
+                    <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">
+                      <Loader2 className="mr-2 size-4 animate-spin text-primary" />
+                      Loading...
+                    </div>
+                  ) : availableCandidates.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">
+                      No candidates found.
+                    </div>
+                  ) : (
+                    availableCandidates.map((candidate) => {
+                      const isChecked = checkedIds.includes(candidate.employeeId);
 
-                    return (
-                      <label
-                        key={candidate.employeeId}
-                        className={cn(
-                          "flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-slate-50 dark:hover:bg-white/[0.04]",
-                          isChecked && "bg-primary/5",
-                        )}
-                      >
-                        <Checkbox
-                          checked={isChecked}
-                          onCheckedChange={(checked) =>
-                            toggleCandidate(candidate, checked === true)
-                          }
-                          className="mt-0.5"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-slate-900 dark:text-white">
-                            {candidate.name}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {candidate.department.name} · {candidate.designation}
-                          </p>
-                          <p
-                            className={cn(
-                              "text-[11px]",
-                              candidate.isOverAllocated
-                                ? "text-rose-500"
-                                : candidate.isFullyBooked
-                                  ? "text-amber-600"
-                                  : "text-emerald-600",
-                            )}
-                          >
-                            {candidate.allocatedHoursTotal}h/wk allocated · {availabilityLabel(candidate)}
-                          </p>
-                        </div>
-                      </label>
-                    );
-                  })}
+                      return (
+                        <label
+                          key={candidate.employeeId}
+                          className={cn(
+                            "flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-slate-50 dark:hover:bg-white/[0.04]",
+                            isChecked && "bg-primary/5",
+                          )}
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={(checked) =>
+                              toggleCandidate(candidate, checked === true)
+                            }
+                            className="mt-0.5"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">
+                              {candidate.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {candidate.department.name} · {candidate.designation}
+                            </p>
+                            <p
+                              className={cn(
+                                "text-[11px]",
+                                candidate.isOverAllocated
+                                  ? "text-rose-500"
+                                  : candidate.isFullyBooked
+                                    ? "text-amber-600"
+                                    : "text-emerald-600",
+                              )}
+                            >
+                              {candidate.allocatedHoursTotal}h/week allocated · {availabilityLabel(candidate)}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })
+                  )}
                 </div>
               </PopoverContent>
             </Popover>
@@ -527,7 +568,7 @@ export const ProjectTeamSection = forwardRef<
                     {member.departmentName} · {member.designation}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    {member.remainingHours}h/wk remaining before assignment
+                    {member.remainingHours}h/week remaining before assignment
                   </p>
                   {member.isOverAllocated && (
                     <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">

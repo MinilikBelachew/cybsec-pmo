@@ -27,9 +27,11 @@ interface Task {
   phaseId?: string | null;
   phaseName?: string;
   phaseColor?: string;
+  owner?: { id: string; displayName: string; email: string };
 }
 
-import { type ProjectPhase } from "../../../types/projects.types";
+import { type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
+import { EmployeeTooltip } from "../../shared/employee-tooltip";
 
 interface ListViewProps {
   tasks: Task[];
@@ -42,6 +44,7 @@ interface ListViewProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   phases?: ProjectPhase[];
+  assignees?: ProjectTaskAssignee[];
 }
 
 const PRIORITY_STYLES: Record<Priority, string> = {
@@ -96,6 +99,7 @@ export function ListView({
   onDuplicateTask,
   onMoveTask,
   phases = [],
+  assignees = [],
 }: ListViewProps) {
   const [groupByPhase, setGroupByPhase] = React.useState(false);
   const [openPhases, setOpenPhases] = React.useState<Record<string, boolean>>({});
@@ -145,133 +149,157 @@ export function ListView({
     });
   }, [tasks, phases]);
 
-  const renderTaskRow = (task: Task) => (
-    <div
-      key={task.id}
-      className={cn(
-        "flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
-        task.done && "opacity-60"
-      )}
-    >
-      <div className="w-4 shrink-0 flex items-center justify-center">
-        {task.hasSubtasks && (
-          <ChevronRight className="size-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-        )}
-      </div>
-      <button
-        onClick={() => toggleTask(task.id)}
-        className="shrink-0"
-        aria-label={task.done ? "Mark incomplete" : "Mark complete"}
-      >
-        {task.done ? (
-          <CircleCheck className="size-4 text-emerald-500 shrink-0" />
-        ) : task.status === "In_Progress" ? (
-          <CircleCheck className="size-4 text-blue-500 shrink-0" />
-        ) : (
-          <Circle className="size-4 text-muted-foreground shrink-0" />
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={() => onTaskClick?.(task.id)}
+  const renderTaskRow = (task: Task) => {
+    const fullAssignee = task.owner?.id
+      ? assignees.find((a) => a.userId === task.owner?.id)
+      : null;
+    const employeeData = fullAssignee
+      ? {
+          displayName: fullAssignee.displayName,
+          email: fullAssignee.email,
+          designation: fullAssignee.designation,
+          role: fullAssignee.role,
+          department: fullAssignee.department,
+          employeeId: fullAssignee.employeeId,
+        }
+      : task.owner
+      ? {
+          displayName: task.owner.displayName,
+          email: task.owner.email,
+          role: "Assignee",
+        }
+      : null;
+
+    return (
+      <div
+        key={task.id}
         className={cn(
-          "flex-1 text-sm min-w-0 truncate text-left hover:text-primary transition-colors",
-          task.done ? "line-through text-muted-foreground" : "text-foreground"
+          "flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
+          task.done && "opacity-60"
         )}
       >
-        {task.name}
-      </button>
-      <div className="shrink-0 w-20 flex items-center justify-center">
-        <span
+        <div className="w-4 shrink-0 flex items-center justify-center">
+          {task.hasSubtasks && (
+            <ChevronRight className="size-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+        </div>
+        <button
+          onClick={() => toggleTask(task.id)}
+          className="shrink-0"
+          aria-label={task.done ? "Mark incomplete" : "Mark complete"}
+        >
+          {task.done ? (
+            <CircleCheck className="size-4 text-emerald-500 shrink-0" />
+          ) : task.status === "In_Progress" ? (
+            <CircleCheck className="size-4 text-blue-500 shrink-0" />
+          ) : (
+            <Circle className="size-4 text-muted-foreground shrink-0" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => onTaskClick?.(task.id)}
           className={cn(
-            "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0",
-            task.assigneeColor
+            "flex-1 text-sm min-w-0 truncate text-left hover:text-primary transition-colors",
+            task.done ? "line-through text-muted-foreground" : "text-foreground"
           )}
         >
-          {task.assigneeInitials}
-        </span>
-      </div>
-      <div className="shrink-0 w-20 text-xs text-muted-foreground text-center">
-        {task.dueDate}
-      </div>
-      <div className="shrink-0 w-20 flex items-center justify-center gap-1">
-        <Flag className={cn("size-3", PRIORITY_STYLES[task.priority])} />
-        <span className={cn("text-xs", PRIORITY_STYLES[task.priority])}>
-          {PRIORITY_LABEL[task.priority]}
-        </span>
-      </div>
-      <div className="shrink-0 w-24 flex items-center justify-center">
-        <span
-          className={cn(
-            "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
-            task.status === "To_Do" && "bg-muted text-muted-foreground border-border/60",
-            task.status === "In_Progress" && "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800",
-            task.status === "Submitted_for_Review" && "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
-            task.status === "Approved" && "bg-teal-50 text-teal-600 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800",
-            task.status === "Rework" && "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800",
-            task.status === "Done" && "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800"
-          )}
-        >
-          {STATUS_LABEL[task.status] || task.status}
-        </span>
-      </div>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onTaskClick?.(task.id, "comments");
-        }}
-        className="shrink-0 w-14 flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-      >
-        <MessageSquare className="size-3.5" />
-        <span className="text-xs">{task.comments}</span>
-      </button>
-      <div className="shrink-0 w-10 flex items-center justify-center">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                onClick={(e) => e.stopPropagation()}
-                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-              />
-            }
+          {task.name}
+        </button>
+        <div className="shrink-0 w-20 flex items-center justify-center">
+          <EmployeeTooltip employee={employeeData}>
+            <span
+              className={cn(
+                "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 cursor-default",
+                task.assigneeColor
+              )}
+            >
+              {task.assigneeInitials}
+            </span>
+          </EmployeeTooltip>
+        </div>
+        <div className="shrink-0 w-20 text-xs text-muted-foreground text-center">
+          {task.dueDate}
+        </div>
+        <div className="shrink-0 w-20 flex items-center justify-center gap-1">
+          <Flag className={cn("size-3", PRIORITY_STYLES[task.priority])} />
+          <span className={cn("text-xs", PRIORITY_STYLES[task.priority])}>
+            {PRIORITY_LABEL[task.priority]}
+          </span>
+        </div>
+        <div className="shrink-0 w-24 flex items-center justify-center">
+          <span
+            className={cn(
+              "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+              task.status === "To_Do" && "bg-muted text-muted-foreground border-border/60",
+              task.status === "In_Progress" && "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800",
+              task.status === "Submitted_for_Review" && "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
+              task.status === "Approved" && "bg-teal-50 text-teal-600 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800",
+              task.status === "Rework" && "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800",
+              task.status === "Done" && "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800"
+            )}
           >
-            <MoreHorizontal className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem
-              className="cursor-pointer gap-2"
-              onClick={(e) => {
-                e.stopPropagation();
-                onTaskClick?.(task.id);
-              }}
+            {STATUS_LABEL[task.status] || task.status}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTaskClick?.(task.id, "comments");
+          }}
+          className="shrink-0 w-14 flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+        >
+          <MessageSquare className="size-3.5" />
+          <span className="text-xs">{task.comments}</span>
+        </button>
+        <div className="shrink-0 w-10 flex items-center justify-center">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                />
+              }
             >
-              Edit task
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer gap-2"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDuplicateTask?.(task.id);
-              }}
-            >
-              Duplicate
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteTask?.(task.id);
-              }}
-            >
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <MoreHorizontal className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTaskClick?.(task.id);
+                }}
+              >
+                Edit task
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDuplicateTask?.(task.id);
+                }}
+              >
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteTask?.(task.id);
+                }}
+              >
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="h-full flex flex-col bg-transparent overflow-hidden">

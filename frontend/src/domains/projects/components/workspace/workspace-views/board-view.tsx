@@ -17,6 +17,8 @@ import {
   CheckSquare,
 } from "lucide-react";
 import { Calendar } from "@/shared/ui/calendar";
+import { type ProjectTaskAssignee } from "../../../types/projects.types";
+import { EmployeeTooltip } from "../../shared/employee-tooltip";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -40,6 +42,7 @@ interface Task {
   emoji?: string;
   rawStartDate?: string | null;
   rawEndDate?: string | null;
+  owner?: { id: string; displayName: string; email: string };
 }
 
 interface ColumnDef {
@@ -229,6 +232,7 @@ interface BoardViewProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   onSetDueDate?: (taskId: string, date: string | null) => void;
+  assignees?: ProjectTaskAssignee[];
 }
 
 export function BoardView({
@@ -240,6 +244,7 @@ export function BoardView({
   onDuplicateTask,
   onMoveTask,
   onSetDueDate,
+  assignees = [],
 }: BoardViewProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
 
@@ -385,6 +390,7 @@ export function BoardView({
                     onDuplicateTask={onDuplicateTask}
                     onMoveTask={onMoveTask}
                     onSetDueDate={onSetDueDate}
+                    assignees={assignees}
                   />
                 </div>
               ))}
@@ -436,6 +442,7 @@ interface BoardCardProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   onSetDueDate?: (taskId: string, date: string | null) => void;
+  assignees?: ProjectTaskAssignee[];
 }
 
 function BoardCard({
@@ -451,6 +458,7 @@ function BoardCard({
   onDuplicateTask,
   onMoveTask,
   onSetDueDate,
+  assignees = [],
 }: BoardCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuState, setMenuState] = useState<"main" | "move" | "date">("main");
@@ -475,6 +483,26 @@ function BoardCard({
   const pConfig = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
   const hasProgress = task.progress !== undefined;
   const hasSubs = (task.subtasksTotal ?? 0) > 0;
+
+  const fullAssignee = task.owner?.id
+    ? assignees.find((a) => a.userId === task.owner?.id)
+    : null;
+  const employeeData = fullAssignee
+    ? {
+        displayName: fullAssignee.displayName,
+        email: fullAssignee.email,
+        designation: fullAssignee.designation,
+        role: fullAssignee.role,
+        department: fullAssignee.department,
+        employeeId: fullAssignee.employeeId,
+      }
+    : task.owner
+    ? {
+        displayName: task.owner.displayName,
+        email: task.owner.email,
+        role: "Assignee",
+      }
+    : null;
 
   return (
     <div
@@ -729,9 +757,11 @@ function BoardCard({
         {/* Bottom meta row */}
         <div className="flex items-center gap-2 pt-0.5 border-t border-border/30">
           {/* Assignee */}
-          <span className={cn("inline-flex items-center justify-center size-5 rounded-full text-[9px] font-bold text-white shrink-0", task.assigneeColor)}>
-            {task.assigneeInitials}
-          </span>
+          <EmployeeTooltip employee={employeeData}>
+            <span className={cn("inline-flex items-center justify-center size-5 rounded-full text-[9px] font-bold text-white shrink-0 cursor-default", task.assigneeColor)}>
+              {task.assigneeInitials}
+            </span>
+          </EmployeeTooltip>
 
           {/* Due date */}
           <div
