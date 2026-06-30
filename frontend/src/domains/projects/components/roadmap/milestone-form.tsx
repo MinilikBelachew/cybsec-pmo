@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { milestoneSchema, type MilestoneFormValues } from "../../schemas/milestone/milestone.schema";
@@ -22,6 +22,8 @@ interface MilestoneFormProps {
   onSubmit: (values: MilestoneFormValues) => Promise<void>;
   onCancel: () => void;
   isSaving: boolean;
+  projectStartDate?: string;
+  projectEndDate?: string;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -29,21 +31,65 @@ function FieldError({ message }: { message?: string }) {
   return <p className="text-[0.8rem] font-medium text-destructive mt-1">{message}</p>;
 }
 
-export function MilestoneForm({ initialValues, phases, onSubmit, onCancel, isSaving }: MilestoneFormProps) {
+export function MilestoneForm({
+  initialValues,
+  phases,
+  onSubmit,
+  onCancel,
+  isSaving,
+  projectStartDate,
+  projectEndDate,
+}: MilestoneFormProps) {
+  const schema = useMemo(() => {
+    return milestoneSchema
+      .refine(
+        (data) => {
+          if (!projectStartDate || !data.targetDate) return true;
+          const projStart = new Date(projectStartDate);
+          const target = new Date(data.targetDate);
+          projStart.setHours(0, 0, 0, 0);
+          target.setHours(0, 0, 0, 0);
+          return target >= projStart;
+        },
+        {
+          message: projectStartDate 
+            ? `Target date must be on or after project start date (${new Date(projectStartDate).toLocaleDateString()})` 
+            : "Target date is before project start date",
+          path: ["targetDate"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (!projectEndDate || !data.targetDate) return true;
+          const projEnd = new Date(projectEndDate);
+          const target = new Date(data.targetDate);
+          projEnd.setHours(0, 0, 0, 0);
+          target.setHours(0, 0, 0, 0);
+          return target <= projEnd;
+        },
+        {
+          message: projectEndDate 
+            ? `Target date must be on or before project end date (${new Date(projectEndDate).toLocaleDateString()})` 
+            : "Target date is after project end date",
+          path: ["targetDate"],
+        }
+      );
+  }, [projectStartDate, projectEndDate]);
+
   const {
     register,
     handleSubmit,
     control,
     formState: { errors },
   } = useForm<MilestoneFormValues>({
-    resolver: zodResolver(milestoneSchema) as Resolver<MilestoneFormValues>,
+    resolver: zodResolver(schema) as Resolver<MilestoneFormValues>,
     defaultValues: initialValues,
   });
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col justify-between overflow-hidden">
-      <ScrollArea className="flex-1 px-6 py-4">
-        <div className="space-y-4">
+      <ScrollArea className="flex-1">
+        <div className="space-y-4 px-6 py-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
               {initialValues.title ? "Edit Milestone" : "Create New Milestone"}
@@ -85,6 +131,23 @@ export function MilestoneForm({ initialValues, phases, onSubmit, onCancel, isSav
                         mode="single"
                         selected={field.value ? new Date(field.value) : undefined}
                         onSelect={(date) => field.onChange(date ? toDateString(date) : "")}
+                        disabled={(date) => {
+                          if (projectStartDate) {
+                            const start = new Date(projectStartDate);
+                            start.setHours(0, 0, 0, 0);
+                            const d = new Date(date);
+                            d.setHours(0, 0, 0, 0);
+                            if (d < start) return true;
+                          }
+                          if (projectEndDate) {
+                            const end = new Date(projectEndDate);
+                            end.setHours(0, 0, 0, 0);
+                            const d = new Date(date);
+                            d.setHours(0, 0, 0, 0);
+                            if (d > end) return true;
+                          }
+                          return false;
+                        }}
                       />
                     </PopoverContent>
                   </Popover>

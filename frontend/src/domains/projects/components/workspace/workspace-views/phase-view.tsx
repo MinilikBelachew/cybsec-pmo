@@ -11,6 +11,7 @@ import {
   useCreateMilestoneMutation,
   useUpdateMilestoneMutation,
   useDeleteMilestoneMutation,
+  useGetProjectByIdQuery,
 } from "../../../api/projects.api";
 import { useGetTasksQuery } from "../../../api/tasks.api";
 import { Button } from "@/shared/ui/button";
@@ -53,6 +54,7 @@ interface PhaseViewProps {
 
 export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
   function PhaseView({ projectId, taskQueryParams, onTaskClick, onAddTask }, ref) {
+  const { data: project } = useGetProjectByIdQuery(projectId);
   const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(projectId);
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(projectId);
   const { data: tasksResponse, isLoading: isTasksLoading } = useGetTasksQuery(
@@ -413,6 +415,8 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                 isSaving={isCreatingPhase || isUpdatingPhase}
                 existingPhases={phases}
                 phaseId={activeForm.type === "edit-phase" ? activeForm.id : undefined}
+                projectStartDate={project?.startDate}
+                projectEndDate={project?.endDate}
               />
             </DialogPrimitive.Popup>
           </DialogPrimitive.Portal>
@@ -437,6 +441,8 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                 onSubmit={handleSaveMilestone}
                 onCancel={() => setActiveForm({ type: null })}
                 isSaving={isCreatingMilestone || isUpdatingMilestone}
+                projectStartDate={project?.startDate}
+                projectEndDate={project?.endDate}
               />
             </DialogPrimitive.Popup>
           </DialogPrimitive.Portal>
@@ -731,6 +737,8 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
               isSaving={isCreatingPhase || isUpdatingPhase}
               existingPhases={phases}
               phaseId={activeForm.type === "edit-phase" ? activeForm.id : undefined}
+              projectStartDate={project?.startDate}
+              projectEndDate={project?.endDate}
             />
           </DialogPrimitive.Popup>
         </DialogPrimitive.Portal>
@@ -755,6 +763,8 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
               onSubmit={handleSaveMilestone}
               onCancel={() => setActiveForm({ type: null })}
               isSaving={isCreatingMilestone || isUpdatingMilestone}
+              projectStartDate={project?.startDate}
+              projectEndDate={project?.endDate}
             />
           </DialogPrimitive.Popup>
         </DialogPrimitive.Portal>
