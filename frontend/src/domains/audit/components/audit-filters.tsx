@@ -1,16 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import { SlidersHorizontal, ChevronDown } from "lucide-react";
 import { useGetUsersQuery } from "@/domains/users/api/users.api";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +39,12 @@ const OBJECT_OPTIONS = [
   { value: "Task", label: "Task" },
 ];
 
+type FilterOption = {
+  value: string;
+  label: string;
+  description?: string;
+};
+
 type AuditFiltersProps = {
   action: string;
   objectType: string;
@@ -68,13 +68,15 @@ function FilterDropdown({
   value,
   options,
   onChange,
+  menuClassName,
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: FilterOption[];
   onChange: (value: string) => void;
+  menuClassName?: string;
 }) {
-  const active = options.find((o) => o.value === value)?.label ?? label;
+  const active = options.find((option) => option.value === value);
 
   return (
     <DropdownMenu>
@@ -84,30 +86,44 @@ function FilterDropdown({
             variant="outline"
             size="sm"
             className={cn(
-              "h-9 gap-1.5 border-border/60 bg-white font-normal shadow-none dark:bg-card",
+              "h-9 gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none dark:bg-card",
               value && "border-primary/40 bg-primary/5",
             )}
           />
         }
       >
         <span className="text-muted-foreground">{label}</span>
-        <span className="max-w-[120px] truncate">{active}</span>
+        <span className="max-w-[140px] truncate font-medium">
+          {active?.label ?? label}
+        </span>
         <ChevronDown className="size-3.5 opacity-50" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
-        {options.map((option) => (
-          <button
-            key={option.value || "all"}
-            type="button"
-            className={cn(
-              "flex w-full cursor-pointer items-center rounded-md px-2 py-1.5 text-sm outline-none hover:bg-muted",
-              value === option.value && "bg-muted font-medium",
-            )}
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
+      <DropdownMenuContent
+        align="start"
+        className={cn("max-h-72 overflow-y-auto p-2", menuClassName ?? "w-56")}
+      >
+        <div className="space-y-1">
+          {options.map((option) => (
+            <button
+              key={option.value || "all"}
+              type="button"
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "flex w-full flex-col rounded-xl border px-3 py-2 text-left transition-colors",
+                value === option.value
+                  ? "border-primary/30 bg-primary/5"
+                  : "border-transparent hover:border-border/60 hover:bg-muted/50",
+              )}
+            >
+              <span className="text-sm font-medium">{option.label}</span>
+              {option.description ? (
+                <span className="truncate text-xs text-muted-foreground">
+                  {option.description}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -132,7 +148,17 @@ export function AuditFilters({
 }: AuditFiltersProps) {
   const { data: usersData } = useGetUsersQuery({ page: 1, limit: 100 });
 
-  const selectedUser = (usersData?.data ?? []).find((user) => user.id === actorId);
+  const actorOptions = useMemo<FilterOption[]>(
+    () => [
+      { value: "", label: "All users" },
+      ...(usersData?.data ?? []).map((user) => ({
+        value: user.id,
+        label: user.displayName,
+        description: user.email,
+      })),
+    ],
+    [usersData?.data],
+  );
 
   const activeFilterCount =
     (action ? 1 : 0) +
@@ -157,40 +183,20 @@ export function AuditFilters({
         options={OBJECT_OPTIONS}
         onChange={onObjectTypeChange}
       />
-
-      <Select
-        value={actorId || "all-users"}
-        onValueChange={(value) => onActorIdChange(value === "all-users" ? "" : (value ?? ""))}
-      >
-        <SelectTrigger
-          className={cn(
-            "h-9 w-[180px] border-border/60 bg-white font-normal shadow-none dark:bg-card",
-            actorId && "border-primary/40 bg-primary/5",
-          )}
-        >
-          <SelectValue placeholder="All users">
-            {selectedUser ? selectedUser.displayName : "All users"}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent className="max-h-72">
-          <SelectItem value="all-users">All users</SelectItem>
-          {(usersData?.data ?? []).map((user) => (
-            <SelectItem key={user.id} value={user.id}>
-              <div className="flex flex-col">
-                <span>{user.displayName}</span>
-                <span className="text-xs text-muted-foreground">{user.email}</span>
-              </div>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <FilterDropdown
+        label="Actor"
+        value={actorId}
+        options={actorOptions}
+        onChange={onActorIdChange}
+        menuClassName="w-72"
+      />
 
       <Input
         type="date"
         value={dateFrom}
         onChange={(event) => onDateFromChange(event.target.value)}
         className={cn(
-          "h-9 w-[150px] border-border/60 bg-white shadow-none dark:bg-card",
+          "h-9 w-[150px] rounded-xl border-border/60 bg-muted/45 shadow-none dark:bg-card",
           dateFrom && "border-primary/40 bg-primary/5",
         )}
         aria-label="From date"
@@ -200,7 +206,7 @@ export function AuditFilters({
         value={dateTo}
         onChange={(event) => onDateToChange(event.target.value)}
         className={cn(
-          "h-9 w-[150px] border-border/60 bg-white shadow-none dark:bg-card",
+          "h-9 w-[150px] rounded-xl border-border/60 bg-muted/45 shadow-none dark:bg-card",
           dateTo && "border-primary/40 bg-primary/5",
         )}
         aria-label="To date"
@@ -213,7 +219,7 @@ export function AuditFilters({
               variant="outline"
               size="sm"
               className={cn(
-                "h-9 gap-1.5 border-border/60 bg-white font-normal shadow-none dark:bg-card",
+                "h-9 gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none dark:bg-card",
                 activeFilterCount > 0 && "border-primary/40 bg-primary/5",
               )}
             />

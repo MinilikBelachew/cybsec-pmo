@@ -6,12 +6,6 @@ export enum ApiEngagementType {
   FixedPrice = 'FixedPrice',
 }
 
-export enum ApiMethodology {
-  Agile = 'Agile',
-  Waterfall = 'Waterfall',
-  Hybrid = 'Hybrid',
-}
-
 export enum ApiBillingModel {
   TimeAndMaterial = 'TimeAndMaterial',
   FixedPrice = 'FixedPrice',

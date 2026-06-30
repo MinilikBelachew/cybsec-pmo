@@ -70,7 +70,6 @@ function projectToFormValues(project: Project): CreateProjectFormValues {
     objective: project.objective,
     departmentId: project.departmentId,
     customerId: project.customerId,
-    methodology: project.methodology,
     primaryPmId: project.primaryPmId,
     secondaryPmId: project.secondaryPmId ?? "",
     startDate: new Date(project.startDate),
@@ -120,6 +119,38 @@ function toMilestoneApiPayload(draft: ReturnType<typeof toDraftMilestonePayload>
   };
 }
 
+const PROJECT_NAME_MAX = 255;
+const PROJECT_OBJECTIVE_MAX = 2000;
+
+function validateMilestoneDraftDates(
+  drafts: DraftProjectMilestone[],
+  projectStartDate?: Date,
+  projectEndDate?: Date,
+): string | null {
+  for (const draft of drafts) {
+    if (!draft.targetDate) continue;
+    const target = new Date(draft.targetDate);
+    if (Number.isNaN(target.getTime())) {
+      return `Milestone "${draft.title}" has an invalid target date.`;
+    }
+    if (projectEndDate) {
+      const end = new Date(projectEndDate);
+      end.setHours(23, 59, 59, 999);
+      if (target > end) {
+        return `Milestone "${draft.title}" cannot be after the project end date.`;
+      }
+    }
+    if (projectStartDate) {
+      const start = new Date(projectStartDate);
+      start.setHours(0, 0, 0, 0);
+      if (target < start) {
+        return `Milestone "${draft.title}" cannot be before the project start date.`;
+      }
+    }
+  }
+  return null;
+}
+
 export function CreateProjectSheet({ open, onClose, refetch, project }: CreateProjectSheetProps) {
   const isEditMode = Boolean(project);
   const ability = useAppAbility();
@@ -159,7 +190,6 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       objective: "",
       departmentId: "",
       customerId: "",
-      methodology: "Agile",
       primaryPmId: "",
       secondaryPmId: "",
       startDate: undefined,
@@ -189,7 +219,6 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
         objective: "",
         departmentId: "",
         customerId: "",
-        methodology: "Agile",
         primaryPmId: "",
         secondaryPmId: "",
         startDate: undefined,
@@ -205,6 +234,16 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   }, [open, project, reset]);
 
   const onSubmit = handleSubmit(async (values) => {
+    const milestoneDateError = validateMilestoneDraftDates(
+      milestoneDrafts,
+      values.startDate,
+      values.endDate,
+    );
+    if (milestoneDateError) {
+      toast.error(milestoneDateError);
+      return;
+    }
+
     try {
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
@@ -284,9 +323,9 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   });
 
   const watchedName = watch("name");
+  const watchedObjective = watch("objective");
   const watchedDeptId = watch("departmentId");
   const watchedCustomerId = watch("customerId");
-  const watchedMethodology = watch("methodology");
   const watchedPmId = watch("primaryPmId");
   const watchedSecondaryPmId = watch("secondaryPmId");
   const watchedEngagementType = watch("engagementType");
@@ -341,12 +380,18 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
 
             {/* Name */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Project Name *
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Project Name *
+                </label>
+                <span className="text-[10px] text-muted-foreground">
+                  {(watchedName ?? "").length}/{PROJECT_NAME_MAX}
+                </span>
+              </div>
               <input
                 type="text"
                 placeholder="e.g. ERP Migration Phase 3"
+                maxLength={PROJECT_NAME_MAX}
                 className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-medium"
                 {...register("name")}
               />
@@ -359,12 +404,18 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
 
             {/* Description */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Description / Objective *
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Description / Objective *
+                </label>
+                <span className="text-[10px] text-muted-foreground">
+                  {(watchedObjective ?? "").length}/{PROJECT_OBJECTIVE_MAX}
+                </span>
+              </div>
               <textarea
                 placeholder="Brief overview of project goals, compliance scoping, and technical deliverables..."
                 rows={3}
+                maxLength={PROJECT_OBJECTIVE_MAX}
                 className="w-full p-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none"
                 {...register("objective")}
               />
@@ -440,37 +491,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* Methodology */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Methodology *
-                </label>
-                <Controller
-                  control={control}
-                  name="methodology"
-                  render={({ field }) => (
-                    <Select value={field.value || "Agile"} onValueChange={field.onChange}>
-                      <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
-                        <SelectValue placeholder="Select methodology...">
-                          {watchedMethodology === "Agile" ? "⚡ Agile" : watchedMethodology === "Waterfall" ? "🌊 Waterfall" : watchedMethodology === "Hybrid" ? "🔀 Hybrid" : undefined}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg">
-                        <SelectItem value="Agile">⚡ Agile</SelectItem>
-                        <SelectItem value="Waterfall">🌊 Waterfall</SelectItem>
-                        <SelectItem value="Hybrid">🔀 Hybrid</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                {errors.methodology && (
-                  <p className="text-[11px] font-semibold text-rose-500 mt-1">
-                    {errors.methodology.message}
-                  </p>
-                )}
-              </div>
-
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* Status */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -810,6 +831,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
             existingMilestones={isEditMode ? existingMilestones : []}
             drafts={milestoneDrafts}
             onDraftsChange={setMilestoneDrafts}
+            projectStartDate={watchedStartDate}
+            projectEndDate={watchedEndDate}
           />
 
         </div>

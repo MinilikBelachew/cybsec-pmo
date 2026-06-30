@@ -82,9 +82,11 @@ const PRIORITY_CONFIG: Record<string, { label: string; dot: string; bg: string; 
   Low: { label: "Low", dot: "bg-slate-400", bg: "bg-slate-50 dark:bg-slate-900/20", text: "text-slate-600 dark:text-slate-400" },
 };
 
-const METHODOLOGY_EMOJI: Record<string, string> = {
-  Agile: "⚡", Waterfall: "🌊", Hybrid: "🔀",
-};
+const isEngagementValid = (val: string) => ["ManagedServices", "StaffAugmentation", "FixedPrice"].includes(val);
+const isBillingValid = (val: string) => ["TimeAndMaterial", "FixedPrice", "Retainer"].includes(val);
+const isPriorityValid = (val: string) => ["Low", "Medium", "High", "Critical"].includes(val);
+const isCurrencyValid = (val: string) => ["USD", "EUR", "AED", "SAR"].includes(val);
+const isStatusValid = (val: string) => ["Draft", "Active", "OnHold", "PendingClosure", "Closed"].includes(val);
 
 const formatBudget = (value: number, currency: string) => {
   try {
@@ -98,23 +100,10 @@ const formatBudget = (value: number, currency: string) => {
   }
 };
 
-const isEngagementValid = (val: string) => ["ManagedServices", "StaffAugmentation", "FixedPrice"].includes(val);
-const isMethodologyValid = (val: string) => ["Agile", "Waterfall", "Hybrid"].includes(val);
-const isBillingValid = (val: string) => ["TimeAndMaterial", "FixedPrice", "Retainer"].includes(val);
-const isPriorityValid = (val: string) => ["Low", "Medium", "High", "Critical"].includes(val);
-const isCurrencyValid = (val: string) => ["USD", "EUR", "AED", "SAR"].includes(val);
-const isStatusValid = (val: string) => ["Draft", "Active", "OnHold", "PendingClosure", "Closed"].includes(val);
-
 const ENGAGEMENT_OPTIONS = [
   { value: "ManagedServices", label: "Managed Services" },
   { value: "StaffAugmentation", label: "Staff Augmentation" },
   { value: "FixedPrice", label: "Fixed Price" },
-];
-
-const METHODOLOGY_OPTIONS = [
-  { value: "Agile", label: "Agile" },
-  { value: "Waterfall", label: "Waterfall" },
-  { value: "Hybrid", label: "Hybrid" },
 ];
 
 const BILLING_OPTIONS = [
@@ -211,7 +200,6 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
       "Department",
       "Customer",
       "Engagement Type",
-      "Methodology",
       "Billing Model",
       "Priority",
       "Start Date",
@@ -235,7 +223,6 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
         defaultDept,
         defaultCust,
         "FixedPrice",
-        "Agile",
         "FixedPrice",
         "High",
         "2026-07-01",
@@ -252,7 +239,6 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
         defaultDept,
         defaultCust,
         "TimeAndMaterials",
-        "Hybrid",
         "TimeAndMaterials",
         "Medium",
         "2026-08-15",
@@ -403,9 +389,6 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
         if (!isEngagementValid(updated.engagementType)) {
           rowErrors.push(`Engagement Type "${updated.engagementType}" is invalid. Please select one.`);
         }
-        if (!isMethodologyValid(updated.methodology)) {
-          rowErrors.push(`Methodology "${updated.methodology}" is invalid. Please select one.`);
-        }
         if (!isBillingValid(updated.billingModel)) {
           rowErrors.push(`Billing Model "${updated.billingModel}" is invalid. Please select one.`);
         }
@@ -453,7 +436,6 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
           departmentId: row.resolvedDepartmentId!,
           customerId: row.resolvedCustomerId!,
           engagementType: row.engagementType as any,
-          methodology: row.methodology as any,
           billingModel: row.billingModel as any,
           priority: row.priority as any,
           startDate: new Date(row.startDate).toISOString(),
@@ -601,7 +583,6 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
                               <th className="p-3 w-48">Department</th>
                               <th className="p-3 w-48">Customer</th>
                               <th className="p-3 w-48">Engagement Type</th>
-                              <th className="p-3 w-40">Methodology</th>
                               <th className="p-3 w-44">Billing Model</th>
                               <th className="p-3 w-40">Priority</th>
                               <th className="p-3 w-48">Primary PM</th>
@@ -721,22 +702,6 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
                                         options={ENGAGEMENT_OPTIONS}
                                         onChange={(val) => handleInlineChange(idx, "engagementType", val)}
                                         placeholder="Select Type"
-                                      />
-                                    )}
-                                  </td>
-
-                                  {/* Methodology */}
-                                  <td className="p-3">
-                                    {isMethodologyValid(row.methodology) ? (
-                                      <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
-                                        {METHODOLOGY_EMOJI[row.methodology] || ""} {row.methodology}
-                                      </span>
-                                    ) : (
-                                      <EnumSelect
-                                        value={row.methodology}
-                                        options={METHODOLOGY_OPTIONS}
-                                        onChange={(val) => handleInlineChange(idx, "methodology", val)}
-                                        placeholder="Select Method"
                                       />
                                     )}
                                   </td>

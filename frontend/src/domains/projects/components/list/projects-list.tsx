@@ -81,10 +81,6 @@ const STATUS_CONFIG: Record<string, {
   },
 };
 
-const METHODOLOGY_EMOJI: Record<string, string> = {
-  Agile: "⚡", Waterfall: "🌊", Hybrid: "🔀",
-};
-
 const DEPT_COLOR: Record<string, string> = {
   Engineering: "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary",
   Delivery: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
@@ -824,9 +820,6 @@ function ProjectGridCard({
               </span>
               <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", DEPT_COLOR[p.department?.name ?? ""] || DEFAULT_DEPT_COLOR)}>
                 {p.department?.name || "Direct"}
-              </span>
-              <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {METHODOLOGY_EMOJI[p.methodology] || "🔀"} {p.methodology || "Hybrid"}
               </span>
             </div>
 

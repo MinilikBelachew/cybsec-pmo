@@ -5,9 +5,10 @@ export const TASK_SHEET_COLUMN_CLASS =
 export const TASK_SHEET_MAIN_PADDING = "px-8 py-6";
 export const TASK_SHEET_FOOTER_PADDING = "px-8 py-4";
 
-/** Create project sheet — wide layout like add-task */
+/** Create project sheet — narrower single-column layout */
+export const CREATE_PROJECT_SHEET_MAX_WIDTH = "!max-w-[min(720px,96vw)]";
 export const CREATE_PROJECT_SHEET_CLASS =
-  `flex h-full w-full ${TASK_SHEET_MAX_WIDTH} flex-col gap-0 overflow-hidden p-0 rounded-l-[10px]`;
+  `flex h-full w-full ${CREATE_PROJECT_SHEET_MAX_WIDTH} flex-col gap-0 overflow-hidden p-0 rounded-l-[10px]`;
 
 /** Detail / view task sheet */
 export const TASK_SHEET_CONTENT_CLASS =

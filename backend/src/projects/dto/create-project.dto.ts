@@ -20,7 +20,6 @@ import {
   ApiBillingModel,
   ApiCurrencyCode,
   ApiEngagementType,
-  ApiMethodology,
   ApiPriorityLevel,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
@@ -62,11 +61,6 @@ export class CreateProjectDto {
   @ApiProperty({ enum: ApiEngagementType })
   @IsEnum(ApiEngagementType)
   engagementType: ApiEngagementType;
-
-  @ApiPropertyOptional({ enum: ApiMethodology, default: ApiMethodology.Hybrid })
-  @IsOptional()
-  @IsEnum(ApiMethodology)
-  methodology?: ApiMethodology = ApiMethodology.Hybrid;
 
   @ApiProperty({ enum: ApiBillingModel })
   @IsEnum(ApiBillingModel)

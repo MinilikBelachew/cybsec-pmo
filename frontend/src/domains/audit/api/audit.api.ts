@@ -67,7 +67,9 @@ function buildAuditFilterParams(
   if (params.dateTo) query.dateTo = params.dateTo;
   if (params.action) query.action = params.action;
   if (params.objectType) query.objectType = params.objectType;
-  if (params.search?.trim()) query.search = params.search.trim();
+  if (params.search?.trim()) {
+    query.search = params.search.trim().slice(0, 200);
+  }
   if (params.sortBy) query.sortBy = params.sortBy;
   if (params.sortOrder) query.sortOrder = params.sortOrder;
 
