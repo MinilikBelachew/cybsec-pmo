@@ -22,6 +22,13 @@ import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { useRole } from "@/shared/providers/role-provider";
 import { useAppAbility } from "@/domains/auth";
+import { cn } from "@/shared/utils/cn";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import {
   ChevronDown,
   Plus,
@@ -128,6 +135,86 @@ const PRIORITY_FILTER_TO_API: Record<string, TaskPriority | undefined> = {
   MEDIUM: "Medium",
   LOW: "Low",
 };
+
+const STATUS_FILTER_OPTIONS: { value: string; label: string; description: string; dot: string }[] = [
+  { value: "ALL", label: "All Statuses", description: "Any status level", dot: "bg-muted-foreground" },
+  { value: "To_Do", label: "To Do", description: "Not yet started", dot: "bg-slate-400" },
+  { value: "In_Progress", label: "In Progress", description: "Currently working", dot: "bg-blue-500" },
+  { value: "Submitted_for_Review", label: "Submitted for Review", description: "Ready for check", dot: "bg-amber-500" },
+  { value: "Approved", label: "Approved", description: "Accepted and signed off", dot: "bg-teal-500" },
+  { value: "Rework", label: "Rework", description: "Needs revision", dot: "bg-rose-500" },
+  { value: "Done", label: "Done", description: "Completed tasks", dot: "bg-emerald-500" },
+];
+
+const PRIORITY_FILTER_OPTIONS: { value: string; label: string; description: string; dot: string }[] = [
+  { value: "ALL", label: "All Priorities", description: "Any urgency level", dot: "bg-muted-foreground" },
+  { value: "CRITICAL", label: "Critical", description: "Highest urgency", dot: "bg-red-500" },
+  { value: "HIGH", label: "High", description: "Important priority", dot: "bg-rose-500" },
+  { value: "MEDIUM", label: "Medium", description: "Standard priority", dot: "bg-amber-400" },
+  { value: "LOW", label: "Low", description: "Lower urgency", dot: "bg-slate-400" },
+];
+
+function FilterCardDropdown<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string; description: string; dot: string }[];
+  onChange: (value: T) => void;
+}) {
+  const active = options.find((option) => option.value === value);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-9 gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none text-xs select-none hover:bg-muted/50 cursor-pointer transition-colors",
+              value !== "ALL" && "border-primary/40 bg-primary/5",
+            )}
+          />
+        }
+      >
+        <span className="text-muted-foreground">{label}:</span>
+        <span className="inline-flex items-center gap-1.5 font-medium">
+          {active && active.value !== "ALL" && (
+            <span className={cn("size-2 rounded-full", active.dot)} />
+          )}
+          <span className="max-w-[120px] truncate">{active?.label ?? label}</span>
+        </span>
+        <ChevronDown className="size-3.5 opacity-50" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64 p-2 shadow-none">
+        <div className="space-y-1">
+          {options.map((option) => (
+            <DropdownMenuItem
+              key={option.value}
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-xl border px-2.5 py-1.5 text-left transition-colors cursor-pointer select-none focus:outline-none focus:bg-muted/50 focus:border-border/60",
+                value === option.value
+                  ? "border-primary/30 bg-primary/5"
+                  : "border-transparent hover:border-border/60 hover:bg-muted/50",
+              )}
+            >
+              <span className={cn("mt-1.5 size-2.5 shrink-0 rounded-full", option.dot)} />
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">{option.label}</span>
+                <span className="block text-[10px] text-muted-foreground">{option.description}</span>
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function ProjectWorkspace() {
   const params = useParams();
@@ -288,6 +375,8 @@ export function ProjectWorkspace() {
   const [taskDetailDefaultTab, setTaskDetailDefaultTab] = useState<"comments" | "subtasks" | undefined>(undefined);
   const [focusProgressReview, setFocusProgressReview] = useState(false);
   const [parentTaskId, setParentTaskId] = useState<string | null>(null);
+  const [newTaskStartDate, setNewTaskStartDate] = useState<string | null>(null);
+  const [newTaskEndDate, setNewTaskEndDate] = useState<string | null>(null);
 
   const openTaskDetail = (
     taskId: string,
@@ -409,6 +498,18 @@ export function ProjectWorkspace() {
       console.error("Failed to update due date:", err);
       toast.error("Failed to update due date");
     }
+  };
+
+  const handleAddTaskOnDate = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    const localDateStr = `${y}-${m}-${d}`;
+    setNewTaskStartDate(localDateStr);
+    setNewTaskEndDate(localDateStr);
+    setParentTaskId(null);
+    setNewTaskStatus("To_Do");
+    setIsSheetOpen(true);
   };
 
   if (isLoading) {
@@ -572,111 +673,91 @@ export function ProjectWorkspace() {
 
       {/* ─── TOOLBAR & SEARCH / FILTERS ──────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
-        {/* Search */}
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input
-            placeholder="Search tasks..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 text-xs rounded-xl"
+        {/* Left Side: Search & Filters */}
+        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+          {/* Search */}
+          <div className="relative w-full max-w-xs shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              placeholder="Search tasks..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9 text-xs rounded-xl"
+            />
+          </div>
+
+          {/* Status Filter */}
+          <FilterCardDropdown
+            label="Status"
+            value={statusFilter}
+            options={STATUS_FILTER_OPTIONS}
+            onChange={setStatusFilter}
+          />
+
+          {/* Priority Filter */}
+          <FilterCardDropdown
+            label="Priority"
+            value={priorityFilter}
+            options={PRIORITY_FILTER_OPTIONS}
+            onChange={setPriorityFilter}
           />
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Status Filter */}
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200/60 dark:border-white/5 bg-slate-50 dark:bg-white/5 px-2.5 py-1 text-xs">
-            <span className="text-muted-foreground">Status:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-transparent font-semibold outline-none cursor-pointer"
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="To_Do">To Do</option>
-              <option value="In_Progress">In Progress</option>
-              <option value="Submitted_for_Review">Submitted for Review</option>
-              <option value="Approved">Approved</option>
-              <option value="Rework">Rework</option>
-              <option value="Done">Done</option>
-            </select>
-          </div>
-
-          {/* Priority Filter */}
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-200/60 dark:border-white/5 bg-slate-50 dark:bg-white/5 px-2.5 py-1 text-xs">
-            <span className="text-muted-foreground">Priority:</span>
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="bg-transparent font-semibold outline-none cursor-pointer"
-            >
-              <option value="ALL">All Priorities</option>
-              <option value="CRITICAL">Critical</option>
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
-            </select>
-          </div>
-
-          <div className="flex-1" />
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            {activeView !== "phases" && (
-              <>
-                {canCreateTask && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsImportOpen(true)}
-                    className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
-                  >
-                    <Upload className="size-4" />
-                    Import Tasks
-                  </Button>
-                )}
+        {/* Right Side: Action buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          {activeView !== "phases" && (
+            <>
+              {canCreateTask && (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleExport}
-                  disabled={isExportingTasks}
+                  onClick={() => setIsImportOpen(true)}
                   className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
                 >
-                  {isExportingTasks ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Download className="size-4" />
-                  )}
-                  Export Tasks
+                  <Upload className="size-4" />
+                  Import Tasks
                 </Button>
-              </>
-            )}
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={isExportingTasks}
+                className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+              >
+                {isExportingTasks ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Download className="size-4" />
+                )}
+                Export Tasks
+              </Button>
+            </>
+          )}
 
-            {activeView === "phases" ? (
-              <Button
-                onClick={() => {
-                  phaseViewRef.current?.openAddPhase();
-                }}
-                className="h-9 text-xs rounded-xl"
-              >
-                <Plus className="mr-1.5 size-4" />
-                Add Phase
-              </Button>
-            ) : canCreateTask ? (
-              <Button
-                onClick={() => {
-                  setParentTaskId(null);
-                  setNewTaskStatus("To_Do");
-                  setIsSheetOpen(true);
-                }}
-                className="h-9 text-xs rounded-xl"
-              >
-                <Plus className="mr-1.5 size-4" />
-                Add Task
-              </Button>
-            ) : null}
-          </div>
+          {activeView === "phases" ? (
+            <Button
+              onClick={() => {
+                phaseViewRef.current?.openAddPhase();
+              }}
+              className="h-9 text-xs rounded-xl"
+            >
+              <Plus className="mr-1.5 size-4" />
+              Add Phase
+            </Button>
+          ) : canCreateTask ? (
+            <Button
+              onClick={() => {
+                setParentTaskId(null);
+                setNewTaskStatus("To_Do");
+                setIsSheetOpen(true);
+              }}
+              className="h-9 text-xs rounded-xl"
+            >
+              <Plus className="mr-1.5 size-4" />
+              Add Task
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -726,7 +807,18 @@ export function ProjectWorkspace() {
           />
         )}
 
-        {activeView === "calendar" && <CalendarView tasks={tasks} />}
+        {activeView === "calendar" && (
+          <CalendarView
+            tasks={tasks}
+            onTaskClick={openTaskDetail}
+            onAddTask={canCreateTask ? handleAddTaskOnDate : undefined}
+            onDeleteTask={handleDeleteTask}
+            onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
+            onMoveTask={handleMoveTask}
+            onSetDueDate={handleSetDueDate}
+            toggleTask={toggleTask}
+          />
+        )}
 
         {activeView === "gantt" && (
           <GanttView
@@ -788,6 +880,8 @@ export function ProjectWorkspace() {
           setIsSheetOpen(false);
           setParentTaskId(null);
           setSelectedPhaseIdForNewTask(null);
+          setNewTaskStartDate(null);
+          setNewTaskEndDate(null);
         }}
         onCreated={() => {
           refetchTasks();
@@ -800,6 +894,8 @@ export function ProjectWorkspace() {
         defaultStatus={newTaskStatus}
         defaultPhaseId={selectedPhaseIdForNewTask}
         projectName={project.name}
+        defaultStartDate={newTaskStartDate}
+        defaultEndDate={newTaskEndDate}
       />
 
       <TaskDetailPanel
