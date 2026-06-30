@@ -64,7 +64,7 @@ import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
-import { convertTasksToCSV } from "../../utils/import-export";
+import { exportTasksToXLSX } from "../../utils/import-export";
 import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
@@ -356,22 +356,22 @@ export function ProjectWorkspace() {
         return;
       }
 
-      const csvContent = convertTasksToCSV(tasksToExport, phases, assignees);
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const xlsxBuffer = exportTasksToXLSX(tasksToExport, phases, assignees);
+      const blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `${project?.name || "project"}_tasks.csv`);
+      link.setAttribute("download", `${project?.name || "project"}_tasks.xlsx`);
       link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       toast.dismiss(exportToast);
-      toast.success("Tasks exported to CSV successfully.");
+      toast.success("Tasks exported to Excel successfully.");
     } catch (err) {
       console.error(err);
       toast.dismiss(exportToast);
-      toast.error("Failed to export tasks to CSV.");
+      toast.error("Failed to export tasks to Excel.");
     }
   };
 
@@ -587,7 +587,7 @@ export function ProjectWorkspace() {
         <span className="text-sm font-semibold text-slate-950 dark:text-white">{project.name}</span>
       </div>
 
-      {canReviewProgress && (
+    {canReviewProgress && (
         <ProgressReviewInbox
           projectId={id}
           onOpenTask={(taskId, options) => openTaskDetail(taskId, options)}

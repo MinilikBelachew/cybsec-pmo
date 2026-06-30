@@ -15,7 +15,7 @@ import {
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { createProjectListColumns } from "./project-list-columns";
-import { convertToCSV } from "../../utils/import-export";
+import { exportProjectsToXLSX } from "../../utils/import-export";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
@@ -495,7 +495,7 @@ export function ProjectsList() {
     }
   };
 
-  const handleExportCSV = async () => {
+  const handleExportXLSX = async () => {
     const exportParams: GetProjectsParams = {};
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) exportParams.search = trimmedSearch;
@@ -511,18 +511,18 @@ export function ProjectsList() {
         return;
       }
 
-      const csvContent = convertToCSV(projectsToExport, departments, customers, managers);
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const xlsxBuffer = exportProjectsToXLSX(projectsToExport, departments, customers, managers);
+      const blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `projects_export_${new Date().toISOString().split("T")[0]}.csv`);
+      link.setAttribute("download", `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`);
       link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       toast.dismiss(exportToast);
-      toast.success("Portfolio exported successfully to CSV.");
+      toast.success("Portfolio exported successfully to Excel.");
     } catch (err) {
       console.error(err);
       toast.dismiss(exportToast);
@@ -677,7 +677,7 @@ export function ProjectsList() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleExportCSV}
+            onClick={handleExportXLSX}
             disabled={isExporting}
             className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
           >
