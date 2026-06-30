@@ -4,7 +4,7 @@ services:
   postgres:
     image: postgres:17.6-alpine
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
       - ./backend/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
@@ -16,7 +16,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6378:6379"
 
   maildev:
     image: maildev/maildev:2.1.0
