@@ -42,12 +42,33 @@ import {
   Download,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import { useSearch } from "@/domains/search";
+import { useGetProjectByIdQuery } from "@/domains/projects/api/projects.api";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function formatSegmentLabel(segment: string) {
+  return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
+}
 
 export function TopBar() {
   const { user, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const { openSearch } = useSearch();
   const [customizeOpen, setCustomizeOpen] = useState(false);
+
+  const segments = pathname.split("/").filter(Boolean);
+  const projectIdIndex = segments.findIndex(
+    (segment, index) => segment === "projects" && UUID_RE.test(segments[index + 1] ?? ""),
+  );
+  const projectId =
+    projectIdIndex >= 0 ? segments[projectIdIndex + 1] : undefined;
+
+  const { data: project } = useGetProjectByIdQuery(projectId!, {
+    skip: !projectId,
+  });
 
   const currentRoleLabel =
     ROLE_CATALOG.find((r) => r.code === user?.backendRoleCode)?.label ??
@@ -55,12 +76,19 @@ export function TopBar() {
     "User";
 
   // Dynamic breadcrumbs based on pathname
-  const segments = pathname.split("/").filter(Boolean);
-  const breadcrumbs = segments.map((seg, i) => ({
-    label: seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, " "),
-    isLast: i === segments.length - 1,
-    href: "/" + segments.slice(0, i + 1).join("/"),
-  }));
+  const breadcrumbs = segments.map((seg, i) => {
+    let label = formatSegmentLabel(seg);
+
+    if (projectId && seg === projectId) {
+      label = project?.name ?? "Project";
+    }
+
+    return {
+      label,
+      isLast: i === segments.length - 1,
+      href: "/" + segments.slice(0, i + 1).join("/"),
+    };
+  });
 
   const getInitials = (name: string) => {
     return name
@@ -97,16 +125,21 @@ export function TopBar() {
 
       {/* ── Center Search Bar ── */}
       <div className="flex-1 flex justify-center max-w-xl mx-4 relative hidden md:flex">
-        <div className="relative group cursor-pointer flex items-center h-9 w-64 lg:w-96 rounded-[2rem] bg-muted/40 border border-border/40 hover:bg-muted/60 hover:border-border transition-all">
+        <button
+          type="button"
+          onClick={openSearch}
+          className="relative group cursor-pointer flex items-center h-9 w-64 lg:w-96 rounded-[2rem] bg-muted/40 border border-border/40 hover:bg-muted/60 hover:border-border transition-all"
+          aria-label="Open search"
+        >
           <div className="pl-3 pr-2 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-muted-foreground/60" />
           </div>
-          <div className="flex-1 flex items-center gap-2 text-xs text-muted-foreground font-medium">
+          <div className="flex-1 flex items-center gap-2 text-xs text-muted-foreground font-medium text-left">
             <span>Search anything...</span>
             <span className="text-[10px] opacity-40 font-mono">⌘K</span>
           </div>
-          <div className="pr-1.5 flex items-center">
-            <div className="flex items-center gap-1 h-7 pl-0 pr-0.5 rounded-full group-hover:pl-2 hover:bg-muted/80 transition-all duration-300 overflow-hidden">
+          <div className="pr-1.5 flex items-center pointer-events-none">
+            <div className="flex items-center gap-1 h-7 pl-0 pr-0.5 rounded-full group-hover:pl-2 transition-all duration-300 overflow-hidden">
               <span className="text-[10px] font-semibold text-muted-foreground whitespace-nowrap max-w-0 opacity-0 group-hover:max-w-[50px] group-hover:opacity-100 transition-all duration-300">
                 Ask AI
               </span>
@@ -115,11 +148,19 @@ export function TopBar() {
               </div>
             </div>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* ── Right Actions ── */}
       <div className="flex items-center gap-2 flex-1 justify-end">
+        <button
+          type="button"
+          onClick={openSearch}
+          className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70"
+          aria-label="Open search"
+        >
+          <Search className="size-4" />
+        </button>
         <Badge variant="secondary" className="hidden md:inline-flex h-8 px-2.5 text-xs font-semibold">
           {currentRoleLabel}
         </Badge>
