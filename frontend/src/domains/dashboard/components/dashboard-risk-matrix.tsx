@@ -1,6 +1,5 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
 
 const RISKS = [
@@ -26,16 +25,15 @@ function riskColor(l: number, imp: number) {
 }
 
 export function RiskMatrix() {
-  const t = useTranslations("Dashboard");
 
   return (
     <div className="p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-3 h-full flex flex-col justify-between">
       <div className="flex items-center justify-between shrink-0">
-        <p className="text-sm font-bold">{t("riskRegister")}</p>
+        <p className="text-sm font-bold">Risk Register</p>
         <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-rose-500" /> {t("high")}</span>
-          <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-amber-400" /> {t("medium")}</span>
-          <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-emerald-500" /> {t("low")}</span>
+          <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-rose-500" /> High</span>
+          <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-amber-400" /> Medium</span>
+          <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-emerald-500" /> Low</span>
         </div>
       </div>
 
@@ -44,7 +42,7 @@ export function RiskMatrix() {
           <div className="flex flex-col justify-between pb-5 shrink-0">
             {["Certain", "Likely", "Possible", "Rare"].map((key) => (
               <span key={key} className="text-[9px] text-muted-foreground/60 w-12 text-end leading-tight pe-1">
-                {t(`likelihood${key}`)}
+                {key}
               </span>
             ))}
           </div>
@@ -75,7 +73,7 @@ export function RiskMatrix() {
             <div className="flex gap-1 mt-1">
               {["Low", "Medium", "High", "Critical"].map((key) => (
                 <div key={key} className="flex-1 text-center text-[9px] text-muted-foreground/60">
-                  {t(`impact${key}`)}
+                  {key}
                 </div>
               ))}
             </div>

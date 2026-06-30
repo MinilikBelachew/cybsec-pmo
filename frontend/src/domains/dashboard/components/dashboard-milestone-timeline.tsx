@@ -1,6 +1,5 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "next/navigation";
 import { MilestoneItem } from "../api/dashboard.api";
@@ -13,15 +12,14 @@ const STATUS_CONFIG = {
 };
 
 export function MilestoneTimeline({ data }: { data: MilestoneItem[] }) {
-  const t = useTranslations("Dashboard");
   const router = useRouter();
   const list = data || [];
 
   return (
     <div className="p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-3 h-full flex flex-col">
       <div className="flex items-center justify-between shrink-0">
-        <p className="text-sm font-bold">{t("milestoneRoadmap")}</p>
-        <span className="text-xs text-muted-foreground">{t("next60Days")}</span>
+        <p className="text-sm font-bold">Milestone Roadmap</p>
+        <span className="text-xs text-muted-foreground">Next 60 Days</span>
       </div>
 
       <div className="relative flex-1 overflow-auto scrollbar-none min-h-[160px]">
@@ -44,7 +42,7 @@ export function MilestoneTimeline({ data }: { data: MilestoneItem[] }) {
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[10px] text-muted-foreground">{m.date}</span>
                     <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md", s.bar, s.text)}>
-                      {m.status === "completed" ? t("doneLabel") : t("daysLabel", { count: m.daysLeft ?? 0 })}
+                      {m.status === "completed" ? "Done" : `${m.daysLeft ?? 0} days left`}
                     </span>
                   </div>
                 </div>

@@ -3,7 +3,7 @@ FROM node:22.18.0-slim AS base
 # ── deps stage ──────────────────────────────────────────────────────────────
 FROM base AS deps
 WORKDIR /app
-COPY package*.json ./
+COPY package.json ./
 RUN npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retries 5 && \

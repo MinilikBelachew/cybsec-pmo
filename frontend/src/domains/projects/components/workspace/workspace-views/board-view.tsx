@@ -23,6 +23,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Button } from "@/shared/ui/button";
 import { BoardTaskDatePicker } from "./board-task-date-picker";
 import { filterStatusOptionsForRole } from "../../tasks/task-progress-section";
+import { Calendar } from "@/shared/ui/calendar";
+import { EmployeeTooltip } from "../../shared/employee-tooltip";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -48,6 +50,7 @@ interface Task {
   emoji?: string;
   rawStartDate?: string | null;
   rawEndDate?: string | null;
+  owner?: { id: string; displayName: string; email: string };
 }
 
 interface ColumnDef {
@@ -260,6 +263,7 @@ interface BoardViewProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   onSetDueDate?: (taskId: string, date: string | null) => void;
+  assignees?: ProjectTaskAssignee[];
 }
 
 export function BoardView({
@@ -279,6 +283,7 @@ export function BoardView({
   onDuplicateTask,
   onMoveTask,
   onSetDueDate,
+  assignees = [],
 }: BoardViewProps) {
   const [addingInColumn, setAddingInColumn] = useState<Status | null>(null);
 
@@ -1139,6 +1144,26 @@ function BoardCard({
       setIsSavingName(false);
     }
   };
+
+  const fullAssignee = task.owner?.id
+    ? assignees.find((a) => a.userId === task.owner?.id)
+    : null;
+  const employeeData = fullAssignee
+    ? {
+        displayName: fullAssignee.displayName,
+        email: fullAssignee.email,
+        designation: fullAssignee.designation,
+        role: fullAssignee.role,
+        department: fullAssignee.department,
+        employeeId: fullAssignee.employeeId,
+      }
+    : task.owner
+    ? {
+        displayName: task.owner.displayName,
+        email: task.owner.email,
+        role: "Assignee",
+      }
+    : null;
 
   return (
     <div

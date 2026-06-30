@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import type { PriorityLevel, Project } from "../../types/projects.types";
+import { EmployeeTooltip } from "../shared/employee-tooltip";
 
 const STATUS_CONFIG: Record<string, {
   label: string; dot: string; text: string; bg: string; border: string
@@ -67,7 +68,7 @@ export type ProjectListRow = Project & {
   tasksDone: number;
   milestonesTotal: number;
   milestonesDone: number;
-  team: Array<{ initials: string; color: string }>;
+  team: Array<{ initials: string; color: string; user?: any; roleName?: string }>;
 };
 
 type CreateProjectListColumnsOptions = {
@@ -125,14 +126,23 @@ export function createProjectListColumns({
         const project = row.original;
         return (
           <div className="flex min-w-0 items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-primary-foreground",
-                project.team[0]?.color || "bg-primary",
-              )}
+            <EmployeeTooltip
+              employee={{
+                displayName: project.primaryPm?.displayName,
+                email: project.primaryPm?.email,
+                role: "Primary Project Manager",
+                designation: "Project Manager",
+              }}
             >
-              {project.team[0]?.initials || "PM"}
-            </span>
+              <span
+                className={cn(
+                  "inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-primary-foreground cursor-default",
+                  project.team[0]?.color || "bg-primary",
+                )}
+              >
+                {project.team[0]?.initials || "PM"}
+              </span>
+            </EmployeeTooltip>
             <span className="truncate text-xs text-muted-foreground">
               {project.primaryPm?.displayName || "Unassigned"}
             </span>

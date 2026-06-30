@@ -1,5 +1,6 @@
 import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectTaskAssignee } from "../types/projects.types";
 import { Task } from "../types/tasks.types";
+import * as XLSX from "xlsx";
 
 function findProjectTaskAssignee(
   assigneeName: string,
@@ -120,6 +121,59 @@ export function convertToCSV(
   });
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+}
+
+export function exportProjectsToXLSX(
+  projects: any[],
+  departments: Department[],
+  customers: Customer[],
+  managers: ProjectManager[]
+): ArrayBuffer {
+  const headers = [
+    "Name",
+    "Objective",
+    "Department",
+    "Customer",
+    "Engagement Type",
+    "Billing Model",
+    "Priority",
+    "Start Date",
+    "End Date",
+    "Value",
+    "Currency",
+    "Primary PM",
+    "Secondary PM",
+    "Status",
+  ];
+
+  const data = projects.map((p) => {
+    const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
+    const custName = p.customer?.displayName || customers.find((c) => c.id === p.customerId)?.displayName || "";
+    const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
+    const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
+
+    return {
+      "Name": p.name || "",
+      "Objective": p.objective || "",
+      "Department": deptName,
+      "Customer": custName,
+      "Engagement Type": p.engagementType || "",
+      "Billing Model": p.billingModel || "",
+      "Priority": p.priority || "",
+      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
+      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
+      "Value": p.value || 0,
+      "Currency": p.currency || "",
+      "Primary PM": primaryPmName,
+      "Secondary PM": secondaryPmName,
+      "Status": p.status || "",
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Projects");
+  return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
 
 export interface ParsedProjectRow {
@@ -469,6 +523,49 @@ export function convertTasksToCSV(
   });
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+}
+
+export function exportTasksToXLSX(
+  tasks: Task[],
+  phases: ProjectPhase[],
+  assignees: ProjectTaskAssignee[]
+): ArrayBuffer {
+  const headers = [
+    "Title",
+    "Description",
+    "Priority",
+    "Status",
+    "Assignee",
+    "Phase",
+    "Start Date",
+    "End Date",
+    "Effort Hours",
+  ];
+
+  const data = tasks.map((t) => {
+    const assigneeName =
+      t.owner?.displayName ||
+      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
+      "";
+    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
+
+    return {
+      "Title": t.title || "",
+      "Description": t.description || "",
+      "Priority": t.priority || "",
+      "Status": t.status || "",
+      "Assignee": assigneeName,
+      "Phase": phaseName,
+      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+      "Effort Hours": t.effortHours != null ? t.effortHours : 0,
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Tasks");
+  return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
 
 export interface ParsedTaskRow {

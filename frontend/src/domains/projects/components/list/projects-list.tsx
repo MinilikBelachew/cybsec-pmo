@@ -15,7 +15,8 @@ import {
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { createProjectListColumns } from "./project-list-columns";
-import { convertToCSV } from "../../utils/import-export";
+import { exportProjectsToXLSX } from "../../utils/import-export";
+import { EmployeeTooltip } from "../shared/employee-tooltip";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
@@ -148,12 +149,16 @@ function enrichProject(
         ? project.primaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase()
         : "PM",
       color: "bg-primary",
+      user: project.primaryPm,
+      roleName: "Primary Project Manager",
     },
   ];
   if (project.secondaryPm?.displayName) {
     team.push({
       initials: project.secondaryPm.displayName.split(" ").map((n: string) => n[0]).join("").toUpperCase(),
       color: "bg-primary/70",
+      user: project.secondaryPm,
+      roleName: "Secondary Project Manager",
     });
   }
 
@@ -495,7 +500,7 @@ export function ProjectsList() {
     }
   };
 
-  const handleExportCSV = async () => {
+  const handleExportXLSX = async () => {
     const exportParams: GetProjectsParams = {};
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) exportParams.search = trimmedSearch;
@@ -511,18 +516,18 @@ export function ProjectsList() {
         return;
       }
 
-      const csvContent = convertToCSV(projectsToExport, departments, customers, managers);
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const xlsxBuffer = exportProjectsToXLSX(projectsToExport, departments, customers, managers);
+      const blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `projects_export_${new Date().toISOString().split("T")[0]}.csv`);
+      link.setAttribute("download", `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`);
       link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       toast.dismiss(exportToast);
-      toast.success("Portfolio exported successfully to CSV.");
+      toast.success("Portfolio exported successfully to Excel.");
     } catch (err) {
       console.error(err);
       toast.dismiss(exportToast);
@@ -536,22 +541,15 @@ export function ProjectsList() {
       {/* ── Page Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">
-            Portfolio
-          </p>
-          <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {portfolioKpis.total} projects · {portfolioKpis.active} active · {portfolioKpis.atRisk} at risk
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
         </div>
         {canCreate && (
-          <button
+          <Button
             onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity  shrink-0 cursor-pointer"
           >
             <Plus className="size-4" />
             New Project
-          </button>
+          </Button>
         )}
       </div>
 
@@ -684,7 +682,7 @@ export function ProjectsList() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleExportCSV}
+            onClick={handleExportXLSX}
             disabled={isExporting}
             className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
           >
@@ -913,14 +911,22 @@ function ProjectGridCard({
 
         <div className="flex items-center justify-between border-t border-border/40 pt-1">
           <div className="flex items-center -space-x-1.5">
-            {p.team.slice(0, 4).map((member: { initials: string; color: string }, index: number) => (
-              <span
+            {p.team.slice(0, 4).map((member: { initials: string; color: string; user?: any; roleName?: string }, index: number) => (
+              <EmployeeTooltip
                 key={index}
-                className={cn("inline-flex size-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-primary-foreground", member.color)}
-                title={member.initials}
+                employee={{
+                  displayName: member.user?.displayName,
+                  email: member.user?.email,
+                  role: member.roleName,
+                  designation: "Project Manager",
+                }}
               >
-                {member.initials}
-              </span>
+                <span
+                  className={cn("inline-flex size-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-primary-foreground cursor-default", member.color)}
+                >
+                  {member.initials}
+                </span>
+              </EmployeeTooltip>
             ))}
           </div>
 

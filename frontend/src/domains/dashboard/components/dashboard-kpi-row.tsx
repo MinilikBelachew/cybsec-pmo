@@ -1,12 +1,45 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
 import { Activity, Clock, TrendingUp, FileText, Users } from "lucide-react";
 import { CARD_THEMES, MiniTrendChart } from "./dashboard-charts";
 
+const KPI_LABELS: Record<string, string> = {
+  projectProgress: "Project Progress",
+  onTimeDelivery: "On-Time Delivery",
+  budgetAdherence: "Budget Adherence",
+  scopeChanges: "Active Changes",
+  avgResolutionTime: "Avg Resolution Time",
+  taskCompletionRate: "Task Completion Rate",
+  openTasks: "Open Tasks",
+  overdueTasks: "Overdue Tasks",
+  activeRisks: "Active Risks",
+  issueResTime: "Issue Res. Time",
+  resourceUtilization: "Resource Utilization",
+  overallocated: "Overallocated",
+  underutilized: "Underutilized",
+  pendingTimesheets: "Pending Timesheets",
+  billableHours: "Billable Hours",
+  
+  tasksMilestones: "Tasks & Milestones",
+  plannedTimeline: "Planned Timeline",
+  plannedVsActual: "Planned vs Actual",
+  activeChangeRequests: "Active Change Requests",
+  issuesRisks: "Issues & Risks",
+  onSchedule: "on schedule",
+  acrossProjects: "across projects",
+  needAttention: "need attention",
+  highSeverity: "high severity",
+  avgCloseTime: "avg close time",
+  avgAcrossTeam: "avg across team",
+  teamMembers: "team members",
+  availableCapacity: "available capacity",
+  overdue: "overdue",
+  thisMonth: "this month",
+};
+
 export function KpiRow({ variant, stats }: { variant: "portfolio" | "execution" | "people"; stats: any }) {
-  const t = useTranslations("Dashboard");
+
 
   const pStats = stats?.projects || { total: 0, active: 0, atRisk: 0, delayed: 0, completed: 0, totalValue: 0, totalSpent: 0, remainingBudget: 0 };
   const tStats = stats?.tasks || { total: 0, done: 0, open: 0, overdue: 0, completionRate: 0 };
@@ -52,14 +85,14 @@ export function KpiRow({ variant, stats }: { variant: "portfolio" | "execution" 
             className="relative flex min-h-[82px] flex-col rounded-xl border border-border/40 bg-card/70 backdrop-blur-md p-3 px-3.5 text-left cursor-default"
           >
             <div className="flex items-start justify-between gap-2 w-full">
-              <span className="text-[11px] font-medium text-muted-foreground/90 truncate">{t(kpi.labelKey)}</span>
+              <span className="text-[11px] font-medium text-muted-foreground/90 truncate">{KPI_LABELS[kpi.labelKey] || kpi.labelKey}</span>
               <Icon className={cn("size-3.5 shrink-0", kpi.theme.iconColor)} />
             </div>
 
             <span className="mt-0.5 text-xl font-bold tracking-tight text-foreground">{kpi.value}</span>
 
             <div className="mt-auto flex items-end justify-between gap-2 pt-1 w-full">
-              <span className="text-[10px] text-muted-foreground/75 truncate">{t(kpi.subKey)}</span>
+              <span className="text-[10px] text-muted-foreground/75 truncate">{KPI_LABELS[kpi.subKey] || kpi.subKey}</span>
               <MiniTrendChart data={kpi.spark} colorClass={kpi.theme.chartColor} />
             </div>
           </div>

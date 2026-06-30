@@ -1,6 +1,5 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "next/navigation";
 import { ProjectHealthItem } from "../api/dashboard.api";
@@ -11,20 +10,25 @@ const STATUS_CONFIG = {
   "delayed":  { labelKey: "delayed", dot: "bg-rose-500",    text: "text-rose-700 dark:text-rose-400",     bg: "bg-rose-50 dark:bg-rose-900/20" },
 };
 
+const HEALTH_LABELS: Record<string, string> = {
+  onTrack: "On Track",
+  atRisk: "At Risk",
+  delayed: "Delayed",
+};
+
 export function ProjectHealthTable({ data }: { data: ProjectHealthItem[] }) {
-  const t = useTranslations("Dashboard");
   const router = useRouter();
   const rows = data || [];
 
   return (
     <div className="p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-3 h-full flex flex-col">
       <div className="flex items-center justify-between shrink-0">
-        <p className="text-sm font-bold">{t("projectHealthTitle")}</p>
+        <p className="text-sm font-bold">Project Health</p>
         <span
           onClick={() => router.push("/dashboard/projects")}
           className="text-xs text-[#ff6000] font-semibold cursor-pointer hover:underline"
         >
-          {t("allProjects")}
+          All Projects
         </span>
       </div>
 
@@ -32,9 +36,9 @@ export function ProjectHealthTable({ data }: { data: ProjectHealthItem[] }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border/40">
-              <th className="text-start pb-2 font-semibold text-muted-foreground">{t("project")}</th>
-              <th className="text-start pb-2 font-semibold text-muted-foreground">{t("status")}</th>
-              <th className="text-end pb-2 font-semibold text-muted-foreground">{t("progress")}</th>
+              <th className="text-start pb-2 font-semibold text-muted-foreground">Project</th>
+              <th className="text-start pb-2 font-semibold text-muted-foreground">Status</th>
+              <th className="text-end pb-2 font-semibold text-muted-foreground">Progress</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/30">
@@ -53,7 +57,7 @@ export function ProjectHealthTable({ data }: { data: ProjectHealthItem[] }) {
                   <td className="py-2.5 pe-3">
                     <span className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold", s.bg, s.text)}>
                       <span className={cn("size-1.5 rounded-full", s.dot)} />
-                      {t(s.labelKey)}
+                      {HEALTH_LABELS[s.labelKey] || s.labelKey}
                     </span>
                   </td>
                   <td className="py-2.5 text-end">

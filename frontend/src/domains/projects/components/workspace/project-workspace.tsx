@@ -20,8 +20,7 @@ import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/task
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
-import { useRole } from "@/shared/providers/role-provider";
-import { useAppAbility, useAuth } from "@/domains/auth";
+import { useAppAbility } from "@/domains/auth";
 import { cn } from "@/shared/utils/cn";
 import {
   DropdownMenu,
@@ -47,6 +46,8 @@ import {
   Clock,
   Upload,
   Download,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -63,7 +64,7 @@ import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
-import { convertTasksToCSV } from "../../utils/import-export";
+import { exportTasksToXLSX } from "../../utils/import-export";
 import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
@@ -230,8 +231,33 @@ export function ProjectWorkspace() {
   const canCreateTask = canManageTasks;
   const canAssignTask = canManageTasks;
   const canReviewProgress = ability?.can("approve", "Task") ?? false;
-  const roleLabel = userRole ? userRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Guest";
   const phaseViewRef = useRef<PhaseViewRef>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error("Failed to enter fullscreen mode:", err);
+      });
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   // Fetch project details
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
@@ -335,22 +361,22 @@ export function ProjectWorkspace() {
         return;
       }
 
-      const csvContent = convertTasksToCSV(tasksToExport, phases, assignees);
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const xlsxBuffer = exportTasksToXLSX(tasksToExport, phases, assignees);
+      const blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `${project?.name || "project"}_tasks.csv`);
+      link.setAttribute("download", `${project?.name || "project"}_tasks.xlsx`);
       link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       toast.dismiss(exportToast);
-      toast.success("Tasks exported to CSV successfully.");
+      toast.success("Tasks exported to Excel successfully.");
     } catch (err) {
       console.error(err);
       toast.dismiss(exportToast);
-      toast.error("Failed to export tasks to CSV.");
+      toast.error("Failed to export tasks to Excel.");
     }
   };
 
@@ -612,22 +638,23 @@ export function ProjectWorkspace() {
   const progressPercent = overallProgressPercent;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 overflow-hidden bg-transparent text-foreground transition-colors duration-300">
+    <div
+      ref={containerRef}
+      className={cn(
+        "flex flex-col overflow-hidden text-foreground transition-colors duration-300",
+        isFullscreen
+          ? "h-screen w-screen p-6 bg-background"
+          : "h-[calc(100vh-6rem)] -m-6 bg-transparent"
+      )}
+    >
       {/* ─── BREADCRUMB / TITLE BAR ────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
         <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
         <span className="text-xs text-slate-400 dark:text-white/20">/</span>
         <span className="text-sm font-semibold text-slate-950 dark:text-white">{project.name}</span>
-      
-
-        <div className="ml-auto flex items-center gap-2">
-          <div className="text-[10px] text-muted-foreground font-medium px-2 py-0.5 rounded-md border border-slate-200 dark:border-white/5 bg-slate-100/50 dark:bg-white/5">
-            {roleLabel}
-          </div>
-        </div>
       </div>
 
-      {canReviewProgress && (
+    {canReviewProgress && (
         <ProgressReviewInbox
           projectId={id}
           onOpenTask={(taskId, options) => openTaskDetail(taskId, options)}
@@ -720,21 +747,35 @@ export function ProjectWorkspace() {
       </div>
 
       {/* ─── TABS NAV ────────────────────────────────────────────────────────── */}
-      <div className="flex items-center px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
-        {VIEWS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveView(id)}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors border-b-2 -mb-px ${
-              activeView === id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Icon className="size-3.5" />
-            {label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
+        <div className="flex items-center">
+          {VIEWS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveView(id)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors border-b-2 -mb-px ${
+                activeView === id
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={toggleFullscreen}
+          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Mode"}
+        >
+          {isFullscreen ? (
+            <Minimize2 className="size-4" />
+          ) : (
+            <Maximize2 className="size-4" />
+          )}
+        </button>
       </div>
 
       {/* ─── TOOLBAR & SEARCH / FILTERS ──────────────────────────────────────── */}
@@ -849,6 +890,7 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             phases={phases}
+            assignees={assignees}
           />
         )}
 
@@ -870,6 +912,7 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
+            assignees={assignees}
           />
         )}
 

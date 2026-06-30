@@ -1,11 +1,29 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
 import { ResourceUtilizationResponse, TeamMemberUtilization } from "../api/dashboard.api";
 
+const LABELS: Record<string, string> = {
+  overallocatedLabel: "Overallocated",
+  optimal: "Optimal",
+  underutilizedLabel: "Underutilized",
+  avgUtilization: "Avg Utilization",
+  teamUtilization: "Team Utilization",
+  member: "Member",
+  dept: "Department",
+  utilization: "Utilization",
+  billable: "Billable",
+  projects: "Projects",
+  overallocated: "Overallocated",
+  underutilized: "Underutilized",
+  hoursByDept: "Hours by Department",
+  hoursByDeptDesc: "Billable vs non-billable hours this month",
+  totalBillable: "Total Billable",
+  totalNonBillable: "Total Non-Billable",
+};
+
 export function ResourceUtilization({ data }: { data: ResourceUtilizationResponse | undefined }) {
-  const t = useTranslations("Dashboard");
+
 
   const team = data?.team || [];
   const deptData = data?.departments || [];
@@ -32,11 +50,11 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
         ].map((chip) => (
           <div key={chip.labelKey} className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold", chip.color)}>
             <span className="text-xl font-bold">{chip.count}</span>
-            <span className="text-xs font-normal opacity-80">{t(chip.labelKey)}</span>
+            <span className="text-xs font-normal opacity-80">{LABELS[chip.labelKey] || chip.labelKey}</span>
           </div>
         ))}
         <div className="ms-auto text-xs text-muted-foreground whitespace-nowrap">
-          {t("avgUtilization")}: <span className="font-bold text-foreground">
+          Avg Utilization: <span className="font-bold text-foreground">
             {team.length > 0 ? Math.round(team.reduce((s: number, x: any) => s + x.util, 0) / team.length) : 0}%
           </span>
         </div>
@@ -44,17 +62,17 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div className="lg:col-span-3 p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-3 h-full flex flex-col overflow-hidden">
-          <p className="text-sm font-bold shrink-0">{t("teamUtilization")}</p>
+          <p className="text-sm font-bold shrink-0">Team Utilization</p>
           <div className="flex-1 overflow-auto scrollbar-none">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border/40">
-                  <th className="text-start pb-2 font-semibold text-muted-foreground">{t("member")}</th>
-                  <th className="text-start pb-2 font-semibold text-muted-foreground">{t("dept")}</th>
-                  <th className="text-end pb-2 font-semibold text-muted-foreground">{t("utilization")}</th>
-                  <th className="text-end pb-2 font-semibold text-muted-foreground">{t("billable")}</th>
-                  <th className="text-end pb-2 font-semibold text-muted-foreground">{t("projects")}</th>
-                  <th className="text-end pb-2 font-semibold text-muted-foreground">{t("status")}</th>
+                  <th className="text-start pb-2 font-semibold text-muted-foreground">Member</th>
+                  <th className="text-start pb-2 font-semibold text-muted-foreground">Department</th>
+                  <th className="text-end pb-2 font-semibold text-muted-foreground">Utilization</th>
+                  <th className="text-end pb-2 font-semibold text-muted-foreground">Billable</th>
+                  <th className="text-end pb-2 font-semibold text-muted-foreground">Projects</th>
+                  <th className="text-end pb-2 font-semibold text-muted-foreground">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
@@ -82,7 +100,7 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
                       <td className="py-2.5 text-end text-muted-foreground">{member.projects}</td>
                       <td className="py-2.5 text-end">
                         <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md", s.bg, s.text)}>
-                          {t(member.status === "over" ? "overallocated" : member.status === "under" ? "underutilized" : "optimal")}
+                          {member.status === "over" ? "Overallocated" : member.status === "under" ? "Underutilized" : "Optimal"}
                         </span>
                       </td>
                     </tr>
@@ -95,8 +113,8 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
 
         <div className="lg:col-span-2 p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-3 h-full flex flex-col">
           <div className="shrink-0">
-            <p className="text-sm font-bold">{t("hoursByDept")}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{t("hoursByDeptDesc")}</p>
+            <p className="text-sm font-bold">Hours by Department</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Billable vs non-billable hours this month</p>
           </div>
 
           <div className="flex-1 space-y-4 overflow-auto scrollbar-none">
@@ -104,7 +122,7 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
               <div key={d.dept} className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-foreground">{d.dept}</span>
-                  <span className="text-muted-foreground">{t("totalHours", { count: d.total })}</span>
+                  <span className="text-muted-foreground">{d.total}h total</span>
                 </div>
                 <div className="flex h-5 rounded-lg overflow-hidden bg-muted gap-px">
                   <div
@@ -127,11 +145,11 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
                 <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <span className="size-1.5 rounded-full bg-primary" />
-                    {t("billableLegend", { pct: Math.round((d.billable / d.total) * 100) })}
+                    Billable ({Math.round((d.billable / d.total) * 100)}%)
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="size-1.5 rounded-full bg-muted-foreground/40" />
-                    {t("nonBillableLegend", { pct: Math.round((d.nonBillable / d.total) * 100) })}
+                    Non-Billable ({Math.round((d.nonBillable / d.total) * 100)}%)
                   </span>
                 </div>
               </div>
@@ -140,13 +158,13 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
 
           <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border/40 shrink-0">
             <div>
-              <p className="text-[10px] text-muted-foreground">{t("totalBillable")}</p>
+              <p className="text-[10px] text-muted-foreground">Total Billable</p>
               <p className="text-base font-bold mt-0.5">
                 {deptData.reduce((s: number, d: any) => s + d.billable, 0)}h
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-muted-foreground">{t("totalNonBillable")}</p>
+              <p className="text-[10px] text-muted-foreground">Total Non-Billable</p>
               <p className="text-base font-bold mt-0.5">
                 {deptData.reduce((s: number, d: any) => s + d.nonBillable, 0)}h
               </p>

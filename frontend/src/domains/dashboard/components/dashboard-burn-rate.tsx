@@ -1,13 +1,30 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/utils/cn";
 import { TrendingUp } from "lucide-react";
 
+const LABELS: Record<string, string> = {
+  totalBudget: "Total Budget",
+  spentToDate: "Spent to Date",
+  remaining: "Remaining",
+  forecastEoy: "Forecast EOY",
+  Jan: "January",
+  Feb: "February",
+  Mar: "March",
+  Apr: "April",
+  May: "May",
+  Jun: "June",
+  Jul: "July",
+  Aug: "August",
+  Sep: "September",
+  Oct: "October",
+  Nov: "November",
+  Dec: "December",
+};
+
 export function BurnRateChart({ data, showBudget }: { data: any; showBudget: boolean }) {
-  const t = useTranslations("Dashboard");
-  const tm = useTranslations("Months");
+
 
   const planned = data?.planned || [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
   const actual = data?.actual || [8, 18, 25, 38, 45, 52, 60, 72, null, null, null, null];
@@ -50,13 +67,13 @@ export function BurnRateChart({ data, showBudget }: { data: any; showBudget: boo
     <div className="p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-4 h-full flex flex-col justify-between">
       <div>
         <div className="flex items-center justify-between">
-          <p className="text-sm font-bold">{t("budgetBurnRate")}</p>
+          <p className="text-sm font-bold">Budget Burn Rate</p>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-primary" /> {t("actual")}
+              <span className="size-2 rounded-full bg-primary" /> Actual
             </span>
             <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-[#ff6000]" /> {t("activeMonth")}
+              <span className="size-2 rounded-full bg-[#ff6000]" /> Current month
             </span>
           </div>
         </div>
@@ -67,7 +84,7 @@ export function BurnRateChart({ data, showBudget }: { data: any; showBudget: boo
           <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border-emerald-100 flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5">
             <TrendingUp className="size-2.5" /> +8.0%
           </Badge>
-          <span className="text-[10px] text-muted-foreground">{t("vsLastMonth")}</span>
+          <span className="text-[10px] text-muted-foreground">vs last month</span>
         </div>
       </div>
 
@@ -81,13 +98,13 @@ export function BurnRateChart({ data, showBudget }: { data: any; showBudget: boo
           return (
             <div key={m} className="flex flex-col items-center gap-2 group relative">
               <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center bg-popover text-popover-foreground border border-border text-[9px] rounded p-1.5 shadow-md z-30 pointer-events-none w-24">
-                <p className="font-bold">{tm(m)}, 2026</p>
+                <p className="font-bold">{LABELS[m] || m}, 2026</p>
                 <p>Plan: ${planVal}k</p>
                 {hasActual && <p className="text-primary font-bold">Act: ${actVal}k</p>}
               </div>
               {renderDottedBar(hasActual ? actVal : planVal, hasActual, isCurrent)}
               <span className={cn("text-[9px] font-semibold", isCurrent ? "text-[#ff6000]" : "text-muted-foreground")}>
-                {tm(m)}
+                {m}
               </span>
             </div>
           );
@@ -102,7 +119,7 @@ export function BurnRateChart({ data, showBudget }: { data: any; showBudget: boo
           { key: "forecastEoy",  value: summary.forecastEoy },
         ].map((s) => (
           <div key={s.key}>
-            <p className="text-[10px] text-muted-foreground">{t(s.key)}</p>
+            <p className="text-[10px] text-muted-foreground">{LABELS[s.key] || s.key}</p>
             <p className="text-xs font-bold mt-0.5 text-foreground">
               {showBudget ? s.value : "••••"}
             </p>
