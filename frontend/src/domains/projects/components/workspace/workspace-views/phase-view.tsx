@@ -38,8 +38,8 @@ import {
   Edit2,
 } from "lucide-react";
 import { PhaseStatus } from "../../../types/projects.types";
-
 import type { GetTasksParams } from "../../../types/tasks.types";
+import { getPriorityColors } from "./task-cell-pickers";
 
 export interface PhaseViewRef {
   openAddPhase: () => void;
@@ -323,18 +323,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
   };
 
   const getPriorityColor = (prio: string) => {
-    switch (prio) {
-      case "Critical":
-        return "bg-destructive/10 text-destructive border-destructive/20";
-      case "High":
-        return "bg-secondary text-secondary-foreground border-border";
-      case "Medium":
-        return "bg-primary/10 text-primary border-primary/20";
-      case "Low":
-        return "bg-muted text-muted-foreground border-border";
-      default:
-        return "bg-muted text-muted-foreground border-border";
-    }
+    return getPriorityColors(prio).bg;
   };
 
   const getTaskStatusColor = (status: string) => {

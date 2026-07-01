@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { getPriorityColors } from "./task-cell-pickers";
 
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
@@ -38,12 +39,6 @@ const STATUS_PILL: Record<Status, string> = {
   "Done": "bg-emerald-50 text-emerald-605 border border-emerald-205 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800",
 };
 
-const PRIORITY_STYLES: Record<Priority, string> = {
-  critical: "text-red-600 dark:text-red-400 font-bold",
-  high: "text-rose-500",
-  medium: "text-amber-500",
-  low: "text-muted-foreground/50",
-};
 
 const PRIORITY_LABEL: Record<Priority, string> = {
   critical: "Critical",
@@ -173,7 +168,7 @@ export function TableView({
       accessorKey: "priority",
       header: "Priority",
       cell: ({ row }) => (
-        <span className={cn("text-xs font-medium", PRIORITY_STYLES[row.original.priority])}>
+        <span className={cn("text-xs font-medium", getPriorityColors(row.original.priority).text)}>
           {PRIORITY_LABEL[row.original.priority]}
         </span>
       ),
@@ -229,6 +224,7 @@ export function TableView({
         <DataTable
           columns={columns}
           data={tasks}
+          searchKey="title"
           hideSearch={true}
           emptyMessage="No tasks found"
         />

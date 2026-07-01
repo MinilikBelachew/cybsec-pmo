@@ -117,15 +117,17 @@ export function TopBar() {
               {i > 0 && <ChevronRight className="size-3 text-muted-foreground/50 shrink-0" />}
               {crumb.isLast ? (
                 <span
-                  className="truncate text-xs md:text-sm text-foreground font-semibold"
+                  className="truncate max-w-[120px] sm:max-w-[240px] md:max-w-[360px] inline-block text-xs md:text-sm text-foreground font-semibold"
                   aria-current="page"
+                  title={crumb.label}
                 >
                   {crumb.label}
                 </span>
               ) : (
                 <Link
                   href={crumb.href}
-                  className="truncate text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="truncate max-w-[120px] sm:max-w-[240px] md:max-w-[360px] inline-block text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  title={crumb.label}
                 >
                   {crumb.label}
                 </Link>

@@ -66,6 +66,7 @@ import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
 import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
+import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
@@ -94,12 +95,7 @@ interface Task {
   done: boolean;
 }
 
-const PRIORITY_STYLES: Record<Priority, string> = {
-  critical: "text-red-600 dark:text-red-400 font-bold",
-  high: "text-rose-500",
-  medium: "text-amber-500",
-  low: "text-slate-400 dark:text-white/30",
-};
+
 
 const PRIORITY_LABEL: Record<Priority, string> = {
   critical: "Critical",
@@ -155,10 +151,10 @@ const STATUS_FILTER_OPTIONS: { value: string; label: string; description: string
 
 const PRIORITY_FILTER_OPTIONS: { value: string; label: string; description: string; dot: string }[] = [
   { value: "ALL", label: "All Priorities", description: "Any urgency level", dot: "bg-muted-foreground" },
-  { value: "CRITICAL", label: "Critical", description: "Highest urgency", dot: "bg-red-500" },
-  { value: "HIGH", label: "High", description: "Important priority", dot: "bg-rose-500" },
-  { value: "MEDIUM", label: "Medium", description: "Standard priority", dot: "bg-amber-400" },
-  { value: "LOW", label: "Low", description: "Lower urgency", dot: "bg-slate-400" },
+  { value: "CRITICAL", label: "Critical", description: "Highest urgency", dot: getPriorityColors("critical").dot },
+  { value: "HIGH", label: "High", description: "Important priority", dot: getPriorityColors("high").dot },
+  { value: "MEDIUM", label: "Medium", description: "Standard priority", dot: getPriorityColors("medium").dot },
+  { value: "LOW", label: "Low", description: "Lower urgency", dot: getPriorityColors("low").dot },
 ];
 
 function FilterCardDropdown<T extends string>({
@@ -241,28 +237,8 @@ export function ProjectWorkspace() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().then(() => {
-        setIsFullscreen(true);
-      }).catch((err) => {
-        console.error("Failed to enter fullscreen mode:", err);
-      });
-    } else {
-      document.exitFullscreen();
-      setIsFullscreen(false);
-    }
+    setIsFullscreen((prev) => !prev);
   };
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === containerRef.current);
-    };
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
-  }, []);
 
   // Fetch project details
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
@@ -618,6 +594,17 @@ export function ProjectWorkspace() {
     }
   };
 
+  const handleUpdateTaskPriority = async (taskId: string, priority: string) => {
+    try {
+      await updateTask({ id: taskId, body: { priority } }).unwrap();
+      toast.success("Priority updated");
+    } catch (err) {
+      console.error("Failed to update task priority:", err);
+      toast.error("Failed to update priority");
+      throw err;
+    }
+  };
+
   const handleAddTaskOnDate = (date: Date) => {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -668,17 +655,17 @@ export function ProjectWorkspace() {
       ref={containerRef}
       className={cn(
         "flex flex-col overflow-hidden text-foreground transition-colors duration-300",
-        isFullscreen
-          ? "h-screen w-screen p-6 bg-background"
-          : "h-[calc(100vh-6rem)] -m-6 bg-transparent"
+        "h-[calc(100vh-6rem)] -m-6 bg-transparent"
       )}
     >
       {/* ─── BREADCRUMB / TITLE BAR ────────────────────────────────────── */}
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
-        <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
-        <span className="text-xs text-slate-400 dark:text-white/20">/</span>
-        <span className="text-sm font-semibold text-slate-950 dark:text-white">{project.name}</span>
-      </div>
+      {!isFullscreen && (
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
+          <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
+          <span className="text-xs text-slate-400 dark:text-white/20">/</span>
+          <span className="text-sm font-semibold text-slate-950 dark:text-white truncate max-w-[150px] sm:max-w-[300px] md:max-w-[500px] inline-block" title={project.name}>{project.name}</span>
+        </div>
+      )}
 
     {canReviewProgress && (
         <ProgressReviewInbox
@@ -689,88 +676,90 @@ export function ProjectWorkspace() {
       )}
 
       {/* ─── PROJECT OVERVIEW HEADER PANEL ───────────────────────────────────── */}
-      <div className="px-5 py-4 bg-slate-500/5 dark:bg-white/[0.02] border-b border-slate-200/60 dark:border-white/[0.08] grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0 bg-transparent">
-        {/* Progress Tracker */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-muted-foreground">Project Health</span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-              on track
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs font-semibold">
-              <span>Overall Progress</span>
-              <span className="text-primary">{progressPercent}%</span>
-            </div>
-            <div className="h-1.5 w-full bg-slate-200/80 dark:bg-white/5 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-1000 ease-out"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Average approved progress across tasks
-            </p>
-          </div>
-        </div>
-
-        {/* Commercial/Financial Info */}
-        <div className="grid grid-cols-2 gap-3 border-x border-slate-200/60 dark:border-white/[0.08] px-4 bg-transparent">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-muted-foreground">Tasks</p>
-            <div className="flex items-baseline gap-1">
-              <span className="text-lg font-bold text-foreground">{completedTasks}</span>
-              <span className="text-[10px] text-muted-foreground">/ {totalTasks}</span>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-muted-foreground">Budget</p>
-            <div className="flex items-baseline gap-1">
-              <span className="text-lg font-bold text-foreground">
-                {formatProjectBudget(project.value, project.currency)}
+      {!isFullscreen && (
+        <div className="px-5 py-4 bg-slate-500/5 dark:bg-white/[0.02] border-b border-slate-200/60 dark:border-white/[0.08] grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0 bg-transparent">
+          {/* Progress Tracker */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-muted-foreground">Project Health</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                on track
               </span>
             </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-semibold">
+                <span>Overall Progress</span>
+                <span className="text-primary">{progressPercent}%</span>
+              </div>
+              <div className="h-1.5 w-full bg-slate-200/80 dark:bg-white/5 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-1000 ease-out"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Average approved progress across tasks
+              </p>
+            </div>
           </div>
-        </div>
 
-        {/* Key Milestones */}
-        <div className="md:col-span-2 space-y-2 bg-transparent">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-muted-foreground">Recent Milestones</span>
-            <button onClick={() => setIsPhasePanelOpen(true)} className="text-[10px] font-bold text-primary hover:underline">Manage Roadmap</button>
+          {/* Commercial/Financial Info */}
+          <div className="grid grid-cols-2 gap-3 border-x border-slate-200/60 dark:border-white/[0.08] px-4 bg-transparent">
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-muted-foreground">Tasks</p>
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-bold text-foreground">{completedTasks}</span>
+                <span className="text-[10px] text-muted-foreground">/ {totalTasks}</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-muted-foreground">Budget</p>
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-bold text-foreground">
+                  {formatProjectBudget(project.value, project.currency)}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            {recentMilestones.length === 0 ? (
-              <span className="text-[10px] text-muted-foreground/70 italic px-1">No milestones defined.</span>
-            ) : (
-              recentMilestones.map((m, i) => (
-                <React.Fragment key={m.id}>
-                  <div className={`flex-1 p-2 rounded-lg border transition-all cursor-default relative overflow-hidden group ${
-                    m.status === 'done'        ? "bg-emerald-50/50 border-emerald-200/50 dark:bg-emerald-950/10 dark:border-emerald-800/30" :
-                    m.status === 'in-progress' ? "bg-primary/5 border-primary/20 ring-1 ring-primary/20 shadow-sm" :
-                    "bg-slate-100/50 dark:bg-white/5 border-slate-200 dark:border-white/5"
-                  }`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-[8px] font-bold uppercase tracking-tighter ${
-                        m.status === 'done'        ? "text-emerald-600" :
-                        m.status === 'in-progress' ? "text-primary" :
-                        "text-muted-foreground/70"
-                      }`}>
-                        {m.dueDate}
-                      </span>
-                      {m.status === 'done' && <CheckCircle2 className="size-2 text-emerald-500" />}
-                      {m.status === 'in-progress' && <Clock className="size-2 text-primary animate-pulse" />}
+
+          {/* Key Milestones */}
+          <div className="md:col-span-2 space-y-2 bg-transparent">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-muted-foreground">Recent Milestones</span>
+              <button onClick={() => setIsPhasePanelOpen(true)} className="text-[10px] font-bold text-primary hover:underline">Manage Roadmap</button>
+            </div>
+            <div className="flex items-center gap-1">
+              {recentMilestones.length === 0 ? (
+                <span className="text-[10px] text-muted-foreground/70 italic px-1">No milestones defined.</span>
+              ) : (
+                recentMilestones.map((m, i) => (
+                  <React.Fragment key={m.id}>
+                    <div className={`flex-1 p-2 rounded-lg border transition-all cursor-default relative overflow-hidden group ${
+                      m.status === 'done'        ? "bg-emerald-50/50 border-emerald-200/50 dark:bg-emerald-950/10 dark:border-emerald-800/30" :
+                      m.status === 'in-progress' ? "bg-primary/5 border-primary/20 ring-1 ring-primary/20 shadow-sm" :
+                      "bg-slate-100/50 dark:bg-white/5 border-slate-200 dark:border-white/5"
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[8px] font-bold uppercase tracking-tighter ${
+                          m.status === 'done'        ? "text-emerald-600" :
+                          m.status === 'in-progress' ? "text-primary" :
+                          "text-muted-foreground/70"
+                        }`}>
+                          {m.dueDate}
+                        </span>
+                        {m.status === 'done' && <CheckCircle2 className="size-2 text-emerald-500" />}
+                        {m.status === 'in-progress' && <Clock className="size-2 text-primary animate-pulse" />}
+                      </div>
+                      <p className="text-[10px] font-bold truncate leading-tight">{m.name}</p>
                     </div>
-                    <p className="text-[10px] font-bold truncate leading-tight">{m.name}</p>
-                  </div>
-                  {i < recentMilestones.length - 1 && <ChevronRight className="size-3 text-muted-foreground/30 shrink-0" />}
-                </React.Fragment>
-              ))
-            )}
+                    {i < recentMilestones.length - 1 && <ChevronRight className="size-3 text-muted-foreground/30 shrink-0" />}
+                  </React.Fragment>
+                ))
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ─── TABS NAV ────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
@@ -917,6 +906,13 @@ export function ProjectWorkspace() {
             onMoveTask={handleMoveTask}
             phases={phases}
             assignees={assignees}
+            onAssignTask={canAssignTask ? handleAssignTask : undefined}
+            onUpdateTaskDates={canManageTasks ? handleUpdateTaskDates : undefined}
+            canAssignTask={canAssignTask}
+            canEditDates={canManageTasks}
+            currentUserId={user?.id}
+            canApproveTask={canReviewProgress}
+            onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
           />
         )}
 
@@ -938,6 +934,7 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
+            onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
           />
         )}
 
