@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
+import { Eye, Search } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
 import { useServerTableState } from "@/shared/hooks/use-server-table-state";
 import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
 import { useGetRolesQuery } from "../api/roles.api";
 import type { RoleListItem, RolesQuery } from "../types/roles.types";
 import { roleColumns } from "./role-columns";
@@ -62,14 +64,16 @@ export function RolesPage() {
         ),
         meta: { className: "w-[120px] text-right" },
         cell: ({ row }) => (
-          <div className="text-right">
+          <div className="flex items-center justify-end">
             <Button
               type="button"
-              size="sm"
-              variant="outline"
+              variant="ghost"
+              size="icon-sm"
+              className="size-8 text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              aria-label={`View permissions for ${row.original.label}`}
               onClick={() => openRoleSheet(row.original)}
             >
-              View
+              <Eye className="size-4" />
             </Button>
           </div>
         ),
@@ -85,9 +89,21 @@ export function RolesPage() {
         description="Browse system roles and open a role to inspect its permission set."
       />
 
+      <div className="relative max-w-xl">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={rolesTable.search}
+          onChange={(event) => rolesTable.setSearch(event.target.value)}
+          placeholder="Search roles by name or code…"
+          maxLength={200}
+          className="h-10 border-border/60 bg-white ps-9 shadow-none dark:bg-card"
+        />
+      </div>
+
       <DataTable
         className="min-w-0"
         minTableWidth="min-w-0"
+        hideSearch
         columns={roleTableColumns}
         data={rolesData?.data ?? []}
         getRowId={(row) => String(row.id)}

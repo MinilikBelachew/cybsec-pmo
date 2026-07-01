@@ -23,7 +23,9 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
 import { CaslGuard } from '../casl/casl.guard';
+import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { RequestWithAbility } from '../casl/casl.guard';
 import { ProjectsService } from './projects.service';
 import { ProjectTeamService } from './project-team.service';
@@ -59,7 +61,7 @@ import { infinityPagination } from '../utils/infinity-pagination';
 import { NullableType } from '../utils/types/nullable.type';
 
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
 @UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('Projects')
 @Controller({
@@ -72,7 +74,8 @@ export class ProjectsController {
     private readonly projectTeamService: ProjectTeamService,
   ) {}
 
-  @CheckAbility('create', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'create')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiCreatedResponse({ type: ProjectDto })
@@ -83,7 +86,8 @@ export class ProjectsController {
     return this.projectsService.create(createProjectDto, request.user!.id);
   }
 
-  @CheckAbility('create', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'create')
   @Post('bundle')
   @HttpCode(HttpStatus.CREATED)
   @ApiCreatedResponse({ type: ProjectDto })
@@ -173,7 +177,7 @@ export class ProjectsController {
       atRisk: number;
       delayed: number;
       completed: number;
-      totalValue: number;
+      totalValue?: number;
     };
   }> {
     const page = query?.page ?? 1;
@@ -205,6 +209,7 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
+  @CheckModulePermission('project_export', 'export')
   @Get('export')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: [ProjectDto] })
@@ -231,7 +236,8 @@ export class ProjectsController {
     return this.projectsService.findById(id, request.caslUser!, request.ability!);
   }
 
-  @CheckAbility('update', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -250,7 +256,8 @@ export class ProjectsController {
     );
   }
 
-  @CheckAbility('approve', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'approve')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -302,7 +309,8 @@ export class ProjectsController {
     return this.projectTeamService.findProjectTeam(id, request.caslUser!);
   }
 
-  @CheckAbility('update', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
   @Post(':id/team')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -320,7 +328,8 @@ export class ProjectsController {
     );
   }
 
-  @CheckAbility('update', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
   @Delete(':id/team/:allocationId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -348,7 +357,8 @@ export class ProjectsController {
     return this.projectsService.findPhases(id, request.caslUser!);
   }
 
-  @CheckAbility('update', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
   @Post(':id/phases')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -360,7 +370,8 @@ export class ProjectsController {
     return this.projectsService.createPhase(id, dto, request.caslUser!);
   }
 
-  @CheckAbility('update', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
   @Patch(':id/phases/:phaseId')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -373,7 +384,8 @@ export class ProjectsController {
     return this.projectsService.updatePhase(phaseId, dto, request.caslUser!);
   }
 
-  @CheckAbility('approve', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'approve')
   @Delete(':id/phases/:phaseId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -396,7 +408,8 @@ export class ProjectsController {
     return this.projectsService.findMilestones(id, request.caslUser!);
   }
 
-  @CheckAbility('update', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('milestones', 'edit')
   @Post(':id/milestones')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -408,7 +421,8 @@ export class ProjectsController {
     return this.projectsService.createMilestone(id, dto, request.caslUser!);
   }
 
-  @CheckAbility('update', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('milestones', 'edit')
   @Patch(':id/milestones/:milestoneId')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -421,7 +435,8 @@ export class ProjectsController {
     return this.projectsService.updateMilestone(milestoneId, dto, request.caslUser!);
   }
 
-  @CheckAbility('approve', 'Project')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'approve')
   @Delete(':id/milestones/:milestoneId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', type: String, required: true })

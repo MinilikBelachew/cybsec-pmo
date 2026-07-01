@@ -8,7 +8,6 @@ import {
   Paperclip,
   Plus,
   Trash2,
-  ExternalLink,
   ListTree,
   Lock,
   Circle,
@@ -20,8 +19,10 @@ import {
   FileArchive,
   FileCode,
   File,
+  ExternalLink,
 } from "lucide-react";
 import { FilePreviewModal } from "./file-preview-modal";
+import { SecureFileLink } from "@/shared/components/secure-file-link";
 import {
   useGetTaskByIdQuery,
   useAddTaskCommentMutation,
@@ -597,15 +598,12 @@ export function TaskCollaborationSections({
             >
               <Eye className="size-4" />
             </button>
-            <a
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
-              title="Open link"
-            >
-              <ExternalLink className="size-4" />
-            </a>
+            <SecureFileLink
+              storageKey={att.s3Key}
+              filename={att.filename}
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary"
+              iconClassName="size-4"
+            />
             <Button
               type="button"
               variant="ghost"
@@ -796,6 +794,14 @@ export function TaskAttachmentsBlock({
             >
               {att.filename}
             </button>
+            <Paperclip className="size-5 text-primary" />
+            <SecureFileLink
+              storageKey={att.s3Key}
+              filename={att.filename}
+              showLabel
+              label={att.filename}
+              className="truncate text-xs font-medium text-foreground hover:text-primary"
+            />
             <p className="text-[10px] text-muted-foreground">
               {att.sizeBytes ? formatFileSize(att.sizeBytes) : "—"}
             </p>

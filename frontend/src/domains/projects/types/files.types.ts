@@ -10,3 +10,8 @@ export interface FileUploadResponse {
   sizeBytes: number;
   storageKey: string;
 }
+
+export interface FileAccessResponse {
+  url: string;
+  expiresAt: string;
+}

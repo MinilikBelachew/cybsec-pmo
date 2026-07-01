@@ -14,6 +14,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { CreateProgressUpdateDto } from './dto/create-progress-update.dto';
+import { ProgressEvidenceFileDto } from './dto/progress-evidence-file.dto';
 import {
   ProgressReviewDecisionEnum,
   ReviewProgressUpdateDto,
@@ -92,6 +93,8 @@ export class TaskProgressService {
       });
     }
 
+    const evidenceFiles = this.normalizeEvidenceFiles(dto);
+
     const result = await this.prisma.$transaction(async (tx) => {
       const update = await tx.taskProgressUpdate.create({
         data: {
@@ -100,7 +103,11 @@ export class TaskProgressService {
           progressPercent: dto.progressPercent,
           hoursSpent: dto.hoursSpent,
           comment: dto.comment?.trim() || null,
-          s3EvidenceKey: dto.s3EvidenceKey ?? null,
+          s3EvidenceKey: evidenceFiles[0]?.storageKey ?? null,
+          evidenceFiles:
+            evidenceFiles.length > 0
+              ? (evidenceFiles as unknown as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
           status: 'Pending',
         },
         include: PROGRESS_INCLUDE,
@@ -513,9 +520,65 @@ export class TaskProgressService {
     };
   }
 
+  private normalizeEvidenceFiles(
+    dto: CreateProgressUpdateDto,
+  ): ProgressEvidenceFileDto[] {
+    const byKey = new Map<string, ProgressEvidenceFileDto>();
+
+    for (const file of dto.evidenceFiles ?? []) {
+      const storageKey = file.storageKey?.trim();
+      if (!storageKey) continue;
+      byKey.set(storageKey, {
+        storageKey,
+        filename: file.filename?.trim() || 'Evidence file',
+      });
+    }
+
+    const legacyKey = dto.s3EvidenceKey?.trim();
+    if (legacyKey && !byKey.has(legacyKey)) {
+      byKey.set(legacyKey, { storageKey: legacyKey, filename: 'Evidence file' });
+    }
+
+    return Array.from(byKey.values());
+  }
+
+  private parseStoredEvidenceFiles(
+    row: Prisma.TaskProgressUpdateGetPayload<{ include: typeof PROGRESS_INCLUDE }>,
+  ): { storageKey: string; filename: string }[] {
+    const parsed: ProgressEvidenceFileDto[] = [];
+
+    if (Array.isArray(row.evidenceFiles)) {
+      for (const item of row.evidenceFiles) {
+        if (!item || typeof item !== 'object') continue;
+        const record = item as Record<string, unknown>;
+        const storageKey =
+          typeof record.storageKey === 'string' ? record.storageKey.trim() : '';
+        if (!storageKey) continue;
+        parsed.push({
+          storageKey,
+          filename:
+            typeof record.filename === 'string' && record.filename.trim()
+              ? record.filename.trim()
+              : 'Evidence file',
+        });
+      }
+    }
+
+    if (parsed.length === 0 && row.s3EvidenceKey) {
+      parsed.push({
+        storageKey: row.s3EvidenceKey,
+        filename: 'Evidence file',
+      });
+    }
+
+    return parsed;
+  }
+
   private formatProgressUpdate(
     row: Prisma.TaskProgressUpdateGetPayload<{ include: typeof PROGRESS_INCLUDE }>,
   ) {
+    const evidenceFiles = this.parseStoredEvidenceFiles(row);
+
     return {
       id: row.id,
       taskId: row.taskId,
@@ -524,7 +587,8 @@ export class TaskProgressService {
       hoursSpent: Number(row.hoursSpent),
       comment: row.comment,
       s3EvidenceKey: row.s3EvidenceKey,
-      evidenceUrl: this.resolveEvidenceUrl(row.s3EvidenceKey),
+      evidenceUrl: null,
+      evidenceFiles,
       status: row.status,
       reviewedBy: row.reviewedBy,
       reviewReason: row.reviewReason,
@@ -540,20 +604,5 @@ export class TaskProgressService {
           }
         : undefined,
     };
-  }
-
-  private resolveEvidenceUrl(storageKey: string | null): string | null {
-    if (!storageKey) {
-      return null;
-    }
-    if (storageKey.startsWith('http://') || storageKey.startsWith('https://')) {
-      return storageKey;
-    }
-    if (storageKey.startsWith('/')) {
-      const backendDomain =
-        process.env.BACKEND_DOMAIN?.replace(/\/$/, '') ?? 'http://localhost:6001';
-      return `${backendDomain}${storageKey}`;
-    }
-    return storageKey;
   }
 }

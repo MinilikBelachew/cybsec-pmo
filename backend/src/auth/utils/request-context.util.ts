@@ -1,14 +1,34 @@
 import { Request } from 'express';
 
+function normalizeIp(ip: string): string {
+  const trimmed = ip.trim();
+  if (trimmed === '::1' || trimmed === '::ffff:127.0.0.1' || trimmed === '0:0:0:0:0:0:0:1') {
+    return '127.0.0.1';
+  }
+  return trimmed;
+}
+
+function readHeaderIp(header: string | string[] | undefined): string | null {
+  if (typeof header === 'string' && header.length > 0) {
+    return normalizeIp(header.split(',')[0]);
+  }
+  if (Array.isArray(header) && header[0]) {
+    return normalizeIp(header[0].split(',')[0]);
+  }
+  return null;
+}
+
 export function extractClientIp(request: Request): string {
-  const forwarded = request.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim();
+  const forwardedIp =
+    readHeaderIp(request.headers['cf-connecting-ip']) ??
+    readHeaderIp(request.headers['x-real-ip']) ??
+    readHeaderIp(request.headers['x-forwarded-for']);
+
+  if (forwardedIp) {
+    return forwardedIp;
   }
-  if (Array.isArray(forwarded) && forwarded[0]) {
-    return forwarded[0].split(',')[0].trim();
-  }
-  return request.ip || request.socket?.remoteAddress || 'unknown';
+
+  return normalizeIp(request.ip || request.socket?.remoteAddress || 'unknown');
 }
 
 export function extractUserAgent(request: Request): string | null {

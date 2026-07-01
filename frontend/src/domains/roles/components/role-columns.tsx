@@ -4,6 +4,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/shared/ui/badge";
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
 import type { RoleListItem } from "../types/roles.types";
+import { formatRoleCodeLabel } from "../utils/format-permission";
 
 export const roleColumns: ColumnDef<RoleListItem>[] = [
   {
@@ -12,9 +13,9 @@ export const roleColumns: ColumnDef<RoleListItem>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
     meta: { className: "w-[18%]" },
     cell: ({ row }) => (
-      <code className="rounded-md bg-muted/70 px-2 py-1 text-xs font-medium">
-        {row.original.code}
-      </code>
+      <span className="text-sm font-medium text-foreground" title={row.original.code}>
+        {formatRoleCodeLabel(row.original.code)}
+      </span>
     ),
   },
   {

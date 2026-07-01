@@ -101,14 +101,11 @@ function stickyCellClass(
 
   const bg = isHeader
     ? "bg-muted/50 dark:bg-muted/30"
-    : "bg-white dark:bg-card";
+    : selected
+      ? "bg-muted/40 dark:bg-muted/30"
+      : "bg-white dark:bg-card";
 
-  return cn(
-    "sticky z-20",
-    bg,
-    sticky === "left" ? "left-0" : "right-0",
-    selected && !isHeader && "bg-primary/5 dark:bg-primary/10",
-  );
+  return cn("sticky z-20", bg, sticky === "left" ? "left-0" : "right-0");
 }
 
 const headerRowClass = "border-border/50 bg-muted/50 hover:bg-muted/50 dark:bg-muted/30";
@@ -633,7 +630,7 @@ export function DataTable<TData, TValue>({
                       onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                       className={cn(
                         "border-border/40 transition-colors hover:bg-muted/20",
-                        row.getIsSelected() && "bg-primary/5 hover:bg-primary/8",
+                        row.getIsSelected() && "bg-muted/40 hover:bg-muted/50 dark:bg-muted/30",
                         onRowClick && "cursor-pointer",
                       )}
                     >
@@ -641,7 +638,10 @@ export function DataTable<TData, TValue>({
                         <TableCell
                           key={cell.id}
                           className={cn(
-                            "px-4 py-3 align-middle whitespace-normal bg-white dark:bg-card",
+                            "px-4 py-3 align-middle whitespace-normal",
+                            row.getIsSelected()
+                              ? "bg-muted/40 dark:bg-muted/30"
+                              : "bg-white dark:bg-card",
                             stickyCellClass(
                               cell.column.columnDef.meta?.sticky,
                               false,

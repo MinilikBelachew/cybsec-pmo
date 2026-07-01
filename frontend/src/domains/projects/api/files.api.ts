@@ -1,5 +1,5 @@
 import { api } from "@/core/api/api";
-import type { FileUploadResponse } from "../types/files.types";
+import type { FileAccessResponse, FileUploadResponse } from "../types/files.types";
 
 export const filesApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -14,7 +14,17 @@ export const filesApi = api.injectEndpoints({
         };
       },
     }),
+    getFileAccessUrl: builder.query<
+      FileAccessResponse,
+      { storageKey: string; filename?: string }
+    >({
+      query: ({ storageKey, filename }) => {
+        const params = new URLSearchParams({ storageKey });
+        if (filename) params.set("filename", filename);
+        return `/files/access?${params.toString()}`;
+      },
+    }),
   }),
 });
 
-export const { useUploadFileMutation } = filesApi;
+export const { useUploadFileMutation, useLazyGetFileAccessUrlQuery } = filesApi;

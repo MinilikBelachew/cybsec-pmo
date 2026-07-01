@@ -9,6 +9,7 @@ import {
   IsBoolean,
   IsIn,
   IsUUID,
+  IsArray,
   Matches,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -29,6 +30,20 @@ export const AUDIT_SORT_FIELDS = [
 
 export type AuditSortField = (typeof AUDIT_SORT_FIELDS)[number];
 
+function toEventIds(value: unknown): string[] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return undefined;
+}
+
 export class QueryAuditDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -44,6 +59,21 @@ export class QueryAuditDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({ description: 'Filter by audit event UUID' })
+  @IsOptional()
+  @IsUUID()
+  eventId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter export to specific audit event UUIDs',
+    type: [String],
+  })
+  @IsOptional()
+  @Transform(({ value }) => toEventIds(value))
+  @IsArray()
+  @IsUUID('4', { each: true })
+  eventIds?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

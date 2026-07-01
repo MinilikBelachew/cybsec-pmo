@@ -573,6 +573,7 @@ model TaskProgressUpdate {
   hoursSpent      Decimal   @map("hours_spent") @db.Decimal(6, 2)
   comment         String?
   s3EvidenceKey   String?   @map("s3_evidence_key") @db.VarChar(512)
+  evidenceFiles   Json?     @map("evidence_files")
   status          String    @default("Pending") @db.VarChar(20)
   reviewedBy      String?   @map("reviewed_by") @db.Uuid
   reviewReason    String?   @map("review_reason")

@@ -3,16 +3,35 @@
 import { type ColumnDef } from "@tanstack/react-table";
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
 import type { PermissionListItem } from "../types/roles.types";
+import {
+  formatPermissionCode,
+  formatPermissionLabel,
+  formatRecordScopeLabel,
+  humanizePermissionToken,
+} from "../utils/format-permission";
 
 export const permissionColumns: ColumnDef<PermissionListItem>[] = [
+  {
+    id: "permission",
+    accessorFn: (row) => formatPermissionLabel(row.module, row.action),
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Permission" />,
+    cell: ({ row }) => (
+      <div title={formatPermissionCode(row.original.module, row.original.action)}>
+        <p className="text-sm font-medium">
+          {formatPermissionLabel(row.original.module, row.original.action)}
+        </p>
+        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+          {formatPermissionCode(row.original.module, row.original.action)}
+        </p>
+      </div>
+    ),
+  },
   {
     accessorKey: "module",
     id: "module",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Module" />,
     cell: ({ row }) => (
-      <code className="rounded-md bg-muted/70 px-2 py-1 text-xs font-medium">
-        {row.original.module}
-      </code>
+      <span className="text-sm font-medium">{humanizePermissionToken(row.original.module)}</span>
     ),
   },
   {
@@ -20,7 +39,7 @@ export const permissionColumns: ColumnDef<PermissionListItem>[] = [
     id: "action",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Action" />,
     cell: ({ row }) => (
-      <span className="text-sm font-medium">{row.original.action}</span>
+      <span className="text-sm font-medium">{humanizePermissionToken(row.original.action)}</span>
     ),
   },
   {
@@ -29,7 +48,7 @@ export const permissionColumns: ColumnDef<PermissionListItem>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Record scope" />,
     cell: ({ row }) => (
       <span className="text-sm text-muted-foreground">
-        {row.original.recordScope ?? "—"}
+        {formatRecordScopeLabel(row.original.recordScope)}
       </span>
     ),
   },

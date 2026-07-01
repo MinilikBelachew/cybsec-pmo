@@ -21,4 +21,6 @@ export type { User, ApiUser } from "./types/auth.types";
 // Store actions (for middleware / root store)
 export { setUser, setPermissions, clearUser, logout } from "./store/auth.slice";
 export { useAppAbility, AbilityProvider } from "./casl/ability-context";
+export { useModulePermissions } from "./hooks/use-module-permissions";
+export { hasModulePermission } from "./utils/module-permissions";
 export type { PermissionRow } from "./types/permissions.types";

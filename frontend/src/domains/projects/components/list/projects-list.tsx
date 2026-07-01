@@ -23,7 +23,7 @@ import {
 } from "../../utils/project-display.utils";
 import { formatProjectBudgetCompact } from "../../utils/format-budget";
 import { EmployeeTooltip } from "../shared/employee-tooltip";
-import { useAppAbility } from "@/domains/auth/casl/ability-context";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { cn } from "@/shared/utils/cn";
 import { useRouter } from "@/i18n/routing";
 import { useDebounce } from "@/shared/hooks/use-debounce";
@@ -378,10 +378,21 @@ const PROJECT_SORTABLE_COLUMNS = new Set<string>([
 ]);
 
 export function ProjectsList() {
-  const ability = useAppAbility();
-  const canCreate = ability?.can("create", "Project") ?? false;
-  const canUpdate = ability?.can("update", "Project") ?? false;
-  const canDelete = ability?.can("approve", "Project") ?? false;
+  const {
+    canCreateProjects,
+    canEditProjects,
+    canViewProjects,
+    canApproveProjects,
+    canViewFinancials,
+    canImportProjects,
+    canExportProjects,
+  } = useModulePermissions();
+  const canCreate = canCreateProjects;
+  const canUpdate = canEditProjects;
+  const canView = canViewProjects;
+  const canOpenProjectSheet = canUpdate || canView;
+  const projectSheetActionLabel = canUpdate ? "Edit" : "View";
+  const canDelete = canApproveProjects;
   
   const [view, setView] = useState<"grid" | "list">("grid");
   const [search, setSearch] = useState("");
@@ -531,11 +542,19 @@ export function ProjectsList() {
       {/* ── Summary Strip ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <PortfolioStatCard
-          title="Total value"
-          subtitle="All in portfolio"
-          value={formatPortfolioValue(portfolioKpis.totalValue)}
-          numericValue={portfolioKpis.totalValue}
-          chartMax={Math.max(portfolioKpis.totalValue, 1)}
+          title={canViewFinancials ? "Total value" : "Total projects"}
+          subtitle={canViewFinancials ? "All in portfolio" : "In your portfolio"}
+          value={
+            canViewFinancials
+              ? formatPortfolioValue(portfolioKpis.totalValue ?? 0)
+              : portfolioKpis.total
+          }
+          numericValue={canViewFinancials ? (portfolioKpis.totalValue ?? 0) : portfolioKpis.total}
+          chartMax={
+            canViewFinancials
+              ? Math.max(portfolioKpis.totalValue ?? 0, 1)
+              : Math.max(portfolioKpis.total, 1)
+          }
           icon={FolderKanban}
           theme={CARD_THEMES.total}
         />
@@ -643,8 +662,9 @@ export function ProjectsList() {
           </button>
         </div>
 
-        {/* Import/Export Buttons */}
+        {(canImportProjects || canExportProjects) && (
         <div className="flex items-center gap-1.5">
+          {canImportProjects && (
           <Button
             variant="outline"
             size="sm"
@@ -654,6 +674,8 @@ export function ProjectsList() {
             <Upload className="size-3.5" />
             Import
           </Button>
+          )}
+          {canExportProjects && (
           <Button
             variant="outline"
             size="sm"
@@ -668,7 +690,9 @@ export function ProjectsList() {
             )}
             Export
           </Button>
+          )}
         </div>
+        )}
       </div>
 
       {/* ── Content View ── */}
@@ -710,8 +734,10 @@ export function ProjectsList() {
             <ProjectGridCard
               key={p.id}
               project={p}
-              onEdit={canUpdate ? setEditProject : undefined}
+              onEdit={canOpenProjectSheet ? setEditProject : undefined}
               onDelete={canDelete ? setDeleteTarget : undefined}
+              projectSheetActionLabel={projectSheetActionLabel}
+              showBudget={canViewFinancials}
             />
           ))}
         </div>
@@ -729,8 +755,10 @@ export function ProjectsList() {
           onPageChange={setListPageIndex}
           onPageSizeChange={setListPageSize}
           onSortingChange={setListSorting}
-          onEdit={canUpdate ? setEditProject : undefined}
+          onEdit={canOpenProjectSheet ? setEditProject : undefined}
           onDelete={canDelete ? setDeleteTarget : undefined}
+          projectSheetActionLabel={projectSheetActionLabel}
+          showBudget={canViewFinancials}
         />
       )}
 
@@ -770,10 +798,14 @@ function ProjectGridCard({
   project: p,
   onEdit,
   onDelete,
+  projectSheetActionLabel = "Edit",
+  showBudget = true,
 }: {
   project: ProcessedProject;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProcessedProject) => void;
+  projectSheetActionLabel?: string;
+  showBudget?: boolean;
 }) {
   const router = useRouter();
   const s = STATUS_CONFIG[p.status] || STATUS_CONFIG.Draft;
@@ -842,7 +874,7 @@ function ProjectGridCard({
                       }}
                     >
                       <Pencil className="size-3.5" />
-                      Edit
+                      {projectSheetActionLabel}
                     </DropdownMenuItem>
                   )}
                   {onDelete && (
@@ -887,7 +919,7 @@ function ProjectGridCard({
           <StatPill icon={AlertTriangle} label="Risks" value={String(p.risks)} />
         </div>
 
-        {p.budget > 0 && (
+        {showBudget && p.budget > 0 && (
           <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/40 p-2.5">
             <TrendingUp className={cn("size-3.5 shrink-0", overBudget ? "text-rose-500" : "text-muted-foreground")} />
             <div className="min-w-0 flex-1">
@@ -968,6 +1000,8 @@ function ProjectListView({
   onSortingChange,
   onEdit,
   onDelete,
+  projectSheetActionLabel = "Edit",
+  showBudget = true,
 }: {
   projects: ProcessedProject[];
   isLoading: boolean;
@@ -981,6 +1015,8 @@ function ProjectListView({
   onSortingChange: (sorting: SortingState) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProcessedProject) => void;
+  projectSheetActionLabel?: string;
+  showBudget?: boolean;
 }) {
   const router = useRouter();
 
@@ -997,8 +1033,10 @@ function ProjectListView({
         onNavigate: handleNavigate,
         onEdit,
         onDelete,
+        projectSheetActionLabel,
+        showBudget,
       }),
-    [handleNavigate, onEdit, onDelete],
+    [handleNavigate, onEdit, onDelete, projectSheetActionLabel, showBudget],
   );
 
   return (

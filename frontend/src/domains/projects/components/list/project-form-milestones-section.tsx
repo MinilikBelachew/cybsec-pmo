@@ -30,6 +30,7 @@ type ProjectFormMilestonesSectionProps = {
   projectStartDate?: Date;
   projectEndDate?: Date;
   error?: string;
+  readOnly?: boolean;
 };
 
 const MILESTONE_TITLE_MAX = 255;
@@ -93,6 +94,7 @@ export const ProjectFormMilestonesSection = forwardRef<
   projectStartDate,
   projectEndDate,
   error,
+  readOnly = false,
 }, ref) {
   const [title, setTitle] = useState("");
   const [targetDate, setTargetDate] = useState("");
@@ -226,6 +228,7 @@ export const ProjectFormMilestonesSection = forwardRef<
                   {draft.weight != null ? ` · ${draft.weight}%` : ""}
                 </p>
               </div>
+              {!readOnly && (
               <button
                 type="button"
                 onClick={() => removeDraft(draft.clientId)}
@@ -234,12 +237,13 @@ export const ProjectFormMilestonesSection = forwardRef<
               >
                 <Trash2 className="size-4" />
               </button>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {showFields ? (
+      {!readOnly && (showFields ? (
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <div className="min-w-0 flex-1 space-y-1">
             <Label className="text-[11px] text-muted-foreground">Title</Label>
@@ -315,7 +319,7 @@ export const ProjectFormMilestonesSection = forwardRef<
           <Plus className="mr-1 size-3.5" />
           Add Milestones
         </Button>
-      )}
+      ))}
 
       {(localError || error) && (
         <p className="text-[11px] font-semibold text-rose-500 mt-2">

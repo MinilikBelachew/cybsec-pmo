@@ -14,7 +14,9 @@ import {
   ApiPriorityLevel,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
-import type { AppAbility } from '../../casl/casl.types';
+import { AppAbility } from '../../casl/casl.types';
+import type { PermissionRow } from '../../casl/casl.types';
+import { hasModulePermission } from '../../casl/module-permission.util';
 
 export type ProjectWithRelations = Project & {
   department?: Department;
@@ -82,12 +84,19 @@ export function toPrismaCurrency(value: string): string {
 
 export function toApiProject(
   project: ProjectWithRelations,
-  options: { ability?: AppAbility | null } = {},
+  options: { ability?: AppAbility | null; permissions?: PermissionRow[] } = {},
 ) {
-  const showFinancials =
-    !options.ability ||
-    options.ability.can('manage', 'Settings') ||
-    options.ability.can('read', 'Financial');
+  const showFinancials = options.permissions
+    ? hasModulePermission(options.permissions, 'financials', 'view')
+    : !options.ability ||
+      options.ability.can('manage', 'Settings') ||
+      options.ability.can('read', 'Financial');
+
+  const showCommercialDetails = showFinancials
+    ? true
+    : options.permissions
+      ? hasModulePermission(options.permissions, 'projects', 'edit')
+      : Boolean(options.ability?.can('update', 'Project'));
 
   return {
     id: project.id,
@@ -95,9 +104,14 @@ export function toApiProject(
     objective: project.objective,
     departmentId: project.departmentId,
     customerId: project.customerId,
-    engagementType:
-      ENGAGEMENT_FROM_PRISMA[project.engagementType] ?? ApiEngagementType.ManagedServices,
-    billingModel: BILLING_FROM_PRISMA[project.billingModel],
+    ...(showCommercialDetails
+      ? {
+          engagementType:
+            ENGAGEMENT_FROM_PRISMA[project.engagementType] ??
+            ApiEngagementType.ManagedServices,
+          billingModel: BILLING_FROM_PRISMA[project.billingModel],
+        }
+      : {}),
     priority: project.priority as ApiPriorityLevel,
     startDate: project.startDate.toISOString().slice(0, 10),
     endDate: project.endDate.toISOString().slice(0, 10),

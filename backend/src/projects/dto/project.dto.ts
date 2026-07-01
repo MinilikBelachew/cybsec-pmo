@@ -53,11 +53,11 @@ export class ProjectDto {
   @ApiProperty()
   customerId: string;
 
-  @ApiProperty({ enum: ApiEngagementType })
-  engagementType: ApiEngagementType;
+  @ApiPropertyOptional({ enum: ApiEngagementType })
+  engagementType?: ApiEngagementType;
 
-  @ApiProperty({ enum: ApiBillingModel })
-  billingModel: ApiBillingModel;
+  @ApiPropertyOptional({ enum: ApiBillingModel })
+  billingModel?: ApiBillingModel;
 
   @ApiProperty({ enum: ApiPriorityLevel })
   priority: ApiPriorityLevel;

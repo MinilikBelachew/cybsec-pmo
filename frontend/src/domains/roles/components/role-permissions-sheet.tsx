@@ -33,6 +33,12 @@ import {
 } from "../api/roles.api";
 import type { RoleListItem } from "../types/roles.types";
 import {
+  formatPermissionCode,
+  formatPermissionLabel,
+  formatRecordScopeLabel,
+  formatRoleCodeLabel,
+} from "../utils/format-permission";
+import {
   RevokePermissionDialog,
   type RevokePermissionTarget,
 } from "./revoke-permission-dialog";
@@ -196,13 +202,27 @@ export function RolePermissionsSheet({
                 {role.label}
               </SheetTitle>
               <SheetDescription className="flex flex-wrap items-center gap-2">
-                <code className="rounded-md bg-muted/70 px-2 py-0.5 text-xs">{role.code}</code>
+                <span className="text-sm text-muted-foreground" title={role.code}>
+                  {formatRoleCodeLabel(role.code)}
+                </span>
                 <Badge variant={role.isExternal ? "outline" : "secondary"}>
                   {role.isExternal ? "External" : "Internal"}
                 </Badge>
                 <span>{meta?.total ?? role.permissionCount} permissions</span>
               </SheetDescription>
             </SheetHeader>
+
+            <div className="shrink-0 border-b border-border/50 px-6 py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search permissions…"
+                  className="h-9 pl-9"
+                />
+              </div>
+            </div>
 
             {canManage && (
               <div className="shrink-0 space-y-3 border-b border-border/50 bg-muted/10 px-6 py-4">
@@ -221,7 +241,9 @@ export function RolePermissionsSheet({
                           {addPermissionId
                             ? (() => {
                                 const item = catalogData?.data.find((p) => p.id === addPermissionId);
-                                return item ? `${item.module}.${item.action}` : "Select permission";
+                                return item
+                                  ? formatPermissionLabel(item.module, item.action)
+                                  : "Select permission";
                               })()
                             : "Select permission"}
                         </SelectValue>
@@ -229,7 +251,14 @@ export function RolePermissionsSheet({
                       <SelectContent>
                         {availableCatalog.map((item) => (
                           <SelectItem key={item.id} value={item.id}>
-                            {item.module}.{item.action}
+                            <span className="flex min-w-0 flex-col items-start gap-0.5">
+                              <span className="text-sm font-medium">
+                                {formatPermissionLabel(item.module, item.action)}
+                              </span>
+                              <span className="font-mono text-[10px] text-muted-foreground">
+                                {formatPermissionCode(item.module, item.action)}
+                              </span>
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -268,18 +297,6 @@ export function RolePermissionsSheet({
               </div>
             )}
 
-            <div className="border-b border-border/50 px-6 py-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search permissions…"
-                  className="h-9 pl-9"
-                />
-              </div>
-            </div>
-
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {isLoading || isFetching ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">Loading permissions…</p>
@@ -294,12 +311,15 @@ export function RolePermissionsSheet({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <code className="truncate text-xs font-semibold">{permission.module}</code>
-                            <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                              {permission.action}
-                            </span>
-                          </div>
+                          <p
+                            className="truncate text-sm font-medium"
+                            title={formatPermissionCode(permission.module, permission.action)}
+                          >
+                            {formatPermissionLabel(permission.module, permission.action)}
+                          </p>
+                          <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                            {formatPermissionCode(permission.module, permission.action)}
+                          </p>
                           {canManage ? (
                             <div className="mt-2 space-y-1">
                               <Label className="text-[10px] text-muted-foreground">Record scope</Label>
@@ -326,7 +346,7 @@ export function RolePermissionsSheet({
                             </div>
                           ) : (
                             <p className="mt-1 text-xs text-muted-foreground">
-                              Scope: {permission.recordScope ?? "—"}
+                              Scope: {formatRecordScopeLabel(permission.recordScope)}
                             </p>
                           )}
                           {permission.fieldScope && (

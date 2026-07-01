@@ -16,6 +16,7 @@ import {
   useGetProjectTaskAssigneesQuery,
   useGetPhasesQuery,
   useUpdateTaskBundleMutation,
+  useUpdateTaskMutation,
   updateTaskSchema,
   taskToFormValuesOrDefaults,
   toUpdateTaskPayload,
@@ -23,6 +24,7 @@ import {
   TaskProgressSection,
   TaskDependenciesSection,
   filterStatusOptionsForRole,
+  formatTaskApiError,
 } from "@/domains/projects";
 import { useAuth, useAppAbility } from "@/domains/auth";
 import {
@@ -136,6 +138,7 @@ export function TaskDetailPanel({
     useGetProjectTaskAssigneesQuery(projectId, { skip: !open });
   const { data: phases = [], isLoading: loadingPhases } = useGetPhasesQuery(projectId, { skip: !open });
   const [updateTaskBundle, { isLoading: isSaving }] = useUpdateTaskBundleMutation();
+  const [updateTask, { isLoading: isUpdatingStatus }] = useUpdateTaskMutation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
   const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
@@ -150,6 +153,7 @@ export function TaskDetailPanel({
     control,
     reset,
     watch,
+    getValues,
     formState: { errors, isDirty },
   } = useForm<UpdateTaskFormValues>({
     resolver: zodResolver(updateTaskSchema) as import("react-hook-form").Resolver<UpdateTaskFormValues>,
@@ -171,6 +175,12 @@ export function TaskDetailPanel({
   const watchedEffortHours = watch("effortHours");
   const watchedStatus = watch("status");
   const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
+
+  const canManageTasks = ability?.can("create", "Task") ?? false;
+  const isTaskOwner = user?.id === task?.ownerId;
+  const isEngineerView = !canManageTasks;
+  const canEditTaskFields = canManageTasks;
+  const canChangeStatus = canManageTasks || isTaskOwner;
 
   const statusOptions = useMemo(
     () =>
@@ -207,8 +217,20 @@ export function TaskDetailPanel({
     pendingDependencyRemoves.length > 0;
 
   const hasPendingChanges = isDirty || hasDraftChanges;
-  const isBusy = isSaving || isSubmitting;
+  const isBusy = isSaving || isSubmitting || isUpdatingStatus;
   const hasParent = !!task?.parentTaskId;
+
+  const handleEngineerStatusChange = async (newStatus: UpdateTaskFormValues["status"]) => {
+    if (!taskId || newStatus === watchedStatus) return;
+    try {
+      await updateTask({ id: taskId, body: { status: newStatus } }).unwrap();
+      reset({ ...getValues(), status: newStatus });
+      toast.success("Status updated");
+      onUpdated?.();
+    } catch (err) {
+      toast.error(formatTaskApiError(err, "Failed to update status"));
+    }
+  };
 
   const onSave = handleSubmit(async (values) => {
     if (!taskId) return;
@@ -244,13 +266,7 @@ export function TaskDetailPanel({
       onUpdated?.();
       onClose();
     } catch (err: unknown) {
-      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
-      const fieldErrors = apiError?.data?.errors;
-      toast.error(
-        fieldErrors
-          ? Object.values(fieldErrors)[0]
-          : apiError?.data?.message ?? "Failed to update task"
-      );
+      toast.error(formatTaskApiError(err, "Failed to update task"));
     } finally {
       setIsSubmitting(false);
     }
@@ -275,9 +291,16 @@ export function TaskDetailPanel({
 
           {task && (
             <>
-              {(task.progressApproved > 0 || task.progressPending > 0) && (
+              {(task.progressApproved > 0 || task.progressPending > 0 || isEngineerView) && (
                 <div className="shrink-0 border-b border-border px-8 py-2.5">
                   <div className="flex flex-wrap items-center gap-2">
+                    {isEngineerView && (
+                      <p className="w-full text-xs text-muted-foreground">
+                        {isTaskOwner
+                          ? "Task details are read-only. Update status below or submit progress for review."
+                          : "Task details are read-only for your role."}
+                      </p>
+                    )}
                     {task.progressApproved > 0 && (
                       <Badge className="bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 text-[10px]">
                         {task.progressApproved}% approved
@@ -299,6 +322,8 @@ export function TaskDetailPanel({
                     <Input
                       className="h-auto border-0 border-b border-input rounded-none px-0 text-lg font-bold shadow-none focus-visible:ring-0"
                       placeholder="Task title..."
+                      disabled={!canEditTaskFields}
+                      readOnly={!canEditTaskFields}
                       {...register("title")}
                     />
                     <FieldError message={errors.title?.message} />
@@ -306,7 +331,9 @@ export function TaskDetailPanel({
                       id="description"
                       rows={4}
                       placeholder="Add a description..."
-                      className="flex min-h-[100px] w-full rounded-lg border border-input bg-transparent px-3 py-2.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                      disabled={!canEditTaskFields}
+                      readOnly={!canEditTaskFields}
+                      className="flex min-h-[100px] w-full rounded-lg border border-input bg-transparent px-3 py-2.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-default disabled:opacity-80 dark:bg-input/30"
                       {...register("description")}
                     />
                     {task.parentTask && (
@@ -323,7 +350,19 @@ export function TaskDetailPanel({
                         control={control}
                         name="status"
                         render={({ field }) => (
-                          <Select value={field.value} onValueChange={field.onChange}>
+                          <Select
+                            value={field.value}
+                            onValueChange={(value) => {
+                              if (isEngineerView && isTaskOwner) {
+                                void handleEngineerStatusChange(
+                                  value as UpdateTaskFormValues["status"],
+                                );
+                                return;
+                              }
+                              field.onChange(value);
+                            }}
+                            disabled={!canChangeStatus || statusOptions.length <= 1}
+                          >
                             <SelectTrigger className="w-full">
                               <SelectValue>
                                 {STATUS_OPTIONS.find((opt) => opt.value === field.value)?.label ?? field.value}
@@ -347,7 +386,7 @@ export function TaskDetailPanel({
                         control={control}
                         name="priority"
                         render={({ field }) => (
-                          <Select value={field.value} onValueChange={field.onChange}>
+                          <Select value={field.value} onValueChange={field.onChange} disabled={!canEditTaskFields}>
                             <SelectTrigger className="w-full">
                               <SelectValue>
                                 <span className="flex items-center gap-2">
@@ -387,7 +426,7 @@ export function TaskDetailPanel({
                           <Select
                             value={field.value ?? "none"}
                             onValueChange={(val) => field.onChange(val === "none" ? null : val)}
-                            disabled={loadingAssignees}
+                            disabled={loadingAssignees || !canEditTaskFields}
                           >
                             <SelectTrigger className="w-full">
                               <SelectValue placeholder="Unassigned">
@@ -452,7 +491,7 @@ export function TaskDetailPanel({
                           <Select
                             value={field.value ?? ""}
                             onValueChange={field.onChange}
-                            disabled={loadingPhases}
+                            disabled={loadingPhases || !canEditTaskFields}
                           >
                             <SelectTrigger className="w-full">
                               <SelectValue placeholder="Select phase">
@@ -483,7 +522,8 @@ export function TaskDetailPanel({
                           <Popover>
                             <PopoverTrigger
                               type="button"
-                              className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm"
+                              disabled={!canEditTaskFields}
+                              className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm disabled:cursor-default disabled:opacity-80"
                             >
                               <span className={cn("truncate", !field.value && "text-muted-foreground")}>
                                 {formatDateLabel(field.value)}
@@ -512,7 +552,8 @@ export function TaskDetailPanel({
                           <Popover>
                             <PopoverTrigger
                               type="button"
-                              className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm"
+                              disabled={!canEditTaskFields}
+                              className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm disabled:cursor-default disabled:opacity-80"
                             >
                               <span className={cn("truncate", !field.value && "text-muted-foreground")}>
                                 {formatDateLabel(field.value)}
@@ -553,6 +594,7 @@ export function TaskDetailPanel({
                       min={1}
                       step={1}
                       placeholder="Optional"
+                      disabled={!canEditTaskFields}
                       {...register("effortHours")}
                     />
                   </div>
@@ -563,7 +605,9 @@ export function TaskDetailPanel({
                         Linked activity
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        Progress submissions save immediately. Dependencies are saved with Save changes.
+                        {isEngineerView
+                          ? "Progress submissions save immediately."
+                          : "Progress submissions save immediately. Dependencies are saved with Save changes."}
                       </p>
                     </div>
 
@@ -598,13 +642,13 @@ export function TaskDetailPanel({
                   showAttachments
                   defaultTab={initialTab ?? (hasParent ? "comments" : "subtasks")}
                   className="h-full"
-                  subTaskMode={hasParent ? "immediate" : "draft"}
+                  subTaskMode={isEngineerView || hasParent ? "immediate" : "draft"}
                   draftSubTasks={draftSubTasks}
                   onDraftSubTasksChange={setDraftSubTasks}
-                  commentMode={initialTab === "comments" ? "immediate" : "draft"}
+                  commentMode={isEngineerView || initialTab === "comments" ? "immediate" : "draft"}
                   draftComments={draftComments}
                   onDraftCommentsChange={setDraftComments}
-                  attachmentMode="draft"
+                  attachmentMode={isEngineerView ? "immediate" : "draft"}
                   draftFiles={draftFiles}
                   onDraftFilesChange={setDraftFiles}
                   pendingAttachmentDeletes={pendingAttachmentDeletes}
@@ -617,13 +661,19 @@ export function TaskDetailPanel({
 
           <SheetFooter className={cn("shrink-0 flex-row justify-between gap-2 border-t border-border", TASK_SHEET_FOOTER_PADDING)}>
             <div className="max-w-md self-center">
-              {hasPendingChanges ? (
-                <Badge variant="secondary" className="text-[10px]">
-                  Unsaved changes
-                </Badge>
+              {canManageTasks ? (
+                hasPendingChanges ? (
+                  <Badge variant="secondary" className="text-[10px]">
+                    Unsaved changes
+                  </Badge>
+                ) : (
+                  <span className="text-xs leading-relaxed text-muted-foreground">
+                    Comments, sub-tasks, files, and links save together on Save changes.
+                  </span>
+                )
               ) : (
                 <span className="text-xs leading-relaxed text-muted-foreground">
-                  Comments, sub-tasks, files, and links save together on Save changes.
+                  Comments and attachments save immediately. Use status and progress above to update your work.
                 </span>
               )}
             </div>
@@ -631,19 +681,21 @@ export function TaskDetailPanel({
               <Button type="button" variant="outline" onClick={onClose} disabled={isBusy}>
                 Close
               </Button>
-              <Button type="submit" disabled={!hasPendingChanges || isBusy || isLoading}>
-                {isBusy ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="mr-2 size-4" />
-                    Save changes
-                  </>
-                )}
-              </Button>
+              {canManageTasks && (
+                <Button type="submit" disabled={!hasPendingChanges || isBusy || isLoading}>
+                  {isBusy ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="mr-2 size-4" />
+                      Save changes
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </SheetFooter>
         </form>

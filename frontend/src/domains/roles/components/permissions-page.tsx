@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
+import { Search } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
+import { Input } from "@/shared/ui/input";
 import { useServerTableState } from "@/shared/hooks/use-server-table-state";
 import { useGetAllPermissionsQuery } from "../api/roles.api";
 import type { AllPermissionsQuery } from "../types/roles.types";
@@ -46,14 +48,25 @@ export function PermissionsPage() {
         description="Full RBAC permission matrix across all roles with server-side search, sorting, and pagination."
       />
 
+      <div className="relative max-w-xl">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={permissionsTable.search}
+          onChange={(event) => permissionsTable.setSearch(event.target.value)}
+          placeholder="Search permissions, modules, actions, or roles…"
+          maxLength={200}
+          className="h-10 border-border/60 bg-white ps-9 shadow-none dark:bg-card"
+        />
+      </div>
+
       <DataTable
         className="min-w-0"
         minTableWidth="min-w-0"
+        hideSearch
         columns={allPermissionColumns}
         data={data?.data ?? []}
         getRowId={(row) => row.id}
         manual
-        searchPlaceholder="Search module, action, scope, or role…"
         pageCount={data?.meta.totalPages ?? 0}
         totalRows={data?.meta.total ?? 0}
         pageIndex={permissionsTable.pageIndex}

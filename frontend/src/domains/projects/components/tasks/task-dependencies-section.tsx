@@ -12,7 +12,7 @@ import {
   type TaskDependency,
   type TaskDependencyType,
 } from "@/domains/projects";
-import { useAppAbility } from "@/domains/auth";
+import { useModulePermissions } from "@/domains/auth";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -62,8 +62,8 @@ export function TaskDependenciesSection({
   pendingRemoves = [],
   onPendingRemovesChange,
 }: TaskDependenciesSectionProps) {
-  const ability = useAppAbility();
-  const canEdit = ability?.can("update", "Project") ?? false;
+  const { canEditDependencies } = useModulePermissions();
+  const canEdit = canEditDependencies;
 
   const [predecessorPick, setPredecessorPick] = useState("");
   const [successorPick, setSuccessorPick] = useState("");

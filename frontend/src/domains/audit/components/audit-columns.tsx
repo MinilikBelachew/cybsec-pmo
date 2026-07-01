@@ -4,6 +4,27 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
 import { Badge } from "@/shared/ui/badge";
 import { type AuditLogEntry } from "../api/audit.api";
+import { parseAuditClientDisplay } from "../utils/format-audit-client";
+
+function AuditClientCell({ ipAddress }: { ipAddress: string | null }) {
+  const { ipLabel, ip, client } = parseAuditClientDisplay(ipAddress);
+
+  if (ipLabel === "—") {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
+  return (
+    <div className="min-w-[140px]">
+      <p className="font-mono text-xs text-foreground whitespace-nowrap" title={ip}>
+        {ipLabel}
+        {ipLabel === "Localhost" && ip !== ipLabel ? (
+          <span className="ml-1 text-muted-foreground">({ip})</span>
+        ) : null}
+      </p>
+      <p className="mt-0.5 text-[10px] text-muted-foreground whitespace-nowrap">{client}</p>
+    </div>
+  );
+}
 
 export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
   {
@@ -26,7 +47,7 @@ export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Actor" />,
     cell: ({ row }) => (
       <div className="flex min-w-[160px] items-center gap-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
           {(row.original.user?.displayName ?? "S").charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0">
@@ -78,11 +99,7 @@ export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
     accessorKey: "ipAddress",
     id: "ipAddress",
     enableSorting: false,
-    header: ({ column }) => <DataTableColumnHeader column={column} title="IP" />,
-    cell: ({ row }) => (
-      <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-        {row.original.ipAddress ?? "—"}
-      </span>
-    ),
+    header: ({ column }) => <DataTableColumnHeader column={column} title="IP / Client" />,
+    cell: ({ row }) => <AuditClientCell ipAddress={row.original.ipAddress} />,
   },
 ];

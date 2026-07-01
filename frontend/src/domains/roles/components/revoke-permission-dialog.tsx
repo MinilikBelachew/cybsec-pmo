@@ -1,6 +1,8 @@
 "use client";
 
-import * as React from "react";
+import {
+  formatPermissionLabel,
+} from "../utils/format-permission";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { cn } from "@/shared/utils/cn";
 import { Button } from "@/shared/ui/button";
@@ -27,7 +29,9 @@ export function RevokePermissionDialog({
   onClose,
   onConfirm,
 }: RevokePermissionDialogProps) {
-  const permissionLabel = target ? `${target.module}.${target.action}` : "";
+  const permissionLabel = target
+    ? formatPermissionLabel(target.module, target.action)
+    : "";
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
@@ -48,7 +52,7 @@ export function RevokePermissionDialog({
           <DialogPrimitive.Description className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {target ? (
               <>
-                Remove <code className="font-semibold">{permissionLabel}</code> from{" "}
+                Remove <span className="font-semibold text-foreground">{permissionLabel}</span> from{" "}
                 <span className="font-medium text-foreground">{target.roleLabel}</span>? Users with
                 this role will lose access immediately. This action is audited.
               </>

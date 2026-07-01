@@ -1,9 +1,6 @@
 import {
   Controller,
-  Get,
-  Param,
   Post,
-  Response,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -52,11 +49,5 @@ export class FilesLocalController {
     @UploadedFile() file: Express.Multer.File,
   ): Promise<FileResponseDto> {
     return this.filesService.create(file);
-  }
-
-  @Get(':path')
-  @ApiExcludeEndpoint()
-  download(@Param('path') path, @Response() response) {
-    return response.sendFile(path, { root: './files' });
   }
 }

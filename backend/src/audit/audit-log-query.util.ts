@@ -17,6 +17,14 @@ export function buildAuditLogWhere(
 ): Prisma.AuditLogWhereInput {
   const filters: Prisma.AuditLogWhereInput[] = [];
 
+  if (query.eventId?.trim()) {
+    filters.push({ id: query.eventId.trim() });
+  }
+
+  if (query.eventIds?.length) {
+    filters.push({ id: { in: query.eventIds } });
+  }
+
   if (query.objectType?.trim()) {
     filters.push({
       objectType: { equals: query.objectType.trim(), mode: 'insensitive' },
