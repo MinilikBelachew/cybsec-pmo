@@ -50,6 +50,20 @@ export function PhaseForm({
           if (!data.startDate || !data.endDate) return true;
           const start = new Date(data.startDate);
           const end = new Date(data.endDate);
+          start.setHours(0, 0, 0, 0);
+          end.setHours(0, 0, 0, 0);
+          return end >= start;
+        },
+        {
+          message: "End date must be on or after start date",
+          path: ["endDate"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (!data.startDate || !data.endDate) return true;
+          const start = new Date(data.startDate);
+          const end = new Date(data.endDate);
 
           // Check if it overlaps with any other phase's date range
           const overlappingPhase = existingPhases.find((p) => {
@@ -108,11 +122,28 @@ export function PhaseForm({
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors },
   } = useForm<PhaseFormValues>({
     resolver: zodResolver(schema) as Resolver<PhaseFormValues>,
     defaultValues: initialValues,
   });
+
+  const watchedStartDate = watch("startDate");
+
+  // Build date ranges for existing phases to highlight in the calendar
+  const existingPhaseRanges = useMemo(() =>
+    existingPhases
+      .filter((p) => {
+        if (phaseId && p.id === phaseId) return false;
+        return !!(p.startDate && p.endDate);
+      })
+      .map((p) => ({
+        from: new Date(p.startDate!),
+        to: new Date(p.endDate!),
+      })),
+    [existingPhases, phaseId]
+  );
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col justify-between overflow-hidden">
@@ -171,22 +202,38 @@ export function PhaseForm({
                           mode="single"
                           selected={field.value ? new Date(field.value) : undefined}
                           onSelect={(date) => field.onChange(date ? toDateString(date) : "")}
+                          modifiers={{ existingPhase: existingPhaseRanges }}
+                          modifiersStyles={{
+                            existingPhase: {
+                              backgroundColor: "hsl(38 92% 50% / 0.15)",
+                              color: "hsl(38 92% 35%)",
+                              fontWeight: "600",
+                              borderRadius: "0",
+                            },
+                          }}
                           disabled={(date) => {
+                            const d = new Date(date);
+                            d.setHours(0, 0, 0, 0);
                             if (projectStartDate) {
                               const start = new Date(projectStartDate);
                               start.setHours(0, 0, 0, 0);
-                              const d = new Date(date);
-                              d.setHours(0, 0, 0, 0);
                               if (d < start) return true;
                             }
                             if (projectEndDate) {
                               const end = new Date(projectEndDate);
                               end.setHours(0, 0, 0, 0);
-                              const d = new Date(date);
-                              d.setHours(0, 0, 0, 0);
                               if (d > end) return true;
                             }
-                            return false;
+                            // Disable dates within existing phase ranges
+                            return existingPhases.some((p) => {
+                              if (phaseId && p.id === phaseId) return false;
+                              if (!p.startDate || !p.endDate) return false;
+                              const pStart = new Date(p.startDate);
+                              const pEnd = new Date(p.endDate);
+                              pStart.setHours(0, 0, 0, 0);
+                              pEnd.setHours(0, 0, 0, 0);
+                              return d >= pStart && d <= pEnd;
+                            });
                           }}
                         />
                       </PopoverContent>
@@ -216,22 +263,42 @@ export function PhaseForm({
                           mode="single"
                           selected={field.value ? new Date(field.value) : undefined}
                           onSelect={(date) => field.onChange(date ? toDateString(date) : "")}
+                          modifiers={{ existingPhase: existingPhaseRanges }}
+                          modifiersStyles={{
+                            existingPhase: {
+                              backgroundColor: "hsl(38 92% 50% / 0.15)",
+                              color: "hsl(38 92% 35%)",
+                              fontWeight: "600",
+                              borderRadius: "0",
+                            },
+                          }}
                           disabled={(date) => {
-                            if (projectStartDate) {
+                            const d = new Date(date);
+                            d.setHours(0, 0, 0, 0);
+                            if (watchedStartDate) {
+                              const start = new Date(watchedStartDate);
+                              start.setHours(0, 0, 0, 0);
+                              if (d < start) return true;
+                            } else if (projectStartDate) {
                               const start = new Date(projectStartDate);
                               start.setHours(0, 0, 0, 0);
-                              const d = new Date(date);
-                              d.setHours(0, 0, 0, 0);
                               if (d < start) return true;
                             }
                             if (projectEndDate) {
                               const end = new Date(projectEndDate);
                               end.setHours(0, 0, 0, 0);
-                              const d = new Date(date);
-                              d.setHours(0, 0, 0, 0);
                               if (d > end) return true;
                             }
-                            return false;
+                            // Disable dates within existing phase ranges
+                            return existingPhases.some((p) => {
+                              if (phaseId && p.id === phaseId) return false;
+                              if (!p.startDate || !p.endDate) return false;
+                              const pStart = new Date(p.startDate);
+                              const pEnd = new Date(p.endDate);
+                              pStart.setHours(0, 0, 0, 0);
+                              pEnd.setHours(0, 0, 0, 0);
+                              return d >= pStart && d <= pEnd;
+                            });
                           }}
                         />
                       </PopoverContent>

@@ -5,12 +5,15 @@ import { X, Download, Loader2, FileText } from "lucide-react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/utils/cn";
+import { useLazyGetFileAccessUrlQuery } from "@/domains/projects/api/files.api";
+import { toast } from "react-hot-toast";
 
 interface FilePreviewModalProps {
   open: boolean;
   onClose: () => void;
   filename: string;
-  url?: string;
+  url?: string | null;
+  storageKey?: string | null;
   file?: File;
 }
 
@@ -19,11 +22,15 @@ export function FilePreviewModal({
   onClose,
   filename,
   url,
+  storageKey,
   file,
 }: FilePreviewModalProps) {
   const [textContent, setTextContent] = useState<string>("");
   const [isLoadingText, setIsLoadingText] = useState(false);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
+  
+  const [fetchAccessUrl, { isFetching: isFetchingSecureUrl }] = useLazyGetFileAccessUrlQuery();
 
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const isImage = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext);
@@ -46,6 +53,30 @@ export function FilePreviewModal({
     }
   }, [open, file]);
 
+  // Load secure access URL if needed
+  useEffect(() => {
+    if (!open) {
+      setFetchedUrl(null);
+      return;
+    }
+
+    if (file || url) return;
+
+    if (storageKey) {
+      const loadSecureUrl = async () => {
+        try {
+          const result = await fetchAccessUrl({ storageKey, filename }).unwrap();
+          setFetchedUrl(result.url);
+        } catch {
+          toast.error("Could not load secure preview URL");
+        }
+      };
+      void loadSecureUrl();
+    }
+  }, [open, storageKey, file, url, filename, fetchAccessUrl]);
+
+  const activeUrl = objectUrl || url || fetchedUrl;
+
   // Read / load text contents
   useEffect(() => {
     if (!open) {
@@ -54,6 +85,7 @@ export function FilePreviewModal({
     }
 
     if (!isText) return;
+    if (!activeUrl) return;
 
     const readText = async () => {
       setIsLoadingText(true);
@@ -61,8 +93,8 @@ export function FilePreviewModal({
         if (file) {
           const text = await file.text();
           setTextContent(text);
-        } else if (url) {
-          const res = await fetch(url);
+        } else {
+          const res = await fetch(activeUrl);
           const text = await res.text();
           setTextContent(text);
         }
@@ -74,7 +106,7 @@ export function FilePreviewModal({
     };
 
     void readText();
-  }, [open, url, file, isText]);
+  }, [open, activeUrl, file, isText]);
 
   // Clean up object URL on unmount
   useEffect(() => {
@@ -84,8 +116,6 @@ export function FilePreviewModal({
       }
     };
   }, [objectUrl]);
-
-  const activeUrl = objectUrl || url;
 
   const handleDownload = () => {
     if (!activeUrl) return;
@@ -142,7 +172,12 @@ export function FilePreviewModal({
 
           {/* Content Area */}
           <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center min-h-[300px] bg-muted/5 dark:bg-card/5">
-            {isImage && activeUrl ? (
+            {isFetchingSecureUrl ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                <Loader2 className="size-6 animate-spin text-primary" />
+                <span className="text-xs">Generating secure preview...</span>
+              </div>
+            ) : isImage && activeUrl ? (
               <div className="relative max-w-full max-h-[72vh] flex items-center justify-center bg-card rounded-lg border p-2 shadow-inner">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
