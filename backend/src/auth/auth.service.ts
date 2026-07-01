@@ -30,6 +30,7 @@ import { PermissionsCacheService } from '../casl/permissions-cache.service';
 import { PermissionRow } from '../casl/casl.types';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { resolveUserIsExternal } from './utils/user-external.util';
+import { formatIpWithUserAgent } from './utils/request-context.util';
 
 type CreateSessionOptions = {
   isBreakGlass?: boolean;
@@ -384,7 +385,7 @@ export class AuthService {
           roleCode: user.role?.code ?? user.roleCode,
           userAgent: context.userAgent ?? undefined,
         },
-        ipAddress: context.ipAddress ?? null,
+        ipAddress: formatIpWithUserAgent(context.ipAddress, context.userAgent),
         isExternal,
         source: 'WebAPI',
         user: { connect: { id: user.id } },

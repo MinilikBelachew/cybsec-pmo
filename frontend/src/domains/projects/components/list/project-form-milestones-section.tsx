@@ -6,6 +6,7 @@ import { toast } from "react-hot-toast";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { ProjectDatePicker, startOfToday } from "../shared/project-date-picker";
 import type { ProjectMilestone } from "../../types/projects.types";
 
 export type DraftProjectMilestone = {
@@ -250,18 +251,21 @@ export const ProjectFormMilestonesSection = forwardRef<
                 setLocalError(null);
               }}
               placeholder="e.g. Phase 1 sign-off"
-              className="min-w-0"
+              className="min-w-0 h-8"
             />
           </div>
-          <div className="w-full shrink-0 space-y-1 lg:w-[160px]">
+          <div className="w-full shrink-0 space-y-1 lg:w-[180px]">
             <Label className="text-[11px] text-muted-foreground">Target date</Label>
-            <Input
-              type="date"
-              value={targetDate}
-              onChange={(event) => {
-                setTargetDate(event.target.value);
+            <ProjectDatePicker
+              value={targetDate || undefined}
+              onChange={(date) => {
+                setTargetDate(date ? date.toISOString().slice(0, 10) : "");
                 setLocalError(null);
               }}
+              minDate={projectStartDate ?? startOfToday()}
+              maxDate={projectEndDate}
+              placeholder="Pick a date"
+              className="h-8"
             />
           </div>
           <div className="w-full shrink-0 space-y-1 lg:w-[100px]">
@@ -274,6 +278,7 @@ export const ProjectFormMilestonesSection = forwardRef<
                 setLocalError(null);
               }}
               placeholder="Optional"
+              className="h-8"
             />
           </div>
           <div className="flex shrink-0 items-end gap-2">

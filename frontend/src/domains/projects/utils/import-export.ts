@@ -588,6 +588,163 @@ export interface ParsedTaskRow {
   isMilestone?: boolean;
 }
 
+export type TaskCsvImportKind = "tasks" | "projects" | "unknown";
+
+export function detectTaskCsvImportKind(csvData: string[][]): TaskCsvImportKind {
+  if (csvData.length === 0) return "unknown";
+
+  const headers = csvData[0].map((h) => h.toLowerCase().trim());
+  const has = (aliases: string[]) =>
+    aliases.some((alias) => headers.some((header) => header === alias || header.includes(alias)));
+
+  const looksLikeProjects =
+    has(["department", "dept"]) &&
+    has(["customer", "client"]) &&
+    (has(["objective"]) || has(["engagement type", "engagement"]));
+
+  const looksLikeTasks =
+    has(["title", "task title", "task name"]) ||
+    (has(["effort hours", "effort", "hours"]) &&
+      (has(["assignee", "owner"]) || has(["phase", "project phase", "stage"])));
+
+  if (looksLikeProjects && !looksLikeTasks) return "projects";
+  if (looksLikeTasks) return "tasks";
+  return "unknown";
+}
+
+function normalizeTaskPriority(priority: string) {
+  const lowerPriority = priority.toLowerCase().trim();
+  if (["critical"].includes(lowerPriority)) return "Critical";
+  if (["high"].includes(lowerPriority)) return "High";
+  if (["medium"].includes(lowerPriority)) return "Medium";
+  if (["low"].includes(lowerPriority)) return "Low";
+  return priority;
+}
+
+function normalizeTaskStatus(status: string) {
+  const lowerStatus = status.toLowerCase().trim().replace(/[\s-]/g, "_");
+  if (["to_do", "todo", "to do"].includes(lowerStatus)) return "To_Do";
+  if (["in_progress", "inprogress", "in progress"].includes(lowerStatus)) return "In_Progress";
+  if (["submitted_for_review", "submittedforreview", "submitted for review"].includes(lowerStatus)) {
+    return "Submitted_for_Review";
+  }
+  if (["approved"].includes(lowerStatus)) return "Approved";
+  if (["rework"].includes(lowerStatus)) return "Rework";
+  if (["done", "completed", "closed"].includes(lowerStatus)) return "Done";
+  return status;
+}
+
+export function revalidateParsedTaskRow(
+  row: ParsedTaskRow,
+  phases: ProjectPhase[],
+  assignees: ProjectTaskAssignee[],
+  duplicateTitles?: Set<string>,
+): ParsedTaskRow {
+  const updated = {
+    ...row,
+    priority: normalizeTaskPriority(row.priority),
+    status: normalizeTaskStatus(row.status),
+  };
+
+  const errors: string[] = [];
+  const warnings: string[] = [...(updated.warnings ?? [])];
+
+  if (!updated.title) errors.push("Task title is required.");
+
+  if (updated.title && duplicateTitles?.has(updated.title.toLowerCase())) {
+    errors.push(`Duplicate task title "${updated.title}" found in this file.`);
+  }
+
+  let isStartValid = false;
+  if (updated.startDate) {
+    const parsedStart = Date.parse(updated.startDate);
+    if (!isNaN(parsedStart)) {
+      isStartValid = true;
+    } else {
+      errors.push("Start date must be a valid date (YYYY-MM-DD).");
+    }
+  }
+
+  let isEndValid = false;
+  if (updated.endDate) {
+    const parsedEnd = Date.parse(updated.endDate);
+    if (!isNaN(parsedEnd)) {
+      isEndValid = true;
+    } else {
+      errors.push("End date must be a valid date (YYYY-MM-DD).");
+    }
+  }
+
+  if (isStartValid && isEndValid && updated.startDate && updated.endDate) {
+    if (new Date(updated.startDate).getTime() > new Date(updated.endDate).getTime()) {
+      errors.push("End date must be on or after start date.");
+    }
+  }
+
+  if (updated.effortHours != null && isNaN(Number(updated.effortHours))) {
+    errors.push("Invalid effort hours.");
+  }
+
+  let resolvedAssigneeId = updated.resolvedAssigneeId ?? null;
+  if (resolvedAssigneeId) {
+    const assigneeExists = assignees.some((assignee) => assignee.userId === resolvedAssigneeId);
+    if (!assigneeExists) resolvedAssigneeId = null;
+  } else if (updated.assigneeName) {
+    const assignee = findProjectTaskAssignee(updated.assigneeName, assignees);
+    if (assignee) {
+      resolvedAssigneeId = assignee.userId;
+    } else {
+      errors.push(
+        `Assignee "${updated.assigneeName}" is not on the project team. Add them to the team first.`,
+      );
+    }
+  }
+
+  let resolvedPhaseId = updated.resolvedPhaseId ?? null;
+  let phaseName = updated.phaseName;
+  if (resolvedPhaseId) {
+    const phase = phases.find((item) => item.id === resolvedPhaseId);
+    if (phase) {
+      phaseName = phase.name;
+    } else {
+      resolvedPhaseId = null;
+    }
+  }
+
+  if (!resolvedPhaseId && phaseName) {
+    const phase = phases.find((item) => item.name.toLowerCase() === phaseName.toLowerCase());
+    if (phase) {
+      resolvedPhaseId = phase.id;
+      phaseName = phase.name;
+    } else if (phases.length === 0) {
+      warnings.push("No project phases exist yet. Create phases first, then re-select.");
+    } else {
+      errors.push(`Phase "${phaseName}" not found. Please select one.`);
+    }
+  }
+
+  if (!["Low", "Medium", "High", "Critical"].includes(updated.priority)) {
+    errors.push(`Priority "${row.priority}" is invalid. Please select one.`);
+  }
+
+  if (
+    !["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"].includes(
+      updated.status,
+    )
+  ) {
+    errors.push(`Status "${row.status}" is invalid. Please select one.`);
+  }
+
+  return {
+    ...updated,
+    phaseName,
+    resolvedAssigneeId,
+    resolvedPhaseId,
+    errors,
+    warnings,
+  };
+}
+
 export function processRawTaskCSVRows(
   csvData: string[][],
   phases: ProjectPhase[],
@@ -602,8 +759,8 @@ export function processRawTaskCSVRows(
     return headers.findIndex((h) => aliases.includes(h.trim()));
   };
 
-  const titleIdx = getIndex(["title", "task title", "name", "task name"]);
-  const descIdx = getIndex(["description", "desc", "details"]);
+  const titleIdx = getIndex(["title", "task title", "task name"]);
+  const descIdx = getIndex(["description", "desc", "details", "objective"]);
   const prioIdx = getIndex(["priority", "priority level"]);
   const statusIdx = getIndex(["status", "task status"]);
   const assigneeIdx = getIndex(["assignee", "owner", "pm"]);
@@ -612,12 +769,16 @@ export function processRawTaskCSVRows(
   const endIdx = getIndex(["end date", "end"]);
   const effortIdx = getIndex(["effort hours", "effort", "hours"]);
 
-  // Pre-scan titles to detect duplicates within the CSV
   const titleFrequency: Record<string, number> = {};
   for (const row of rows) {
     const t = (titleIdx !== -1 && row[titleIdx] ? row[titleIdx].trim() : "").toLowerCase();
     if (t) titleFrequency[t] = (titleFrequency[t] ?? 0) + 1;
   }
+  const duplicateTitles = new Set(
+    Object.entries(titleFrequency)
+      .filter(([, count]) => count > 1)
+      .map(([title]) => title),
+  );
 
   return rows.map((row) => {
     const getVal = (idx: number, fallback = "") => (idx !== -1 && row[idx] ? row[idx].trim() : fallback);
@@ -632,134 +793,30 @@ export function processRawTaskCSVRows(
     const endDate = getVal(endIdx);
     const rawEffort = getVal(effortIdx, "0");
 
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    if (!title) errors.push("Task title is required.");
-
-    // Duplicate detection within the CSV
-    if (title && (titleFrequency[title.toLowerCase()] ?? 0) > 1) {
-      errors.push(`Duplicate task title "${title}" found in this file.`);
-    }
-
-    // Validate Start Date
-    let isStartValid = false;
-    if (startDate) {
-      const parsedStart = Date.parse(startDate);
-      if (!isNaN(parsedStart)) {
-        isStartValid = true;
-      } else {
-        errors.push("Start date must be a valid date (YYYY-MM-DD).");
-      }
-    }
-
-    // Validate End Date
-    let isEndValid = false;
-    if (endDate) {
-      const parsedEnd = Date.parse(endDate);
-      if (!isNaN(parsedEnd)) {
-        isEndValid = true;
-      } else {
-        errors.push("End date must be a valid date (YYYY-MM-DD).");
-      }
-    }
-
-    // Validate Range
-    if (isStartValid && isEndValid && startDate && endDate) {
-      if (new Date(startDate).getTime() > new Date(endDate).getTime()) {
-        errors.push("End date must be on or after start date.");
-      }
-    }
-
-    // Validate Effort Hours
     let effortHours = 0;
     if (rawEffort) {
       const parsedEffort = parseFloat(rawEffort.replace(/[^0-9.-]/g, ""));
-      if (isNaN(parsedEffort)) {
-        errors.push("Invalid effort hours.");
-      } else {
-        effortHours = parsedEffort;
-      }
+      effortHours = isNaN(parsedEffort) ? NaN : parsedEffort;
     }
 
-    // Resolve Assignee
-    let resolvedAssigneeId: string | null = null;
-    if (assigneeName) {
-      const assignee = findProjectTaskAssignee(assigneeName, assignees);
-      if (assignee) {
-        resolvedAssigneeId = assignee.userId;
-      } else {
-        errors.push(
-          `Assignee "${assigneeName}" is not on the project team. Add them to the team first.`,
-        );
-      }
-    }
-
-    // Resolve Phase
-    let resolvedPhaseId: string | null = null;
-    if (phaseName) {
-      const phase = phases.find(
-        (p) => p.name.toLowerCase() === phaseName.toLowerCase()
-      );
-      if (phase) {
-        resolvedPhaseId = phase.id;
-      } else {
-        errors.push(`Phase "${phaseName}" not found. Please select one.`);
-      }
-    }
-
-    // Normalize select dropdown fields to standard backend API enum values
-    let normalizedPriority = priority;
-    const lowerPriority = priority.toLowerCase().trim();
-    if (["critical"].includes(lowerPriority)) {
-      normalizedPriority = "Critical";
-    } else if (["high"].includes(lowerPriority)) {
-      normalizedPriority = "High";
-    } else if (["medium"].includes(lowerPriority)) {
-      normalizedPriority = "Medium";
-    } else if (["low"].includes(lowerPriority)) {
-      normalizedPriority = "Low";
-    }
-
-    let normalizedStatus = status;
-    const lowerStatus = status.toLowerCase().trim().replace(/[\s-]/g, "_");
-    if (["to_do", "todo", "to do"].includes(lowerStatus)) {
-      normalizedStatus = "To_Do";
-    } else if (["in_progress", "inprogress", "in progress"].includes(lowerStatus)) {
-      normalizedStatus = "In_Progress";
-    } else if (["submitted_for_review", "submittedforreview", "submitted for review"].includes(lowerStatus)) {
-      normalizedStatus = "Submitted_for_Review";
-    } else if (["approved"].includes(lowerStatus)) {
-      normalizedStatus = "Approved";
-    } else if (["rework"].includes(lowerStatus)) {
-      normalizedStatus = "Rework";
-    } else if (["done"].includes(lowerStatus)) {
-      normalizedStatus = "Done";
-    }
-
-    // Add validation errors for invalid enum values
-    if (!["Low", "Medium", "High", "Critical"].includes(normalizedPriority)) {
-      errors.push(`Priority "${priority}" is invalid. Please select one.`);
-    }
-    if (!["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"].includes(normalizedStatus)) {
-      errors.push(`Status "${status}" is invalid. Please select one.`);
-    }
-
-    return {
-      title,
-      description,
-      priority: normalizedPriority,
-      status: normalizedStatus,
-      assigneeName,
-      phaseName,
-      startDate,
-      endDate,
-      effortHours,
-      resolvedAssigneeId,
-      resolvedPhaseId,
-      errors,
-      warnings,
-    };
+    return revalidateParsedTaskRow(
+      {
+        title,
+        description,
+        priority,
+        status,
+        assigneeName,
+        phaseName,
+        startDate,
+        endDate,
+        effortHours,
+        errors: [],
+        warnings: [],
+      },
+      phases,
+      assignees,
+      duplicateTitles,
+    );
   });
 }
 

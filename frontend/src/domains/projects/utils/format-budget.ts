@@ -28,3 +28,35 @@ export function formatProjectBudget(
     return `${currency} ${formatIntegerWithCommas(amount)}`;
   }
 }
+
+function getCurrencySymbol(currency: string): string {
+  try {
+    const parts = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).formatToParts(0);
+    return parts.find((part) => part.type === "currency")?.value ?? currency;
+  } catch {
+    return currency;
+  }
+}
+
+/** Compact budget label: $100 for small amounts, $10k only when value is 1,000+. */
+export function formatProjectBudgetCompact(
+  value: number | null | undefined,
+  currency = "USD",
+): string {
+  const amount = value ?? 0;
+  const abs = Math.abs(amount);
+
+  if (abs >= 1000) {
+    const inThousands = amount / 1000;
+    const compact = Number.isInteger(inThousands)
+      ? String(inThousands)
+      : inThousands.toFixed(1).replace(/\.0$/, "");
+    return `${getCurrencySymbol(currency)}${compact}k`;
+  }
+
+  return formatProjectBudget(amount, currency);
+}

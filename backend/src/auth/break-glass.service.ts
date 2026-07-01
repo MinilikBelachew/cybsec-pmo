@@ -13,6 +13,7 @@ import { AuthLoginContext } from './types/auth-login-context.type';
 import { RoleEnum } from '../roles/roles.enum';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { resolveUserIsExternal } from './utils/user-external.util';
+import { formatIpWithUserAgent } from './utils/request-context.util';
 import { SecurityAlertService } from './security-alert.service';
 import { AuthFailureService } from './auth-failure.service';
 import { AuthSessionResult } from './types/auth-session-result.type';
@@ -136,7 +137,7 @@ export class BreakGlassService {
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
       },
-      ipAddress: context.ipAddress,
+      ipAddress: formatIpWithUserAgent(context.ipAddress, context.userAgent),
       isExternal: resolveUserIsExternal(user ?? {}),
       source: 'WebAPI',
       user: { connect: { id: userId } },
@@ -183,7 +184,7 @@ export class BreakGlassService {
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
       },
-      ipAddress: context.ipAddress,
+      ipAddress: formatIpWithUserAgent(context.ipAddress, context.userAgent),
       isExternal: resolveUserIsExternal(user),
       source: 'WebAPI',
       user: { connect: { id: user.id } },

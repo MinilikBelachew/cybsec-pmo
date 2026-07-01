@@ -13,7 +13,6 @@ import { Department, Customer, ProjectManager } from "../../types/projects.types
 import { parseCSV, processRawCSVRows, ParsedProjectRow } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
-
 import {
   Upload,
   FileSpreadsheet,
@@ -27,6 +26,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import { ImportPreviewScrollArea } from "../shared/import-preview-scroll-area";
 
 const STATUS_CONFIG: Record<string, {
   label: string; dot: string; text: string; bg: string; border: string

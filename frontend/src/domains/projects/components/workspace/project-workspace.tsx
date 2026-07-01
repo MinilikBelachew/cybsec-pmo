@@ -224,7 +224,6 @@ export function ProjectWorkspace() {
   const router = useRouter();
   const id = params.id as string;
 
-  const { userRole } = useRole();
   const { user } = useAuth();
   const ability = useAppAbility();
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
@@ -913,7 +912,6 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
-            // assignees={assignees}
           />
         )}
 

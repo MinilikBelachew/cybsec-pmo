@@ -90,74 +90,226 @@ export class AuditExportService {
     limits: AuditExportLimits = DEFAULT_EXPORT_LIMITS,
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({
-        margin: 36,
-        size: 'A4',
-        layout: 'landscape',
-      });
+      // ── Constants ──────────────────────────────────────────────────────────
+      const MARGIN = 36;
+      const COLOR_HEADER_BG   = '#1e293b';
+      const COLOR_HEADER_TEXT = '#ffffff';
+      const COLOR_ROW_ALT     = '#f8fafc';
+      const COLOR_ROW_EVEN    = '#ffffff';
+      const COLOR_BORDER      = '#e2e8f0';
+      const COLOR_BORDER_DARK = '#94a3b8';
+      const COLOR_BODY        = '#1e293b';
+      const COLOR_MUTED       = '#64748b';
+      const COLOR_ACTION      = '#3b82f6';
+      const COLOR_DANGER      = '#ef4444';
+
+      const HEADER_H   = 22;
+      const MIN_ROW_H  = 20;  // minimum row height
+      const CELL_PAD_H = 4;   // horizontal cell padding
+      const CELL_PAD_V = 6;   // top padding before text
+      const FONT_SIZE  = 6.5;
+      const LINE_GAP   = 2;   // extra space between text lines
+
+      // A4 landscape: 841.89 × 595.28 pt  →  usable ≈ 770 pt wide
+      const doc = new PDFDocument({ margin: MARGIN, size: 'A4', layout: 'landscape' });
+      const USABLE_W    = doc.page.width - MARGIN * 2;
+      const BOTTOM_LIMIT = doc.page.height - MARGIN - 18;
 
       const chunks: Buffer[] = [];
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('data',  (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end',   () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      doc.fontSize(14).text('Audit Trail Export', { align: 'center' });
+      // ── Column definitions — widths sum to USABLE_W (≈ 770) ───────────────
+      type ColKey = keyof FlatAuditExportRow;
+      const COLS: { key: ColKey; label: string; width: number; expand?: boolean }[] = [
+        { key: 'time',       label: 'Time (UTC)',  width: 116 },
+        { key: 'actor',      label: 'Actor',       width: 88  },
+        { key: 'action',     label: 'Action',      width: 108 },
+        { key: 'objectType', label: 'Object Type', width: 78  },
+        { key: 'objectId',   label: 'Object ID',   width: 88  },
+        { key: 'ipAddress',  label: 'IP Address',  width: 76  },
+        { key: 'isExternal', label: 'Ext',         width: 24  },
+        { key: 'breakGlass', label: 'BG',          width: 24  },
+        // These two expand vertically to show full JSON content
+        { key: 'oldValue',   label: 'Old Value',   width: 84, expand: true },
+        { key: 'newValue',   label: 'New Value',   width: 84, expand: true },
+      ];
+
+      // ── Helper: measure the height the Old/New cells will need ────────────
+      const measureRowHeight = (flat: FlatAuditExportRow): number => {
+        let maxH = MIN_ROW_H;
+        doc.fontSize(FONT_SIZE).font('Helvetica');
+        for (const col of COLS) {
+          if (!col.expand) continue;
+          const val = flat[col.key] ?? '—';
+          if (val === '—') continue;
+          const textW = col.width - CELL_PAD_H * 2;
+          const h = doc.heightOfString(val, { width: textW, lineGap: LINE_GAP }) + CELL_PAD_V * 2;
+          if (h > maxH) maxH = h;
+        }
+        return maxH;
+      };
+
+      // ── Cover title ────────────────────────────────────────────────────────
       doc
-        .fontSize(9)
-        .fillColor('#555555')
-        .text(`Generated ${new Date().toISOString()} · ${rows.length} events`, {
-          align: 'center',
-        });
-      doc.moveDown(1);
-      doc.fillColor('#000000');
+        .fontSize(15).font('Helvetica-Bold').fillColor('#0f172a')
+        .text('Audit Trail Export', MARGIN, MARGIN, { align: 'center', width: USABLE_W });
+      doc
+        .fontSize(8).font('Helvetica').fillColor(COLOR_MUTED)
+        .text(
+          `Generated ${new Date().toUTCString()}   ·   ${rows.length} event${rows.length === 1 ? '' : 's'}`,
+          MARGIN, doc.y + 2, { align: 'center', width: USABLE_W },
+        );
+      doc.moveDown(0.8);
 
       if (rows.length === 0) {
-        doc.fontSize(10).text('No audit events matched the export filters.');
+        doc.fontSize(10).fillColor(COLOR_MUTED)
+           .text('No audit events matched the export filters.', { align: 'center' });
         doc.end();
         return;
       }
 
-      for (const [index, entry] of rows.entries()) {
-        const flat = this.toFlatRow(entry, limits.pdfJsonLimit);
+      // ── Helper: draw table header ──────────────────────────────────────────
+      const drawHeader = (y: number) => {
+        let x = MARGIN;
+        for (const col of COLS) {
+          doc.rect(x, y, col.width, HEADER_H).fillColor(COLOR_HEADER_BG).fill();
+          doc.fontSize(FONT_SIZE).font('Helvetica-Bold').fillColor(COLOR_HEADER_TEXT)
+             .text(col.label, x + CELL_PAD_H, y + 7, {
+               width:     col.width - CELL_PAD_H * 2,
+               height:    HEADER_H - 8,
+               ellipsis:  true,
+               lineBreak: false,
+             });
+          x += col.width;
+        }
+        doc.moveTo(MARGIN, y + HEADER_H)
+           .lineTo(MARGIN + USABLE_W, y + HEADER_H)
+           .strokeColor(COLOR_ACTION).lineWidth(1.5).stroke();
+        doc.lineWidth(0.4);
+      };
 
-        if (doc.y > doc.page.height - doc.page.margins.bottom - 120) {
+      // ── Helper: draw one data row with dynamic height ──────────────────────
+      const drawRow = (flat: FlatAuditExportRow, rowIndex: number, y: number, rowH: number) => {
+        // Background
+        doc.rect(MARGIN, y, USABLE_W, rowH)
+           .fillColor(rowIndex % 2 === 0 ? COLOR_ROW_EVEN : COLOR_ROW_ALT)
+           .fill();
+
+        // Bottom border
+        doc.moveTo(MARGIN, y + rowH)
+           .lineTo(MARGIN + USABLE_W, y + rowH)
+           .strokeColor(COLOR_BORDER).lineWidth(0.4).stroke();
+
+        let x = MARGIN;
+        for (const col of COLS) {
+          // Vertical separator (between columns)
+          if (x > MARGIN) {
+            doc.moveTo(x, y + 2)
+               .lineTo(x, y + rowH - 2)
+               .strokeColor(COLOR_BORDER).lineWidth(0.4).stroke();
+          }
+
+          const val       = flat[col.key] ?? '—';
+          const isFlag    = col.key === 'isExternal' || col.key === 'breakGlass';
+          const isAction  = col.key === 'action';
+          const isExpand  = col.expand === true;
+
+          const textColor = isAction
+            ? COLOR_ACTION
+            : isFlag && val === 'Yes' ? COLOR_DANGER
+            : isFlag                  ? COLOR_MUTED
+            : COLOR_BODY;
+
+          if (isExpand && val !== '—') {
+            // Wrap fully — no truncation
+            doc.fontSize(FONT_SIZE).font('Helvetica').fillColor(COLOR_MUTED)
+               .text(val, x + CELL_PAD_H, y + CELL_PAD_V, {
+                 width:    col.width - CELL_PAD_H * 2,
+                 lineGap:  LINE_GAP,
+                 lineBreak: true,
+               });
+          } else {
+            // All other columns: single line with ellipsis, vertically centred
+            const textTop = y + Math.max(CELL_PAD_V, (rowH - FONT_SIZE) / 2);
+            doc.fontSize(FONT_SIZE)
+               .font(isAction ? 'Helvetica-Bold' : 'Helvetica')
+               .fillColor(textColor)
+               .text(val, x + CELL_PAD_H, textTop, {
+                 width:     col.width - CELL_PAD_H * 2,
+                 height:    FONT_SIZE + 2,
+                 ellipsis:  true,
+                 lineBreak: false,
+               });
+          }
+
+          x += col.width;
+        }
+
+        // Right outer border
+        doc.moveTo(MARGIN + USABLE_W, y)
+           .lineTo(MARGIN + USABLE_W, y + rowH)
+           .strokeColor(COLOR_BORDER).lineWidth(0.4).stroke();
+      };
+
+      // ── Left outer border for a page section ──────────────────────────────
+      const drawLeftBorder = (topY: number, bottomY: number) => {
+        doc.moveTo(MARGIN, topY)
+           .lineTo(MARGIN, bottomY)
+           .strokeColor(COLOR_BORDER_DARK).lineWidth(0.6).stroke();
+      };
+
+      // ── Render table ───────────────────────────────────────────────────────
+      let currentY    = doc.y;
+      let sectionTopY = currentY;
+      drawHeader(currentY);
+      currentY += HEADER_H;
+
+      for (let i = 0; i < rows.length; i++) {
+        // Use full JSON for PDF — no length truncation on Old/New values
+        const flat  = this.toFlatRow(rows[i], Number.MAX_SAFE_INTEGER);
+        const rowH  = measureRowHeight(flat);
+
+        // Page-break check: if row won't fit, flush and start a new page
+        if (currentY + rowH > BOTTOM_LIMIT) {
+          drawLeftBorder(sectionTopY, currentY);
+          doc.moveTo(MARGIN, currentY)
+             .lineTo(MARGIN + USABLE_W, currentY)
+             .strokeColor(COLOR_BORDER_DARK).lineWidth(0.6).stroke();
+
+          doc.fontSize(6.5).fillColor(COLOR_MUTED).font('Helvetica')
+             .text('Cybsec PMO · Confidential', MARGIN, currentY + 5,
+               { align: 'center', width: USABLE_W });
+
           doc.addPage();
+          currentY    = MARGIN;
+          sectionTopY = currentY;
+          drawHeader(currentY);
+          currentY += HEADER_H;
         }
 
-        doc
-          .fontSize(10)
-          .fillColor('#111111')
-          .text(`${index + 1}. ${flat.action}`, { continued: false });
-        doc
-          .fontSize(8)
-          .fillColor('#333333')
-          .text(
-            `${flat.time} · ${flat.actor} · ${flat.email} · ${flat.objectType} · IP ${flat.ipAddress}`,
-          );
-        doc.text(
-          `Object ID: ${flat.objectId || '—'} · Source: ${flat.source} · External: ${flat.isExternal} · Break-glass: ${flat.breakGlass}`,
-        );
-
-        if (flat.oldValue !== '—') {
-          doc.fontSize(7).fillColor('#444444').text(`Old: ${flat.oldValue}`);
-        }
-        if (flat.newValue !== '—') {
-          doc.fontSize(7).fillColor('#444444').text(`New: ${flat.newValue}`);
-        }
-
-        doc.moveDown(0.6);
-        doc
-          .moveTo(doc.page.margins.left, doc.y)
-          .lineTo(doc.page.width - doc.page.margins.right, doc.y)
-          .strokeColor('#dddddd')
-          .stroke();
-        doc.moveDown(0.4);
-        doc.fillColor('#000000');
+        drawRow(flat, i, currentY, rowH);
+        currentY += rowH;
       }
+
+      // Close last table section
+      drawLeftBorder(sectionTopY, currentY);
+      doc.moveTo(MARGIN, currentY)
+         .lineTo(MARGIN + USABLE_W, currentY)
+         .strokeColor(COLOR_BORDER_DARK).lineWidth(0.8).stroke();
+
+      doc.fontSize(6.5).fillColor(COLOR_MUTED).font('Helvetica')
+         .text(
+           `Cybsec PMO  ·  Confidential  ·  ${rows.length} record${rows.length === 1 ? '' : 's'} exported`,
+           MARGIN, currentY + 6,
+           { align: 'center', width: USABLE_W },
+         );
 
       doc.end();
     });
   }
+
 
   private toFlatRow(
     entry: AuditLogWithUser,

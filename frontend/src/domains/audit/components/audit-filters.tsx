@@ -1,13 +1,15 @@
 "use client";
 
 import { useMemo } from "react";
-import { SlidersHorizontal, ChevronDown } from "lucide-react";
+import { SlidersHorizontal, ChevronDown, Calendar as CalendarIcon, X } from "lucide-react";
 import { useGetUsersQuery } from "@/domains/users/api/users.api";
 import { Button } from "@/shared/ui/button";
-import { Input } from "@/shared/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { Calendar } from "@/shared/ui/calendar";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -129,6 +131,101 @@ function FilterDropdown({
   );
 }
 
+function formatDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function toDateString(date: Date | undefined): string {
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateString(dateStr: string): Date | undefined {
+  if (!dateStr) return undefined;
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return undefined;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  const date = new Date(year, month, day);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function AuditDatePicker({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const selectedDate = parseDateString(value);
+
+  return (
+    <Popover>
+      <div className="relative flex items-center">
+        <PopoverTrigger
+          render={
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-9 gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none dark:bg-card pr-8",
+                value && "border-primary/40 bg-primary/5 font-medium",
+              )}
+            />
+          }
+        >
+          <CalendarIcon className="size-3.5 text-muted-foreground" />
+          {value ? (
+            <span className="text-sm">{formatDate(value)}</span>
+          ) : (
+            <span className="text-sm text-muted-foreground">{placeholder}</span>
+          )}
+        </PopoverTrigger>
+        {value && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange("");
+            }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={`Clear ${label}`}
+          >
+            <X className="size-3" />
+          </button>
+        )}
+      </div>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          captionLayout="dropdown"
+          selected={selectedDate}
+          onSelect={(date) => {
+            onChange(date ? toDateString(date) : "");
+          }}
+          startMonth={new Date(2020, 0)}
+          endMonth={new Date(new Date().getFullYear() + 2, 11)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function AuditFilters({
   action,
   objectType,
@@ -191,25 +288,17 @@ export function AuditFilters({
         menuClassName="w-72"
       />
 
-      <Input
-        type="date"
+      <AuditDatePicker
+        label="From Date"
         value={dateFrom}
-        onChange={(event) => onDateFromChange(event.target.value)}
-        className={cn(
-          "h-9 w-[150px] rounded-xl border-border/60 bg-muted/45 shadow-none dark:bg-card",
-          dateFrom && "border-primary/40 bg-primary/5",
-        )}
-        aria-label="From date"
+        onChange={onDateFromChange}
+        placeholder="From date"
       />
-      <Input
-        type="date"
+      <AuditDatePicker
+        label="To Date"
         value={dateTo}
-        onChange={(event) => onDateToChange(event.target.value)}
-        className={cn(
-          "h-9 w-[150px] rounded-xl border-border/60 bg-muted/45 shadow-none dark:bg-card",
-          dateTo && "border-primary/40 bg-primary/5",
-        )}
-        aria-label="To date"
+        onChange={onDateToChange}
+        placeholder="To date"
       />
 
       <DropdownMenu>
@@ -234,35 +323,39 @@ export function AuditFilters({
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
-            Scope
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={breakGlassOnly ? "break-glass" : externalOnly ? "external" : "all"}
-            onValueChange={(v) => {
-              onBreakGlassOnlyChange(v === "break-glass");
-              onExternalOnlyChange(v === "external");
-            }}
-          >
-            <DropdownMenuRadioItem value="all">All activity</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="break-glass">
-              Break-glass only
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="external">
-              External users only
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              Scope
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={breakGlassOnly ? "break-glass" : externalOnly ? "external" : "all"}
+              onValueChange={(v) => {
+                onBreakGlassOnlyChange(v === "break-glass");
+                onExternalOnlyChange(v === "external");
+              }}
+            >
+              <DropdownMenuRadioItem value="all">All activity</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="break-glass">
+                Break-glass only
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="external">
+                External users only
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
-            Quick reset
-          </DropdownMenuLabel>
-          <button
-            type="button"
-            className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-            onClick={onClearAll}
-          >
-            Clear all filters
-          </button>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              Quick reset
+            </DropdownMenuLabel>
+            <button
+              type="button"
+              className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+              onClick={onClearAll}
+            >
+              Clear all filters
+            </button>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
