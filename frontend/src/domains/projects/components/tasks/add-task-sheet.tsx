@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { FilePreviewModal } from "./file-preview-modal";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -14,9 +15,15 @@ import {
   Plus,
   Trash2,
   FileText,
+  FileImage,
+  FileSpreadsheet,
+  FileArchive,
+  FileCode,
+  File,
   Lock,
   Circle,
   Flag,
+  User,
 } from "lucide-react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
@@ -134,6 +141,61 @@ function draftId() {
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** Returns the right icon component and colour class for a given filename */
+function FileTypeIcon({ filename, className }: { filename: string; className?: string }) {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext))
+    return <FileImage className={cn("text-sky-500", className)} />;
+  if (["pdf"].includes(ext))
+    return <FileText className={cn("text-rose-500", className)} />;
+  if (["doc", "docx"].includes(ext))
+    return <FileText className={cn("text-blue-600", className)} />;
+  if (["xls", "xlsx"].includes(ext))
+    return <FileSpreadsheet className={cn("text-emerald-600", className)} />;
+  if (["csv"].includes(ext))
+    return <FileSpreadsheet className={cn("text-teal-500", className)} />;
+  if (["txt", "md"].includes(ext))
+    return <FileText className={cn("text-muted-foreground", className)} />;
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext))
+    return <FileArchive className={cn("text-amber-500", className)} />;
+  if (["js", "ts", "jsx", "tsx", "py", "java", "cs"].includes(ext))
+    return <FileCode className={cn("text-violet-500", className)} />;
+  return <File className={cn("text-muted-foreground", className)} />;
+}
+
+/** Image preview or icon tile for draft file attachments */
+function FileTile({ file, onRemove, onPreview }: { file: File; onRemove: () => void; onPreview: () => void }) {
+  return (
+    <div
+      onClick={onPreview}
+      className="group relative flex flex-col gap-1 rounded-xl border border-border bg-background p-3 overflow-hidden cursor-pointer hover:border-primary/50 transition-all hover:bg-muted/10"
+    >
+      <FileTypeIcon filename={file.name} className="size-7 mb-1" />
+      <p className="truncate text-xs font-medium leading-tight">{file.name}</p>
+      <p className="text-[10px] text-muted-foreground">{formatFileSize(file.size)}</p>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((p) => p[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 export function AddTaskSheet({
   open,
   onClose,
@@ -155,6 +217,7 @@ export function AddTaskSheet({
   const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
   const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
+  const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string; file?: File } | null>(null);
 
   const [commentDraft, setCommentDraft] = useState("");
   const [commentInternal, setCommentInternal] = useState(true);
@@ -198,7 +261,25 @@ export function AddTaskSheet({
   const watchedStartDate = watch("startDate");
   const watchedEndDate = watch("endDate");
   const watchedEffortHours = watch("effortHours");
+  const watchedPhaseId = watch("phaseId");
   const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
+  const selectedPhase = phases.find((p) => p.id === watchedPhaseId);
+
+  // Compute disabled-date bounds from project and selected phase
+  const projectStart = project?.startDate ? new Date(project.startDate) : undefined;
+  const projectEnd = project?.endDate ? new Date(project.endDate) : undefined;
+  const phaseStart = selectedPhase?.startDate ? new Date(selectedPhase.startDate) : undefined;
+  const phaseEnd = selectedPhase?.endDate ? new Date(selectedPhase.endDate) : undefined;
+
+  // The effective min/max is the intersection of project range and phase range
+  const effectiveMin = phaseStart ?? projectStart;
+  const effectiveMax = phaseEnd ?? projectEnd;
+
+  function isDateDisabled(date: Date) {
+    if (effectiveMin && date < effectiveMin) return true;
+    if (effectiveMax && date > effectiveMax) return true;
+    return false;
+  }
 
   const handleCreatePhase = async (values: PhaseFormValues) => {
     setIsSavingPhase(true);
@@ -436,20 +517,37 @@ export function AddTaskSheet({
                           onValueChange={(val) => field.onChange(val === "none" ? null : val)}
                           disabled={loadingAssignees}
                         >
-                          <SelectTrigger className="w-full">
+                      <SelectTrigger className="w-full">
                             <SelectValue placeholder="Unassigned">
-                              {activeOwner ? activeOwner.displayName : "Unassigned"}
+                              {activeOwner ? (
+                                <span className="flex items-center gap-2">
+                                  <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[9px] font-bold text-primary">
+                                    {getInitials(activeOwner.displayName)}
+                                  </span>
+                                  {activeOwner.displayName}
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-2 text-muted-foreground">
+                                  <User className="size-4" />
+                                  Unassigned
+                                </span>
+                              )}
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">Unassigned</SelectItem>
-                            {assignees.map((assignee) => (
+                          {assignees.map((assignee) => (
                               <SelectItem key={assignee.userId} value={assignee.userId}>
-                                <div className="flex flex-col gap-0.5 py-0.5 text-left">
-                                  <span>{assignee.displayName}</span>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {assignee.role} · {assignee.department.name}
+                                <div className="flex items-center gap-2.5 py-0.5">
+                                  <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                                    {getInitials(assignee.displayName)}
                                   </span>
+                                  <div className="flex flex-col gap-0.5 text-left">
+                                    <span>{assignee.displayName}</span>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {assignee.role} · {assignee.department.name}
+                                    </span>
+                                  </div>
                                 </div>
                               </SelectItem>
                             ))}
@@ -473,7 +571,7 @@ export function AddTaskSheet({
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Phase *</Label>
+                      <Label className="text-xs text-muted-foreground">Phase <span className="text-destructive font-bold">*</span></Label>
                     </div>
                     {!loadingPhases && phases.length === 0 ? (
                       <button
@@ -499,7 +597,7 @@ export function AddTaskSheet({
                                 {phases.find((p) => p.id === field.value)?.name || "Select phase"}
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent alignItemWithTrigger={false}>
                               {phases.map((p) => (
                                 <SelectItem key={p.id} value={p.id}>
                                   {p.name}
@@ -516,7 +614,7 @@ export function AddTaskSheet({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Start date *</Label>
+                    <Label className="text-xs text-muted-foreground">Start date <span className="text-destructive font-bold">*</span></Label>
                     <Controller
                       control={control}
                       name="startDate"
@@ -532,19 +630,22 @@ export function AddTaskSheet({
                             <CalendarIcon className="size-4 text-muted-foreground" />
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value ? new Date(field.value) : undefined}
-                              onSelect={(date) => field.onChange(date ?? undefined)}
-                            />
-                          </PopoverContent>
+                              <Calendar
+                                mode="single"
+                                selected={field.value ? new Date(field.value) : undefined}
+                                onSelect={(date) => field.onChange(date ?? undefined)}
+                                disabled={isDateDisabled}
+                                startMonth={effectiveMin}
+                                endMonth={effectiveMax}
+                              />
+                            </PopoverContent>
                         </Popover>
                       )}
                     />
                     <FieldError message={errors.startDate?.message as string | undefined} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Due date *</Label>
+                    <Label className="text-xs text-muted-foreground">Due date <span className="text-destructive font-bold">*</span></Label>
                     <Controller
                       control={control}
                       name="endDate"
@@ -560,12 +661,18 @@ export function AddTaskSheet({
                             <CalendarIcon className="size-4 text-muted-foreground" />
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value ? new Date(field.value) : undefined}
-                              onSelect={(date) => field.onChange(date ?? undefined)}
-                            />
-                          </PopoverContent>
+                              <Calendar
+                                mode="single"
+                                selected={field.value ? new Date(field.value) : undefined}
+                                onSelect={(date) => field.onChange(date ?? undefined)}
+                                disabled={(date) => {
+                                  if (watchedStartDate && date < new Date(watchedStartDate)) return true;
+                                  return isDateDisabled(date);
+                                }}
+                                startMonth={effectiveMin}
+                                endMonth={effectiveMax}
+                              />
+                            </PopoverContent>
                         </Popover>
                       )}
                     />
@@ -782,27 +889,18 @@ export function AddTaskSheet({
                 {sideTab === "attachments" && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
-                      {draftFiles.map((file, index) => (
-                        <div
-                          key={`${file.name}-${index}`}
-                          className="group relative flex flex-col gap-1 rounded-xl border border-border bg-background p-3"
-                        >
-                          <FileText className="size-5 text-primary" />
-                          <p className="truncate text-xs font-medium">{file.name}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {formatFileSize(file.size)}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() =>
+                        {draftFiles.map((file, index) => (
+                          <FileTile
+                            key={`${file.name}-${index}`}
+                            file={file}
+                            onRemove={() =>
                               setDraftFiles((prev) => prev.filter((_, i) => i !== index))
                             }
-                            className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      ))}
+                            onPreview={() =>
+                              setPreviewTarget({ filename: file.name, file })
+                            }
+                          />
+                        ))}
 
                       <button
                         type="button"
@@ -889,6 +987,14 @@ export function AddTaskSheet({
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+
+    <FilePreviewModal
+      open={!!previewTarget}
+      onClose={() => setPreviewTarget(null)}
+      filename={previewTarget?.filename ?? ""}
+      url={previewTarget?.url}
+      file={previewTarget?.file}
+    />
     </>
   );
 }

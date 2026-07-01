@@ -13,7 +13,15 @@ import {
   Lock,
   Circle,
   CircleCheck,
+  Eye,
+  FileText,
+  FileImage,
+  FileSpreadsheet,
+  FileArchive,
+  FileCode,
+  File,
 } from "lucide-react";
+import { FilePreviewModal } from "./file-preview-modal";
 import {
   useGetTaskByIdQuery,
   useAddTaskCommentMutation,
@@ -31,6 +39,27 @@ import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/utils/cn";
 
 type TabId = "subtasks" | "comments" | "attachments";
+
+function FileTypeIcon({ filename, className }: { filename: string; className?: string }) {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext))
+    return <FileImage className={cn("text-sky-500", className)} />;
+  if (["pdf"].includes(ext))
+    return <FileText className={cn("text-rose-500", className)} />;
+  if (["doc", "docx"].includes(ext))
+    return <FileText className={cn("text-blue-600", className)} />;
+  if (["xls", "xlsx"].includes(ext))
+    return <FileSpreadsheet className={cn("text-emerald-600", className)} />;
+  if (["csv"].includes(ext))
+    return <FileSpreadsheet className={cn("text-teal-500", className)} />;
+  if (["txt", "md"].includes(ext))
+    return <FileText className={cn("text-muted-foreground", className)} />;
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext))
+    return <FileArchive className={cn("text-amber-500", className)} />;
+  if (["js", "ts", "jsx", "tsx", "py", "java", "cs"].includes(ext))
+    return <FileCode className={cn("text-violet-500", className)} />;
+  return <File className={cn("text-muted-foreground", className)} />;
+}
 
 export interface DraftSubTask {
   id: string;
@@ -109,6 +138,7 @@ export function TaskCollaborationSections({
   const [isInternal, setIsInternal] = useState(true);
   const [showSubTaskForm, setShowSubTaskForm] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
+  const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string; file?: File } | null>(null);
 
   const { data: task } = useGetTaskByIdQuery(taskId);
 
@@ -407,9 +437,48 @@ export function TaskCollaborationSections({
         </div>
       )}
 
+      {/* Comment Input */}
+      <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+        <textarea
+          value={commentText}
+          onChange={(e) => setCommentText(e.target.value)}
+          placeholder="Write a comment..."
+          rows={3}
+          className="flex w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={isInternal}
+              onCheckedChange={(checked) => setIsInternal(checked === true)}
+            />
+            Internal only
+          </label>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!commentText.trim() || (commentMode === "immediate" && isAddingComment)}
+            onClick={handleAddComment}
+          >
+            {commentMode === "immediate" && isAddingComment ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : commentMode === "draft" ? (
+              "Add to list"
+            ) : (
+              "Post comment"
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Comments List */}
       <div className="max-h-80 space-y-2 overflow-y-auto">
         {comments.length === 0 && draftComments.length === 0 && (
-          <p className="py-6 text-center text-xs text-muted-foreground">No comments yet.</p>
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            {commentMode === "draft"
+              ? "No comments yet. They will be posted with the main task."
+              : "No comments yet."}
+          </p>
         )}
         {comments.map((comment) => (
           <div
@@ -460,39 +529,6 @@ export function TaskCollaborationSections({
           </div>
         ))}
       </div>
-
-      <div className="space-y-2 rounded-xl border border-border bg-background p-3">
-        <textarea
-          value={commentText}
-          onChange={(e) => setCommentText(e.target.value)}
-          placeholder="Write a comment..."
-          rows={3}
-          className="flex w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-        />
-        <div className="flex items-center justify-between gap-2">
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox
-              checked={isInternal}
-              onCheckedChange={(checked) => setIsInternal(checked === true)}
-            />
-            Internal only
-          </label>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!commentText.trim() || (commentMode === "immediate" && isAddingComment)}
-            onClick={handleAddComment}
-          >
-            {commentMode === "immediate" && isAddingComment ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : commentMode === "draft" ? (
-              "Add to list"
-            ) : (
-              "Post comment"
-            )}
-          </Button>
-        </div>
-      </div>
     </section>
   );
 
@@ -539,19 +575,34 @@ export function TaskCollaborationSections({
             key={att.id}
             className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
           >
-            <Paperclip className="size-4 shrink-0 text-muted-foreground" />
+            <FileTypeIcon filename={att.filename} className="size-4 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{att.filename}</p>
-              <p className="text-[10px] text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+                className="truncate text-sm font-medium hover:text-primary transition-colors text-left w-full outline-none"
+              >
+                {att.filename}
+              </button>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
                 {att.uploader.displayName}
                 {att.sizeBytes ? ` · ${formatFileSize(att.sizeBytes)}` : ""}
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+              title="Preview file"
+            >
+              <Eye className="size-4" />
+            </button>
             <a
               href={att.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+              title="Open link"
             >
               <ExternalLink className="size-4" />
             </a>
@@ -572,11 +623,25 @@ export function TaskCollaborationSections({
             key={`${file.name}-${index}`}
             className="flex items-center gap-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-3 py-2"
           >
-            <Paperclip className="size-4 shrink-0 text-primary" />
+            <FileTypeIcon filename={file.name} className="size-4 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{file.name}</p>
-              <p className="text-[10px] text-primary">Draft — saves with task</p>
+              <button
+                type="button"
+                onClick={() => setPreviewTarget({ filename: file.name, file })}
+                className="truncate text-sm font-medium hover:text-primary transition-colors text-left w-full outline-none"
+              >
+                {file.name}
+              </button>
+              <p className="text-[10px] text-primary mt-0.5">Draft — saves with task</p>
             </div>
+            <button
+              type="button"
+              onClick={() => setPreviewTarget({ filename: file.name, file })}
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+              title="Preview file"
+            >
+              <Eye className="size-4" />
+            </button>
             <Button
               type="button"
               variant="ghost"
@@ -596,6 +661,7 @@ export function TaskCollaborationSections({
 
   if (layout === "tabs") {
     return (
+      <>
       <div className={cn("flex h-full flex-col", className)}>
         <div className="flex shrink-0 border-b border-border">
           {tabs.map((tab) => (
@@ -626,10 +692,20 @@ export function TaskCollaborationSections({
           {activeTab === "attachments" && showAttachments && attachmentsSection}
         </div>
       </div>
+      
+      <FilePreviewModal
+        open={!!previewTarget}
+        onClose={() => setPreviewTarget(null)}
+        filename={previewTarget?.filename ?? ""}
+        url={previewTarget?.url}
+        file={previewTarget?.file}
+      />
+      </>
     );
   }
 
   return (
+    <>
     <div className={cn("space-y-6", className)}>
       <Separator />
       {commentsSection}
@@ -638,6 +714,15 @@ export function TaskCollaborationSections({
       <Separator />
       {subTasksSection}
     </div>
+    
+    <FilePreviewModal
+      open={!!previewTarget}
+      onClose={() => setPreviewTarget(null)}
+      filename={previewTarget?.filename ?? ""}
+      url={previewTarget?.url}
+      file={previewTarget?.file}
+    />
+    </>
   );
 }
 
@@ -655,6 +740,7 @@ export function TaskAttachmentsBlock({
   const [addAttachment, { isLoading: isLinking }] = useAddTaskAttachmentMutation();
   const [deleteAttachment, { isLoading: isDeletingAttachment }] =
     useDeleteTaskAttachmentMutation();
+  const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string; file?: File } | null>(null);
 
   const attachments = task?.attachments ?? [];
 
@@ -702,26 +788,36 @@ export function TaskAttachmentsBlock({
             key={att.id}
             className="group relative flex flex-col gap-1 rounded-xl border border-border bg-muted/20 p-3"
           >
-            <Paperclip className="size-5 text-primary" />
-            <a
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="truncate text-xs font-medium hover:text-primary"
+            <FileTypeIcon filename={att.filename} className="size-5" />
+            <button
+              type="button"
+              onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+              className="truncate text-xs font-medium hover:text-primary text-left w-full outline-none"
             >
               {att.filename}
-            </a>
+            </button>
             <p className="text-[10px] text-muted-foreground">
               {att.sizeBytes ? formatFileSize(att.sizeBytes) : "—"}
             </p>
-            <button
-              type="button"
-              onClick={() => handleDelete(att.id)}
-              disabled={isDeletingAttachment}
-              className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
+            <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                type="button"
+                onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+                className="rounded-md p-1 text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                title="Preview file"
+              >
+                <Eye className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(att.id)}
+                disabled={isDeletingAttachment}
+                className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                title="Delete file"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </div>
           </div>
         ))}
 
@@ -749,6 +845,14 @@ export function TaskAttachmentsBlock({
         className="hidden"
         accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
         onChange={handleFileSelect}
+      />
+
+      <FilePreviewModal
+        open={!!previewTarget}
+        onClose={() => setPreviewTarget(null)}
+        filename={previewTarget?.filename ?? ""}
+        url={previewTarget?.url}
+        file={previewTarget?.file}
       />
     </div>
   );

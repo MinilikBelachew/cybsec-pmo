@@ -437,7 +437,7 @@ export function TaskDetailPanel({
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Phase *</Label>
+                      <Label className="text-xs text-muted-foreground">Phase <span className="text-destructive font-bold">*</span></Label>
                       <Controller
                         control={control}
                         name="phaseId"
@@ -452,7 +452,7 @@ export function TaskDetailPanel({
                                 {phases.find((p) => p.id === field.value)?.name || "Select phase"}
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent alignItemWithTrigger={false}>
                               {phases.map((p) => (
                                 <SelectItem key={p.id} value={p.id}>
                                   {p.name}
@@ -468,7 +468,7 @@ export function TaskDetailPanel({
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Start date *</Label>
+                      <Label className="text-xs text-muted-foreground">Start date <span className="text-destructive font-bold">*</span></Label>
                       <Controller
                         control={control}
                         name="startDate"
@@ -497,7 +497,7 @@ export function TaskDetailPanel({
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Due date *</Label>
+                      <Label className="text-xs text-muted-foreground">Due date <span className="text-destructive font-bold">*</span></Label>
                       <Controller
                         control={control}
                         name="endDate"

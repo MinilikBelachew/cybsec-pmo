@@ -43,14 +43,14 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' blob: data: https://login.microsoftonline.com",
+      `img-src 'self' blob: data: ${backendOrigin} https://login.microsoftonline.com`,
       "font-src 'self'",
-      "object-src 'none'",
+      `object-src 'self' blob: ${backendOrigin}`,
       "base-uri 'self'",
       "form-action 'self' https://login.microsoftonline.com",
       "frame-ancestors 'none'",
       `connect-src ${connectSrc.join(" ")}`,
-      "frame-src 'self' https://login.microsoftonline.com https://login.microsoft.com",
+      `frame-src 'self' blob: ${backendOrigin} https://login.microsoftonline.com https://login.microsoft.com`,
       "block-all-mixed-content",
     ];
 

@@ -347,10 +347,10 @@ export function TaskDependenciesSection({
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">Type</Label>
               <Select value={depType} onValueChange={(v) => setDepType(v as TaskDependencyType)}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9 w-full">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent alignItemWithTrigger={false}>
                   {DEP_TYPES.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -379,12 +379,12 @@ export function TaskDependenciesSection({
                 value={predecessorPick || "none"}
                 onValueChange={(v) => setPredecessorPick(v === "none" ? "" : (v ?? ""))}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9 w-full">
                   <SelectValue placeholder="Select task…">
                     {predecessorPick ? taskPickLabel(predecessorPick) : null}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent alignItemWithTrigger={false}>
                   <SelectItem value="none">Select task…</SelectItem>
                   {availablePredecessors.map((row) => (
                     <SelectItem key={row.id} value={row.id}>
@@ -417,12 +417,12 @@ export function TaskDependenciesSection({
                 value={successorPick || "none"}
                 onValueChange={(v) => setSuccessorPick(v === "none" ? "" : (v ?? ""))}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9 w-full">
                   <SelectValue placeholder="Select task…">
                     {successorPick ? taskPickLabel(successorPick) : null}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent alignItemWithTrigger={false}>
                   <SelectItem value="none">Select task…</SelectItem>
                   {availableSuccessors.map((row) => (
                     <SelectItem key={row.id} value={row.id}>

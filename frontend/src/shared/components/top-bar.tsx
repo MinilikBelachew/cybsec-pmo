@@ -173,9 +173,6 @@ export function TopBar() {
         >
           <Search className="size-4" />
         </button>
-        <Badge variant="secondary" className="hidden md:inline-flex h-8 px-2.5 text-xs font-semibold">
-          {currentRoleLabel}
-        </Badge>
 
         <NotificationBell />
 
