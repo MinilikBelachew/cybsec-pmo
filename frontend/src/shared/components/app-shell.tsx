@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SearchProvider>
           <SessionTimeoutProvider>
             <AuthHydrator />
-            <div className="flex h-screen overflow-hidden bg-background">
+            <div className=" max-w-full flex h-screen overflow-hidden bg-background">
               <div className="hidden md:flex h-full p-3 shrink-0">
                 <SidebarNav />
               </div>
