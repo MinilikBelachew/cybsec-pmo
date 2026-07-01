@@ -61,21 +61,27 @@ export function createProjectListColumns({
       cell: ({ row }) => {
         const project = row.original;
         return (
-          <div className="min-w-0">
+          <div className="min-w-0 overflow-hidden">
             <button
               type="button"
               onClick={() => onNavigate(project.id)}
-              className="truncate text-left text-sm font-semibold hover:text-primary transition-colors"
+              title={project.name}
+              className="block w-full max-w-full truncate text-left text-sm font-semibold transition-colors hover:text-primary"
             >
               {project.name}
             </button>
-            <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
-              {project.description}
-            </p>
+            {project.description ? (
+              <p
+                title={project.description}
+                className="mt-0.5 line-clamp-2 break-words text-[11px] leading-snug text-muted-foreground"
+              >
+                {project.description}
+              </p>
+            ) : null}
           </div>
         );
       },
-      meta: { className: "min-w-[200px]", label: "Project" },
+      meta: { className: "w-[24%] max-w-0 overflow-hidden", label: "Project" },
     },
     {
       id: "status",
@@ -98,7 +104,7 @@ export function createProjectListColumns({
           </span>
         );
       },
-      meta: { className: "w-[110px]", label: "Status" },
+      meta: { className: "w-[128px] shrink-0 whitespace-nowrap", label: "Status" },
     },
     {
       id: "department",

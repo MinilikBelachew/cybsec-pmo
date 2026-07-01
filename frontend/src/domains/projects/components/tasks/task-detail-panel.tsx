@@ -26,6 +26,7 @@ import {
   filterStatusOptionsForRole,
   formatTaskApiError,
 } from "@/domains/projects";
+import { TASKS_POLLING_INTERVAL_MS } from "@/domains/projects/constants/tasks-polling";
 import { useAuth, useAppAbility } from "@/domains/auth";
 import {
   Sheet,
@@ -132,6 +133,7 @@ export function TaskDetailPanel({
   const ability = useAppAbility();
   const { data: task, isLoading, isError } = useGetTaskByIdQuery(taskId!, {
     skip: !taskId || !open,
+    pollingInterval: open ? TASKS_POLLING_INTERVAL_MS : 0,
   });
   const { data: project } = useGetProjectByIdQuery(projectId, { skip: !open });
   const { data: assignees = [], isLoading: loadingAssignees } =

@@ -16,7 +16,8 @@ module.exports = {
       script: "./dist/src/main.js", 
       env: {
         PORT: 6001,
-        NODE_ENV: "production"
+        NODE_ENV: "production",
+        NODE_OPTIONS: "--dns-result-order=ipv4first",
       }
     }
   ]

@@ -22,6 +22,7 @@ import {
   formatTaskApiError,
   getTaskStatusMoveDeniedMessage,
 } from "@/domains/projects/utils/task-status-permissions";
+import { TASKS_POLLING_INTERVAL_MS } from "@/domains/projects/constants/tasks-polling";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
@@ -270,7 +271,7 @@ export function ProjectWorkspace() {
   }, [id, debouncedSearch, statusFilter, priorityFilter]);
 
   const { data: tasksResponse, isLoading: isTasksLoading, refetch: refetchTasks } =
-    useGetTasksQuery(taskQueryParams);
+    useGetTasksQuery(taskQueryParams, { pollingInterval: TASKS_POLLING_INTERVAL_MS });
   
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();

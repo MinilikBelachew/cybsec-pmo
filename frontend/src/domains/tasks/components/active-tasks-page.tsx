@@ -34,6 +34,7 @@ import {
   useGetProjectsQuery,
   useGetTasksQuery,
 } from "@/domains/projects";
+import { TASKS_POLLING_INTERVAL_MS } from "@/domains/projects/constants/tasks-polling";
 import type { Task, TaskPriority, TaskStatus } from "@/domains/projects";
 
 // ─── Status & priority maps ───────────────────────────────────────────────────
@@ -335,7 +336,9 @@ export function ActiveTasksPage() {
     [filterParams, page],
   );
 
-  const { data, isLoading, isFetching, isError, refetch } = useGetTasksQuery(queryParams);
+  const { data, isLoading, isFetching, isError, refetch } = useGetTasksQuery(queryParams, {
+    pollingInterval: TASKS_POLLING_INTERVAL_MS,
+  });
   const { data: taskStats } = useGetActiveTaskStatsQuery();
   const { data: projectsPage } = useGetProjectsQuery({ page: 1, limit: 100 });
 

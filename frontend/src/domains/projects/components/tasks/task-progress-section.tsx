@@ -22,6 +22,7 @@ import {
   type ProgressEvidenceFile,
 } from "@/domains/projects";
 import { formatTaskApiError } from "@/domains/projects/utils/task-status-permissions";
+import { TASKS_POLLING_INTERVAL_MS } from "@/domains/projects/constants/tasks-polling";
 import { useAuth, useAppAbility } from "@/domains/auth";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -65,6 +66,7 @@ export function TaskProgressSection({
 
   const { data: updates = [], isLoading } = useGetTaskProgressUpdatesQuery(task.id, {
     skip: !task.id,
+    pollingInterval: TASKS_POLLING_INTERVAL_MS,
   });
   const [submitProgress, { isLoading: isSubmitting }] = useSubmitTaskProgressUpdateMutation();
   const [reviewProgress, { isLoading: isReviewing }] = useReviewTaskProgressUpdateMutation();
@@ -86,11 +88,14 @@ export function TaskProgressSection({
     [updates],
   );
 
+  const canReviewPendingUpdate =
+    canApprove && pendingUpdate != null && pendingUpdate.engineerId !== user?.id;
+
   useEffect(() => {
     if (!focusProgressReview) return;
 
     const target =
-      canApprove && pendingUpdate ? reviewBlockRef.current : sectionRef.current;
+      canReviewPendingUpdate && pendingUpdate ? reviewBlockRef.current : sectionRef.current;
     if (!target) return;
 
     target.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -101,7 +106,7 @@ export function TaskProgressSection({
     }, 3000);
 
     return () => window.clearTimeout(timer);
-  }, [focusProgressReview, pendingUpdate?.id, canApprove]);
+  }, [focusProgressReview, pendingUpdate?.id, canReviewPendingUpdate]);
 
   useEffect(() => {
     setProgressPercent("");
@@ -390,7 +395,7 @@ export function TaskProgressSection({
         </p>
       )}
 
-      {canApprove && pendingUpdate && (
+      {canReviewPendingUpdate && pendingUpdate && (
         <div
           ref={reviewBlockRef}
           className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 transition-shadow"

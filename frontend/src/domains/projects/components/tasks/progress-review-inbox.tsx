@@ -16,6 +16,7 @@ import {
   useReviewTaskProgressUpdateMutation,
 } from "../../api/tasks.api";
 import type { TaskProgressUpdate } from "../../types/tasks.types";
+import { TASKS_POLLING_INTERVAL_MS } from "../../constants/tasks-polling";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
@@ -42,7 +43,7 @@ export function ProgressReviewInbox({
 
   const { data, isLoading, refetch } = useGetPendingProgressReviewsQuery(
     { projectId, limit: visibleLimit },
-    { skip: !projectId },
+    { skip: !projectId, pollingInterval: TASKS_POLLING_INTERVAL_MS },
   );
   const [reviewProgress, { isLoading: isReviewing }] = useReviewTaskProgressUpdateMutation();
 

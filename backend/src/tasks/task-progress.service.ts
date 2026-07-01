@@ -181,6 +181,7 @@ export class TaskProgressService {
 
     const where: Prisma.TaskProgressUpdateWhereInput = {
       status: 'Pending',
+      engineerId: { not: caslUser.id },
       task: {
         AND: [
           this.recordScopeWhere.taskWhere(caslUser, 'read'),
