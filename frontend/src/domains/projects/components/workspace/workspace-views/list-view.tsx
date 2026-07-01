@@ -45,6 +45,18 @@ function formatDueDate(dateStr?: string | null) {
 
 import { type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
 import { EmployeeTooltip } from "../../shared/employee-tooltip";
+import {
+  TaskAssigneePicker,
+  TaskStatusPicker,
+  TaskDatePicker,
+  TaskCommentPicker,
+  TaskPriorityPicker,
+  assigneeAvatarInitials,
+  assigneeAvatarColor,
+  STATUS_PILL,
+  type ApiPriority,
+  getPriorityColors,
+} from "./task-cell-pickers";
 
 interface ListViewProps {
   tasks: Task[];
@@ -58,14 +70,14 @@ interface ListViewProps {
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   phases?: ProjectPhase[];
   assignees?: ProjectTaskAssignee[];
+  onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
+  onUpdateTaskDates?: (taskId: string, dates: { startDate: string; endDate: string }) => Promise<void>;
+  canAssignTask?: boolean;
+  canEditDates?: boolean;
+  currentUserId?: string;
+  canApproveTask?: boolean;
+  onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
 }
-
-const PRIORITY_STYLES: Record<Priority, string> = {
-  critical: "text-red-600 dark:text-red-400 font-bold",
-  high: "text-rose-500",
-  medium: "text-amber-500",
-  low: "text-muted-foreground",
-};
 
 const PRIORITY_LABEL: Record<Priority, string> = {
   critical: "Critical",
@@ -113,6 +125,13 @@ export function ListView({
   onMoveTask,
   phases = [],
   assignees = [],
+  onAssignTask,
+  onUpdateTaskDates,
+  canAssignTask = false,
+  canEditDates = false,
+  currentUserId,
+  canApproveTask = false,
+  onUpdateTaskPriority,
 }: ListViewProps) {
   const [groupByPhase, setGroupByPhase] = React.useState(false);
   const [openPhases, setOpenPhases] = React.useState<Record<string, boolean>>({});
@@ -283,7 +302,31 @@ export function ListView({
           {task.name}
         </button>
         <div className="shrink-0 w-28 flex items-center justify-center">
-          {employeeData ? (
+          {canAssignTask && onAssignTask ? (
+            <TaskAssigneePicker
+              assignees={assignees}
+              currentUserId={currentUserId}
+              selectedUserId={task.owner?.id}
+              onAssign={(ownerId) => onAssignTask(task.id, ownerId)}
+            >
+              {employeeData ? (
+                <EmployeeTooltip employee={employeeData}>
+                  <span
+                    className={cn(
+                      "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 cursor-pointer hover:opacity-85",
+                      task.assigneeColor
+                    )}
+                  >
+                    {task.assigneeInitials}
+                  </span>
+                </EmployeeTooltip>
+              ) : (
+                <span className="inline-flex items-center justify-center size-6 rounded-full border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 shrink-0 cursor-pointer hover:border-primary/50 transition-colors">
+                  <User className="size-3.5" />
+                </span>
+              )}
+            </TaskAssigneePicker>
+          ) : employeeData ? (
             <EmployeeTooltip employee={employeeData}>
               <span
                 className={cn(
@@ -295,25 +338,51 @@ export function ListView({
               </span>
             </EmployeeTooltip>
           ) : (
-            <span className="inline-flex items-center justify-center size-6 rounded-full border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 shrink-0 cursor-default hover:border-primary/50 transition-colors">
+            <span className="inline-flex items-center justify-center size-6 rounded-full border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 shrink-0 cursor-default">
               <User className="size-3.5" />
             </span>
           )}
         </div>
         <div className="shrink-0 w-28 text-xs text-muted-foreground text-center flex items-center justify-center">
-          {task.rawEndDate || (task.dueDate && task.dueDate !== "No due date") ? (
+          {canEditDates && onUpdateTaskDates ? (
+            <TaskDatePicker
+              startDate={task.rawStartDate}
+              endDate={task.rawEndDate}
+              onSave={(dates) => onUpdateTaskDates(task.id, dates)}
+            >
+              {task.rawEndDate || (task.dueDate && task.dueDate !== "No due date") ? (
+                <span className="cursor-pointer hover:text-primary transition-colors">
+                  {formatDueDate(task.rawEndDate || task.dueDate)}
+                </span>
+              ) : (
+                <span className="text-slate-350 hover:text-primary transition-colors cursor-pointer dark:text-slate-650 inline-flex items-center justify-center size-6 rounded hover:bg-muted/50">
+                  <Calendar className="size-4" />
+                </span>
+              )}
+            </TaskDatePicker>
+          ) : task.rawEndDate || (task.dueDate && task.dueDate !== "No due date") ? (
             <span>{formatDueDate(task.rawEndDate || task.dueDate)}</span>
           ) : (
-            <span className="text-slate-350 hover:text-primary transition-colors cursor-pointer dark:text-slate-650">
+            <span className="text-slate-350 dark:text-slate-650">
               <Calendar className="size-4" />
             </span>
           )}
         </div>
         <div className="shrink-0 w-28 flex items-center justify-center gap-1">
-          {task.priority ? (
+          {onUpdateTaskPriority ? (
+            <TaskPriorityPicker
+              priority={task.priority}
+              onPriorityChange={(priority) => onUpdateTaskPriority(task.id, priority)}
+            >
+              <span className={cn("inline-flex items-center gap-1 cursor-pointer hover:opacity-85 text-xs font-medium", task.priority ? getPriorityColors(task.priority).text : "text-slate-350 dark:text-slate-650")}>
+                <Flag className="size-3.5" />
+                {task.priority ? PRIORITY_LABEL[task.priority] : "None"}
+              </span>
+            </TaskPriorityPicker>
+          ) : task.priority ? (
             <>
-              <Flag className={cn("size-3.5", PRIORITY_STYLES[task.priority])} />
-              <span className={cn("text-xs font-medium", PRIORITY_STYLES[task.priority])}>
+              <Flag className={cn("size-3.5", getPriorityColors(task.priority).text)} />
+              <span className={cn("text-xs font-medium", getPriorityColors(task.priority).text)}>
                 {PRIORITY_LABEL[task.priority]}
               </span>
             </>
@@ -322,19 +391,30 @@ export function ListView({
           )}
         </div>
         <div className="shrink-0 w-32 flex items-center justify-center">
-          {getStatusBadge(task.status)}
+          {onMoveTask ? (
+            <TaskStatusPicker
+              task={{
+                id: task.id,
+                status: task.status,
+                assigneeId: task.owner?.id,
+              }}
+              currentUserId={currentUserId}
+              canApproveTask={canApproveTask}
+              onStatusChange={onMoveTask}
+            >
+              {getStatusBadge(task.status)}
+            </TaskStatusPicker>
+          ) : (
+            getStatusBadge(task.status)
+          )}
         </div>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onTaskClick?.(task.id, "comments");
-          }}
-          className="shrink-0 w-18 flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-        >
-          <MessageSquare className="size-3.5" />
-          {task.comments > 0 && <span className="text-xs font-semibold">{task.comments}</span>}
-        </button>
+        <div className="shrink-0 w-18 flex items-center justify-center">
+          <TaskCommentPicker taskId={task.id} commentCount={task.comments}>
+            <span className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer">
+              <MessageSquare className="size-3.5" />
+            </span>
+          </TaskCommentPicker>
+        </div>
         <div className="shrink-0 w-12 flex items-center justify-center">
           <DropdownMenu>
             <DropdownMenuTrigger

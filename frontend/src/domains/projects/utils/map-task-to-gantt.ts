@@ -1,4 +1,5 @@
 import type { Task } from "../types/tasks.types";
+import { assigneeAvatarColor } from "../components/workspace/workspace-views/task-cell-pickers";
 
 export type GanttPriority = "high" | "medium" | "low" | "critical";
 
@@ -39,14 +40,6 @@ const PRIORITY_MAP: Record<string, GanttPriority> = {
   Critical: "critical",
 };
 
-const ASSIGNEE_COLORS = [
-  "bg-purple-500",
-  "bg-sky-500",
-  "bg-emerald-500",
-  "bg-amber-500",
-  "bg-rose-500",
-];
-
 type MapTaskToGanttOptions = {
   /** When set, overrides phaseId (used for portfolio group-by-project). */
   groupId?: string;
@@ -65,7 +58,6 @@ export function mapTaskToGanttRow(
         .join("")
         .toUpperCase()
     : "UA";
-  const colorIndex = task.owner?.id ? task.owner.id.charCodeAt(0) % ASSIGNEE_COLORS.length : 0;
 
   return {
     id: task.id,
@@ -73,7 +65,7 @@ export function mapTaskToGanttRow(
     assigneeInitials: initials,
     assigneeName: task.owner?.displayName ?? null,
     assigneeId: task.ownerId ?? null,
-    assigneeColor: ASSIGNEE_COLORS[colorIndex],
+    assigneeColor: task.owner?.id ? assigneeAvatarColor(task.owner.id) : "bg-slate-500",
     dueDate: task.endDate
       ? new Date(task.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
       : "No due date",

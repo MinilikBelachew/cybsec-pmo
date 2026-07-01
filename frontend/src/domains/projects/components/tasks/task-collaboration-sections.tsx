@@ -139,7 +139,7 @@ export function TaskCollaborationSections({
   const [isInternal, setIsInternal] = useState(true);
   const [showSubTaskForm, setShowSubTaskForm] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
-  const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string; file?: File } | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string | null; storageKey?: string | null; file?: File } | null>(null);
 
   const { data: task } = useGetTaskByIdQuery(taskId);
 
@@ -580,7 +580,7 @@ export function TaskCollaborationSections({
             <div className="min-w-0 flex-1">
               <button
                 type="button"
-                onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+                onClick={() => setPreviewTarget({ filename: att.filename, url: att.url, storageKey: att.s3Key })}
                 className="truncate text-sm font-medium hover:text-primary transition-colors text-left w-full outline-none"
               >
                 {att.filename}
@@ -592,7 +592,7 @@ export function TaskCollaborationSections({
             </div>
             <button
               type="button"
-              onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+              onClick={() => setPreviewTarget({ filename: att.filename, url: att.url, storageKey: att.s3Key })}
               className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
               title="Preview file"
             >
@@ -696,6 +696,7 @@ export function TaskCollaborationSections({
         onClose={() => setPreviewTarget(null)}
         filename={previewTarget?.filename ?? ""}
         url={previewTarget?.url}
+        storageKey={previewTarget?.storageKey}
         file={previewTarget?.file}
       />
       </>
@@ -718,6 +719,7 @@ export function TaskCollaborationSections({
       onClose={() => setPreviewTarget(null)}
       filename={previewTarget?.filename ?? ""}
       url={previewTarget?.url}
+      storageKey={previewTarget?.storageKey}
       file={previewTarget?.file}
     />
     </>
@@ -738,7 +740,7 @@ export function TaskAttachmentsBlock({
   const [addAttachment, { isLoading: isLinking }] = useAddTaskAttachmentMutation();
   const [deleteAttachment, { isLoading: isDeletingAttachment }] =
     useDeleteTaskAttachmentMutation();
-  const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string; file?: File } | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string | null; storageKey?: string | null; file?: File } | null>(null);
 
   const attachments = task?.attachments ?? [];
 
@@ -789,7 +791,7 @@ export function TaskAttachmentsBlock({
             <FileTypeIcon filename={att.filename} className="size-5" />
             <button
               type="button"
-              onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+              onClick={() => setPreviewTarget({ filename: att.filename, url: att.url, storageKey: att.s3Key })}
               className="truncate text-xs font-medium hover:text-primary text-left w-full outline-none"
             >
               {att.filename}
@@ -808,7 +810,7 @@ export function TaskAttachmentsBlock({
             <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 type="button"
-                onClick={() => setPreviewTarget({ filename: att.filename, url: att.url })}
+                onClick={() => setPreviewTarget({ filename: att.filename, url: att.url, storageKey: att.s3Key })}
                 className="rounded-md p-1 text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
                 title="Preview file"
               >
@@ -858,6 +860,7 @@ export function TaskAttachmentsBlock({
         onClose={() => setPreviewTarget(null)}
         filename={previewTarget?.filename ?? ""}
         url={previewTarget?.url}
+        storageKey={previewTarget?.storageKey}
         file={previewTarget?.file}
       />
     </div>

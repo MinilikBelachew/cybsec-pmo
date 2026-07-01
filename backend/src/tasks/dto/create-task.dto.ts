@@ -75,7 +75,7 @@ export class CreateTaskDto {
   @ApiPropertyOptional({ enum: TaskPriorityEnum, default: TaskPriorityEnum.Medium })
   @IsOptional()
   @IsEnum(TaskPriorityEnum)
-  priority?: TaskPriorityEnum = TaskPriorityEnum.Medium;
+  priority?: TaskPriorityEnum;
 
   @ApiPropertyOptional({ format: 'uuid', example: '550e8400-e29b-41d4-a716-446655440002', nullable: true })
   @IsOptional()
@@ -104,5 +104,5 @@ export class CreateTaskDto {
   @ApiPropertyOptional({ enum: TaskStatusEnum, default: TaskStatusEnum.To_Do })
   @IsOptional()
   @IsEnum(TaskStatusEnum)
-  status?: TaskStatusEnum = TaskStatusEnum.To_Do;
+  status?: TaskStatusEnum;
 }
