@@ -13,7 +13,7 @@ import { Department, Customer, ProjectManager } from "../../types/projects.types
 import { parseCSV, processRawCSVRows, ParsedProjectRow } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
-import { ScrollArea } from "@/shared/ui/scroll-area";
+
 import {
   Upload,
   FileSpreadsheet,
@@ -572,12 +572,12 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
                   </div>
                 ) : (
                   /* Project Preview Table */
-                  <div className="border border-border rounded-xl overflow-hidden flex flex-col bg-card">
-                    <ScrollArea className="w-full">
+                  <div className="border border-border rounded-xl flex flex-col bg-card">
+                    <div className="w-full overflow-x-auto overflow-y-auto max-h-[50vh]">
                       <div className="min-w-[2000px]">
                         <table className="w-full text-left border-collapse text-xs">
                           <thead>
-                            <tr className="border-b border-border bg-muted/40 font-bold text-muted-foreground uppercase tracking-wider text-[10px]">
+                            <tr className="border-b border-border bg-muted/40 font-bold text-muted-foreground uppercase tracking-wider text-[10px] sticky top-0 z-10">
                               <th className="p-3 w-64">Validation</th>
                               <th className="p-3 w-60">Project Name & Objective</th>
                               <th className="p-3 w-48">Department</th>
@@ -840,7 +840,7 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
                           </tbody>
                         </table>
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
                 )}
               </div>

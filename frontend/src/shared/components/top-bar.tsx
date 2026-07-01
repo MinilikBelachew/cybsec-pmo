@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useState } from "react";
-import { usePathname, useRouter } from "@/i18n/routing";
+import { Link, usePathname, useRouter } from "@/i18n/routing";
 import { useAuth } from "@/domains/auth";
 import { ROLE_CATALOG } from "@/config/roles.config";
 import { NotificationBell } from "@/shared/components/notification-bell";
@@ -110,14 +110,18 @@ export function TopBar() {
           breadcrumbs.map((crumb, i) => (
             <div key={i} className="flex items-center gap-1 min-w-0">
               {i > 0 && <ChevronRight className="size-3 text-muted-foreground/50 shrink-0" />}
-              <span
-                className={cn(
-                  "truncate text-xs md:text-sm",
-                  crumb.isLast ? "text-foreground font-semibold" : "text-muted-foreground"
-                )}
-              >
-                {crumb.label}
-              </span>
+              {crumb.isLast ? (
+                <span className="truncate text-xs md:text-sm text-foreground font-semibold">
+                  {crumb.label}
+                </span>
+              ) : (
+                <Link
+                  href={crumb.href}
+                  className="truncate text-xs md:text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                >
+                  {crumb.label}
+                </Link>
+              )}
             </div>
           ))
         )}

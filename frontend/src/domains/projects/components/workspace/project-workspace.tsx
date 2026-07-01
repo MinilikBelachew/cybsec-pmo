@@ -20,7 +20,7 @@ import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/task
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
-import { useAppAbility } from "@/domains/auth";
+import { useAppAbility, useAuth } from "@/domains/auth";
 import { cn } from "@/shared/utils/cn";
 import {
   DropdownMenu,
@@ -69,6 +69,7 @@ import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { formatProjectBudget } from "../../utils/format-budget";
+import { useRole } from "@/shared/providers/role-provider";
 
 
 type Priority = "high" | "medium" | "low" | "critical";
@@ -912,7 +913,7 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
-            assignees={assignees}
+            // assignees={assignees}
           />
         )}
 

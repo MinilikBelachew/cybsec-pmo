@@ -15,7 +15,7 @@ import {
   ParsedTaskRow,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
-import { ScrollArea } from "@/shared/ui/scroll-area";
+
 import {
   Upload,
   FileSpreadsheet,
@@ -481,12 +481,12 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                 ) : (
                   <>
                   {/* Task Preview Table */}
-                  <div className="border border-border rounded-xl overflow-hidden flex flex-col bg-card">
-                    <ScrollArea className="w-full">
+                  <div className="border border-border rounded-xl flex flex-col bg-card">
+                    <div className="w-full overflow-x-auto overflow-y-auto max-h-[50vh]">
                       <div className="min-w-[1600px]">
                         <table className="w-full text-left border-collapse text-xs">
                           <thead>
-                            <tr className="border-b border-border bg-muted/40 font-bold text-muted-foreground uppercase tracking-wider text-[10px]">
+                            <tr className="border-b border-border bg-muted/40 font-bold text-muted-foreground uppercase tracking-wider text-[10px] sticky top-0 z-10">
                               <th className="p-3 w-64">Validation</th>
                               <th className="p-3 w-60">Task Title & Description</th>
                               <th className="p-3 w-40">Priority</th>
@@ -669,7 +669,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                           </tbody>
                         </table>
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
                   </>
                 )}
