@@ -294,7 +294,7 @@ export class ProjectTeamService {
 
     if (summary.isOverAllocated) {
       warnings.push(
-        `${employee.name} would be over-allocated (${summary.allocatedHours}h/wk of ${weeklyCapacity}h/wk capacity including this task).`,
+        `${employee.name} would be over-allocated (${summary.allocatedHours}h/week of ${weeklyCapacity}h/week capacity including this task).`,
       );
     }
 
@@ -390,7 +390,7 @@ export class ProjectTeamService {
 
       if (summary.isOverAllocated) {
         warnings.push(
-          `${employee.name} would be over-allocated (${summary.allocatedHours}h/wk of ${weeklyCapacity}h/wk capacity).`,
+          `${employee.name} would be over-allocated (${summary.allocatedHours}h/week of ${weeklyCapacity}h/week capacity).`,
         );
       }
 

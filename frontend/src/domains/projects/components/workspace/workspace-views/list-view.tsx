@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, MessageSquare, Plus, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, MessageSquare, Plus, MoreHorizontal, User, Calendar } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import {
   DropdownMenu,
@@ -28,6 +28,19 @@ interface Task {
   phaseName?: string;
   phaseColor?: string;
   owner?: { id: string; displayName: string; email: string };
+  rawStartDate?: string | null;
+  rawEndDate?: string | null;
+}
+
+function formatDueDate(dateStr?: string | null) {
+  if (!dateStr || dateStr === "No due date") return null;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return null;
+  }
 }
 
 import { type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
@@ -149,6 +162,69 @@ export function ListView({
     });
   }, [tasks, phases]);
 
+  function getStatusBadge(status: Status, isHeader = false) {
+    const label = STATUS_LABEL[status] || status;
+    
+    if (status === "To_Do") {
+      return (
+        <span className={cn(
+          "inline-flex items-center rounded border border-dashed border-slate-350 bg-slate-50/50 text-slate-500 px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-700",
+          isHeader && "shadow-xs"
+        )}>
+          <Circle className="size-2.5 mr-1.5 text-slate-400 shrink-0" />
+          {label}
+        </span>
+      );
+    }
+
+    const bgStyles: Record<Status, string> = {
+      "To_Do": "",
+      "In_Progress": "bg-blue-500 text-white",
+      "Submitted_for_Review": "bg-amber-500 text-white",
+      "Approved": "bg-teal-500 text-white",
+      "Rework": "bg-rose-500 text-white",
+      "Done": "bg-emerald-500 text-white",
+    };
+
+    return (
+      <span className={cn(
+        "inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-xs",
+        bgStyles[status]
+      )}>
+        <CircleCheck className="size-2.5 mr-1.5 shrink-0" />
+        {label}
+      </span>
+    );
+  }
+
+  const renderColumnHeaders = () => (
+    <div className="flex items-center gap-4 px-3 py-1.5 border-b border-border/30 bg-slate-50/30 dark:bg-slate-900/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+      <div className="w-4 shrink-0" />
+      <div className="w-4 shrink-0" />
+      <div className="flex-1 text-[11px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider text-left">
+        Name
+      </div>
+      <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Assignee
+      </div>
+      <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Due Date
+      </div>
+      <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Priority
+      </div>
+      <div className="shrink-0 w-32 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Status
+      </div>
+      <div className="shrink-0 w-18 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Comments
+      </div>
+      <div className="shrink-0 w-12 text-[11px] font-medium text-slate-400 dark:text-slate-500 text-center flex items-center justify-center">
+        <Plus className="size-3.5 text-muted-foreground/60 cursor-pointer hover:text-primary transition-colors" />
+      </div>
+    </div>
+  );
+
   const renderTaskRow = (task: Task) => {
     const fullAssignee = task.owner?.id
       ? assignees.find((a) => a.userId === task.owner?.id)
@@ -174,7 +250,7 @@ export function ListView({
       <div
         key={task.id}
         className={cn(
-          "flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
+          "flex items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
           task.done && "opacity-60"
         )}
       >
@@ -206,41 +282,47 @@ export function ListView({
         >
           {task.name}
         </button>
-        <div className="shrink-0 w-20 flex items-center justify-center">
-          <EmployeeTooltip employee={employeeData}>
-            <span
-              className={cn(
-                "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 cursor-default",
-                task.assigneeColor
-              )}
-            >
-              {task.assigneeInitials}
+        <div className="shrink-0 w-28 flex items-center justify-center">
+          {employeeData ? (
+            <EmployeeTooltip employee={employeeData}>
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 cursor-default",
+                  task.assigneeColor
+                )}
+              >
+                {task.assigneeInitials}
+              </span>
+            </EmployeeTooltip>
+          ) : (
+            <span className="inline-flex items-center justify-center size-6 rounded-full border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 shrink-0 cursor-default hover:border-primary/50 transition-colors">
+              <User className="size-3.5" />
             </span>
-          </EmployeeTooltip>
+          )}
         </div>
-        <div className="shrink-0 w-20 text-xs text-muted-foreground text-center">
-          {task.dueDate}
+        <div className="shrink-0 w-28 text-xs text-muted-foreground text-center flex items-center justify-center">
+          {task.rawEndDate || (task.dueDate && task.dueDate !== "No due date") ? (
+            <span>{formatDueDate(task.rawEndDate || task.dueDate)}</span>
+          ) : (
+            <span className="text-slate-350 hover:text-primary transition-colors cursor-pointer dark:text-slate-650">
+              <Calendar className="size-4" />
+            </span>
+          )}
         </div>
-        <div className="shrink-0 w-20 flex items-center justify-center gap-1">
-          <Flag className={cn("size-3", PRIORITY_STYLES[task.priority])} />
-          <span className={cn("text-xs", PRIORITY_STYLES[task.priority])}>
-            {PRIORITY_LABEL[task.priority]}
-          </span>
+        <div className="shrink-0 w-28 flex items-center justify-center gap-1">
+          {task.priority ? (
+            <>
+              <Flag className={cn("size-3.5", PRIORITY_STYLES[task.priority])} />
+              <span className={cn("text-xs font-medium", PRIORITY_STYLES[task.priority])}>
+                {PRIORITY_LABEL[task.priority]}
+              </span>
+            </>
+          ) : (
+            <Flag className="size-3.5 text-slate-350 dark:text-slate-650" />
+          )}
         </div>
-        <div className="shrink-0 w-24 flex items-center justify-center">
-          <span
-            className={cn(
-              "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
-              task.status === "To_Do" && "bg-muted text-muted-foreground border-border/60",
-              task.status === "In_Progress" && "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800",
-              task.status === "Submitted_for_Review" && "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
-              task.status === "Approved" && "bg-teal-50 text-teal-600 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800",
-              task.status === "Rework" && "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800",
-              task.status === "Done" && "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800"
-            )}
-          >
-            {STATUS_LABEL[task.status] || task.status}
-          </span>
+        <div className="shrink-0 w-32 flex items-center justify-center">
+          {getStatusBadge(task.status)}
         </div>
         <button
           type="button"
@@ -248,12 +330,12 @@ export function ListView({
             e.stopPropagation();
             onTaskClick?.(task.id, "comments");
           }}
-          className="shrink-0 w-14 flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+          className="shrink-0 w-18 flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
         >
           <MessageSquare className="size-3.5" />
-          <span className="text-xs">{task.comments}</span>
+          {task.comments > 0 && <span className="text-xs font-semibold">{task.comments}</span>}
         </button>
-        <div className="shrink-0 w-10 flex items-center justify-center">
+        <div className="shrink-0 w-12 flex items-center justify-center">
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -318,39 +400,13 @@ export function ListView({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Column Headers */}
-        <div className="flex items-center gap-2 px-5 py-1.5 border-b border-border/50 bg-transparent backdrop-blur-md sticky top-0 z-20">
-          <div className="w-4 shrink-0" />
-          <div className="w-4 shrink-0" />
-          <div className="flex-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Name
-          </div>
-          <div className="shrink-0 w-20 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
-            Assignee
-          </div>
-          <div className="shrink-0 w-20 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
-            Due Date
-          </div>
-          <div className="shrink-0 w-20 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
-            Priority
-          </div>
-          <div className="shrink-0 w-24 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
-            Status
-          </div>
-          <div className="shrink-0 w-14 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
-            Comments
-          </div>
-          <div className="shrink-0 w-10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-center">
-            {/* Actions */}
-          </div>
-        </div>
 
         {groupByPhase ? (
           phaseGroups.map((group) => {
             const isOpen = openPhases[group.name] !== false;
             return (
-              <div key={group.name}>
-                <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30 sticky top-8 z-10">
+              <div key={group.name} className="mb-4">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-background border-b border-border/30 sticky top-0 z-10">
                   <button
                     type="button"
                     onClick={() => togglePhaseGroup(group.name)}
@@ -361,28 +417,30 @@ export function ListView({
                     ) : (
                       <ChevronRight className="size-3.5 text-muted-foreground" />
                     )}
-                    <span
-                      className="size-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: group.color }}
-                    />
-                    <span className="text-xs font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">
+                    <span className="inline-flex items-center rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+                      <span
+                        className="size-2 rounded-full shrink-0 mr-1.5"
+                        style={{ backgroundColor: group.color }}
+                      />
                       {group.name}
                     </span>
-                    <span className="text-xs text-muted-foreground font-medium">{group.tasks.length}</span>
+                    <span className="text-xs text-muted-foreground font-semibold ml-1">{group.tasks.length}</span>
                   </button>
                 </div>
 
                 {isOpen && (
                   <>
+                    {renderColumnHeaders()}
                     {group.tasks.map((task) => renderTaskRow(task))}
                     {onAddTask && group.id && (
                       <div
                         onClick={() => onAddTask("To_Do", group.id)}
-                        className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/20 transition-colors cursor-pointer group"
+                        className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         <div className="w-4 shrink-0" />
+                        <div className="w-4 shrink-0" />
                         <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
                           Add Task to Phase
                         </span>
                       </div>
@@ -398,8 +456,8 @@ export function ListView({
             const isOpen = openGroups.has(status);
 
             return (
-              <div key={status}>
-                <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30 sticky top-8 z-10">
+              <div key={status} className="mb-4">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-background border-b border-border/30 sticky top-0 z-10">
                   <button
                     type="button"
                     onClick={() => toggleGroup(status)}
@@ -410,25 +468,24 @@ export function ListView({
                     ) : (
                       <ChevronRight className="size-3.5 text-muted-foreground" />
                     )}
-                    <span className={cn("size-2.5 rounded-full shrink-0", STATUS_DOT[status])} />
-                    <span className={cn("text-xs font-bold uppercase tracking-wide", GROUP_ACCENT[status])}>
-                      {STATUS_LABEL[status]}
-                    </span>
-                    <span className="text-xs text-muted-foreground font-medium">{groupTasks.length}</span>
+                    {getStatusBadge(status, true)}
+                    <span className="text-xs text-muted-foreground font-semibold ml-1">{groupTasks.length}</span>
                   </button>
                 </div>
 
                 {isOpen && (
                   <>
+                    {renderColumnHeaders()}
                     {groupTasks.map((task) => renderTaskRow(task))}
                     {onAddTask && (
                       <div
                         onClick={() => onAddTask(status)}
-                        className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/20 transition-colors cursor-pointer group"
+                        className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         <div className="w-4 shrink-0" />
+                        <div className="w-4 shrink-0" />
                         <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
                           Add Task
                         </span>
                       </div>

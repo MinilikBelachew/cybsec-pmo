@@ -72,7 +72,7 @@ export function TaskAssigneeAvailabilityAlert({
   if (!data.isOverAllocated && data.warnings.length === 0) {
     return (
       <p className="text-[11px] text-muted-foreground">
-        {data.employeeName}: {data.remainingHours}h/wk remaining (
+        {data.employeeName}: {data.remainingHours}h/week remaining (
         {data.utilizationPercent}% utilized).
       </p>
     );
@@ -87,8 +87,8 @@ export function TaskAssigneeAvailabilityAlert({
             <p key={warning}>{warning}</p>
           ))}
           <p className="text-muted-foreground">
-            Allocations {data.allocationHours}h/wk · other tasks {data.otherTaskHours}h/wk · this
-            task {data.thisTaskHours}h/wk.
+            Allocations {data.allocationHours}h/week · other tasks {data.otherTaskHours}h/week · this
+            task {data.thisTaskHours}h/week.
           </p>
         </div>
       </div>

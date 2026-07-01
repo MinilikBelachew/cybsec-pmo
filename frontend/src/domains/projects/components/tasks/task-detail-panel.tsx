@@ -325,9 +325,11 @@ export function TaskDetailPanel({
                         render={({ field }) => (
                           <Select value={field.value} onValueChange={field.onChange}>
                             <SelectTrigger className="w-full">
-                              <SelectValue />
+                              <SelectValue>
+                                {STATUS_OPTIONS.find((opt) => opt.value === field.value)?.label ?? field.value}
+                              </SelectValue>
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent alignItemWithTrigger={false}>
                               {statusOptions.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>
                                   {opt.label}
@@ -405,15 +407,20 @@ export function TaskDetailPanel({
                                 )}
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent alignItemWithTrigger={false}>
                               <SelectItem value="none">Unassigned</SelectItem>
                               {assignees.map((assignee) => (
                                 <SelectItem key={assignee.userId} value={assignee.userId}>
-                                  <div className="flex flex-col gap-0.5 py-0.5 text-left">
-                                    <span>{assignee.displayName}</span>
-                                    <span className="text-[11px] text-muted-foreground">
-                                      {assignee.role} · {assignee.department.name}
+                                  <div className="flex items-center gap-2.5 py-0.5">
+                                    <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                                      {initials(assignee.displayName)}
                                     </span>
+                                    <div className="flex flex-col gap-0.5 text-left">
+                                      <span>{assignee.displayName}</span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {assignee.role} · {assignee.department.name}
+                                      </span>
+                                    </div>
                                   </div>
                                 </SelectItem>
                               ))}
