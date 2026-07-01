@@ -37,6 +37,7 @@ import { MilestoneForm } from "./milestone-form";
 import { PhaseFormValues } from "../../schemas/phase/phase.schema";
 import { MilestoneFormValues } from "../../schemas/milestone/milestone.schema";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
 function formatWeight(weight: any): string {
   if (weight == null) return "";
@@ -65,6 +66,7 @@ interface PhaseMilestonePanelProps {
 }
 
 export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilestonePanelProps) {
+  const { canCreatePhases, canEditPhases, canEditMilestones, canApproveProjects } = useModulePermissions();
   const { data: project } = useGetProjectByIdQuery(projectId);
   const { data: phases = [] } = useGetPhasesQuery(projectId);
   const { data: milestones = [] } = useGetMilestonesQuery(projectId);
@@ -361,12 +363,16 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
               // LIST VIEW OF PHASES & MILESTONES
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="p-4 bg-muted/30 flex gap-2 border-b border-border shrink-0">
+                  {canCreatePhases && (
                   <Button onClick={() => setActiveForm({ type: "add-phase" })} size="lg" variant="outline" className="flex-1 gap-1 text-xs font-semibold">
                     <Plus className="size-3.5" /> New Phase
                   </Button>
+                  )}
+                  {canEditMilestones && (
                   <Button onClick={() => setActiveForm({ type: "add-milestone" })} size="lg" className="flex-1 gap-1 text-xs font-semibold">
                     <Plus className="size-3.5" /> New Milestone
                   </Button>
+                  )}
                 </div>
 
                 <ScrollArea className="flex-1">
@@ -381,9 +387,11 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                       {phases.length === 0 ? (
                         <div className="text-center p-6 border border-dashed border-border rounded-lg">
                           <p className="text-xs text-muted-foreground">No phases defined yet.</p>
+                          {canCreatePhases && (
                           <Button variant="link" size="xs" onClick={() => setActiveForm({ type: "add-phase" })} className="text-primary font-semibold p-0 mt-1 h-auto">
                             Create one now
                           </Button>
+                          )}
                         </div>
                       ) : (
                         sortedPhases.map((phase) => {
@@ -436,7 +444,9 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                   </div>
                                 </div>
 
+                                {(canEditPhases || canEditMilestones || canApproveProjects) && (
                                 <div className="flex items-center gap-1.5 ml-2">
+                                  {canEditMilestones && (
                                   <button
                                     type="button"
                                     onClick={() => setActiveForm({ type: "add-milestone", id: phase.id })}
@@ -445,6 +455,8 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                   >
                                     <Plus className="size-3.5" />
                                   </button>
+                                  )}
+                                  {canEditPhases && (
                                   <button
                                     type="button"
                                     onClick={() => setActiveForm({ type: "edit-phase", id: phase.id })}
@@ -453,6 +465,8 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                   >
                                     <Edit2 className="size-3.5" />
                                   </button>
+                                  )}
+                                  {canApproveProjects && (
                                   <button
                                     type="button"
                                     onClick={() => setDeleteConfirm({ isOpen: true, type: "phase", id: phase.id })}
@@ -461,7 +475,9 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                   >
                                     <Trash2 className="size-3.5" />
                                   </button>
+                                  )}
                                 </div>
+                                )}
                               </div>
 
                               {/* Phase description if expanded */}
@@ -481,12 +497,14 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                   {phaseMilestones.length === 0 ? (
                                     <div className="text-center p-3 text-[10px] text-muted-foreground">
                                       No milestones in this phase.
+                                      {canEditMilestones && (
                                       <button
                                         onClick={() => setActiveForm({ type: "add-milestone", id: phase.id })}
                                         className="text-primary font-bold ml-1 hover:underline"
                                       >
                                         Add Milestone
                                       </button>
+                                      )}
                                     </div>
                                   ) : (
                                     phaseMilestones.map((m) => (
@@ -515,7 +533,9 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                             </span>
                                           </div>
                                         </div>
+                                        {(canEditMilestones || canApproveProjects) && (
                                         <div className="flex items-center gap-1 ml-2">
+                                          {canEditMilestones && (
                                           <button
                                             type="button"
                                             onClick={() => setActiveForm({ type: "edit-milestone", id: m.id })}
@@ -523,6 +543,8 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                           >
                                             <Edit2 className="size-3" />
                                           </button>
+                                          )}
+                                          {canApproveProjects && (
                                           <button
                                             type="button"
                                             onClick={() => setDeleteConfirm({ isOpen: true, type: "milestone", id: m.id })}
@@ -530,7 +552,9 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                           >
                                             <Trash2 className="size-3" />
                                           </button>
+                                          )}
                                         </div>
+                                        )}
                                       </div>
                                     ))
                                   )}
@@ -572,7 +596,9 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                   </span>
                                 </div>
                               </div>
+                              {(canEditMilestones || canApproveProjects) && (
                               <div className="flex items-center gap-1 ml-2">
+                                {canEditMilestones && (
                                 <button
                                   type="button"
                                   onClick={() => setActiveForm({ type: "edit-milestone", id: m.id })}
@@ -580,6 +606,8 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                 >
                                   <Edit2 className="size-3" />
                                 </button>
+                                )}
+                                {canApproveProjects && (
                                 <button
                                   type="button"
                                   onClick={() => setDeleteConfirm({ isOpen: true, type: "milestone", id: m.id })}
@@ -587,7 +615,9 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                 >
                                   <Trash2 className="size-3" />
                                 </button>
+                                )}
                               </div>
+                              )}
                             </div>
                           ))}
                         </div>

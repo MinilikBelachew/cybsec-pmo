@@ -22,8 +22,10 @@ enum ProjectStatus {
   Draft
   Active
   On_Hold         @map("On Hold")
+  At_Risk         @map("At Risk")
   Pending_Closure @map("Pending Closure")
   Closed
+  Cancelled
 }
 
 enum TaskStatus {

@@ -28,52 +28,13 @@ import {
 import { cn } from "@/shared/utils/cn";
 import { ImportPreviewScrollArea } from "../shared/import-preview-scroll-area";
 
-const STATUS_CONFIG: Record<string, {
-  label: string; dot: string; text: string; bg: string; border: string
-}> = {
-  Active: { 
-    label: "Active", 
-    dot: "bg-emerald-500", 
-    text: "text-emerald-700 dark:text-emerald-400", 
-    bg: "bg-emerald-50 dark:bg-emerald-900/20", 
-    border: "border-emerald-200 dark:border-emerald-800" 
-  },
-  OnHold: { 
-    label: "On Hold", 
-    dot: "bg-amber-400", 
-    text: "text-amber-700 dark:text-amber-400", 
-    bg: "bg-amber-50 dark:bg-amber-900/20", 
-    border: "border-amber-200 dark:border-amber-800" 
-  },
-  PendingClosure: { 
-    label: "At Risk", 
-    dot: "bg-rose-500", 
-    text: "text-rose-700 dark:text-rose-400", 
-    bg: "bg-rose-50 dark:bg-rose-900/20", 
-    border: "border-rose-200 dark:border-rose-800" 
-  },
-  Closed: { 
-    label: "Completed", 
-    dot: "bg-primary", 
-    text: "text-primary", 
-    bg: "bg-primary/10", 
-    border: "border-primary/30" 
-  },
-  Draft: { 
-    label: "Draft", 
-    dot: "bg-muted-foreground", 
-    text: "text-muted-foreground", 
-    bg: "bg-muted/40", 
-    border: "border-border" 
-  },
-  Planned: {
-    label: "Planned",
-    dot: "bg-blue-500",
-    text: "text-blue-700 dark:text-blue-400",
-    bg: "bg-blue-50 dark:bg-blue-900/20",
-    border: "border-blue-200 dark:border-blue-800"
-  }
-};
+import {
+  PROJECT_STATUS_CONFIG,
+  PROJECT_STATUSES,
+  getProjectStatusLabel,
+} from "../../utils/project-status";
+
+const STATUS_CONFIG = PROJECT_STATUS_CONFIG;
 
 const PRIORITY_CONFIG: Record<string, { label: string; dot: string; bg: string; text: string }> = {
   Critical: { label: "Critical", dot: "bg-red-500", bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-400" },
@@ -86,7 +47,7 @@ const isEngagementValid = (val: string) => ["ManagedServices", "StaffAugmentatio
 const isBillingValid = (val: string) => ["TimeAndMaterial", "FixedPrice", "Retainer"].includes(val);
 const isPriorityValid = (val: string) => ["Low", "Medium", "High", "Critical"].includes(val);
 const isCurrencyValid = (val: string) => ["USD", "EUR", "AED", "SAR"].includes(val);
-const isStatusValid = (val: string) => ["Draft", "Active", "OnHold", "PendingClosure", "Closed"].includes(val);
+const isStatusValid = (val: string) => PROJECT_STATUSES.includes(val as (typeof PROJECT_STATUSES)[number]);
 
 const formatBudget = (value: number, currency: string) => {
   try {
@@ -126,13 +87,10 @@ const CURRENCY_OPTIONS = [
   { value: "SAR", label: "SAR" },
 ];
 
-const STATUS_OPTIONS = [
-  { value: "Draft", label: "Draft" },
-  { value: "Active", label: "Active" },
-  { value: "OnHold", label: "On Hold" },
-  { value: "PendingClosure", label: "At Risk" },
-  { value: "Closed", label: "Completed" },
-];
+const STATUS_OPTIONS = PROJECT_STATUSES.map((value) => ({
+  value,
+  label: getProjectStatusLabel(value),
+}));
 
 interface EnumSelectProps {
   value: string;
@@ -817,7 +775,7 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
                                   <td className="p-3">
                                     {isStatusValid(row.status) ? (
                                       (() => {
-                                        const statusCfg = STATUS_CONFIG[row.status] || STATUS_CONFIG.Planned;
+                                        const statusCfg = STATUS_CONFIG[row.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.Draft;
                                         return (
                                           <span className={cn("inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0", statusCfg.bg, statusCfg.text, statusCfg.border)}>
                                             <span className={cn("size-1.5 rounded-full", statusCfg.dot)} />

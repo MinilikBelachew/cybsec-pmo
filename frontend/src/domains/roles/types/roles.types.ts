@@ -99,6 +99,32 @@ export interface RecordScopesResponse {
   data: RecordScopeOption[];
 }
 
+export interface PermissionMatrixRole {
+  id: number;
+  code: string;
+  label: string;
+  isExternal: boolean;
+}
+
+export interface PermissionMatrixCell {
+  roleId: number;
+  granted: boolean;
+  grantId?: string;
+  recordScope: string | null;
+}
+
+export interface PermissionMatrixRow {
+  module: string;
+  action: string;
+  permissionId: string;
+  cells: PermissionMatrixCell[];
+}
+
+export interface PermissionMatrixResponse {
+  roles: PermissionMatrixRole[];
+  rows: PermissionMatrixRow[];
+}
+
 export interface GrantRolePermissionPayload {
   permissionId: string;
   recordScope: string;

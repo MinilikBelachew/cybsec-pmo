@@ -38,6 +38,7 @@ import {
   Edit2,
 } from "lucide-react";
 import { PhaseStatus } from "../../../types/projects.types";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
 import type { GetTasksParams } from "../../../types/tasks.types";
 
@@ -54,6 +55,7 @@ interface PhaseViewProps {
 
 export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
   function PhaseView({ projectId, taskQueryParams, onTaskClick, onAddTask }, ref) {
+  const { canCreatePhases, canEditPhases, canEditMilestones, canApproveProjects } = useModulePermissions();
   const { data: project } = useGetProjectByIdQuery(projectId);
   const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(projectId);
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(projectId);
@@ -63,9 +65,10 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
 
   useImperativeHandle(ref, () => ({
     openAddPhase: () => {
+      if (!canCreatePhases) return;
       setActiveForm({ type: "add-phase" });
     },
-  }));
+  }), [canCreatePhases]);
 
   const [createPhase, { isLoading: isCreatingPhase }] = useCreatePhaseMutation();
   const [updatePhase, { isLoading: isUpdatingPhase }] = useUpdatePhaseMutation();
@@ -373,12 +376,14 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
           <p className="text-xs text-muted-foreground max-w-sm mt-1 mb-4">
             Phases help organize your project roadmap and group tasks. Create your first phase to get started.
           </p>
-          <Button
-            onClick={() => setActiveForm({ type: "add-phase" })}
-            className="font-bold h-9 text-xs rounded-xl"
-          >
-            <Plus className="mr-1.5 size-4" /> Create Your First Phase
-          </Button>
+          {canCreatePhases && (
+            <Button
+              onClick={() => setActiveForm({ type: "add-phase" })}
+              className="font-bold h-9 text-xs rounded-xl"
+            >
+              <Plus className="mr-1.5 size-4" /> Create Your First Phase
+            </Button>
+          )}
         </div>
 
         {/* ── Modals & Dialogs ── */}
@@ -484,7 +489,9 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                           {phase.status.replace("_", " ")}
                         </Badge>
                       </div>
+                      {(canEditPhases || canApproveProjects) && (
                       <div className="flex items-center gap-1 shrink-0">
+                        {canEditPhases && (
                         <button
                           onClick={() => setActiveForm({ type: "edit-phase", id: phase.id })}
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-muted transition-colors"
@@ -492,6 +499,8 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                         >
                           <Edit2 className="size-3.5" />
                         </button>
+                        )}
+                        {canApproveProjects && (
                         <button
                           onClick={() => setDeleteConfirm({ isOpen: true, type: "phase", id: phase.id })}
                           className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
@@ -499,7 +508,9 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                         >
                           <Trash2 className="size-3.5" />
                         </button>
+                        )}
                       </div>
+                      )}
                     </div>
 
                     {phase.description && (
@@ -556,12 +567,14 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                         <Flag className="size-3.5 text-primary" />
                         Milestones ({phaseMilestones.length})
                       </h4>
+                      {canEditMilestones && (
                       <button
                         onClick={() => setActiveForm({ type: "add-milestone", phaseId: phase.id })}
                         className="flex items-center gap-0.5 text-[10px] font-bold text-primary hover:underline"
                       >
                         <Plus className="size-3" /> Add
                       </button>
+                      )}
                     </div>
 
                     {phaseMilestones.length === 0 ? (
@@ -588,7 +601,9 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                                 Target: {new Date(m.targetDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                               </span>
                             </div>
+                            {(canEditMilestones || canApproveProjects) && (
                             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/milestone:opacity-100 transition-opacity">
+                              {canEditMilestones && (
                               <button
                                 onClick={() => setActiveForm({ type: "edit-milestone", id: m.id })}
                                 className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-muted transition-colors"
@@ -596,6 +611,8 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                               >
                                 <Edit2 className="size-3" />
                               </button>
+                              )}
+                              {canApproveProjects && (
                               <button
                                 onClick={() => setDeleteConfirm({ isOpen: true, type: "milestone", id: m.id })}
                                 className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
@@ -603,7 +620,9 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                               >
                                 <Trash2 className="size-3" />
                               </button>
+                              )}
                             </div>
+                            )}
                           </div>
                         ))}
                       </div>

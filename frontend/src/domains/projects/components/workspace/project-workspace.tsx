@@ -26,6 +26,7 @@ import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { useAppAbility, useAuth } from "@/domains/auth";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { cn } from "@/shared/utils/cn";
 import {
   DropdownMenu,
@@ -231,6 +232,7 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
+  const { canCreatePhases } = useModulePermissions();
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
   const canManageTasks = ability?.can("create", "Task") ?? false;
   const canCreateTask = canManageTasks;
@@ -869,6 +871,7 @@ export function ProjectWorkspace() {
           )}
 
           {activeView === "phases" ? (
+            canCreatePhases ? (
             <Button
               onClick={() => {
                 phaseViewRef.current?.openAddPhase();
@@ -878,6 +881,7 @@ export function ProjectWorkspace() {
               <Plus className="mr-1.5 size-4" />
               Add Phase
             </Button>
+            ) : null
           ) : canCreateTask ? (
             <Button
               onClick={() => {

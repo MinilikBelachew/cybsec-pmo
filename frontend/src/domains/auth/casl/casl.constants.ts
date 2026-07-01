@@ -16,6 +16,7 @@ export const MODULE_TO_SUBJECT: Record<string, string> = {
   notifications: "Notification",
   projects: "Project",
   milestones: "Project",
+  phases: "Project",
   dependencies: "Project",
   project_import: "Project",
   project_export: "Project",

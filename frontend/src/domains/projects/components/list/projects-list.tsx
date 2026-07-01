@@ -38,6 +38,11 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import type { GetProjectsParams, PriorityLevel, Project, ProjectSortField, ProjectStatus } from "../../types/projects.types";
 import {
+  PROJECT_STATUS_CONFIG,
+  PROJECT_STATUS_FILTER_OPTIONS,
+  getProjectStatusConfig,
+} from "../../utils/project-status";
+import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
   ChevronDown, X, Calendar, Milestone,
@@ -48,45 +53,7 @@ import {
 } from "lucide-react";
 
 // ─── Status Config Mapping ────────────────────────────────────────────────────
-const STATUS_CONFIG: Record<string, {
-  label: string; dot: string; text: string; bg: string; border: string
-}> = {
-  Active: { 
-    label: "Active", 
-    dot: "bg-emerald-500", 
-    text: "text-emerald-700 dark:text-emerald-400", 
-    bg: "bg-emerald-50 dark:bg-emerald-900/20", 
-    border: "border-emerald-200 dark:border-emerald-800" 
-  },
-  OnHold: { 
-    label: "On Hold", 
-    dot: "bg-amber-400", 
-    text: "text-amber-700 dark:text-amber-400", 
-    bg: "bg-amber-50 dark:bg-amber-900/20", 
-    border: "border-amber-200 dark:border-amber-800" 
-  },
-  PendingClosure: { 
-    label: "At Risk", 
-    dot: "bg-rose-500", 
-    text: "text-rose-700 dark:text-rose-400", 
-    bg: "bg-rose-50 dark:bg-rose-900/20", 
-    border: "border-rose-200 dark:border-rose-800" 
-  },
-  Closed: { 
-    label: "Completed", 
-    dot: "bg-primary", 
-    text: "text-primary", 
-    bg: "bg-primary/10", 
-    border: "border-primary/30" 
-  },
-  Draft: { 
-    label: "Draft", 
-    dot: "bg-muted-foreground", 
-    text: "text-muted-foreground", 
-    bg: "bg-muted/40", 
-    border: "border-border" 
-  },
-};
+const STATUS_CONFIG = PROJECT_STATUS_CONFIG;
 
 const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: string; text: string }> = {
   Critical: { label: "Critical", dot: "bg-red-500", bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-400" },
@@ -95,14 +62,7 @@ const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: s
   Low: { label: "Low", dot: "bg-slate-400", bg: "bg-slate-50 dark:bg-slate-900/20", text: "text-slate-600 dark:text-slate-400" },
 };
 
-const STATUS_FILTER_OPTIONS: { value: ProjectStatus | "all"; label: string; description: string; dot: string }[] = [
-  { value: "all", label: "All statuses", description: "Every project in your portfolio", dot: "bg-muted-foreground" },
-  { value: "Active", label: "Active", description: "Currently in delivery", dot: "bg-emerald-500" },
-  { value: "PendingClosure", label: "At risk", description: "Pending closure review", dot: "bg-rose-500" },
-  { value: "OnHold", label: "On hold", description: "Paused or delayed", dot: "bg-amber-400" },
-  { value: "Closed", label: "Completed", description: "Successfully closed", dot: "bg-primary" },
-  { value: "Draft", label: "Draft", description: "Not yet started", dot: "bg-muted-foreground" },
-];
+const STATUS_FILTER_OPTIONS = PROJECT_STATUS_FILTER_OPTIONS;
 
 const PRIORITY_FILTER_OPTIONS: { value: PriorityLevel | "all"; label: string; description: string; dot: string }[] = [
   { value: "all", label: "All priorities", description: "Any priority level", dot: "bg-muted-foreground" },
@@ -569,7 +529,7 @@ export function ProjectsList() {
         />
         <PortfolioStatCard
           title="At risk"
-          subtitle="Pending closure"
+          subtitle="Health concerns"
           value={portfolioKpis.atRisk}
           numericValue={portfolioKpis.atRisk}
           chartMax={Math.max(portfolioKpis.total, 1)}
@@ -808,7 +768,7 @@ function ProjectGridCard({
   showBudget?: boolean;
 }) {
   const router = useRouter();
-  const s = STATUS_CONFIG[p.status] || STATUS_CONFIG.Draft;
+  const s = getProjectStatusConfig(p.status);
   const budgetPct = p.budget > 0 ? Math.round((p.budgetUsed / p.budget) * 100) : 0;
   const overBudget = p.budgetUsed > p.budget;
   const showActions = Boolean(onEdit || onDelete);

@@ -20,45 +20,9 @@ import {
 import { formatProjectBudgetCompact } from "../../utils/format-budget";
 import { EmployeeTooltip } from "../shared/employee-tooltip";
 
-const STATUS_CONFIG: Record<string, {
-  label: string; dot: string; text: string; bg: string; border: string
-}> = {
-  Active: {
-    label: "Active",
-    dot: "bg-emerald-500",
-    text: "text-emerald-700 dark:text-emerald-400",
-    bg: "bg-emerald-50 dark:bg-emerald-900/20",
-    border: "border-emerald-200 dark:border-emerald-800",
-  },
-  OnHold: {
-    label: "On Hold",
-    dot: "bg-amber-400",
-    text: "text-amber-700 dark:text-amber-400",
-    bg: "bg-amber-50 dark:bg-amber-900/20",
-    border: "border-amber-200 dark:border-amber-800",
-  },
-  PendingClosure: {
-    label: "At Risk",
-    dot: "bg-rose-500",
-    text: "text-rose-700 dark:text-rose-400",
-    bg: "bg-rose-50 dark:bg-rose-900/20",
-    border: "border-rose-200 dark:border-rose-800",
-  },
-  Closed: {
-    label: "Completed",
-    dot: "bg-primary",
-    text: "text-primary",
-    bg: "bg-primary/10",
-    border: "border-primary/30",
-  },
-  Draft: {
-    label: "Draft",
-    dot: "bg-muted-foreground",
-    text: "text-muted-foreground",
-    bg: "bg-muted/40",
-    border: "border-border",
-  },
-};
+import { PROJECT_STATUS_CONFIG } from "../../utils/project-status";
+
+const STATUS_CONFIG = PROJECT_STATUS_CONFIG;
 
 export type ProjectListRow = Project & {
   description: string;

@@ -11,6 +11,10 @@ import {
   CHECK_MODULE_PERMISSION_KEY,
   CheckModulePermissionMeta,
 } from './decorators/check-module-permission.decorator';
+import {
+  CHECK_ANY_MODULE_PERMISSION_KEY,
+  ModulePermissionRequirement,
+} from './decorators/check-any-module-permission.decorator';
 import { hasModulePermission } from './module-permission.util';
 import { PermissionsCacheService } from './permissions-cache.service';
 import { RequestWithAbility } from './casl.guard';
@@ -24,11 +28,18 @@ export class ModulePermissionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const anyMeta = this.reflector.getAllAndOverride<
+      ModulePermissionRequirement[] | undefined
+    >(CHECK_ANY_MODULE_PERMISSION_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     const meta = this.reflector.getAllAndOverride<
       CheckModulePermissionMeta | undefined
     >(CHECK_MODULE_PERMISSION_KEY, [context.getHandler(), context.getClass()]);
 
-    if (!meta) {
+    if (!meta && !anyMeta?.length) {
       return true;
     }
 
@@ -40,7 +51,17 @@ export class ModulePermissionGuard implements CanActivate {
 
     const permissions = this.permissionsCache.getByRoleId(request.caslUser.roleId);
 
-    if (!hasModulePermission(permissions, meta.module, meta.action)) {
+    if (anyMeta?.length) {
+      const allowed = anyMeta.some((requirement) =>
+        hasModulePermission(permissions, requirement.module, requirement.action),
+      );
+      if (!allowed) {
+        throw new ForbiddenException();
+      }
+      return true;
+    }
+
+    if (!hasModulePermission(permissions, meta!.module, meta!.action)) {
       throw new ForbiddenException();
     }
 

@@ -32,7 +32,15 @@ const baseProjectSchema = z
     currency: z.string().min(2).max(4).toUpperCase(),
     primaryPmId: z.string().uuid("Please assign a primary PM"),
     secondaryPmId: z.string().uuid().or(z.literal("")).nullable().optional(),
-    status: z.enum(["Draft", "Active", "OnHold", "PendingClosure", "Closed"]),
+    status: z.enum([
+      "Draft",
+      "Active",
+      "OnHold",
+      "AtRisk",
+      "PendingClosure",
+      "Closed",
+      "Cancelled",
+    ]),
   })
   .refine((data) => Boolean(data.startDate), {
     message: "Start date is required",

@@ -30,6 +30,10 @@ import {
   STATUS_FROM_PRISMA,
   type ProjectWithRelations,
 } from './mappers/project.mapper';
+import {
+  assertValidProjectStatusOnCreate,
+  assertValidProjectStatusTransition,
+} from './project-status.transitions';
 import { RoleEnum } from '../roles/roles.enum';
 
 const PROJECT_INCLUDE = {
@@ -90,6 +94,8 @@ export class ProjectsService {
     dto: CreateProjectDto & { milestones?: CreateMilestoneDto[] },
     actorId: string,
   ) {
+    const createStatus = dto.status ?? ApiProjectStatus.Draft;
+    assertValidProjectStatusOnCreate(createStatus);
     this.assertPrimaryPmPresent(dto.primaryPmId);
     this.assertOwnersRequiredForStatus(
       dto.status ?? ApiProjectStatus.Draft,
@@ -273,6 +279,8 @@ export class ProjectsService {
       atRisk: portfolioStats.atRisk,
       delayed: portfolioStats.delayed,
       completed: portfolioStats.completed,
+      pendingClosure: portfolioStats.pendingClosure,
+      cancelled: portfolioStats.cancelled,
       ...( 'totalValue' in portfolioStats
         ? { totalValue: portfolioStats.totalValue }
         : {}),
@@ -332,9 +340,11 @@ export class ProjectsService {
     const base = {
       total: statusGroups.reduce((sum, group) => sum + group._count._all, 0),
       active: byStatus.get(ProjectStatus.Active) ?? 0,
-      atRisk: byStatus.get(ProjectStatus.Pending_Closure) ?? 0,
+      atRisk: byStatus.get(ProjectStatus.At_Risk) ?? 0,
       delayed: byStatus.get(ProjectStatus.On_Hold) ?? 0,
       completed: byStatus.get(ProjectStatus.Closed) ?? 0,
+      pendingClosure: byStatus.get(ProjectStatus.Pending_Closure) ?? 0,
+      cancelled: byStatus.get(ProjectStatus.Cancelled) ?? 0,
     };
 
     if (!showFinancials) {
@@ -518,6 +528,15 @@ export class ProjectsService {
       merged.status ?? ApiProjectStatus.Draft,
       merged.primaryPmId,
     );
+
+    if (dto.status !== undefined) {
+      const fromStatus = STATUS_FROM_PRISMA[existing.status];
+      assertValidProjectStatusTransition(
+        fromStatus,
+        dto.status,
+        caslUser.roleCode,
+      );
+    }
 
     if (
       dto.departmentId ||
@@ -738,7 +757,7 @@ export class ProjectsService {
   }
 
   async createPhase(projectId: string, dto: CreatePhaseDto, caslUser: CaslUserContext) {
-    await this.assertProjectInScope(projectId, caslUser, 'update');
+    await this.assertProjectInScope(projectId, caslUser, 'create');
 
     if (dto.startDate && dto.endDate && dto.startDate > dto.endDate) {
       throw new UnprocessableEntityException({

@@ -4,6 +4,7 @@ import type {
   AllPermissionsResponse,
   GrantRolePermissionPayload,
   PermissionCatalogResponse,
+  PermissionMatrixResponse,
   RecordScopesResponse,
   RolePermissionsQuery,
   RolePermissionsResponse,
@@ -27,6 +28,19 @@ function buildListParams(
   if ("roleId" in params && params.roleId) query.roleId = params.roleId;
 
   return query;
+}
+
+function patchMatrixCell(
+  draft: PermissionMatrixResponse,
+  roleId: number,
+  permissionId: string,
+  patch: Partial<PermissionMatrixResponse["rows"][number]["cells"][number]>,
+) {
+  const row = draft.rows.find((entry) => entry.permissionId === permissionId);
+  const cell = row?.cells.find((entry) => entry.roleId === roleId);
+  if (cell) {
+    Object.assign(cell, patch);
+  }
 }
 
 export const rolesApi = api.injectEndpoints({
@@ -61,6 +75,11 @@ export const rolesApi = api.injectEndpoints({
       providesTags: [{ type: "Permissions", id: "LIST" }],
     }),
 
+    getPermissionMatrix: builder.query<PermissionMatrixResponse, void>({
+      query: () => ({ url: "/roles/permissions/matrix" }),
+      providesTags: [{ type: "Permissions", id: "MATRIX" }],
+    }),
+
     getPermissionCatalog: builder.query<PermissionCatalogResponse, void>({
       query: () => ({ url: "/roles/permissions/catalog" }),
       providesTags: [{ type: "Permissions", id: "CATALOG" }],
@@ -79,6 +98,31 @@ export const rolesApi = api.injectEndpoints({
         method: "POST",
         body,
       }),
+      async onQueryStarted({ roleId, body }, { dispatch, queryFulfilled }) {
+        const patchResult = dispatch(
+          rolesApi.util.updateQueryData("getPermissionMatrix", undefined, (draft) => {
+            patchMatrixCell(draft, roleId, body.permissionId, {
+              granted: true,
+              recordScope: body.recordScope,
+              grantId: undefined,
+            });
+          }),
+        );
+
+        try {
+          const { data } = await queryFulfilled;
+          dispatch(
+            rolesApi.util.updateQueryData("getPermissionMatrix", undefined, (draft) => {
+              patchMatrixCell(draft, roleId, body.permissionId, {
+                grantId: data.id,
+                recordScope: data.recordScope,
+              });
+            }),
+          );
+        } catch {
+          patchResult.undo();
+        }
+      },
       invalidatesTags: (_result, _error, { roleId }) => [
         { type: "Roles", id: "LIST" },
         { type: "Roles", id: roleId },
@@ -100,6 +144,7 @@ export const rolesApi = api.injectEndpoints({
         { type: "Roles", id: "LIST" },
         { type: "Roles", id: roleId },
         { type: "Permissions", id: "LIST" },
+        { type: "Permissions", id: "MATRIX" },
         { type: "Permissions", id: `ROLE_${roleId}` },
       ],
     }),
@@ -112,6 +157,29 @@ export const rolesApi = api.injectEndpoints({
         url: `/roles/${roleId}/permissions/${grantId}`,
         method: "DELETE",
       }),
+      async onQueryStarted({ roleId, grantId }, { dispatch, queryFulfilled }) {
+        const patchResult = dispatch(
+          rolesApi.util.updateQueryData("getPermissionMatrix", undefined, (draft) => {
+            for (const row of draft.rows) {
+              const cell = row.cells.find(
+                (entry) => entry.roleId === roleId && entry.grantId === grantId,
+              );
+              if (cell) {
+                cell.granted = false;
+                cell.grantId = undefined;
+                cell.recordScope = null;
+                break;
+              }
+            }
+          }),
+        );
+
+        try {
+          await queryFulfilled;
+        } catch {
+          patchResult.undo();
+        }
+      },
       invalidatesTags: (_result, _error, { roleId }) => [
         { type: "Roles", id: "LIST" },
         { type: "Roles", id: roleId },
@@ -126,6 +194,7 @@ export const {
   useGetRolesQuery,
   useGetRolePermissionsQuery,
   useGetAllPermissionsQuery,
+  useGetPermissionMatrixQuery,
   useGetPermissionCatalogQuery,
   useGetRecordScopesQuery,
   useGrantRolePermissionMutation,

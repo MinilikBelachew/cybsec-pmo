@@ -54,16 +54,20 @@ const STATUS_TO_PRISMA: Record<ApiProjectStatus, ProjectStatus> = {
   [ApiProjectStatus.Draft]: ProjectStatus.Draft,
   [ApiProjectStatus.Active]: ProjectStatus.Active,
   [ApiProjectStatus.OnHold]: ProjectStatus.On_Hold,
+  [ApiProjectStatus.AtRisk]: ProjectStatus.At_Risk,
   [ApiProjectStatus.PendingClosure]: ProjectStatus.Pending_Closure,
   [ApiProjectStatus.Closed]: ProjectStatus.Closed,
+  [ApiProjectStatus.Cancelled]: ProjectStatus.Cancelled,
 };
 
 export const STATUS_FROM_PRISMA: Record<ProjectStatus, ApiProjectStatus> = {
   [ProjectStatus.Draft]: ApiProjectStatus.Draft,
   [ProjectStatus.Active]: ApiProjectStatus.Active,
   [ProjectStatus.On_Hold]: ApiProjectStatus.OnHold,
+  [ProjectStatus.At_Risk]: ApiProjectStatus.AtRisk,
   [ProjectStatus.Pending_Closure]: ApiProjectStatus.PendingClosure,
   [ProjectStatus.Closed]: ApiProjectStatus.Closed,
+  [ProjectStatus.Cancelled]: ApiProjectStatus.Cancelled,
 };
 
 export function toPrismaEngagementType(value: ApiEngagementType): EngagementType {

@@ -358,7 +358,7 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
-  @CheckModulePermission('projects', 'edit')
+  @CheckModulePermission('phases', 'create')
   @Post(':id/phases')
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -371,7 +371,7 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
-  @CheckModulePermission('projects', 'edit')
+  @CheckModulePermission('phases', 'edit')
   @Patch(':id/phases/:phaseId')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { NullableType } from '../utils/types/nullable.type';
-import { FilterUserDto, SortUserDto } from './dto/query-user.dto';
+import { QueryUserDto } from './dto/query-user.dto';
 import { UserRepository } from './infrastructure/persistence/user.repository';
 import { User } from './domain/user';
 import { IPaginationOptions } from '../utils/types/pagination-options';
@@ -44,19 +44,20 @@ export class UsersService {
   }
 
   findManyWithPagination({
-    filterOptions,
-    sortOptions,
+    query,
     paginationOptions,
   }: {
-    filterOptions?: FilterUserDto | null;
-    sortOptions?: SortUserDto[] | null;
+    query: QueryUserDto;
     paginationOptions: IPaginationOptions;
   }): Promise<User[]> {
     return this.usersRepository.findManyWithPagination({
-      filterOptions,
-      sortOptions,
+      query,
       paginationOptions,
     });
+  }
+
+  count(query: QueryUserDto): Promise<number> {
+    return this.usersRepository.count(query);
   }
 
   findById(id: User['id']): Promise<NullableType<User>> {

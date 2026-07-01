@@ -34,7 +34,7 @@ export function AuditTrailPage() {
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [selectedRows, setSelectedRows] = useState<AuditLogEntry[]>([]);
-  const [bulkActive, setBulkActive] = useState(true);
+  const [bulkActive, setBulkActive] = useState(false);
   const [detailEntry, setDetailEntry] = useState<AuditLogEntry | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 

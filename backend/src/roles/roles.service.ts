@@ -300,6 +300,56 @@ export class RolesService {
     return { data: permissions };
   }
 
+  async findPermissionMatrix() {
+    const [roles, catalog, grants] = await Promise.all([
+      this.prisma.role.findMany({
+        orderBy: { code: 'asc' },
+        select: { id: true, code: true, label: true, isExternal: true },
+      }),
+      this.prisma.permission.findMany({
+        orderBy: [{ module: 'asc' }, { action: 'asc' }],
+        select: { id: true, module: true, action: true },
+      }),
+      this.prisma.rolePermission.findMany({
+        select: {
+          id: true,
+          roleId: true,
+          permissionId: true,
+          recordScope: true,
+        },
+      }),
+    ]);
+
+    const grantByKey = new Map<
+      string,
+      { grantId: string; recordScope: string | null }
+    >();
+    for (const grant of grants) {
+      grantByKey.set(`${grant.roleId}:${grant.permissionId}`, {
+        grantId: grant.id,
+        recordScope: grant.recordScope,
+      });
+    }
+
+    return {
+      roles,
+      rows: catalog.map((permission) => ({
+        module: permission.module,
+        action: permission.action,
+        permissionId: permission.id,
+        cells: roles.map((role) => {
+          const match = grantByKey.get(`${role.id}:${permission.id}`);
+          return {
+            roleId: role.id,
+            granted: !!match,
+            grantId: match?.grantId,
+            recordScope: match?.recordScope ?? null,
+          };
+        }),
+      })),
+    };
+  }
+
   findRecordScopeOptions() {
     return {
       data: RECORD_SCOPE_CODES.map((code) => ({

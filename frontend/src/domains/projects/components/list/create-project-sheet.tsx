@@ -25,6 +25,12 @@ import {
   type ProjectTeamSectionHandle,
 } from "@/domains/projects";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
+import { useAuth } from "@/domains/auth/hooks/use-auth";
+import {
+  getProjectStatusLabel,
+  getSelectableProjectStatuses,
+} from "@/domains/projects/utils/project-status";
+import type { ProjectStatus } from "@/domains/projects/types/projects.types";
 import {
   Select,
   SelectContent,
@@ -161,6 +167,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     canEditTeam: canManageTeam,
     canEditMilestones,
   } = useModulePermissions();
+  const { user } = useAuth();
+  const roleCode = user?.backendRoleCode ?? user?.roles?.[0];
   const canEditProject = canEditProjects;
   const canEditTeam = canEditProject && canManageTeam;
   const isViewOnly = isEditMode && !canEditProject;
@@ -387,8 +395,17 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
       const fieldErrors = apiError?.data?.errors;
       if (fieldErrors) {
-        const firstError = Object.values(fieldErrors)[0];
-        toast.error(typeof firstError === "string" ? firstError : "Failed to save project.");
+        const statusError = fieldErrors.status;
+        if (statusError === "invalidStatusTransition") {
+          toast.error("That status change is not allowed for this project.");
+        } else if (statusError === "statusTransitionRequiresAdminApproval") {
+          toast.error("Only PMO Lead or Super Admin can close a project from Pending Closure.");
+        } else if (statusError === "invalidStatusOnCreate") {
+          toast.error("New projects must start in Draft status.");
+        } else {
+          const firstError = Object.values(fieldErrors)[0];
+          toast.error(typeof firstError === "string" ? firstError : "Failed to save project.");
+        }
       } else {
         toast.error(apiError?.data?.message ?? "Failed to save project. Please try again.");
       }
@@ -413,6 +430,11 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     void trigger("endDate");
   }, [watchedStartDate, watchedEndDate, trigger]);
   const watchedStatus = watch("status");
+  const selectableStatuses = getSelectableProjectStatuses(
+    isEditMode ? (project?.status as ProjectStatus | undefined) : undefined,
+    roleCode,
+    !isEditMode,
+  );
   const watchedPriority = watch("priority");
   const watchedCurrency = watch("currency");
 
@@ -586,15 +608,15 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                     <Select value={field.value || "Draft"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select status...">
-                          {watchedStatus === "Draft" ? "Draft" : watchedStatus === "Active" ? "Active" : watchedStatus === "OnHold" ? "On Hold" : watchedStatus === "PendingClosure" ? "At Risk" : watchedStatus === "Closed" ? "Completed" : undefined}
+                          {watchedStatus ? getProjectStatusLabel(watchedStatus as ProjectStatus) : undefined}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg">
-                        <SelectItem value="Draft">Draft</SelectItem>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="OnHold">On Hold</SelectItem>
-                        <SelectItem value="PendingClosure">At Risk</SelectItem>
-                        <SelectItem value="Closed">Completed</SelectItem>
+                        {selectableStatuses.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {getProjectStatusLabel(status)}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   )}

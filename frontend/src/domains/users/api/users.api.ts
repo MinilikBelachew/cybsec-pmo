@@ -4,12 +4,24 @@ import {
   type CreateUserDto,
   type UpdateUserDto,
   type PaginatedUsersResponse,
+  type GetUsersParams,
 } from "../types/users.types";
+
+function buildUsersQuery(params: GetUsersParams) {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.limit) searchParams.set("limit", String(params.limit));
+  if (params.search) searchParams.set("search", params.search);
+  if (params.sortBy) searchParams.set("sortBy", params.sortBy);
+  if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
+  const query = searchParams.toString();
+  return query ? `/users?${query}` : "/users";
+}
 
 export const usersApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    getUsers: builder.query<PaginatedUsersResponse, { page: number; limit: number }>({
-      query: ({ page, limit }) => `/users?page=${page}&limit=${limit}`,
+    getUsers: builder.query<PaginatedUsersResponse, GetUsersParams>({
+      query: (params) => buildUsersQuery(params),
       providesTags: (result) =>
         result
           ? [

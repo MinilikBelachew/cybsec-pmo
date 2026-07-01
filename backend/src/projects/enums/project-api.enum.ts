@@ -23,8 +23,10 @@ export enum ApiProjectStatus {
   Draft = 'Draft',
   Active = 'Active',
   OnHold = 'OnHold',
+  AtRisk = 'AtRisk',
   PendingClosure = 'PendingClosure',
   Closed = 'Closed',
+  Cancelled = 'Cancelled',
 }
 
 export enum ApiCurrencyCode {

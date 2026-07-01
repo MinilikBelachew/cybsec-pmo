@@ -1,60 +1,93 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
+import { PermissionsCacheService } from '../casl/permissions-cache.service';
 import { CaslUserContext } from '../casl/casl.types';
-import { ProjectStatus, TaskStatus, PhaseStatus, Prisma } from '@prisma/client';
+import { ProjectStatus, TaskStatus, Prisma } from '@prisma/client';
+import {
+  canViewDashboardAudit,
+  canViewDashboardFinancials,
+  canViewDashboardProjects,
+} from './dashboard-permissions.util';
+import { RECORD_SCOPE_ALL } from '../casl/record-scope.registry';
 
 @Injectable()
 export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
+    private readonly permissionsCache: PermissionsCacheService,
   ) {}
 
-  async getStats(caslUser: CaslUserContext) {
-    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
-    const taskScope = this.recordScopeWhere.taskWhere(caslUser, 'read');
+  private permissionsFor(user: CaslUserContext) {
+    return this.permissionsCache.getByRoleId(user.roleId);
+  }
 
-    // 1. Projects aggregation
+  private async scopedProjectIds(caslUser: CaslUserContext): Promise<string[]> {
+    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
     const projects = await this.prisma.project.findMany({
       where: projectScope,
-      select: {
-        id: true,
-        status: true,
-        value: true,
-      },
+      select: { id: true },
     });
+    return projects.map((project) => project.id);
+  }
 
-    const totalProjects = projects.length;
-    const activeProjects = projects.filter((p) => p.status === ProjectStatus.Active).length;
-    const atRiskProjects = projects.filter((p) => p.status === ProjectStatus.Pending_Closure).length;
-    const delayedProjects = projects.filter((p) => p.status === ProjectStatus.On_Hold).length;
-    const completedProjects = projects.filter((p) => p.status === ProjectStatus.Closed).length;
+  async getStats(caslUser: CaslUserContext) {
+    const permissions = this.permissionsFor(caslUser);
+    const showFinancials = canViewDashboardFinancials(permissions);
+    const showProjects = canViewDashboardProjects(permissions);
+    const taskScope = this.recordScopeWhere.taskWhere(caslUser, 'read');
 
-    const totalValue = projects.reduce((sum, p) => sum + Number(p.value ?? 0), 0);
-
-    // 2. Budget spent aggregation (from employee costs and budget line items)
-    const projectIds = projects.map((p) => p.id);
+    let totalProjects = 0;
+    let activeProjects = 0;
+    let atRiskProjects = 0;
+    let delayedProjects = 0;
+    let completedProjects = 0;
+    let totalValue = 0;
     let totalSpent = 0;
 
-    if (projectIds.length > 0) {
-      const [employeeCosts, lineItems] = await Promise.all([
-        this.prisma.employeeCost.aggregate({
-          where: { projectId: { in: projectIds } },
-          _sum: { totalCost: true },
-        }),
-        this.prisma.budgetLineItem.aggregate({
-          where: { budget: { projectId: { in: projectIds } } },
-          _sum: { actual: true },
-        }),
-      ]);
+    if (showProjects) {
+      const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
+      const projects = await this.prisma.project.findMany({
+        where: projectScope,
+        select: {
+          id: true,
+          status: true,
+          value: true,
+        },
+      });
 
-      const empSum = Number(employeeCosts._sum.totalCost ?? 0) / 1000;
-      const itemSum = Number(lineItems._sum.actual ?? 0) / 1000;
-      totalSpent = empSum > 0 ? empSum : itemSum;
+      totalProjects = projects.length;
+      activeProjects = projects.filter((p) => p.status === ProjectStatus.Active).length;
+      atRiskProjects = projects.filter(
+        (p) => p.status === ProjectStatus.At_Risk,
+      ).length;
+      delayedProjects = projects.filter((p) => p.status === ProjectStatus.On_Hold).length;
+      completedProjects = projects.filter((p) => p.status === ProjectStatus.Closed).length;
+
+      if (showFinancials) {
+        totalValue = projects.reduce((sum, p) => sum + Number(p.value ?? 0), 0);
+        const projectIds = projects.map((p) => p.id);
+
+        if (projectIds.length > 0) {
+          const [employeeCosts, lineItems] = await Promise.all([
+            this.prisma.employeeCost.aggregate({
+              where: { projectId: { in: projectIds } },
+              _sum: { totalCost: true },
+            }),
+            this.prisma.budgetLineItem.aggregate({
+              where: { budget: { projectId: { in: projectIds } } },
+              _sum: { actual: true },
+            }),
+          ]);
+
+          const empSum = Number(employeeCosts._sum.totalCost ?? 0) / 1000;
+          const itemSum = Number(lineItems._sum.actual ?? 0) / 1000;
+          totalSpent = empSum > 0 ? empSum : itemSum;
+        }
+      }
     }
 
-    // 3. Tasks aggregation
     const tasks = await this.prisma.task.findMany({
       where: taskScope,
       select: {
@@ -80,22 +113,26 @@ export class DashboardService {
         (t.priority === 'Critical' || t.priority === 'High'),
     ).length;
 
-    // 4. Resource count
-    const totalResources = await this.prisma.employee.count({
-      where: { isActive: true },
-    });
+    const totalResources = showProjects
+      ? await this.countScopedEmployees(caslUser)
+      : 0;
+
+    const projectsPayload: Record<string, number> = {
+      total: totalProjects,
+      active: activeProjects,
+      atRisk: atRiskProjects,
+      delayed: delayedProjects,
+      completed: completedProjects,
+    };
+
+    if (showFinancials) {
+      projectsPayload.totalValue = totalValue;
+      projectsPayload.totalSpent = totalSpent;
+      projectsPayload.remainingBudget = Math.max(0, totalValue - totalSpent);
+    }
 
     return {
-      projects: {
-        total: totalProjects,
-        active: activeProjects,
-        atRisk: atRiskProjects,
-        delayed: delayedProjects,
-        completed: completedProjects,
-        totalValue,
-        totalSpent,
-        remainingBudget: Math.max(0, totalValue - totalSpent),
-      },
+      projects: projectsPayload,
       tasks: {
         total: totalTasks,
         done: doneTasks,
@@ -113,6 +150,8 @@ export class DashboardService {
   }
 
   async getProjectHealth(caslUser: CaslUserContext) {
+    const permissions = this.permissionsFor(caslUser);
+    const showFinancials = canViewDashboardFinancials(permissions);
     const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
 
     const projects = await this.prisma.project.findMany({
@@ -137,7 +176,6 @@ export class DashboardService {
 
     const projectIds = projects.map((p) => p.id);
 
-    // Fetch budgets matching these projects to build a budgetId -> projectId mapping
     const budgets = projectIds.length
       ? await this.prisma.projectBudget.findMany({
           where: { projectId: { in: projectIds } },
@@ -148,7 +186,7 @@ export class DashboardService {
     const budgetIdToProjectId = new Map(budgets.map((b) => [b.id, b.projectId]));
     const budgetIds = budgets.map((b) => b.id);
 
-    const [doneTasks, doneMilestones, employeeCosts, lineItems] = projectIds.length
+    const [doneTasks, doneMilestones] = projectIds.length
       ? await Promise.all([
           this.prisma.task.groupBy({
             by: ['projectId'],
@@ -167,26 +205,35 @@ export class DashboardService {
             },
             _count: { _all: true },
           }),
-          this.prisma.employeeCost.groupBy({
+        ])
+      : [[], []];
+
+    const employeeCosts =
+      showFinancials && projectIds.length
+        ? await this.prisma.employeeCost.groupBy({
             by: ['projectId'],
             where: { projectId: { in: projectIds } },
             _sum: { totalCost: true },
-          }),
-          this.prisma.budgetLineItem.groupBy({
+          })
+        : [];
+
+    const lineItems =
+      showFinancials && budgetIds.length
+        ? await this.prisma.budgetLineItem.groupBy({
             by: ['budgetId'],
             where: { budgetId: { in: budgetIds } },
             _sum: { actual: true },
-          }),
-        ])
-      : [[], [], [], []];
+          })
+        : [];
 
     const doneTasksMap = new Map(doneTasks.map((t) => [t.projectId, t._count._all]));
-    const doneMilestonesMap = new Map(doneMilestones.map((m) => [m.projectId, m._count._all]));
+    const doneMilestonesMap = new Map(
+      doneMilestones.map((m) => [m.projectId, m._count._all]),
+    );
     const employeeSpentMap = new Map(
       employeeCosts.map((c) => [c.projectId, Number(c._sum.totalCost ?? 0) / 1000]),
     );
 
-    // Map nested budget actuals
     const lineItemSpentMap = new Map<string, number>();
     for (const item of lineItems) {
       const projId = budgetIdToProjectId.get(item.budgetId);
@@ -213,18 +260,26 @@ export class DashboardService {
               ? Math.round((tasksDone / tasksTotal) * 100)
               : 0;
 
-      const totalVal = Number(p.value ?? 0);
-      const spentVal = resolveBudgetSpent(p.id);
-      const budgetAdherence = totalVal > 0 ? Math.round((spentVal / totalVal) * 100) : 0;
-
-      return {
+      const base = {
         id: p.id,
         name: p.name,
         pm: p.primaryPm ? p.primaryPm.displayName : 'Unassigned',
         status: this.mapStatus(p.status),
         progress,
         tasks: tasksTotal,
-        risks: p._count.milestones - (doneMilestonesMap.get(p.id) ?? 0), // Pending milestones as simple risk proxy
+        risks: p._count.milestones - (doneMilestonesMap.get(p.id) ?? 0),
+      };
+
+      if (!showFinancials) {
+        return base;
+      }
+
+      const totalVal = Number(p.value ?? 0);
+      const spentVal = resolveBudgetSpent(p.id);
+      const budgetAdherence = totalVal > 0 ? Math.round((spentVal / totalVal) * 100) : 0;
+
+      return {
+        ...base,
         budget: budgetAdherence,
       };
     });
@@ -248,8 +303,10 @@ export class DashboardService {
 
     return milestones.map((m) => {
       const target = new Date(m.targetDate);
-      const daysLeft = Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      
+      const daysLeft = Math.ceil(
+        (target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+      );
+
       let status: 'completed' | 'on-track' | 'at-risk' | 'delayed' = 'on-track';
       if (m.status === 'Done' || m.status === 'Completed') {
         status = 'completed';
@@ -272,15 +329,22 @@ export class DashboardService {
 
   async getResources(caslUser: CaslUserContext) {
     const taskScope = this.recordScopeWhere.taskWhere(caslUser, 'read');
+    const projectIds = await this.scopedProjectIds(caslUser);
 
-    const [employees, departments, taskOwners] = await Promise.all([
-      this.prisma.employee.findMany({
-        where: { isActive: true },
-        include: {
-          department: { select: { name: true } },
-          allocations: { where: { status: 'Active' } },
-        },
-      }),
+    const allocationWhere: Prisma.AllocationWhereInput = projectIds.length
+      ? { projectId: { in: projectIds }, status: 'Active' }
+      : { id: '__scoped_none__' };
+
+    const allocations = await this.prisma.allocation.findMany({
+      where: allocationWhere,
+      select: { employeeId: true, projectId: true, percent: true, hours: true },
+    });
+
+    const scopedEmployeeIds = [
+      ...new Set(allocations.map((row) => row.employeeId)),
+    ] as string[];
+
+    const [departments, taskOwners] = await Promise.all([
       this.prisma.department.findMany({
         where: { isActive: true },
         select: { name: true },
@@ -294,12 +358,26 @@ export class DashboardService {
       }),
     ]);
 
+    const employees = scopedEmployeeIds.length
+      ? await this.prisma.employee.findMany({
+          where: { isActive: true, id: { in: scopedEmployeeIds } },
+          include: {
+            department: { select: { name: true } },
+            allocations: {
+              where: {
+                status: 'Active',
+                ...(projectIds.length ? { projectId: { in: projectIds } } : {}),
+              },
+            },
+          },
+        })
+      : [];
+
     const activeTasksMap = new Map(
       taskOwners.map((o) => [o.ownerId, o._count._all]),
     );
 
     const team = employees.map((emp) => {
-      // Utilization percent: sum of active allocations, fallback to 15% per active task if no allocations
       let util = emp.allocations.reduce((sum, a) => sum + Number(a.percent ?? 0), 0);
       const activeTasks = emp.userId ? (activeTasksMap.get(emp.userId) ?? 0) : 0;
 
@@ -314,44 +392,53 @@ export class DashboardService {
         status = 'under';
       }
 
+      const projectCount = new Set(emp.allocations.map((a) => a.projectId)).size;
+
       return {
         name: emp.name,
         role: emp.designation,
         dept: emp.department.name,
         util,
-        billable: Math.round(util * 0.8), // Assume 80% of their utilization is billable
-        projects: emp.allocations.length || (activeTasks > 0 ? 1 : 0),
+        billable: Math.round(util * 0.8),
+        projects: projectCount || (activeTasks > 0 ? 1 : 0),
         status,
       };
     });
 
-    // Departments breakdown hours
-    const deptBreakdown = departments.map((dept) => {
-      const deptEmployees = employees.filter((e) => e.department.name === dept.name);
-      
-      let billable = 0;
-      let nonBillable = 0;
+    const scopedDeptNames = new Set(employees.map((emp) => emp.department.name));
 
-      for (const emp of deptEmployees) {
-        const activeTasks = emp.userId ? (activeTasksMap.get(emp.userId) ?? 0) : 0;
-        const totalAllocatedHours = emp.allocations.reduce((sum, a) => sum + Number(a.hours ?? 0), 0);
-        
-        const hours = totalAllocatedHours > 0 ? totalAllocatedHours : (activeTasks * 24); // Est. 24h per task
-        
-        billable += Math.round(hours * 0.8);
-        nonBillable += Math.round(hours * 0.2);
-      }
+    const deptBreakdown = departments
+      .filter((dept) => scopedDeptNames.has(dept.name))
+      .map((dept) => {
+        const deptEmployees = employees.filter((e) => e.department.name === dept.name);
 
-      return {
-        dept: dept.name,
-        billable,
-        nonBillable,
-        total: billable + nonBillable,
-      };
-    }).filter((d) => d.total > 0);
+        let billable = 0;
+        let nonBillable = 0;
+
+        for (const emp of deptEmployees) {
+          const activeTasks = emp.userId ? (activeTasksMap.get(emp.userId) ?? 0) : 0;
+          const totalAllocatedHours = emp.allocations.reduce(
+            (sum, a) => sum + Number(a.hours ?? 0),
+            0,
+          );
+
+          const hours = totalAllocatedHours > 0 ? totalAllocatedHours : activeTasks * 24;
+
+          billable += Math.round(hours * 0.8);
+          nonBillable += Math.round(hours * 0.2);
+        }
+
+        return {
+          dept: dept.name,
+          billable,
+          nonBillable,
+          total: billable + nonBillable,
+        };
+      })
+      .filter((d) => d.total > 0);
 
     return {
-      team: team.slice(0, 8), // Top 8 members
+      team: team.slice(0, 8),
       departments: deptBreakdown,
     };
   }
@@ -370,13 +457,25 @@ export class DashboardService {
     });
 
     const projectIds = projects.map((p) => p.id);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const currentYear = new Date().getFullYear();
 
     const planned = new Array(12).fill(0);
     const actual = new Array(12).fill(0);
 
-    // Populate planned curve
     for (const p of projects) {
       const val = Number(p.value ?? 0);
       if (val <= 0) continue;
@@ -384,19 +483,24 @@ export class DashboardService {
       const start = new Date(p.startDate);
       const end = new Date(p.endDate);
 
-      // Distribute value equally across project months in the current year
-      const totalMonths = Math.max(1, (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()));
+      const totalMonths = Math.max(
+        1,
+        (end.getFullYear() - start.getFullYear()) * 12 +
+          (end.getMonth() - start.getMonth()),
+      );
       const monthlyVal = val / totalMonths;
 
       for (let m = 0; m < 12; m++) {
         const date = new Date(currentYear, m, 1);
-        if (date >= new Date(start.getFullYear(), start.getMonth(), 1) && date <= new Date(end.getFullYear(), end.getMonth(), 28)) {
-          planned[m] += Math.round(monthlyVal / 1000); // in $k
+        if (
+          date >= new Date(start.getFullYear(), start.getMonth(), 1) &&
+          date <= new Date(end.getFullYear(), end.getMonth(), 28)
+        ) {
+          planned[m] += Math.round(monthlyVal / 1000);
         }
       }
     }
 
-    // Fetch actual spend per month in the current year
     if (projectIds.length > 0) {
       const employeeCosts = await this.prisma.employeeCost.groupBy({
         by: ['periodYear', 'periodMonth'],
@@ -408,14 +512,13 @@ export class DashboardService {
       });
 
       for (const cost of employeeCosts) {
-        const m = cost.periodMonth - 1; // 1-indexed to 0-indexed
+        const m = cost.periodMonth - 1;
         if (m >= 0 && m < 12) {
           actual[m] += Math.round(Number(cost._sum.totalCost ?? 0) / 1000);
         }
       }
     }
 
-    // Cumulative sums
     let cumPlanned = 0;
     let cumActual = 0;
     const finalPlanned: number[] = [];
@@ -424,10 +527,12 @@ export class DashboardService {
 
     for (let m = 0; m < 12; m++) {
       cumPlanned += planned[m];
-      finalPlanned.push(cumPlanned || 10); // avoid 0
+      finalPlanned.push(cumPlanned || 10);
 
-      // Only show actual for past or current months
-      if (currentYear < now.getFullYear() || (currentYear === now.getFullYear() && m <= now.getMonth())) {
+      if (
+        currentYear < now.getFullYear() ||
+        (currentYear === now.getFullYear() && m <= now.getMonth())
+      ) {
         cumActual += actual[m];
         finalActual.push(cumActual);
       } else {
@@ -448,8 +553,23 @@ export class DashboardService {
     };
   }
 
-  async getAuditFeed() {
+  async getAuditFeed(caslUser: CaslUserContext) {
+    const permissions = this.permissionsFor(caslUser);
+    if (!canViewDashboardAudit(permissions)) {
+      return [];
+    }
+
+    const auditScope = permissions.find(
+      (permission) => permission.module === 'audit' && permission.action === 'view',
+    )?.recordScope;
+
+    const where: Prisma.AuditLogWhereInput =
+      auditScope && auditScope !== RECORD_SCOPE_ALL
+        ? { actorId: caslUser.id }
+        : {};
+
     const logs = await this.prisma.auditLog.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       take: 8,
       include: {
@@ -464,7 +584,6 @@ export class DashboardService {
       let actionKey = 'updatedTaskStatus';
       let module = 'task';
 
-      // Map action to locale keys
       if (log.action.toLowerCase().includes('create') && log.objectType === 'Project') {
         actionKey = 'createdProject';
         module = 'project';
@@ -474,7 +593,10 @@ export class DashboardService {
       } else if (log.objectType === 'Timesheet') {
         actionKey = 'submittedTimesheet';
         module = 'time';
-      } else if (log.action.toLowerCase().includes('user') || log.action.toLowerCase().includes('member')) {
+      } else if (
+        log.action.toLowerCase().includes('user') ||
+        log.action.toLowerCase().includes('member')
+      ) {
         actionKey = 'addedTeamMember';
         module = 'people';
       } else if (log.objectType === 'TaskAttachment') {
@@ -483,7 +605,10 @@ export class DashboardService {
       } else if (log.objectType === 'RolePermission' || log.objectType === 'Role') {
         actionKey = 'changedRBAC';
         module = 'settings';
-      } else if (log.action.toLowerCase().includes('close') || log.action.toLowerCase().includes('resolve')) {
+      } else if (
+        log.action.toLowerCase().includes('close') ||
+        log.action.toLowerCase().includes('resolve')
+      ) {
         actionKey = 'closedIssue';
         module = 'risk';
       }
@@ -511,9 +636,35 @@ export class DashboardService {
     });
   }
 
+  private async countScopedEmployees(caslUser: CaslUserContext): Promise<number> {
+    const projectIds = await this.scopedProjectIds(caslUser);
+    if (!projectIds.length) {
+      return 0;
+    }
+
+    const allocations = await this.prisma.allocation.findMany({
+      where: { projectId: { in: projectIds }, status: 'Active' },
+      select: { employeeId: true },
+      distinct: ['employeeId'],
+    });
+
+    return allocations.length;
+  }
+
   private mapStatus(status: ProjectStatus): 'on-track' | 'at-risk' | 'delayed' {
     if (status === ProjectStatus.Active) return 'on-track';
-    if (status === ProjectStatus.Pending_Closure) return 'at-risk';
-    return 'delayed';
+    if (
+      status === ProjectStatus.At_Risk ||
+      status === ProjectStatus.Pending_Closure
+    ) {
+      return 'at-risk';
+    }
+    if (
+      status === ProjectStatus.On_Hold ||
+      status === ProjectStatus.Cancelled
+    ) {
+      return 'delayed';
+    }
+    return 'on-track';
   }
 }

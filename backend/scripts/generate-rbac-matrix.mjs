@@ -98,6 +98,18 @@ const MATRIX = {
     super_admin: 'Edit', it_admin: 'None', pmo_lead: 'Edit', pm: 'Edit', team_lead: 'None',
     engineer: 'None', finance: 'None', hr: 'None', sales: 'None', client: 'None', vendor: 'None',
   },
+  'Phases — View': {
+    super_admin: 'View', it_admin: 'View', pmo_lead: 'View', pm: 'View', team_lead: 'View',
+    engineer: 'View', finance: 'View', hr: 'View', sales: 'View', client: 'View', vendor: 'None',
+  },
+  'Phases — Create': {
+    super_admin: 'Edit', it_admin: 'None', pmo_lead: 'Edit', pm: 'Edit', team_lead: 'Edit',
+    engineer: 'None', finance: 'None', hr: 'None', sales: 'None', client: 'None', vendor: 'None',
+  },
+  'Phases — Edit': {
+    super_admin: 'Edit', it_admin: 'None', pmo_lead: 'Edit', pm: 'Edit', team_lead: 'Edit',
+    engineer: 'None', finance: 'None', hr: 'None', sales: 'None', client: 'None', vendor: 'None',
+  },
   'Dependencies — View (Gantt / graph)': {
     super_admin: 'View', it_admin: 'View', pmo_lead: 'View', pm: 'View', team_lead: 'View',
     engineer: 'View', finance: 'None', hr: 'None', sales: 'None', client: 'None', vendor: 'None',
@@ -328,6 +340,9 @@ function buildPermissionsSeedSheet() {
     'Projects — Change status / close': { module: 'projects', action: 'approve' },
     'Milestones — View': { module: 'milestones', action: 'view' },
     'Milestones — Create / edit': { module: 'milestones', action: 'edit' },
+    'Phases — View': { module: 'phases', action: 'view' },
+    'Phases — Create': { module: 'phases', action: 'create' },
+    'Phases — Edit': { module: 'phases', action: 'edit' },
     'Dependencies — View (Gantt / graph)': { module: 'dependencies', action: 'view' },
     'Dependencies — Create / edit (FS/SS/FF/SF)': { module: 'dependencies', action: 'edit' },
     'Dependencies — Validate cycles': { module: 'dependencies', action: 'validate' },

@@ -39,6 +39,7 @@ import {
   PaginatedMetaDto,
   PermissionCatalogItemDto,
   PermissionListItemDto,
+  PermissionMatrixResponseDto,
   PermissionWithRoleDto,
   RecordScopeOptionDto,
   RoleListItemDto,
@@ -105,6 +106,14 @@ export class RolesController {
   })
   findRecordScopes(): Promise<{ data: RecordScopeOptionDto[] }> {
     return Promise.resolve(this.rolesService.findRecordScopeOptions());
+  }
+
+  @CheckAbility('read', 'Rbac')
+  @Get('permissions/matrix')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: PermissionMatrixResponseDto })
+  findPermissionMatrix(): Promise<PermissionMatrixResponseDto> {
+    return this.rolesService.findPermissionMatrix();
   }
 
   @CheckAbility('read', 'Rbac')

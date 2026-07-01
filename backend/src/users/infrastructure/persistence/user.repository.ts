@@ -2,8 +2,7 @@ import { DeepPartial } from '../../../utils/types/deep-partial.type';
 import { NullableType } from '../../../utils/types/nullable.type';
 import { IPaginationOptions } from '../../../utils/types/pagination-options';
 import { User } from '../../domain/user';
-
-import { FilterUserDto, SortUserDto } from '../../dto/query-user.dto';
+import { QueryUserDto } from '../../dto/query-user.dto';
 
 export abstract class UserRepository {
   abstract create(
@@ -11,14 +10,14 @@ export abstract class UserRepository {
   ): Promise<User>;
 
   abstract findManyWithPagination({
-    filterOptions,
-    sortOptions,
+    query,
     paginationOptions,
   }: {
-    filterOptions?: FilterUserDto | null;
-    sortOptions?: SortUserDto[] | null;
+    query: QueryUserDto;
     paginationOptions: IPaginationOptions;
   }): Promise<User[]>;
+
+  abstract count(query: QueryUserDto): Promise<number>;
 
   abstract findById(id: User['id']): Promise<NullableType<User>>;
   abstract findByIds(ids: User['id'][]): Promise<User[]>;
@@ -31,4 +30,3 @@ export abstract class UserRepository {
 
   abstract remove(id: User['id']): Promise<void>;
 }
-

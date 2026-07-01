@@ -234,7 +234,7 @@ export const sidebarNav: NavSection[] = [
       },
       {
         id: "rbac-permissions",
-        label: "Permissions",
+        label: "Matrix",
         icon: ListChecks,
         href: "/dashboard/roles/permissions",
         permission: { action: "read", subject: "Rbac" },

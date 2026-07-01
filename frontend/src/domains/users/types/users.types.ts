@@ -35,7 +35,25 @@ export interface UpdateUserDto {
   isExternal?: boolean;
 }
 
+export type UserSortField = "displayName" | "email" | "role" | "isActive" | "createdAt";
+
+export interface GetUsersParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  sortBy?: UserSortField;
+  sortOrder?: "asc" | "desc";
+}
+
 export interface PaginatedUsersResponse {
   data: User[];
   hasNextPage: boolean;
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
 }

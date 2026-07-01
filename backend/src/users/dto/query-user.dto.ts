@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -8,6 +9,7 @@ import {
 import { Transform, Type, plainToInstance } from 'class-transformer';
 import { User } from '../domain/user';
 import { RoleDto } from '../../roles/dto/role.dto';
+import { USER_SORT_FIELDS } from '../user-query.util';
 
 export class FilterUserDto {
   @ApiPropertyOptional({ type: RoleDto })
@@ -58,4 +60,19 @@ export class QueryUserDto {
   @ValidateNested({ each: true })
   @Type(() => SortUserDto)
   sort?: SortUserDto[] | null;
+
+  @ApiPropertyOptional({ example: 'john@example.com' })
+  @IsString()
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({ enum: USER_SORT_FIELDS, default: 'displayName' })
+  @IsOptional()
+  @IsIn(USER_SORT_FIELDS)
+  sortBy?: (typeof USER_SORT_FIELDS)[number];
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'asc' })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
 }

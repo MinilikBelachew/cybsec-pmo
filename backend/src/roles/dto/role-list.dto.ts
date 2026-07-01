@@ -89,3 +89,53 @@ export class RecordScopeOptionDto {
   @ApiProperty()
   label: string;
 }
+
+export class PermissionMatrixRoleDto {
+  @ApiProperty()
+  id: number;
+
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty()
+  label: string;
+
+  @ApiProperty()
+  isExternal: boolean;
+}
+
+export class PermissionMatrixCellDto {
+  @ApiProperty()
+  roleId: number;
+
+  @ApiProperty()
+  granted: boolean;
+
+  @ApiProperty({ nullable: true, required: false })
+  grantId?: string;
+
+  @ApiProperty({ nullable: true })
+  recordScope: string | null;
+}
+
+export class PermissionMatrixRowDto {
+  @ApiProperty()
+  module: string;
+
+  @ApiProperty()
+  action: string;
+
+  @ApiProperty()
+  permissionId: string;
+
+  @ApiProperty({ type: [PermissionMatrixCellDto] })
+  cells: PermissionMatrixCellDto[];
+}
+
+export class PermissionMatrixResponseDto {
+  @ApiProperty({ type: [PermissionMatrixRoleDto] })
+  roles: PermissionMatrixRoleDto[];
+
+  @ApiProperty({ type: [PermissionMatrixRowDto] })
+  rows: PermissionMatrixRowDto[];
+}

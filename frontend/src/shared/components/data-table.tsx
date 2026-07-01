@@ -232,6 +232,13 @@ export function DataTable<TData, TValue>({
   const selectedCount = Object.keys(rowSelection).length;
 
   React.useEffect(() => {
+    setColumnVisibility((prev) => ({
+      ...prev,
+      select: bulkActive,
+    }));
+  }, [bulkActive]);
+
+  React.useEffect(() => {
     if (!bulkActive) {
       setRowSelection({});
     }

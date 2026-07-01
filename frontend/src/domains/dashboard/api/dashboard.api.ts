@@ -7,9 +7,9 @@ export interface DashboardStats {
     atRisk: number;
     delayed: number;
     completed: number;
-    totalValue: number;
-    totalSpent: number;
-    remainingBudget: number;
+    totalValue?: number;
+    totalSpent?: number;
+    remainingBudget?: number;
   };
   tasks: {
     total: number;
@@ -34,7 +34,7 @@ export interface ProjectHealthItem {
   progress: number;
   tasks: number;
   risks: number;
-  budget: number;
+  budget?: number;
 }
 
 export interface MilestoneItem {

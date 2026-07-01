@@ -412,14 +412,20 @@ export function processRawCSVRows(
     const lowerStatus = status.toLowerCase().trim();
     if (["active"].includes(lowerStatus)) {
       normalizedStatus = "Active";
-    } else if (["pending closure", "pending_closure", "pendingclosure", "at risk", "atrisk", "at_risk"].includes(lowerStatus)) {
+    } else if (
+      ["pending closure", "pending_closure", "pendingclosure"].includes(lowerStatus)
+    ) {
       normalizedStatus = "PendingClosure";
+    } else if (["at risk", "atrisk", "at_risk"].includes(lowerStatus)) {
+      normalizedStatus = "AtRisk";
     } else if (["on hold", "on_hold", "onhold"].includes(lowerStatus)) {
       normalizedStatus = "OnHold";
     } else if (["closed", "completed"].includes(lowerStatus)) {
       normalizedStatus = "Closed";
+    } else if (["cancelled", "canceled"].includes(lowerStatus)) {
+      normalizedStatus = "Cancelled";
     } else if (["planned", "draft"].includes(lowerStatus)) {
-      normalizedStatus = "Draft"; // Map Planned/Draft to Draft
+      normalizedStatus = "Draft";
     }
 
     let normalizedCurrency = currency;
@@ -447,7 +453,17 @@ export function processRawCSVRows(
     if (!["USD", "EUR", "AED", "SAR"].includes(normalizedCurrency)) {
       errors.push(`Currency "${currency}" is invalid. Please select one.`);
     }
-    if (!["Draft", "Active", "OnHold", "PendingClosure", "Closed"].includes(normalizedStatus)) {
+    if (
+      ![
+        "Draft",
+        "Active",
+        "OnHold",
+        "AtRisk",
+        "PendingClosure",
+        "Closed",
+        "Cancelled",
+      ].includes(normalizedStatus)
+    ) {
       errors.push(`Status "${status}" is invalid. Please select one.`);
     }
 

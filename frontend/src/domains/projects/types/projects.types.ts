@@ -1,7 +1,14 @@
 export type EngagementType = "ManagedServices" | "StaffAugmentation" | "FixedPrice";
 export type BillingModel = "TimeAndMaterial" | "FixedPrice" | "Retainer";
 export type PriorityLevel = "Low" | "Medium" | "High" | "Critical";
-export type ProjectStatus = "Draft" | "Active" | "OnHold" | "PendingClosure" | "Closed";
+export type ProjectStatus =
+  | "Draft"
+  | "Active"
+  | "OnHold"
+  | "AtRisk"
+  | "PendingClosure"
+  | "Closed"
+  | "Cancelled";
 export type CurrencyCode = string;
 
 export interface Currency {
@@ -91,6 +98,8 @@ export interface ProjectPortfolioStats {
   atRisk: number;
   delayed: number;
   completed: number;
+  pendingClosure?: number;
+  cancelled?: number;
   totalValue?: number;
 }
 

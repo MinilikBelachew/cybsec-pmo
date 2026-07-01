@@ -92,12 +92,6 @@ export function SidebarNav() {
     });
   }, []);
 
-  const isActive = (href?: string) => {
-    if (!href) return false;
-    if (href === "/dashboard") return pathname === "/dashboard";
-    return pathname.startsWith(href);
-  };
-
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -112,7 +106,7 @@ export function SidebarNav() {
     return (
       <div className="flex h-full gap-2 select-none pointer-events-none">
         {/* Left rail skeleton */}
-        <div className="flex flex-col w-14 shrink-0 rounded-xl border border-border bg-gradient-to-b from-primary to-primary/90 overflow-hidden text-primary-foreground" />
+        <div className="flex flex-col w-14 shrink-0 rounded-xl border border-sidebar-rail-to/50 bg-[linear-gradient(180deg,var(--sidebar-rail-from)_0%,color-mix(in_oklch,var(--sidebar-rail-from)_55%,var(--sidebar-rail-to))_38%,var(--sidebar-rail-to)_100%)] overflow-hidden text-white" />
         {/* Right pane skeleton */}
         <div className="flex flex-col rounded-xl border border-border bg-card w-60 overflow-hidden" />
       </div>
@@ -122,6 +116,31 @@ export function SidebarNav() {
   const NavContent = ({ mobile = false }: { mobile?: boolean }) => {
     const isCollapsedLayout = collapsed && !mobile;
     const visibleSections = getVisibleSections(ability, permissionsLoaded);
+
+    const navHrefs = React.useMemo(() => {
+      const hrefs: string[] = [];
+      for (const section of visibleSections) {
+        if (section.href) hrefs.push(section.href);
+        section.children?.forEach((child) => {
+          if (child.href) hrefs.push(child.href);
+        });
+      }
+      return hrefs;
+    }, [visibleSections]);
+
+    const isActive = (href?: string) => {
+      if (!href) return false;
+      if (href === "/dashboard") return pathname === "/dashboard";
+      if (pathname !== href && !pathname.startsWith(`${href}/`)) return false;
+
+      const matchingHrefs = navHrefs.filter(
+        (candidate) => pathname === candidate || pathname.startsWith(`${candidate}/`),
+      );
+      if (matchingHrefs.length === 0) return false;
+
+      const bestMatch = matchingHrefs.sort((a, b) => b.length - a.length)[0];
+      return bestMatch === href;
+    };
 
     // Flatten visible items for pinned lookup
     const allPinnableItems = visibleSections.flatMap((s) =>
@@ -136,8 +155,8 @@ export function SidebarNav() {
     return (
       <div className="flex h-full gap-2">
         {/* ── 1. Left Icon Rail (Sleeker and smaller width: w-14) ──────────────── */}
-        <div className="flex flex-col w-14 shrink-0 rounded-xl border border-border bg-gradient-to-b from-primary to-primary/90 overflow-hidden text-primary-foreground">
-          <div className="flex items-center justify-center h-14 border-b border-primary-foreground/10 shrink-0">
+        <div className="flex flex-col w-14 shrink-0 rounded-xl border border-sidebar-rail-to/50 bg-[linear-gradient(180deg,var(--sidebar-rail-from)_0%,color-mix(in_oklch,var(--sidebar-rail-from)_55%,var(--sidebar-rail-to))_38%,var(--sidebar-rail-to)_100%)] overflow-hidden text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.12)]">
+          <div className="flex items-center justify-center h-14 border-b border-white/10 shrink-0">
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-5 bg-white -skew-x-12 rounded-full shadow-lg shadow-white/40" />
               <div className="w-1.5 h-5 bg-white/30 -skew-x-12 rounded-full" />
@@ -150,13 +169,13 @@ export function SidebarNav() {
               const Icon = section.icon;
               const sectionActive = section.href
                 ? isActive(section.href)
-                : section.children?.some((c) => isActive(c.href));
+                : (section.children?.some((c) => isActive(c.href)) ?? false);
 
               const iconClass = cn(
                 "group relative flex items-center justify-center size-10 rounded-xl transition-all duration-150 mx-auto",
                 sectionActive
                   ? "bg-white/20 text-white shadow-inner"
-                  : "text-white/60 hover:bg-white/10 hover:text-white"
+                  : "text-white/60 hover:bg-white/10 hover:text-white",
               );
 
               if (section.href) {
@@ -198,7 +217,7 @@ export function SidebarNav() {
 
           {/* Collapse toggle at bottom (hidden on mobile) */}
           {!mobile && (
-            <div className="border-t border-primary-foreground/10 p-2 shrink-0">
+            <div className="border-t border-white/10 p-2 shrink-0">
               <button
                 onClick={() => handleSetCollapsed(!collapsed)}
                 className="flex items-center justify-center size-10 rounded-xl text-white/50 hover:bg-white/10 hover:text-white transition-all duration-150 mx-auto"
@@ -290,8 +309,8 @@ export function SidebarNav() {
               }
 
               // Section with submenus/children
-              const isOpen = openSections.includes(section.id);
               const hasActiveChild = section.children.some((c) => isActive(c.href));
+              const isOpen = openSections.includes(section.id) || hasActiveChild;
 
               return (
                 <div key={section.id} className="space-y-0.5">

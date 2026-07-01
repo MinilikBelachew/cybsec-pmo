@@ -35,7 +35,7 @@ export function SettingsPage() {
   }, []);
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6  mx-auto">
       <PageHeader
         title="Settings & Administration"
         description="Configure your platform settings, directory access, and enterprise role assignments."

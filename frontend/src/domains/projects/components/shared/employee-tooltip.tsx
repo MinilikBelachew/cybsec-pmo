@@ -35,7 +35,7 @@ export function EmployeeTooltip({ employee, children }: EmployeeTooltipProps) {
     <Tooltip>
       <TooltipTrigger render={children as React.ReactElement} />
       <TooltipContent
-        className="z-[100] border border-border/80 bg-popover text-popover-foreground px-2.5 py-1.5 shadow-md rounded-lg bg-white dark:bg-slate-900 flex flex-col text-left text-xs font-normal"
+        className="z-[100] max-w-xs p-2.5 text-left"
         side="top"
         sideOffset={6}
       >

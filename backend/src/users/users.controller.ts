@@ -71,24 +71,47 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   async findAll(
     @Query() query: QueryUserDto,
-  ): Promise<InfinityPaginationResponseDto<User>> {
+  ): Promise<
+    InfinityPaginationResponseDto<User> & {
+      meta: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+        hasNextPage: boolean;
+        hasPrevPage: boolean;
+      };
+    }
+  > {
     const page = query?.page ?? 1;
     let limit = query?.limit ?? 10;
     if (limit > 50) {
       limit = 50;
     }
 
-    return infinityPagination(
-      await this.usersService.findManyWithPagination({
-        filterOptions: query?.filters,
-        sortOptions: query?.sort,
-        paginationOptions: {
-          page,
-          limit,
-        },
+    const listQuery: QueryUserDto = { ...query, page, limit };
+
+    const [data, total] = await Promise.all([
+      this.usersService.findManyWithPagination({
+        query: listQuery,
+        paginationOptions: { page, limit },
       }),
-      { page, limit },
-    );
+      this.usersService.count(listQuery),
+    ]);
+
+    const totalPages = Math.ceil(total / limit) || 0;
+
+    return {
+      ...infinityPagination(data, { page, limit }),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   @CheckAbility('read', 'User')

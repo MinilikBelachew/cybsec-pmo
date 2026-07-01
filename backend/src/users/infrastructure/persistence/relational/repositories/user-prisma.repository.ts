@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../database/prisma.service';
 import { NullableType } from '../../../../../utils/types/nullable.type';
-import { FilterUserDto, SortUserDto } from '../../../../dto/query-user.dto';
+import { QueryUserDto } from '../../../../dto/query-user.dto';
 import { User } from '../../../../domain/user';
 import { UserRepository } from '../../user.repository';
 import { UserPrismaMapper } from '../mappers/user-prisma.mapper';
 import { IPaginationOptions } from '../../../../../utils/types/pagination-options';
-import { Prisma } from '@prisma/client';
+import { buildUserOrderBy, buildUserWhere } from '../../../../user-query.util';
 
 @Injectable()
 export class UsersPrismaRepository implements UserRepository {
@@ -26,36 +26,14 @@ export class UsersPrismaRepository implements UserRepository {
   }
 
   async findManyWithPagination({
-    filterOptions,
-    sortOptions,
+    query,
     paginationOptions,
   }: {
-    filterOptions?: FilterUserDto | null;
-    sortOptions?: SortUserDto[] | null;
+    query: QueryUserDto;
     paginationOptions: IPaginationOptions;
   }): Promise<User[]> {
-    const where: Prisma.UserWhereInput = {
-      isActive: true,
-    };
-
-    if (filterOptions?.roles?.length) {
-      const roleCodes = filterOptions.roles
-        .map((role) => role.code)
-        .filter((code): code is string => Boolean(code));
-
-      if (roleCodes.length) {
-        where.role = {
-          code: {
-            in: roleCodes,
-          },
-        };
-      }
-    }
-
-    const orderBy: Prisma.UserOrderByWithRelationInput[] =
-      sortOptions?.map((sort) => ({
-        [sort.orderBy]: sort.order,
-      })) ?? [];
+    const where = buildUserWhere(query);
+    const orderBy = buildUserOrderBy(query);
 
     const entities = await this.prisma.user.findMany({
       skip: (paginationOptions.page - 1) * paginationOptions.limit,
@@ -70,11 +48,16 @@ export class UsersPrismaRepository implements UserRepository {
     return entities.map((user) => UserPrismaMapper.toDomain(user));
   }
 
+  async count(query: QueryUserDto): Promise<number> {
+    return this.prisma.user.count({
+      where: buildUserWhere(query),
+    });
+  }
+
   async findById(id: User['id']): Promise<NullableType<User>> {
     const entity = await this.prisma.user.findFirst({
       where: {
         id: id as string,
-        isActive: true,
       },
       include: {
         role: true,
@@ -88,7 +71,6 @@ export class UsersPrismaRepository implements UserRepository {
     const entities = await this.prisma.user.findMany({
       where: {
         id: { in: ids.map((id) => id as string) },
-        isActive: true,
       },
       include: {
         role: true,
@@ -104,7 +86,6 @@ export class UsersPrismaRepository implements UserRepository {
     const entity = await this.prisma.user.findFirst({
       where: {
         email,
-        isActive: true,
       },
       include: {
         role: true,
@@ -118,7 +99,6 @@ export class UsersPrismaRepository implements UserRepository {
     const entity = await this.prisma.user.findFirst({
       where: {
         id: id as string,
-        isActive: true,
       },
       include: {
         role: true,
@@ -153,4 +133,3 @@ export class UsersPrismaRepository implements UserRepository {
     });
   }
 }
-
