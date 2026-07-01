@@ -29,7 +29,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     command: >
-      sh -c "/opt/wait-for-it.sh postgres:5432 -- npx prisma migrate dev && npm run start:dev"
+      sh -c "/opt/wait-for-it.sh postgres:5432 -- npx prisma migrate dev && npx prisma db seed && npm run start:dev"
     ports:
       - "6001:6001"
     volumes:
