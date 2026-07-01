@@ -38,6 +38,7 @@ interface ProjectDatePickerProps {
   value?: string | Date | null;
   onChange: (value: Date | undefined) => void;
   minDate?: Date;
+  maxDate?: Date;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
@@ -48,6 +49,7 @@ export function ProjectDatePicker({
   value,
   onChange,
   minDate = startOfToday(),
+  maxDate,
   placeholder = "Pick a date",
   className,
   disabled = false,
@@ -64,7 +66,7 @@ export function ProjectDatePicker({
         type="button"
         disabled={disabled}
         className={cn(
-          "flex h-10 w-full items-center justify-between rounded-lg border bg-slate-50 px-3 text-sm text-slate-900 outline-none transition-all hover:border-slate-300 dark:bg-white/[0.03] dark:text-white dark:hover:border-white/20",
+          "flex h-8 w-full cursor-pointer items-center justify-between rounded-lg border bg-slate-50 px-3 text-sm text-slate-900 outline-none transition-all hover:border-slate-300 dark:bg-white/[0.03] dark:text-white dark:hover:border-white/20",
           invalid
             ? "border-rose-500 ring-2 ring-rose-500/20 dark:border-rose-500"
             : "border-slate-200 dark:border-white/[0.08]",
@@ -88,7 +90,10 @@ export function ProjectDatePicker({
           endMonth={endMonth}
           selected={selected}
           defaultMonth={selected ?? minDate}
-          disabled={{ before: startOfDay(minDate) }}
+          disabled={{
+            before: startOfDay(minDate),
+            ...(maxDate ? { after: startOfDay(maxDate) } : {}),
+          }}
           onSelect={(date) => onChange(date ?? undefined)}
         />
       </PopoverContent>

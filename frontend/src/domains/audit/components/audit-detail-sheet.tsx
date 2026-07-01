@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Download } from "lucide-react";
+import { Copy, ChevronDown, FileJson, Table2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -9,15 +9,46 @@ import {
   SheetTitle,
 } from "@/shared/ui/sheet";
 import { Button } from "@/shared/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { cn } from "@/shared/utils/cn";
 import {
   downloadAuditJson,
+  downloadAuditCsv,
   type AuditJsonValue,
   type AuditLogEntry,
+  type AuditExportFormat,
 } from "../api/audit.api";
 
 const AUDIT_DETAIL_SHEET_CLASS =
   "flex h-full w-full !max-w-[560px] flex-col gap-0 overflow-hidden p-0 rounded-l-[10px] !shadow-none bg-white dark:bg-card";
+
+const ENTRY_EXPORT_OPTIONS: {
+  format: AuditExportFormat;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+  iconClass: string;
+}[] = [
+  {
+    format: "json",
+    label: "JSON",
+    description: "Pretty-printed, structured",
+    icon: FileJson,
+    iconClass: "text-amber-500",
+  },
+  {
+    format: "csv",
+    label: "CSV",
+    description: "Spreadsheet-compatible row",
+    icon: Table2,
+    iconClass: "text-emerald-500",
+  },
+];
 
 type AuditDetailSheetProps = {
   entry: AuditLogEntry | null;
@@ -26,9 +57,19 @@ type AuditDetailSheetProps = {
 };
 
 export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheetProps) {
-  const handleExportEntry = () => {
+  const handleExport = (format: AuditExportFormat) => {
     if (!entry) return;
-    downloadAuditJson(`audit-event-${entry.id}.json`, entry);
+    const base = `audit-event-${entry.id}`;
+
+    if (format === "json") {
+      downloadAuditJson(`${base}.json`, entry);
+      return;
+    }
+
+    if (format === "csv") {
+      downloadAuditCsv(`${base}.csv`, [entry]);
+      return;
+    }
   };
 
   return (
@@ -46,16 +87,50 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
                   <SheetTitle className="text-lg font-bold">Event details</SheetTitle>
                   <SheetDescription>Read-only audit record with change payload</SheetDescription>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 gap-1.5"
-                  onClick={handleExportEntry}
-                >
-                  <Download className="size-3.5" />
-                  Export
-                </Button>
+
+                {/* 4-format export dropdown — mirrors the main audit page export menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 gap-1.5"
+                      />
+                    }
+                  >
+                    Export
+                    <ChevronDown className="size-3.5 opacity-60" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 p-2 shadow-none">
+                    <div className="space-y-1">
+                      {ENTRY_EXPORT_OPTIONS.map((opt) => {
+                        const Icon = opt.icon;
+                        return (
+                          <DropdownMenuItem
+                            key={opt.format}
+                            onClick={() => handleExport(opt.format)}
+                            className={cn(
+                              "flex items-start gap-3 rounded-xl border border-transparent px-2.5 py-1.5 cursor-pointer select-none",
+                              "hover:border-border/60 hover:bg-muted/50 focus:outline-none focus:bg-muted/50 focus:border-border/60",
+                            )}
+                          >
+                            <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                              <Icon className={cn("size-3.5", opt.iconClass)} />
+                            </div>
+                            <span className="min-w-0">
+                              <span className="block text-xs font-semibold">{opt.label}</span>
+                              <span className="block text-[10px] text-muted-foreground">
+                                {opt.description}
+                              </span>
+                            </span>
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </SheetHeader>
 

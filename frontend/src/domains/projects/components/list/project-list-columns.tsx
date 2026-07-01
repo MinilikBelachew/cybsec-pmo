@@ -1,7 +1,7 @@
 "use client";
 
 import { type ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Calendar, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
 import { cn } from "@/shared/utils/cn";
@@ -11,7 +11,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import type { PriorityLevel, Project } from "../../types/projects.types";
+import type { Project } from "../../types/projects.types";
+import {
+  DEFAULT_PROJECT_DEPT_COLOR,
+  formatProjectTimeline,
+  PROJECT_DEPT_COLOR,
+} from "../../utils/project-display.utils";
+import { formatProjectBudgetCompact } from "../../utils/format-budget";
 import { EmployeeTooltip } from "../shared/employee-tooltip";
 
 const STATUS_CONFIG: Record<string, {
@@ -54,13 +60,6 @@ const STATUS_CONFIG: Record<string, {
   },
 };
 
-const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; bg: string; text: string }> = {
-  Critical: { label: "Critical", bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-400" },
-  High: { label: "High", bg: "bg-rose-50 dark:bg-rose-900/20", text: "text-rose-700 dark:text-rose-400" },
-  Medium: { label: "Medium", bg: "bg-amber-50 dark:bg-amber-900/20", text: "text-amber-700 dark:text-amber-400" },
-  Low: { label: "Low", bg: "bg-slate-50 dark:bg-slate-900/20", text: "text-slate-600 dark:text-slate-400" },
-};
-
 export type ProjectListRow = Project & {
   description: string;
   progress: number;
@@ -68,6 +67,10 @@ export type ProjectListRow = Project & {
   tasksDone: number;
   milestonesTotal: number;
   milestonesDone: number;
+  risks: number;
+  budget: number;
+  budgetUsed: number;
+  budgetRemaining: number;
   team: Array<{ initials: string; color: string; user?: any; roleName?: string }>;
 };
 
@@ -89,82 +92,101 @@ export function createProjectListColumns({
       header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
       cell: ({ row }) => {
         const project = row.original;
-        const status = STATUS_CONFIG[project.status] || STATUS_CONFIG.Draft;
         return (
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onNavigate(project.id)}
-                className="truncate text-left text-sm font-semibold hover:text-primary transition-colors"
-              >
-                {project.name}
-              </button>
-              <span
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold",
-                  status.bg,
-                  status.text,
-                  status.border,
-                )}
-              >
-                <span className={cn("size-1.5 rounded-full", status.dot)} />
-                {status.label}
-              </span>
-            </div>
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{project.description}</p>
+            <button
+              type="button"
+              onClick={() => onNavigate(project.id)}
+              className="truncate text-left text-sm font-semibold hover:text-primary transition-colors"
+            >
+              {project.name}
+            </button>
+            <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+              {project.description}
+            </p>
           </div>
         );
       },
-      meta: { className: "min-w-[220px]" },
+      meta: { className: "min-w-[200px]", label: "Project" },
     },
     {
-      id: "primaryPm",
-      accessorFn: (row) => row.primaryPm?.displayName ?? "",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="PM" />,
+      id: "status",
+      accessorKey: "status",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => {
         const project = row.original;
+        const status = STATUS_CONFIG[project.status] || STATUS_CONFIG.Draft;
         return (
-          <div className="flex min-w-0 items-center gap-2">
-            <EmployeeTooltip
-              employee={{
-                displayName: project.primaryPm?.displayName,
-                email: project.primaryPm?.email,
-                role: "Primary Project Manager",
-                designation: "Project Manager",
-              }}
-            >
-              <span
-                className={cn(
-                  "inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-primary-foreground cursor-default",
-                  project.team[0]?.color || "bg-primary",
-                )}
-              >
-                {project.team[0]?.initials || "PM"}
-              </span>
-            </EmployeeTooltip>
-            <span className="truncate text-xs text-muted-foreground">
-              {project.primaryPm?.displayName || "Unassigned"}
-            </span>
-          </div>
-        );
-      },
-      meta: { className: "min-w-[140px]" },
-    },
-    {
-      id: "priority",
-      accessorKey: "priority",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Priority" />,
-      cell: ({ row }) => {
-        const priority =
-          PRIORITY_CONFIG[row.original.priority as PriorityLevel] ?? PRIORITY_CONFIG.Medium;
-        return (
-          <span className={cn("w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold", priority.bg, priority.text)}>
-            {priority.label}
+          <span
+            className={cn(
+              "inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold",
+              status.bg,
+              status.text,
+              status.border,
+            )}
+          >
+            <span className={cn("size-1.5 rounded-full", status.dot)} />
+            {status.label}
           </span>
         );
       },
-      meta: { className: "w-[110px]" },
+      meta: { className: "w-[110px]", label: "Status" },
+    },
+    {
+      id: "department",
+      accessorFn: (row) => row.department?.name ?? "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
+      cell: ({ row }) => {
+        const deptName = row.original.department?.name ?? "";
+        return (
+          <span
+            className={cn(
+              "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              PROJECT_DEPT_COLOR[deptName] || DEFAULT_PROJECT_DEPT_COLOR,
+            )}
+          >
+            {deptName || "Direct"}
+          </span>
+        );
+      },
+      meta: { className: "min-w-[140px]", label: "Department" },
+    },
+    {
+      id: "team",
+      accessorFn: (row) => row.team.length,
+      enableSorting: false,
+      header: () => <span className="text-sm font-medium text-muted-foreground">Team</span>,
+      cell: ({ row }) => {
+        const project = row.original;
+        if (project.team.length === 0) {
+          return <span className="text-xs text-muted-foreground">—</span>;
+        }
+        return (
+          <div className="flex items-center -space-x-1.5">
+            {project.team.slice(0, 4).map((member, index) => (
+              <EmployeeTooltip
+                key={index}
+                employee={{
+                  displayName: member.user?.displayName,
+                  email: member.user?.email,
+                  role: member.roleName,
+                  designation: "Project Manager",
+                }}
+              >
+                <span
+                  className={cn(
+                    "inline-flex size-6 items-center justify-center rounded-full border-2 border-background text-[9px] font-bold text-primary-foreground cursor-default",
+                    member.color,
+                  )}
+                >
+                  {member.initials}
+                </span>
+              </EmployeeTooltip>
+            ))}
+          </div>
+        );
+      },
+      meta: { className: "w-[88px]", label: "Team" },
     },
     {
       id: "progress",
@@ -177,16 +199,7 @@ export function createProjectListColumns({
           <div className="flex min-w-[120px] items-center gap-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
               <div
-                className={cn(
-                  "h-full rounded-full",
-                  progress >= 80
-                    ? "bg-emerald-500"
-                    : progress >= 50
-                      ? "bg-primary"
-                      : progress >= 30
-                        ? "bg-amber-400"
-                        : "bg-rose-400",
-                )}
+                className="h-full rounded-full bg-primary"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -196,23 +209,7 @@ export function createProjectListColumns({
           </div>
         );
       },
-    },
-    {
-      id: "startDate",
-      accessorKey: "startDate",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Timeline" />,
-      cell: ({ row }) => {
-        const project = row.original;
-        return (
-          <div className="text-[10px] text-muted-foreground">
-            <div>{project.startDate ? project.startDate.slice(0, 10) : "—"}</div>
-            <div className="text-muted-foreground/60">
-              → {project.endDate ? project.endDate.slice(0, 10) : "—"}
-            </div>
-          </div>
-        );
-      },
-      meta: { className: "w-[120px]" },
+      meta: { label: "Progress" },
     },
     {
       id: "tasks",
@@ -225,7 +222,7 @@ export function createProjectListColumns({
           <span className="font-normal text-muted-foreground">/{row.original.tasksTotal}</span>
         </div>
       ),
-      meta: { className: "w-[80px]" },
+      meta: { className: "w-[80px]", label: "Tasks" },
     },
     {
       id: "milestones",
@@ -238,7 +235,56 @@ export function createProjectListColumns({
           <span className="font-normal text-muted-foreground">/{row.original.milestonesTotal}</span>
         </div>
       ),
-      meta: { className: "w-[100px]" },
+      meta: { className: "w-[100px]", label: "Milestones" },
+    },
+    {
+      id: "risks",
+      accessorFn: (row) => row.risks,
+      enableSorting: false,
+      header: () => <span className="text-sm font-medium text-muted-foreground">Risks</span>,
+      cell: ({ row }) => (
+        <div className="text-xs font-semibold text-foreground">{row.original.risks}</div>
+      ),
+      meta: { className: "w-[64px]", label: "Risks" },
+    },
+    {
+      id: "budget",
+      accessorFn: (row) => row.budgetUsed,
+      enableSorting: false,
+      header: () => <span className="text-sm font-medium text-muted-foreground">Budget</span>,
+      cell: ({ row }) => {
+        const project = row.original;
+        if (project.budget <= 0) {
+          return <span className="text-xs text-muted-foreground">—</span>;
+        }
+        const overBudget = project.budgetUsed > project.budget;
+        return (
+          <div className="min-w-[100px]">
+            <span className={cn("text-xs font-semibold", overBudget ? "text-rose-500" : "text-foreground")}>
+              {formatProjectBudgetCompact(project.budgetUsed, project.currency)}
+              <span className="font-normal text-muted-foreground">
+                {" "}/ {formatProjectBudgetCompact(project.budget, project.currency)}
+              </span>
+            </span>
+          </div>
+        );
+      },
+      meta: { className: "w-[120px]", label: "Budget" },
+    },
+    {
+      id: "startDate",
+      accessorKey: "startDate",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Timeline" />,
+      cell: ({ row }) => {
+        const project = row.original;
+        return (
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Calendar className="size-3 shrink-0" />
+            <span>{formatProjectTimeline(project.startDate, project.endDate)}</span>
+          </div>
+        );
+      },
+      meta: { className: "min-w-[150px]", label: "Timeline" },
     },
   ];
 
@@ -263,9 +309,15 @@ export function createProjectListColumns({
             >
               <MoreHorizontal className="size-4" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuContent align="end" className="w-40" onClick={(event) => event.stopPropagation()}>
               {onEdit && (
-                <DropdownMenuItem className="cursor-pointer gap-2" onClick={() => onEdit(project)}>
+                <DropdownMenuItem
+                  className="cursor-pointer gap-2"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEdit(project);
+                  }}
+                >
                   <Pencil className="size-3.5" />
                   Edit
                 </DropdownMenuItem>
@@ -273,7 +325,10 @@ export function createProjectListColumns({
               {onDelete && (
                 <DropdownMenuItem
                   className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
-                  onClick={() => onDelete(project)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(project);
+                  }}
                 >
                   <Trash2 className="size-3.5" />
                   Delete
@@ -283,7 +338,7 @@ export function createProjectListColumns({
           </DropdownMenu>
         );
       },
-      meta: { className: "w-[48px] text-right", sticky: "right" },
+      meta: { className: "w-[48px] text-right", sticky: "right", enableColumnReorder: false, label: "Actions" },
     });
   }
 

@@ -15,9 +15,12 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Columns3,
+  EyeOff,
+  GripVertical,
   ListChecks,
   Loader2,
   Search,
@@ -28,7 +31,6 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuLabel,
@@ -86,6 +88,8 @@ export type DataTableProps<TData, TValue> = {
   tableClassName?: string;
   minTableWidth?: string;
   onRowClick?: (row: TData) => void;
+  enableColumnReorder?: boolean;
+  columnOrderStorageKey?: string;
 };
 
 function stickyCellClass(
@@ -109,6 +113,46 @@ function stickyCellClass(
 
 const headerRowClass = "border-border/50 bg-muted/50 hover:bg-muted/50 dark:bg-muted/30";
 const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
+
+function getColumnIds<TData, TValue>(cols: ColumnDef<TData, TValue>[]) {
+  return cols
+    .map((col) => {
+      if (col.id) return col.id;
+      if ("accessorKey" in col && col.accessorKey) return String(col.accessorKey);
+      return "";
+    })
+    .filter(Boolean);
+}
+
+function mergeColumnOrder(current: string[], defaults: string[]) {
+  const valid = current.filter((id) => defaults.includes(id));
+  const missing = defaults.filter((id) => !valid.includes(id));
+  return [...valid, ...missing];
+}
+
+function readStoredColumnVisibility(storageKey: string): VisibilityState {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+    return saved as VisibilityState;
+  } catch {
+    return {};
+  }
+}
+
+function readStoredColumnOrder(storageKey: string, defaults: string[]) {
+  if (typeof window === "undefined") return defaults;
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+    if (!Array.isArray(saved) || saved.length === 0) return defaults;
+    return mergeColumnOrder(saved.filter((id): id is string => typeof id === "string"), defaults);
+  } catch {
+    return defaults;
+  }
+}
 
 export function DataTable<TData, TValue>({
   columns,
@@ -138,13 +182,50 @@ export function DataTable<TData, TValue>({
   tableClassName,
   minTableWidth = "min-w-[960px]",
   onRowClick,
+  enableColumnReorder = false,
+  columnOrderStorageKey,
 }: DataTableProps<TData, TValue>) {
   const t = useTranslations("Table");
+  const visibilityStorageKey = columnOrderStorageKey
+    ? `${columnOrderStorageKey}-visibility`
+    : undefined;
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => {
+    if (!visibilityStorageKey) return {};
+    return readStoredColumnVisibility(visibilityStorageKey);
+  });
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const [clientPageSize, setClientPageSize] = React.useState(pageSize);
+  const [draggingColumnId, setDraggingColumnId] = React.useState<string | null>(null);
+  const [dropTargetColumnId, setDropTargetColumnId] = React.useState<string | null>(null);
+
+  const defaultColumnOrder = React.useMemo(() => getColumnIds(columns), [columns]);
+  const [columnOrder, setColumnOrder] = React.useState<string[]>(() => {
+    if (!enableColumnReorder) return defaultColumnOrder;
+    if (columnOrderStorageKey) {
+      return readStoredColumnOrder(columnOrderStorageKey, defaultColumnOrder);
+    }
+    return defaultColumnOrder;
+  });
+
+  React.useEffect(() => {
+    if (!enableColumnReorder) return;
+    setColumnOrder((prev) => {
+      const next = mergeColumnOrder(prev, defaultColumnOrder);
+      return next.join(",") === prev.join(",") ? prev : next;
+    });
+  }, [defaultColumnOrder, enableColumnReorder]);
+
+  React.useEffect(() => {
+    if (!enableColumnReorder || !columnOrderStorageKey) return;
+    localStorage.setItem(columnOrderStorageKey, JSON.stringify(columnOrder));
+  }, [columnOrder, columnOrderStorageKey, enableColumnReorder]);
+
+  React.useEffect(() => {
+    if (!visibilityStorageKey) return;
+    localStorage.setItem(visibilityStorageKey, JSON.stringify(columnVisibility));
+  }, [columnVisibility, visibilityStorageKey]);
 
   const resolvedPageSize = manual ? pageSize : clientPageSize;
 
@@ -201,11 +282,13 @@ export function DataTable<TData, TValue>({
           },
         }),
     onColumnVisibilityChange: setColumnVisibility,
+    onColumnOrderChange: enableColumnReorder ? setColumnOrder : undefined,
     state: {
       sorting: activeSorting,
       columnFilters,
       columnVisibility,
       rowSelection,
+      ...(enableColumnReorder ? { columnOrder } : {}),
       ...(manual ? { pagination: { pageIndex, pageSize: resolvedPageSize } } : {}),
     },
   });
@@ -274,9 +357,93 @@ export function DataTable<TData, TValue>({
     .getAllColumns()
     .filter((column) => column.getCanHide());
 
+  const showColumnManager = enableColumnReorder || hideableColumns.length > 0;
+
+  const managedColumnIds = React.useMemo(() => {
+    const ids = enableColumnReorder ? columnOrder : getColumnIds(columns);
+    return ids.filter((id) => {
+      const column = table.getColumn(id);
+      if (!column) return false;
+      if (column.columnDef.meta?.enableColumnReorder === false && !column.getCanHide()) {
+        return false;
+      }
+      return column.getCanHide() || enableColumnReorder;
+    });
+  }, [columnOrder, columns, enableColumnReorder, table]);
+
+  const handleColumnDragStart = React.useCallback(
+    (columnId: string) => (event: React.DragEvent) => {
+      event.stopPropagation();
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", columnId);
+      setDraggingColumnId(columnId);
+    },
+    [],
+  );
+
+  const handleColumnDragOver = React.useCallback(
+    (columnId: string) => (event: React.DragEvent) => {
+      if (!draggingColumnId || draggingColumnId === columnId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setDropTargetColumnId(columnId);
+    },
+    [draggingColumnId],
+  );
+
+  const reorderColumns = React.useCallback((sourceColumnId: string, targetColumnId: string) => {
+    if (!sourceColumnId || sourceColumnId === targetColumnId) return;
+
+    setColumnOrder((prev) => {
+      const next = [...prev];
+      const fromIndex = next.indexOf(sourceColumnId);
+      const toIndex = next.indexOf(targetColumnId);
+      if (fromIndex === -1 || toIndex === -1) return prev;
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, sourceColumnId);
+      return next;
+    });
+  }, []);
+
+  const handleColumnDrop = React.useCallback(
+    (targetColumnId: string) => (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const sourceColumnId = event.dataTransfer.getData("text/plain") || draggingColumnId;
+      if (!sourceColumnId || sourceColumnId === targetColumnId) {
+        setDraggingColumnId(null);
+        setDropTargetColumnId(null);
+        return;
+      }
+
+      reorderColumns(sourceColumnId, targetColumnId);
+      setDraggingColumnId(null);
+      setDropTargetColumnId(null);
+    },
+    [draggingColumnId, reorderColumns],
+  );
+
+  const handleColumnDragEnd = React.useCallback(() => {
+    setDraggingColumnId(null);
+    setDropTargetColumnId(null);
+  }, []);
+
+  const canReorderColumn = React.useCallback(
+    (columnId: string) => {
+      if (!enableColumnReorder) return false;
+      const column = table.getColumn(columnId);
+      if (!column) return false;
+      if (column.columnDef.meta?.enableColumnReorder === false) return false;
+      if (column.columnDef.meta?.sticky) return false;
+      return true;
+    },
+    [enableColumnReorder, table],
+  );
+
   return (
     <div className={cn("w-full space-y-3", className)}>
-      {(filters || showSearch || bulkSelect || hideableColumns.length > 0) && (
+      {(filters || showSearch || bulkSelect || showColumnManager) && (
         <div>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -322,34 +489,92 @@ export function DataTable<TData, TValue>({
 
               {bulkActive && selectedCount > 0 && bulkSelect?.actions}
 
-              {hideableColumns.length > 0 && (
+              {showColumnManager && (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-9 border-border/60 bg-white shadow-none dark:bg-card"
+                        className="h-9 gap-1.5 border-border/60 bg-white shadow-none dark:bg-card"
                       />
                     }
                   >
                     <Columns3 className="size-4" />
                     {t("columns")}
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuContent align="end" className="w-56 p-1.5">
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      <DropdownMenuLabel className="px-1.5 text-xs text-muted-foreground">
                         {t("toggleColumns")}
                       </DropdownMenuLabel>
-                      {hideableColumns.map((column) => (
-                        <DropdownMenuCheckboxItem
-                          key={column.id}
-                          checked={column.getIsVisible()}
-                          onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                        >
-                          {column.id}
-                        </DropdownMenuCheckboxItem>
-                      ))}
+                      {enableColumnReorder && (
+                        <p className="px-1.5 pb-1.5 text-[10px] leading-snug text-muted-foreground">
+                          {t("manageColumnsHint")}
+                        </p>
+                      )}
+                      <div className="max-h-72 space-y-0.5 overflow-y-auto">
+                        {managedColumnIds.map((columnId) => {
+                          const column = table.getColumn(columnId);
+                          if (!column) return null;
+
+                          const label = column.columnDef.meta?.label ?? column.id;
+                          const isVisible = column.getIsVisible();
+                          const canReorder = canReorderColumn(columnId);
+                          const canHide = column.getCanHide();
+
+                          return (
+                            <div
+                              key={columnId}
+                              onDragOver={
+                                canReorder ? handleColumnDragOver(columnId) : undefined
+                              }
+                              onDrop={canReorder ? handleColumnDrop(columnId) : undefined}
+                              className={cn(
+                                "flex items-center gap-1 rounded-md px-1 py-0.5",
+                                dropTargetColumnId === columnId && "bg-primary/10",
+                                draggingColumnId === columnId && "opacity-60",
+                              )}
+                            >
+                              {canReorder ? (
+                                <button
+                                  type="button"
+                                  draggable
+                                  onDragStart={handleColumnDragStart(columnId)}
+                                  onDragEnd={handleColumnDragEnd}
+                                  aria-label={t("reorderColumn")}
+                                  className="cursor-grab touch-none rounded p-0.5 text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <GripVertical className="size-3.5" />
+                                </button>
+                              ) : (
+                                <span className="size-4 shrink-0" />
+                              )}
+
+                              <button
+                                type="button"
+                                disabled={!canHide}
+                                onClick={() => canHide && column.toggleVisibility()}
+                                className={cn(
+                                  "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-sm transition-colors",
+                                  canHide && "hover:bg-accent",
+                                  !isVisible && "text-muted-foreground",
+                                )}
+                              >
+                                <span className="truncate">{label}</span>
+                                {canHide && (
+                                  isVisible ? (
+                                    <Check className="ms-auto size-3.5 shrink-0 text-primary" />
+                                  ) : (
+                                    <EyeOff className="ms-auto size-3.5 shrink-0 text-muted-foreground" />
+                                  )
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>

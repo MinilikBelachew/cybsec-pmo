@@ -2,12 +2,12 @@
 
 import * as React from "react";
 import { useState } from "react";
-import { usePathname, useRouter } from "@/i18n/routing";
+import { usePathname, useRouter, Link } from "@/i18n/routing";
 import { useAuth } from "@/domains/auth";
 import { ROLE_CATALOG } from "@/config/roles.config";
 import { NotificationBell } from "@/shared/components/notification-bell";
 import { CustomizeModal } from "@/shared/components/customize-modal";
-import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
+import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
 import {
   DropdownMenu,
@@ -105,19 +105,31 @@ export function TopBar() {
       {/* ── Breadcrumbs ── */}
       <div className="flex items-center gap-1 text-sm min-w-0 flex-1">
         {breadcrumbs.length === 0 ? (
-          <span className="text-foreground font-semibold text-sm">Dashboard</span>
+          <Link
+            href="/dashboard"
+            className="text-foreground font-semibold text-sm hover:text-primary transition-colors"
+          >
+            Dashboard
+          </Link>
         ) : (
           breadcrumbs.map((crumb, i) => (
-            <div key={i} className="flex items-center gap-1 min-w-0">
+            <div key={crumb.href} className="flex items-center gap-1 min-w-0">
               {i > 0 && <ChevronRight className="size-3 text-muted-foreground/50 shrink-0" />}
-              <span
-                className={cn(
-                  "truncate text-xs md:text-sm",
-                  crumb.isLast ? "text-foreground font-semibold" : "text-muted-foreground"
-                )}
-              >
-                {crumb.label}
-              </span>
+              {crumb.isLast ? (
+                <span
+                  className="truncate text-xs md:text-sm text-foreground font-semibold"
+                  aria-current="page"
+                >
+                  {crumb.label}
+                </span>
+              ) : (
+                <Link
+                  href={crumb.href}
+                  className="truncate text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {crumb.label}
+                </Link>
+              )}
             </div>
           ))
         )}
@@ -174,11 +186,6 @@ export function TopBar() {
             aria-label="User Account Options"
           >
             <Avatar className="h-8 w-8">
-              <AvatarImage
-                src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop"
-                alt="User Profile"
-                className="object-cover"
-              />
               <AvatarFallback className="text-xs">
                 {user?.name ? getInitials(user.name) : "U"}
               </AvatarFallback>

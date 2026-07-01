@@ -27,7 +27,7 @@
   "Table": {
     "search": "Search…",
     "columns": "Columns",
-    "toggleColumns": "Toggle columns",
+    "toggleColumns": "Show / hide columns",
     "clearSearch": "Clear search",
     "next": "Next",
     "previous": "Previous",
@@ -39,6 +39,10 @@
     "selectRows": "Select",
     "cancelSelect": "Cancel",
     "selectRowsHint": "Select rows to export or copy event IDs.",
-    "rowsSelected": "{selected} of {total} row(s) selected."
+    "rowsSelected": "{selected} of {total} row(s) selected.",
+    "manageColumnsHint": "Drag to reorder. Click a column to show or hide it.",
+    "reorderColumn": "Reorder column",
+    "hideColumn": "Hide column",
+    "showColumn": "Show column"
   }
 }

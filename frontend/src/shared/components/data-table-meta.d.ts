@@ -5,5 +5,7 @@ declare module "@tanstack/react-table" {
   interface ColumnMeta<TData, TValue> {
     sticky?: "left" | "right";
     className?: string;
+    enableColumnReorder?: boolean;
+    label?: string;
   }
 }

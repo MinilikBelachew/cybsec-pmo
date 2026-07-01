@@ -70,6 +70,15 @@ const WORKSPACE_STATUS_TO_API: Record<WorkspaceStatus, CreateTaskFormValues["sta
   "Done": "Done",
 };
 
+const TASK_STATUS_OPTIONS: { value: CreateTaskFormValues["status"]; label: string }[] = [
+  { value: "To_Do", label: "To Do" },
+  { value: "In_Progress", label: "In Progress" },
+  { value: "Submitted_for_Review", label: "Submitted for Review" },
+  { value: "Approved", label: "Approved" },
+  { value: "Rework", label: "Rework" },
+  { value: "Done", label: "Done" },
+];
+
 interface DraftComment {
   id: string;
   body: string;
@@ -377,15 +386,17 @@ export function AddTaskSheet({
                       render={({ field }) => (
                         <Select value={field.value} onValueChange={field.onChange}>
                           <SelectTrigger className="w-full">
-                            <SelectValue />
+                            <SelectValue>
+                              {TASK_STATUS_OPTIONS.find((option) => option.value === field.value)?.label ??
+                                "Select status"}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="To_Do">To Do</SelectItem>
-                            <SelectItem value="In_Progress">In Progress</SelectItem>
-                            <SelectItem value="Submitted_for_Review">Submitted for Review</SelectItem>
-                            <SelectItem value="Approved">Approved</SelectItem>
-                            <SelectItem value="Rework">Rework</SelectItem>
-                            <SelectItem value="Done">Done</SelectItem>
+                            {TASK_STATUS_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       )}

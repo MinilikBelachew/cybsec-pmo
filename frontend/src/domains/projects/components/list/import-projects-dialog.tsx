@@ -13,7 +13,6 @@ import { Department, Customer, ProjectManager } from "../../types/projects.types
 import { parseCSV, processRawCSVRows, ParsedProjectRow } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
-import { ScrollArea } from "@/shared/ui/scroll-area";
 import {
   Upload,
   FileSpreadsheet,
@@ -27,6 +26,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import { ImportPreviewScrollArea } from "../shared/import-preview-scroll-area";
 
 const STATUS_CONFIG: Record<string, {
   label: string; dot: string; text: string; bg: string; border: string
@@ -573,8 +573,7 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
                 ) : (
                   /* Project Preview Table */
                   <div className="border border-border rounded-xl overflow-hidden flex flex-col bg-card">
-                    <ScrollArea className="w-full">
-                      <div className="min-w-[2000px]">
+                    <ImportPreviewScrollArea>
                         <table className="w-full text-left border-collapse text-xs">
                           <thead>
                             <tr className="border-b border-border bg-muted/40 font-bold text-muted-foreground uppercase tracking-wider text-[10px]">
@@ -839,8 +838,7 @@ export function ImportProjectsDialog({ open, onClose, refetch, existingProjectNa
                             })}
                           </tbody>
                         </table>
-                      </div>
-                    </ScrollArea>
+                    </ImportPreviewScrollArea>
                   </div>
                 )}
               </div>

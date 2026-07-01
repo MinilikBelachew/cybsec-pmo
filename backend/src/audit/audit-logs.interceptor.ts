@@ -9,6 +9,7 @@ import { Observable } from 'rxjs';
 import { AuditLogsService } from './audit-logs.service';
 import { PrismaService } from '../database/prisma.service';
 import { resolveStatusChangeAction } from './status-change-audit.util';
+import { formatIpWithUserAgent } from '../auth/utils/request-context.util';
 
 const SENSITIVE_KEYS = [
   'password',
@@ -59,11 +60,13 @@ export class AuditLogsInterceptor implements NestInterceptor {
     const auditTarget = this.resolveRouteAudit(urlParts, method, url);
 
     const actorId = request.user?.id || null;
-    const ipAddress =
+    const rawIp =
       request.ip ||
       request.headers['x-forwarded-for'] ||
       request.socket.remoteAddress ||
       null;
+    const userAgent = request.headers['user-agent'] || null;
+    const ipAddress = formatIpWithUserAgent(rawIp, userAgent);
     const isExternal = request.user?.isExternal || false;
     const isBreakGlass = request.user?.breakGlass === true;
     const bodyPayload = this.maskSensitiveFields(request.body);

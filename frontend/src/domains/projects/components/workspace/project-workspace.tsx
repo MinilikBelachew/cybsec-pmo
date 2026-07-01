@@ -20,7 +20,7 @@ import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/task
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
-import { useAppAbility } from "@/domains/auth";
+import { useAppAbility, useAuth } from "@/domains/auth";
 import { cn } from "@/shared/utils/cn";
 import {
   DropdownMenu,
@@ -223,7 +223,6 @@ export function ProjectWorkspace() {
   const router = useRouter();
   const id = params.id as string;
 
-  const { userRole } = useRole();
   const { user } = useAuth();
   const ability = useAppAbility();
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
@@ -912,7 +911,6 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
-            assignees={assignees}
           />
         )}
 

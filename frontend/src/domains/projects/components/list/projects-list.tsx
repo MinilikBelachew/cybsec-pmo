@@ -16,6 +16,12 @@ import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { createProjectListColumns } from "./project-list-columns";
 import { exportProjectsToXLSX } from "../../utils/import-export";
+import {
+  DEFAULT_PROJECT_DEPT_COLOR,
+  formatProjectTimeline,
+  PROJECT_DEPT_COLOR,
+} from "../../utils/project-display.utils";
+import { formatProjectBudgetCompact } from "../../utils/format-budget";
 import { EmployeeTooltip } from "../shared/employee-tooltip";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { cn } from "@/shared/utils/cn";
@@ -34,7 +40,7 @@ import type { GetProjectsParams, PriorityLevel, Project, ProjectSortField, Proje
 import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
-  ChevronDown, X, ArrowUpRight, Calendar, Milestone,
+  ChevronDown, X, Calendar, Milestone,
   Pencil, Trash2, Activity, CheckCircle2, PauseCircle,
   Upload,
   Download,
@@ -81,21 +87,6 @@ const STATUS_CONFIG: Record<string, {
     border: "border-border" 
   },
 };
-
-const DEPT_COLOR: Record<string, string> = {
-  Engineering: "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary",
-  Delivery: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
-  Finance: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  HR: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
-  Product: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  SOC: "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary",
-  GRC: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
-  Cloud: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  AppSec: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
-};
-
-const DEFAULT_DEPT_COLOR =
-  "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary";
 
 const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: string; text: string }> = {
   Critical: { label: "Critical", dot: "bg-red-500", bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-400" },
@@ -178,25 +169,6 @@ function enrichProject(
   };
 }
 
-function formatPmShortName(name?: string) {
-  if (!name) return "Unassigned";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0];
-  return `${parts[0][0]}. ${parts[parts.length - 1]}`;
-}
-
-function formatBudgetK(amount: number) {
-  return Number.isInteger(amount) ? String(amount) : amount.toFixed(1);
-}
-
-function formatProjectTimeline(startDate?: string, endDate?: string) {
-  const format = (value?: string) => {
-    if (!value) return "—";
-    return new Date(value).toLocaleDateString("en-US", { month: "short", year: "numeric" });
-  };
-  return `${format(startDate)} → ${format(endDate)}`;
-}
-
 const CARD_THEMES = {
   total: {
     border: "border-slate-200 dark:border-slate-800/60 hover:border-slate-300 dark:hover:border-slate-700",
@@ -244,10 +216,13 @@ interface CardTheme {
 }
 
 function formatPortfolioValue(val: number) {
-  if (val >= 1000) {
-    return `$${(val / 1000).toFixed(1)}M`;
+  if (val >= 1_000_000) {
+    return `$${(val / 1_000_000).toFixed(1)}M`;
   }
-  return `$${val}k`;
+  if (val >= 1_000) {
+    return `$${(val / 1_000).toFixed(1)}k`;
+  }
+  return `$${Math.round(val).toLocaleString()}`;
 }
 
 function MiniTrendChart({
@@ -467,7 +442,7 @@ export function ProjectsList() {
   const { data, isLoading, isFetching, isError, refetch } = useGetProjectsQuery(queryParams);
   const { data: portfolioStats } = useGetPortfolioStatsQuery();
 
-  const portfolioKpis = portfolioStats ?? {
+  const portfolioKpis = portfolioStats ?? data?.stats ?? {
     total: 0,
     active: 0,
     atRisk: 0,
@@ -806,17 +781,32 @@ function ProjectGridCard({
   const overBudget = p.budgetUsed > p.budget;
   const showActions = Boolean(onEdit || onDelete);
 
+  const openProject = () => router.push(`/dashboard/projects/${p.id}`);
+
+  const handleCardKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openProject();
+    }
+  };
+
   return (
-    <div className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
+    <div className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card text-left transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
       <div className="flex flex-1 flex-col gap-4 p-5">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={openProject}
+            onKeyDown={handleCardKeyDown}
+            className="min-w-0 flex-1 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold", s.bg, s.text, s.border)}>
                 <span className={cn("size-1.5 rounded-full", s.dot)} />
                 {s.label}
               </span>
-              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", DEPT_COLOR[p.department?.name ?? ""] || DEFAULT_DEPT_COLOR)}>
+              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", PROJECT_DEPT_COLOR[p.department?.name ?? ""] || DEFAULT_PROJECT_DEPT_COLOR)}>
                 {p.department?.name || "Direct"}
               </span>
             </div>
@@ -826,24 +816,30 @@ function ProjectGridCard({
           </div>
 
           {showActions && (
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div
+              className="flex shrink-0 items-center gap-0.5"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
                     <button
                       type="button"
                       className="rounded-lg p-1 text-muted-foreground opacity-0 transition-all hover:bg-muted/65 hover:text-foreground group-hover:opacity-100"
-                      onClick={(e) => e.stopPropagation()}
                     />
                   }
                 >
                   <MoreHorizontal className="size-4" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuContent align="end" className="w-40" onClick={(event) => event.stopPropagation()}>
                   {onEdit && (
                     <DropdownMenuItem
                       className="cursor-pointer gap-2"
-                      onClick={() => onEdit(p)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onEdit(p);
+                      }}
                     >
                       <Pencil className="size-3.5" />
                       Edit
@@ -852,7 +848,10 @@ function ProjectGridCard({
                   {onDelete && (
                     <DropdownMenuItem
                       className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
-                      onClick={() => onDelete(p)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(p);
+                      }}
                     >
                       <Trash2 className="size-3.5" />
                       Delete
@@ -864,7 +863,13 @@ function ProjectGridCard({
           )}
         </div>
 
-        <div className="space-y-1.5">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={openProject}
+          onKeyDown={handleCardKeyDown}
+          className="cursor-pointer space-y-4 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-muted-foreground">Progress</span>
             <span className="text-[11px] font-bold text-foreground">{p.progress}%</span>
@@ -875,7 +880,6 @@ function ProjectGridCard({
               style={{ width: `${p.progress}%` }}
             />
           </div>
-        </div>
 
         <div className="grid grid-cols-3 gap-2">
           <StatPill icon={CheckSquare} label="Tasks" value={`${p.tasksDone}/${p.tasksTotal}`} />
@@ -890,7 +894,7 @@ function ProjectGridCard({
               <div className="mb-1 flex items-center justify-between gap-2">
                 <span className="text-[10px] text-muted-foreground">Budget</span>
                 <span className={cn("text-[10px] font-bold", overBudget ? "text-rose-500" : "text-foreground")}>
-                  ${formatBudgetK(p.budgetUsed)}k / ${formatBudgetK(p.budget)}k
+                  {formatProjectBudgetCompact(p.budgetUsed, p.currency)} / {formatProjectBudgetCompact(p.budget, p.currency)}
                 </span>
               </div>
               <div className="h-1 overflow-hidden rounded-full bg-muted">
@@ -900,7 +904,7 @@ function ProjectGridCard({
                 />
               </div>
               <p className="mt-1 text-[10px] text-muted-foreground">
-                ${formatBudgetK(p.budgetRemaining)}k remaining
+                {formatProjectBudgetCompact(p.budgetRemaining, p.currency)} remaining
               </p>
             </div>
             <span className={cn("shrink-0 text-[10px] font-bold", overBudget ? "text-rose-500" : "text-muted-foreground")}>
@@ -930,25 +934,12 @@ function ProjectGridCard({
             ))}
           </div>
 
-          <div className="text-end">
-            <p className="text-[10px] font-semibold text-foreground">{formatPmShortName(p.primaryPm?.displayName)}</p>
-            <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
-              <Calendar className="size-3" />
-              {formatProjectTimeline(p.startDate, p.endDate)}
-            </div>
+          <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
+            <Calendar className="size-3" />
+            {formatProjectTimeline(p.startDate, p.endDate)}
           </div>
         </div>
-      </div>
-
-      <div className="px-5 pb-4">
-        <button
-          type="button"
-          onClick={() => router.push(`/dashboard/projects/${p.id}`)}
-          className="group/btn flex w-full items-center justify-center gap-1.5 rounded-xl border border-border/50 py-2 text-xs font-semibold text-muted-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-        >
-          Open Project
-          <ArrowUpRight className="size-3.5 transition-transform group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5" />
-        </button>
+        </div>
       </div>
     </div>
   );
@@ -1028,6 +1019,8 @@ function ProjectListView({
       isLoading={isLoading}
       emptyMessage="No projects match your filters."
       minTableWidth="min-w-[1100px]"
+      enableColumnReorder
+      columnOrderStorageKey="cybsec-projects-list-column-order"
     />
   );
 }

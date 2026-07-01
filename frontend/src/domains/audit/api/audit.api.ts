@@ -38,7 +38,7 @@ export type AuditLogsResponse = {
 
 export type AuditSortField = "createdAt" | "action" | "objectType" | "breakGlassAction";
 
-export type AuditExportFormat = "json" | "xlsx" | "pdf";
+export type AuditExportFormat = "json" | "csv" | "xlsx" | "pdf";
 
 export type AuditLogsQuery = {
   page?: number;
@@ -140,4 +140,82 @@ export function downloadAuditJson(filename: string, data: unknown) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Takes a raw JSON Blob (possibly compact/minified from the backend) and
+ * re-downloads it as pretty-printed JSON with 2-space indentation — matching
+ * the single-entry export format used in the detail sheet.
+ */
+export async function downloadAuditBlobAsJson(filename: string, blob: Blob) {
+  try {
+    const text = await blob.text();
+    const parsed = JSON.parse(text);
+    downloadAuditJson(filename, parsed);
+  } catch {
+    // Fallback: download the blob as-is if it cannot be parsed
+    downloadAuditBlob(filename, blob);
+  }
+}
+
+// ─── CSV helpers ────────────────────────────────────────────────────────────
+
+const CSV_AUDIT_HEADERS = [
+  "Time",
+  "Actor",
+  "Email",
+  "Action",
+  "Object Type",
+  "Object ID",
+  "Source",
+  "IP Address",
+  "Break-glass",
+  "External",
+  "Old Value",
+  "New Value",
+] as const;
+
+function escapeAuditCsvCell(value: unknown): string {
+  if (value == null) return "";
+  const str =
+    typeof value === "object"
+      ? JSON.stringify(value)
+      : String(value);
+  // Wrap in quotes if the value contains commas, quotes, or newlines
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * Converts an array of AuditLogEntry objects into a CSV string.
+ * Old/New values are serialised as compact JSON strings inside CSV cells.
+ */
+export function convertAuditToCsv(entries: AuditLogEntry[]): string {
+  const rows = entries.map((e) => [
+    new Date(e.createdAt).toLocaleString(),
+    e.user?.displayName ?? "System",
+    e.user?.email ?? "",
+    e.action,
+    e.objectType,
+    e.objectId ?? "",
+    e.source ?? "",
+    e.ipAddress ?? "",
+    e.breakGlassAction ? "Yes" : "No",
+    e.isExternal ? "Yes" : "No",
+    e.oldValue != null ? JSON.stringify(e.oldValue) : "",
+    e.newValue != null ? JSON.stringify(e.newValue) : "",
+  ].map(escapeAuditCsvCell));
+
+  return [
+    CSV_AUDIT_HEADERS.map(escapeAuditCsvCell).join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\n");
+}
+
+export function downloadAuditCsv(filename: string, entries: AuditLogEntry[]) {
+  const csv = convertAuditToCsv(entries);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  downloadAuditBlob(filename, blob);
 }

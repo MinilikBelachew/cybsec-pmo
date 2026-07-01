@@ -12,10 +12,12 @@ import { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import {
   parseCSV,
   processRawTaskCSVRows,
+  detectTaskCsvImportKind,
+  revalidateParsedTaskRow,
   ParsedTaskRow,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
-import { ScrollArea } from "@/shared/ui/scroll-area";
+import { ImportPreviewScrollArea } from "../shared/import-preview-scroll-area";
 import {
   Upload,
   FileSpreadsheet,
@@ -244,6 +246,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           toast.error("The CSV file is empty or only contains headers.");
           return;
         }
+
+        const importKind = detectTaskCsvImportKind(csvData);
+        if (importKind === "projects") {
+          toast.error(
+            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample CSV.",
+          );
+          return;
+        }
+
         const processed = processRawTaskCSVRows(csvData, phases, assignees);
         setParsedRows(processed);
         toast.success(`Loaded ${processed.length} rows from CSV`);
@@ -272,55 +283,19 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   };
 
   const handleInlineChange = (index: number, field: keyof ParsedTaskRow, value: any) => {
-    setParsedRows((prev) =>
-      prev.map((row, idx) => {
+    setParsedRows((prev) => {
+      const duplicateTitles = new Set(
+        prev
+          .map((row) => row.title.trim().toLowerCase())
+          .filter((title, titleIndex, all) => title && all.indexOf(title) !== titleIndex),
+      );
+
+      return prev.map((row, idx) => {
         if (idx !== index) return row;
         const updated = { ...row, [field]: value };
-
-        const rowErrors: string[] = [];
-        if (!updated.title) rowErrors.push("Task title is required.");
-
-        let isStartValid = false;
-        if (updated.startDate) {
-          const parsedStart = Date.parse(updated.startDate);
-          if (!isNaN(parsedStart)) {
-            isStartValid = true;
-          } else {
-            rowErrors.push("Start date must be a valid date (YYYY-MM-DD).");
-          }
-        }
-
-        let isEndValid = false;
-        if (updated.endDate) {
-          const parsedEnd = Date.parse(updated.endDate);
-          if (!isNaN(parsedEnd)) {
-            isEndValid = true;
-          } else {
-            rowErrors.push("End date must be a valid date (YYYY-MM-DD).");
-          }
-        }
-
-        if (isStartValid && isEndValid && updated.startDate && updated.endDate) {
-          if (new Date(updated.startDate).getTime() > new Date(updated.endDate).getTime()) {
-            rowErrors.push("End date must be on or after start date.");
-          }
-        }
-
-        if (updated.effortHours != null && isNaN(Number(updated.effortHours))) {
-          rowErrors.push("Invalid effort hours.");
-        }
-
-        if (!isPriorityValid(updated.priority)) {
-          rowErrors.push(`Priority "${updated.priority}" is invalid. Please select one.`);
-        }
-
-        if (!isStatusValid(updated.status)) {
-          rowErrors.push(`Status "${updated.status}" is invalid. Please select one.`);
-        }
-
-        return { ...updated, errors: rowErrors };
-      })
-    );
+        return revalidateParsedTaskRow(updated, phases, assignees, duplicateTitles);
+      });
+    });
   };
 
   const validRows = useMemo(
@@ -482,8 +457,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   <>
                   {/* Task Preview Table */}
                   <div className="border border-border rounded-xl overflow-hidden flex flex-col bg-card">
-                    <ScrollArea className="w-full">
-                      <div className="min-w-[1600px]">
+                    <ImportPreviewScrollArea minWidth={1600}>
                         <table className="w-full text-left border-collapse text-xs">
                           <thead>
                             <tr className="border-b border-border bg-muted/40 font-bold text-muted-foreground uppercase tracking-wider text-[10px]">
@@ -630,23 +604,32 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
 
                                   {/* Phase */}
                                   <td className="p-3">
-                                    <select
-                                      value={row.resolvedPhaseId || ""}
-                                      onChange={(e) => handleInlineChange(idx, "resolvedPhaseId", e.target.value || null)}
-                                      className="w-full h-8 text-xs rounded-lg border border-border bg-background px-2 font-medium"
-                                      disabled={row.isSummary}
-                                    >
-                                      {!row.resolvedPhaseId && row.phaseName && (
-                                        <option value="" disabled className="text-rose-500 font-bold">
-                                          {row.phaseName}
-                                        </option>
-                                      )}
-                                      {phases.map((p: ProjectPhase) => (
-                                        <option key={p.id} value={p.id}>
-                                          {p.name}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    {phases.length === 0 ? (
+                                      <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                                        Create project phases first
+                                      </span>
+                                    ) : (
+                                      <select
+                                        value={row.resolvedPhaseId || ""}
+                                        onChange={(e) =>
+                                          handleInlineChange(idx, "resolvedPhaseId", e.target.value || null)
+                                        }
+                                        className="w-full h-8 text-xs rounded-lg border border-border bg-background px-2 font-medium"
+                                        disabled={row.isSummary}
+                                      >
+                                        <option value="">No phase</option>
+                                        {!row.resolvedPhaseId && row.phaseName && (
+                                          <option value="" disabled className="text-rose-500 font-bold">
+                                            {row.phaseName}
+                                          </option>
+                                        )}
+                                        {phases.map((p: ProjectPhase) => (
+                                          <option key={p.id} value={p.id}>
+                                            {p.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    )}
                                   </td>
 
                                   {/* Timeline Dates */}
@@ -668,8 +651,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                             })}
                           </tbody>
                         </table>
-                      </div>
-                    </ScrollArea>
+                    </ImportPreviewScrollArea>
                   </div>
                   </>
                 )}
