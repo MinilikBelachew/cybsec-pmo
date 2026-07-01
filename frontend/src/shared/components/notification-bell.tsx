@@ -1,15 +1,13 @@
 "use client";
 
-import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, Bell, CheckCircle2, Clock, Plus } from "lucide-react";
-import { useRouter } from "@/i18n/routing";
+import { Bell } from "lucide-react";
+import { Link, useRouter } from "@/i18n/routing";
 import { Badge } from "@/shared/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import { cn } from "@/shared/utils/cn";
 import {
   useGetNotificationsQuery,
   useGetUnreadNotificationCountQuery,
@@ -17,62 +15,8 @@ import {
   useMarkNotificationReadMutation,
   type NotificationRecord,
 } from "@/domains/notifications";
-
-function notificationIcon(eventType: string) {
-  switch (eventType) {
-    case "TASK_ASSIGNED":
-      return <Plus className="size-4 text-blue-500" />;
-    case "TASK_UPDATED":
-      return <Clock className="size-4 text-amber-500" />;
-    case "PROGRESS_SUBMITTED":
-      return <Clock className="size-4 text-violet-500" />;
-    case "PROGRESS_APPROVED":
-      return <CheckCircle2 className="size-4 text-emerald-500" />;
-    case "PROGRESS_REJECTED":
-    case "PROGRESS_REWORK":
-      return <AlertTriangle className="size-4 text-rose-500" />;
-    default:
-      return <Bell className="size-4 text-primary" />;
-  }
-}
-
-function resolveNotificationHref(notification: NotificationRecord): string | null {
-  const payload = notification.payload;
-  const link = payload.link;
-  if (typeof link === "string" && link.length > 0) {
-    return link;
-  }
-
-  const projectId = payload.projectId;
-  const taskId = payload.taskId;
-  const progressUpdateId = payload.progressUpdateId;
-
-  if (typeof projectId === "string" && typeof taskId === "string") {
-    const params = new URLSearchParams({ taskId });
-
-    if (
-      notification.eventType === "PROGRESS_SUBMITTED" &&
-      typeof progressUpdateId === "string"
-    ) {
-      params.set("reviewProgress", "1");
-      params.set("progressUpdateId", progressUpdateId);
-    } else if (
-      notification.eventType === "PROGRESS_APPROVED" ||
-      notification.eventType === "PROGRESS_REJECTED" ||
-      notification.eventType === "PROGRESS_REWORK"
-    ) {
-      params.set("progress", "1");
-    }
-
-    return `/dashboard/projects/${projectId}?${params.toString()}`;
-  }
-
-  if (typeof projectId === "string") {
-    return `/dashboard/projects/${projectId}`;
-  }
-
-  return null;
-}
+import { NotificationListItem } from "@/domains/notifications/components/notification-list-item";
+import { resolveNotificationHref } from "@/domains/notifications/utils/notification-navigation";
 
 export function NotificationBell() {
   const router = useRouter();
@@ -148,42 +92,23 @@ export function NotificationBell() {
             <p className="px-4 py-6 text-center text-muted-foreground">No notifications yet.</p>
           ) : (
             notifications.map((notification) => (
-              <button
+              <NotificationListItem
                 key={notification.id}
-                type="button"
+                notification={notification}
                 onClick={() => void handleOpenNotification(notification)}
-                className={cn(
-                  "w-full flex gap-3 px-4 py-2.5 text-left transition-all hover:bg-muted/40 relative group",
-                  !notification.readAt && "bg-primary/5",
-                )}
-              >
-                <div className="size-8 rounded-lg flex items-center justify-center shrink-0 border border-border bg-card">
-                  {notificationIcon(notification.eventType)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <p
-                      className={cn(
-                        "text-xs font-bold truncate",
-                        !notification.readAt ? "text-foreground" : "text-muted-foreground",
-                      )}
-                    >
-                      {notification.title}
-                    </p>
-                    <span className="text-[9px] text-muted-foreground/50 shrink-0">
-                      {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 leading-normal">
-                    {notification.body}
-                  </p>
-                </div>
-                {!notification.readAt && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-primary rounded-r-full" />
-                )}
-              </button>
+                className="py-2.5"
+              />
             ))
           )}
+        </div>
+
+        <div className="border-t border-border/50 bg-muted/20 px-4 py-2.5 text-center">
+          <Link
+            href="/dashboard/notifications"
+            className="text-[11px] font-semibold text-primary hover:underline"
+          >
+            View all notifications
+          </Link>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

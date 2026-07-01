@@ -2,12 +2,14 @@ import {
   Controller,
   Get,
   Query,
+  Param,
   UseGuards,
   HttpCode,
   HttpStatus,
   UseInterceptors,
   Res,
   BadRequestException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -24,6 +26,20 @@ import {
   AUDIT_EXPORT_FORMATS,
   type AuditExportFormat,
 } from './audit-export.constants';
+import { Prisma } from '@prisma/client';
+
+type AuditLogWithUser = Prisma.AuditLogGetPayload<{
+  include: {
+    user: {
+      select: {
+        id: true;
+        displayName: true;
+        email: true;
+        role: { select: { id: true; code: true; label: true } };
+      };
+    };
+  };
+}>;
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -75,6 +91,17 @@ export class AuditLogsController {
   }
 
   @CheckAbility('read', 'AuditLog')
+  @Get('events/:id/export')
+  async exportOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('format') format: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const row = await this.auditLogsService.findOne(id);
+    await this.sendExportResponse(res, [row], format, `audit-event-${id}`);
+  }
+
+  @CheckAbility('read', 'AuditLog')
   @Get('export')
   async export(
     @Query() query: QueryAuditDto,
@@ -91,14 +118,24 @@ export class AuditLogsController {
       orderBy,
     });
 
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    await this.sendExportResponse(res, rows, format, `audit_logs_${timestamp}`);
+  }
+
+  private async sendExportResponse(
+    res: Response,
+    rows: AuditLogWithUser[],
+    format: string | undefined,
+    filenameBase: string,
+  ): Promise<void> {
+    const resolvedFormat = this.resolveExportFormat(format);
+    const auditSettings = await this.appSettingsService.getAuditSettings();
     const exportLimits = {
       excelJsonCellLimit: auditSettings.auditExportExcelJsonCellLimit,
       pdfJsonLimit: auditSettings.auditExportPdfJsonLimit,
     };
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-
-    if (format === 'xlsx') {
+    if (resolvedFormat === 'xlsx') {
       const buffer = await this.auditExportService.buildXlsx(rows, exportLimits);
       res.setHeader(
         'Content-Type',
@@ -106,18 +143,18 @@ export class AuditLogsController {
       );
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename="audit_logs_${timestamp}.xlsx"`,
+        `attachment; filename="${filenameBase}.xlsx"`,
       );
       res.send(buffer);
       return;
     }
 
-    if (format === 'pdf') {
+    if (resolvedFormat === 'pdf') {
       const buffer = await this.auditExportService.buildPdf(rows, exportLimits);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename="audit_logs_${timestamp}.pdf"`,
+        `attachment; filename="${filenameBase}.pdf"`,
       );
       res.send(buffer);
       return;
@@ -126,9 +163,9 @@ export class AuditLogsController {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="audit_logs_${timestamp}.json"`,
+      `attachment; filename="${filenameBase}.json"`,
     );
-    res.json(rows);
+    res.json(rows.length === 1 ? rows[0] : rows);
   }
 
   private resolveExportFormat(format?: string): AuditExportFormat {

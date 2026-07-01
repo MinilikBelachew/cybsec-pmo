@@ -1,6 +1,7 @@
 "use client";
 
-import { Copy, ChevronDown, FileJson, Table2 } from "lucide-react";
+import { useState } from "react";
+import { Copy, ChevronDown } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -17,38 +18,22 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { cn } from "@/shared/utils/cn";
 import {
+  downloadAuditBlob,
   downloadAuditJson,
   downloadAuditCsv,
+  useExportAuditEventFileMutation,
   type AuditJsonValue,
   type AuditLogEntry,
   type AuditExportFormat,
 } from "../api/audit.api";
+import { AUDIT_EXPORT_OPTIONS } from "./audit-export-options";
+import { parseAuditClientDisplay } from "../utils/format-audit-client";
+import { flattenAuditPayload } from "../utils/flatten-audit-payload";
+
+type PayloadViewMode = "json" | "table";
 
 const AUDIT_DETAIL_SHEET_CLASS =
   "flex h-full w-full !max-w-[560px] flex-col gap-0 overflow-hidden p-0 rounded-l-[10px] !shadow-none bg-white dark:bg-card";
-
-const ENTRY_EXPORT_OPTIONS: {
-  format: AuditExportFormat;
-  label: string;
-  description: string;
-  icon: React.ElementType;
-  iconClass: string;
-}[] = [
-  {
-    format: "json",
-    label: "JSON",
-    description: "Pretty-printed, structured",
-    icon: FileJson,
-    iconClass: "text-amber-500",
-  },
-  {
-    format: "csv",
-    label: "CSV",
-    description: "Spreadsheet-compatible row",
-    icon: Table2,
-    iconClass: "text-emerald-500",
-  },
-];
 
 type AuditDetailSheetProps = {
   entry: AuditLogEntry | null;
@@ -57,8 +42,10 @@ type AuditDetailSheetProps = {
 };
 
 export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheetProps) {
-  const handleExport = (format: AuditExportFormat) => {
-    if (!entry) return;
+  const [exportAuditEventFile, { isLoading: isExporting }] = useExportAuditEventFileMutation();
+
+  const handleExport = async (format: AuditExportFormat) => {
+    if (!entry || isExporting) return;
     const base = `audit-event-${entry.id}`;
 
     if (format === "json") {
@@ -69,6 +56,16 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
     if (format === "csv") {
       downloadAuditCsv(`${base}.csv`, [entry]);
       return;
+    }
+
+    try {
+      const blob = await exportAuditEventFile({
+        eventId: entry.id,
+        format,
+      }).unwrap();
+      downloadAuditBlob(`${base}.${format}`, blob);
+    } catch {
+      // RTK surfaces errors via hook state
     }
   };
 
@@ -88,7 +85,6 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
                   <SheetDescription>Read-only audit record with change payload</SheetDescription>
                 </div>
 
-                {/* 4-format export dropdown — mirrors the main audit page export menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -97,20 +93,22 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
                         variant="outline"
                         size="sm"
                         className="shrink-0 gap-1.5"
+                        disabled={isExporting}
                       />
                     }
                   >
-                    Export
+                    {isExporting ? "Exporting…" : "Export"}
                     <ChevronDown className="size-3.5 opacity-60" />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 p-2 shadow-none">
+                  <DropdownMenuContent align="end" className="w-60 p-2 shadow-none">
                     <div className="space-y-1">
-                      {ENTRY_EXPORT_OPTIONS.map((opt) => {
+                      {AUDIT_EXPORT_OPTIONS.map((opt) => {
                         const Icon = opt.icon;
                         return (
                           <DropdownMenuItem
                             key={opt.format}
-                            onClick={() => handleExport(opt.format)}
+                            onClick={() => void handleExport(opt.format)}
+                            disabled={isExporting}
                             className={cn(
                               "flex items-start gap-3 rounded-xl border border-transparent px-2.5 py-1.5 cursor-pointer select-none",
                               "hover:border-border/60 hover:bg-muted/50 focus:outline-none focus:bg-muted/50 focus:border-border/60",
@@ -144,14 +142,14 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
                 <DetailRow label="Source" value={entry.source ?? "—"} mono />
                 <DetailRow label="Actor" value={entry.user?.displayName ?? "System"} />
                 <DetailRow label="Email" value={entry.user?.email ?? "—"} />
-                <DetailRow label="IP address" value={entry.ipAddress ?? "—"} mono />
+                <DetailRow label="IP address" value={formatDetailIp(entry.ipAddress)} mono />
                 <DetailRow
                   label="Break-glass"
                   value={entry.breakGlassAction ? "Yes" : "No"}
                 />
                 <DetailRow label="External user" value={entry.isExternal ? "Yes" : "No"} />
-                <JsonDetailRow label="Old value" value={entry.oldValue} />
-                <JsonDetailRow label="New value" value={entry.newValue} />
+                <JsonDetailRow key={`${entry.id}-old`} label="Old value" value={entry.oldValue} />
+                <JsonDetailRow key={`${entry.id}-new`} label="New value" value={entry.newValue} />
               </dl>
             </div>
           </div>
@@ -179,8 +177,10 @@ function DetailRow({
 }
 
 function JsonDetailRow({ label, value }: { label: string; value: AuditJsonValue }) {
+  const [viewMode, setViewMode] = useState<PayloadViewMode>("json");
   const hasValue = value !== null && value !== undefined;
   const formatted = formatAuditJson(value);
+  const tableRows = hasValue ? flattenAuditPayload(value) : [];
 
   const copyJson = async () => {
     if (!hasValue) return;
@@ -192,29 +192,85 @@ function JsonDetailRow({ label, value }: { label: string; value: AuditJsonValue 
       <div className="flex items-center justify-between gap-2">
         <dt className="text-xs text-muted-foreground">{label}</dt>
         {hasValue && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-            onClick={copyJson}
-          >
-            <Copy className="size-3" />
-            Copy
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center rounded-lg border border-border/60 p-0.5">
+              <Button
+                type="button"
+                variant={viewMode === "json" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2.5 text-[11px] shadow-none"
+                onClick={() => setViewMode("json")}
+              >
+                JSON
+              </Button>
+              <Button
+                type="button"
+                variant={viewMode === "table" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2.5 text-[11px] shadow-none"
+                onClick={() => setViewMode("table")}
+              >
+                Table
+              </Button>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+              onClick={copyJson}
+            >
+              <Copy className="size-3" />
+              Copy
+            </Button>
+          </div>
         )}
       </div>
       <dd>
         {hasValue ? (
-          <pre className="max-h-48 overflow-auto rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-[11px] leading-relaxed text-foreground">
-            {formatted}
-          </pre>
+          viewMode === "json" ? (
+            <pre className="max-h-48 overflow-auto rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-[11px] leading-relaxed text-foreground">
+              {formatted}
+            </pre>
+          ) : (
+            <div className="max-h-48 overflow-auto rounded-lg border border-border/60">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm">
+                  <tr className="border-b border-border/60">
+                    <th className="px-3 py-2 font-medium text-muted-foreground">Field</th>
+                    <th className="px-3 py-2 font-medium text-muted-foreground">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableRows.map((row) => (
+                    <tr key={row.field} className="border-b border-border/40 last:border-0">
+                      <td className="px-3 py-2 align-top font-mono text-[11px] text-foreground">
+                        {row.field}
+                      </td>
+                      <td className="px-3 py-2 align-top break-all text-[11px] text-foreground">
+                        {row.value}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : (
           <span className="text-sm text-muted-foreground">—</span>
         )}
       </dd>
     </div>
   );
+}
+
+function formatDetailIp(ipAddress: string | null): string {
+  const { ipLabel, ip, client } = parseAuditClientDisplay(ipAddress);
+  if (ipLabel === "—") return "—";
+  if (ipLabel === "Localhost" && ip !== ipLabel) {
+    return `${ipLabel} (${ip}) · ${client}`;
+  }
+  return `${ipLabel} · ${client}`;
 }
 
 function formatAuditJson(value: AuditJsonValue): string {

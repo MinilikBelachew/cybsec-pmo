@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma } from '@prisma/client';
 
@@ -37,6 +37,31 @@ export class AuditLogsService {
         },
       },
     });
+  }
+
+  async findOne(id: string) {
+    const row = await this.prisma.auditLog.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            displayName: true,
+            email: true,
+            role: { select: { id: true, code: true, label: true } },
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      throw new NotFoundException({
+        status: 404,
+        errors: { eventId: 'auditEventNotFound' },
+      });
+    }
+
+    return row;
   }
 
   async count(where?: Prisma.AuditLogWhereInput) {

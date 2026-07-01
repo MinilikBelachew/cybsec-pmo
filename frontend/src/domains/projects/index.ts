@@ -10,6 +10,7 @@ export * from "./api/projects.api";
 export * from "./api/tasks.api";
 export * from "./api/files.api";
 export * from "./components/tasks/task-progress-section";
+export * from "./utils/task-status-permissions";
 export * from "./components/tasks/progress-review-inbox";
 export * from "./components/tasks/task-dependencies-section";
 export * from "./components/workspace/project-workspace";

@@ -954,7 +954,11 @@ export class TaskDependenciesService {
       body,
       payload: {
         projectId: params.projectId,
-        link: `/dashboard/projects/${params.projectId}`,
+        taskId: params.impacted[0]?.taskId ?? undefined,
+        link:
+          params.impacted[0]?.taskId
+            ? `/dashboard/projects/${params.projectId}?taskId=${encodeURIComponent(params.impacted[0].taskId)}`
+            : `/dashboard/projects/${params.projectId}`,
         impactedTaskIds: params.impacted.map((row) => row.taskId),
       },
       sourceObjectType: 'TaskDependency',

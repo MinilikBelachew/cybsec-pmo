@@ -43,6 +43,8 @@ export type AuditExportFormat = "json" | "csv" | "xlsx" | "pdf";
 export type AuditLogsQuery = {
   page?: number;
   limit?: number;
+  eventId?: string;
+  eventIds?: string[];
   breakGlassOnly?: boolean;
   externalOnly?: boolean;
   actorId?: string;
@@ -62,6 +64,8 @@ function buildAuditFilterParams(
 
   if (params.breakGlassOnly) query.breakGlassOnly = true;
   if (params.externalOnly) query.externalOnly = true;
+  if (params.eventId) query.eventId = params.eventId;
+  if (params.eventIds?.length) query.eventIds = params.eventIds.join(",");
   if (params.actorId) query.actorId = params.actorId;
   if (params.dateFrom) query.dateFrom = params.dateFrom;
   if (params.dateTo) query.dateTo = params.dateTo;
@@ -112,6 +116,17 @@ export const auditApi = api.injectEndpoints({
         responseHandler: async (response) => response.blob(),
       }),
     }),
+
+    exportAuditEventFile: builder.mutation<
+      Blob,
+      { eventId: string; format: Exclude<AuditExportFormat, "csv"> }
+    >({
+      query: ({ eventId, format }) => ({
+        url: `/audit/events/${eventId}/export`,
+        params: { format },
+        responseHandler: async (response) => response.blob(),
+      }),
+    }),
   }),
 });
 
@@ -119,6 +134,7 @@ export const {
   useGetAuditEventsQuery,
   useLazyExportAuditEventsQuery,
   useLazyExportAuditFileQuery,
+  useExportAuditEventFileMutation,
 } = auditApi;
 
 export function downloadAuditBlob(filename: string, blob: Blob) {

@@ -24,7 +24,7 @@ import {
   type Project,
   type ProjectTeamSectionHandle,
 } from "@/domains/projects";
-import { useAppAbility } from "@/domains/auth/casl/ability-context";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import {
   Select,
   SelectContent,
@@ -76,10 +76,10 @@ function projectToFormValues(project: Project): CreateProjectFormValues {
     secondaryPmId: project.secondaryPmId ?? "",
     startDate: new Date(project.startDate),
     endDate: new Date(project.endDate),
-    value: project.value,
-    currency: project.currency,
-    engagementType: project.engagementType,
-    billingModel: project.billingModel,
+    value: project.value ?? ("" as any),
+    currency: project.currency ?? "USD",
+    engagementType: project.engagementType ?? "FixedPrice",
+    billingModel: project.billingModel ?? "FixedPrice",
     priority: project.priority,
     status: project.status,
   };
@@ -155,8 +155,17 @@ function validateMilestoneDraftDates(
 
 export function CreateProjectSheet({ open, onClose, refetch, project }: CreateProjectSheetProps) {
   const isEditMode = Boolean(project);
-  const ability = useAppAbility();
-  const canEditTeam = ability?.can("update", "Project") ?? false;
+  const {
+    canEditProjects,
+    canViewFinancials,
+    canEditTeam: canManageTeam,
+    canEditMilestones,
+  } = useModulePermissions();
+  const canEditProject = canEditProjects;
+  const canEditTeam = canEditProject && canManageTeam;
+  const isViewOnly = isEditMode && !canEditProject;
+  const showFinancialFields = canViewFinancials || canEditProject;
+  const milestonesReadOnly = isViewOnly || !canEditMilestones;
   const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
   const milestoneSectionRef = useRef<ProjectFormMilestonesSectionHandle>(null);
   const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
@@ -419,6 +428,9 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     return start > today ? start : today;
   })();
 
+  const readOnlyFieldClass =
+    "disabled:cursor-default disabled:opacity-90 disabled:bg-slate-100/80 dark:disabled:bg-white/[0.04]";
+
   return (
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <SheetContent side="right" className={CREATE_PROJECT_SHEET_CLASS} showCloseButton>
@@ -426,12 +438,14 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
           <SheetHeader className="shrink-0 border-b border-slate-100 px-8 py-5 text-left dark:border-white/[0.06]">
             <SheetTitle className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-900 dark:text-white">
               <FolderKanban className="size-5 text-primary" />
-              {isEditMode ? "Edit Project" : "New Project"}
+              {isEditMode ? (isViewOnly ? "View Project" : "Edit Project") : "New Project"}
             </SheetTitle>
             <SheetDescription className="text-xs text-slate-500 dark:text-slate-400">
-              {isEditMode
-                ? "Update project specifications and delivery settings"
-                : "Configure project specifications inside a unified ledger"}
+              {isViewOnly
+                ? "Project details are read-only for your role."
+                : isEditMode
+                  ? "Update project specifications and delivery settings"
+                  : "Configure project specifications inside a unified ledger"}
             </SheetDescription>
           </SheetHeader>
 
@@ -458,7 +472,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                 type="text"
                 placeholder="e.g. ERP Migration Phase 3"
                 maxLength={PROJECT_NAME_MAX}
-                className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+                disabled={isViewOnly}
+                className={`w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-medium ${readOnlyFieldClass}`}
                 {...register("name")}
               />
               {errors.name && (
@@ -482,7 +497,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                 placeholder="Brief overview of project goals, compliance scoping, and technical deliverables..."
                 rows={3}
                 maxLength={PROJECT_OBJECTIVE_MAX}
-                className="w-full p-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none"
+                disabled={isViewOnly}
+                className={`w-full p-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none ${readOnlyFieldClass}`}
                 {...register("objective")}
               />
               {errors.objective && (
@@ -502,7 +518,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="departmentId"
                   render={({ field }) => (
-                    <Select value={field.value || ""} onValueChange={field.onChange}>
+                    <Select value={field.value || ""} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select...">
                           {activeDept ? `${activeDept.name} (${activeDept.code})` : undefined}
@@ -533,7 +549,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="customerId"
                   render={({ field }) => (
-                    <Select value={field.value || ""} onValueChange={field.onChange}>
+                    <Select value={field.value || ""} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select...">
                           {activeCustomer ? activeCustomer.displayName : undefined}
@@ -567,7 +583,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="status"
                   render={({ field }) => (
-                    <Select value={field.value || "Draft"} onValueChange={field.onChange}>
+                    <Select value={field.value || "Draft"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select status...">
                           {watchedStatus === "Draft" ? "Draft" : watchedStatus === "Active" ? "Active" : watchedStatus === "OnHold" ? "On Hold" : watchedStatus === "PendingClosure" ? "At Risk" : watchedStatus === "Closed" ? "Completed" : undefined}
@@ -609,7 +625,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="primaryPmId"
                   render={({ field }) => (
-                    <Select value={field.value || ""} onValueChange={field.onChange}>
+                    <Select value={field.value || ""} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select PM...">
                           {activePM ? activePM.displayName : undefined}
@@ -643,6 +659,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                     <Select
                       value={field.value || "none"}
                       onValueChange={(val) => field.onChange(val === "none" ? "" : val)}
+                      disabled={isViewOnly}
                     >
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="None">
@@ -685,6 +702,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                         void trigger("endDate");
                       }}
                       minDate={isEditMode ? startOfToday() : startOfToday()}
+                      disabled={isViewOnly}
                     />
                   )}
                 />
@@ -711,6 +729,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                       }}
                       minDate={endDateMin}
                       invalid={Boolean(errors.endDate)}
+                      disabled={isViewOnly}
                     />
                   )}
                 />
@@ -733,6 +752,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
               canEdit={canEditTeam}
             />
 
+            {showFinancialFields && (
             <div className="grid grid-cols-2 gap-4">
               {/* Budget */}
               <div className="space-y-1.5">
@@ -767,7 +787,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="currency"
                   render={({ field }) => (
-                    <Select value={field.value || "USD"} onValueChange={field.onChange}>
+                    <Select value={field.value || "USD"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select currency...">
                           {(() => {
@@ -793,16 +813,19 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                 )}
               </div>
             </div>
+            )}
           </div>
 
           {/* SECTION 3: DELIVERY SETTINGS */}
           <div className="space-y-4 pt-2">
             <div className="flex items-center gap-2 text-xs font-bold text-primary uppercase tracking-widest border-b border-slate-100 dark:border-white/[0.04] pb-2">
               <DollarSign className="size-4" />
-              <span>Engagement & Billing</span>
+              <span>{showFinancialFields ? "Engagement & Billing" : "Delivery"}</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className={showFinancialFields ? "grid grid-cols-3 gap-4" : "grid grid-cols-1 gap-4 sm:max-w-xs"}>
+              {showFinancialFields && (
+                <>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Engagement Type *
@@ -811,7 +834,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="engagementType"
                   render={({ field }) => (
-                    <Select value={field.value || "FixedPrice"} onValueChange={field.onChange}>
+                    <Select value={field.value || "FixedPrice"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select type...">
                           {watchedEngagementType === "ManagedServices" ? "Managed Services" : watchedEngagementType === "StaffAugmentation" ? "Staff Augmentation" : watchedEngagementType === "FixedPrice" ? "Fixed Price" : undefined}
@@ -840,7 +863,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="billingModel"
                   render={({ field }) => (
-                    <Select value={field.value || "FixedPrice"} onValueChange={field.onChange}>
+                    <Select value={field.value || "FixedPrice"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select model...">
                           {watchedBillingModel === "FixedPrice" ? "Fixed Price" : watchedBillingModel === "TimeAndMaterial" ? "Time & Material" : watchedBillingModel === "Retainer" ? "Retainer" : undefined}
@@ -860,6 +883,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   </p>
                 )}
               </div>
+                </>
+              )}
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -869,7 +894,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                   control={control}
                   name="priority"
                   render={({ field }) => (
-                    <Select value={field.value || "Medium"} onValueChange={field.onChange}>
+                    <Select value={field.value || "Medium"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select priority...">
                           {watchedPriority || "Medium"}
@@ -904,18 +929,21 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
             projectStartDate={watchedStartDate}
             projectEndDate={watchedEndDate}
             error={milestoneError || undefined}
+            readOnly={milestonesReadOnly}
           />
 
         </div>
 
         <SheetFooter className="shrink-0 flex-row justify-between border-t border-slate-100 bg-slate-50 px-8 py-4 dark:border-white/[0.06] dark:bg-zinc-950/40">
           <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-            Cancel
+            {isViewOnly ? "Close" : "Cancel"}
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-            {isEditMode ? "Save Changes" : "Create Project"}
-          </Button>
+          {!isViewOnly && (
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
+              {isEditMode ? "Save Changes" : "Create Project"}
+            </Button>
+          )}
         </SheetFooter>
         </form>
       </SheetContent>

@@ -8,12 +8,12 @@ import {
   Paperclip,
   Plus,
   Trash2,
-  ExternalLink,
   ListTree,
   Lock,
   Circle,
   CircleCheck,
 } from "lucide-react";
+import { SecureFileLink } from "@/shared/components/secure-file-link";
 import {
   useGetTaskByIdQuery,
   useAddTaskCommentMutation,
@@ -547,14 +547,12 @@ export function TaskCollaborationSections({
                 {att.sizeBytes ? ` · ${formatFileSize(att.sizeBytes)}` : ""}
               </p>
             </div>
-            <a
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <SecureFileLink
+              storageKey={att.s3Key}
+              filename={att.filename}
               className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary"
-            >
-              <ExternalLink className="size-4" />
-            </a>
+              iconClassName="size-4"
+            />
             <Button
               type="button"
               variant="ghost"
@@ -703,14 +701,13 @@ export function TaskAttachmentsBlock({
             className="group relative flex flex-col gap-1 rounded-xl border border-border bg-muted/20 p-3"
           >
             <Paperclip className="size-5 text-primary" />
-            <a
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="truncate text-xs font-medium hover:text-primary"
-            >
-              {att.filename}
-            </a>
+            <SecureFileLink
+              storageKey={att.s3Key}
+              filename={att.filename}
+              showLabel
+              label={att.filename}
+              className="truncate text-xs font-medium text-foreground hover:text-primary"
+            />
             <p className="text-[10px] text-muted-foreground">
               {att.sizeBytes ? formatFileSize(att.sizeBytes) : "—"}
             </p>

@@ -78,12 +78,16 @@ type CreateProjectListColumnsOptions = {
   onNavigate: (projectId: string) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProjectListRow) => void;
+  projectSheetActionLabel?: string;
+  showBudget?: boolean;
 };
 
 export function createProjectListColumns({
   onNavigate,
   onEdit,
   onDelete,
+  projectSheetActionLabel = "Edit",
+  showBudget = true,
 }: CreateProjectListColumnsOptions): ColumnDef<ProjectListRow>[] {
   const columns: ColumnDef<ProjectListRow>[] = [
     {
@@ -247,30 +251,34 @@ export function createProjectListColumns({
       ),
       meta: { className: "w-[64px]", label: "Risks" },
     },
-    {
-      id: "budget",
-      accessorFn: (row) => row.budgetUsed,
-      enableSorting: false,
-      header: () => <span className="text-sm font-medium text-muted-foreground">Budget</span>,
-      cell: ({ row }) => {
-        const project = row.original;
-        if (project.budget <= 0) {
-          return <span className="text-xs text-muted-foreground">—</span>;
-        }
-        const overBudget = project.budgetUsed > project.budget;
-        return (
-          <div className="min-w-[100px]">
-            <span className={cn("text-xs font-semibold", overBudget ? "text-rose-500" : "text-foreground")}>
-              {formatProjectBudgetCompact(project.budgetUsed, project.currency)}
-              <span className="font-normal text-muted-foreground">
-                {" "}/ {formatProjectBudgetCompact(project.budget, project.currency)}
-              </span>
-            </span>
-          </div>
-        );
-      },
-      meta: { className: "w-[120px]", label: "Budget" },
-    },
+    ...(showBudget
+      ? [
+          {
+            id: "budget",
+            accessorFn: (row: ProjectListRow) => row.budgetUsed,
+            enableSorting: false,
+            header: () => <span className="text-sm font-medium text-muted-foreground">Budget</span>,
+            cell: ({ row }: { row: { original: ProjectListRow } }) => {
+              const project = row.original;
+              if (project.budget <= 0) {
+                return <span className="text-xs text-muted-foreground">—</span>;
+              }
+              const overBudget = project.budgetUsed > project.budget;
+              return (
+                <div className="min-w-[100px]">
+                  <span className={cn("text-xs font-semibold", overBudget ? "text-rose-500" : "text-foreground")}>
+                    {formatProjectBudgetCompact(project.budgetUsed, project.currency)}
+                    <span className="font-normal text-muted-foreground">
+                      {" "}/ {formatProjectBudgetCompact(project.budget, project.currency)}
+                    </span>
+                  </span>
+                </div>
+              );
+            },
+            meta: { className: "w-[120px]", label: "Budget" },
+          } as ColumnDef<ProjectListRow>,
+        ]
+      : []),
     {
       id: "startDate",
       accessorKey: "startDate",
@@ -319,7 +327,7 @@ export function createProjectListColumns({
                   }}
                 >
                   <Pencil className="size-3.5" />
-                  Edit
+                  {projectSheetActionLabel}
                 </DropdownMenuItem>
               )}
               {onDelete && (

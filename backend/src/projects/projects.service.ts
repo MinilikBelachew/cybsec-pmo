@@ -7,6 +7,8 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { AppAbility, CaslAction, CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
+import { PermissionsCacheService } from '../casl/permissions-cache.service';
+import { hasModulePermission } from '../casl/module-permission.util';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { QueryProjectDto, type ProjectSortField } from './dto/query-project.dto';
@@ -69,7 +71,20 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
+    private readonly permissionsCache: PermissionsCacheService,
   ) {}
+
+  private permissionsFor(user: CaslUserContext) {
+    return this.permissionsCache.getByRoleId(user.roleId);
+  }
+
+  private canViewFinancials(user: CaslUserContext) {
+    return hasModulePermission(
+      this.permissionsFor(user),
+      'financials',
+      'view',
+    );
+  }
 
   async create(
     dto: CreateProjectDto & { milestones?: CreateMilestoneDto[] },
@@ -130,6 +145,7 @@ export class ProjectsService {
     caslUser: CaslUserContext,
     ability: AppAbility,
   ) {
+    const permissions = this.permissionsFor(caslUser);
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
@@ -257,11 +273,16 @@ export class ProjectsService {
       atRisk: portfolioStats.atRisk,
       delayed: portfolioStats.delayed,
       completed: portfolioStats.completed,
-      totalValue: portfolioStats.totalValue,
+      ...( 'totalValue' in portfolioStats
+        ? { totalValue: portfolioStats.totalValue }
+        : {}),
     };
 
     const data = projects.map((project) => {
-      const apiProject = toApiProject(project as ProjectWithRelations, { ability });
+      const apiProject = toApiProject(project as ProjectWithRelations, {
+        ability,
+        permissions,
+      });
       const budgetTotal = apiProject.value ?? 0;
       const budgetSpent =
         apiProject.value !== undefined ? resolveBudgetSpent(project.id) : undefined;
@@ -288,6 +309,7 @@ export class ProjectsService {
 
   async getPortfolioStats(caslUser: CaslUserContext) {
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    const showFinancials = this.canViewFinancials(caslUser);
 
     const [statusGroups, valueAgg] = await Promise.all([
       this.prisma.project.groupBy({
@@ -295,23 +317,33 @@ export class ProjectsService {
         where: scopeWhere,
         _count: { _all: true },
       }),
-      this.prisma.project.aggregate({
-        where: scopeWhere,
-        _sum: { value: true },
-      }),
+      showFinancials
+        ? this.prisma.project.aggregate({
+            where: scopeWhere,
+            _sum: { value: true },
+          })
+        : Promise.resolve(null),
     ]);
 
     const byStatus = new Map(
       statusGroups.map((group) => [group.status, group._count._all]),
     );
 
-    return {
+    const base = {
       total: statusGroups.reduce((sum, group) => sum + group._count._all, 0),
       active: byStatus.get(ProjectStatus.Active) ?? 0,
       atRisk: byStatus.get(ProjectStatus.Pending_Closure) ?? 0,
       delayed: byStatus.get(ProjectStatus.On_Hold) ?? 0,
       completed: byStatus.get(ProjectStatus.Closed) ?? 0,
-      totalValue: Number(valueAgg._sum.value ?? 0),
+    };
+
+    if (!showFinancials) {
+      return base;
+    }
+
+    return {
+      ...base,
+      totalValue: Number(valueAgg?._sum.value ?? 0),
     };
   }
 
@@ -402,7 +434,10 @@ export class ProjectsService {
     );
 
     return projects.map((project) => ({
-      ...toApiProject(project as ProjectWithRelations, { ability }),
+      ...toApiProject(project as ProjectWithRelations, {
+        ability,
+        permissions: this.permissionsFor(caslUser),
+      }),
       tasksTotal: project._count.tasks,
       tasksDone: doneTaskMap.get(project.id) ?? 0,
       phasesTotal: project._count.phases,
@@ -424,7 +459,10 @@ export class ProjectsService {
       return null;
     }
 
-    return toApiProject(project as ProjectWithRelations, { ability });
+    return toApiProject(project as ProjectWithRelations, {
+      ability,
+      permissions: this.permissionsFor(caslUser),
+    });
   }
 
   async update(
@@ -434,9 +472,10 @@ export class ProjectsService {
     caslUser: CaslUserContext,
     ability: AppAbility,
   ) {
+    const permissions = this.permissionsFor(caslUser);
     const existing = await this.prisma.project.findFirst({
       where: {
-        AND: [{ id }, this.recordScopeWhere.projectWhere(caslUser, 'update')],
+        AND: [{ id }, this.recordScopeWhere.projectWhere(caslUser, 'read')],
       },
     });
 
@@ -521,7 +560,7 @@ export class ProjectsService {
       include: PROJECT_INCLUDE,
     });
 
-    return toApiProject(project as ProjectWithRelations, { ability });
+    return toApiProject(project as ProjectWithRelations, { ability, permissions });
   }
 
   async remove(id: string, caslUser: CaslUserContext, ability: AppAbility): Promise<void> {

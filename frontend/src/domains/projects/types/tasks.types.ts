@@ -32,7 +32,7 @@ export interface TaskAttachment {
   filename: string;
   mimeType: string | null;
   sizeBytes: number | null;
-  url: string;
+  url: string | null;
   createdAt: string;
   uploader: TaskUserSummary;
 }
@@ -78,6 +78,12 @@ export type ProgressUpdateStatus = "Pending" | "Approved" | "Rejected" | "Rework
 
 export type ProgressReviewDecision = "approve" | "reject" | "rework";
 
+export interface ProgressEvidenceFile {
+  storageKey: string;
+  filename: string;
+  url?: string;
+}
+
 export interface TaskProgressUpdate {
   id: string;
   taskId: string;
@@ -87,6 +93,7 @@ export interface TaskProgressUpdate {
   comment: string | null;
   s3EvidenceKey: string | null;
   evidenceUrl: string | null;
+  evidenceFiles?: ProgressEvidenceFile[];
   status: ProgressUpdateStatus;
   reviewedBy: string | null;
   reviewReason: string | null;
@@ -103,6 +110,7 @@ export interface SubmitProgressUpdatePayload {
   hoursSpent: number;
   comment?: string;
   s3EvidenceKey?: string;
+  evidenceFiles?: Pick<ProgressEvidenceFile, "storageKey" | "filename">[];
 }
 
 export interface ReviewProgressUpdatePayload {

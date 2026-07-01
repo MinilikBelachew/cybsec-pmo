@@ -20,6 +20,7 @@ import {
   // Globe,
   // Store,
   KeyRound,
+  Bell,
   ShieldCheck,
   ListChecks,
   // Sparkles,
@@ -239,6 +240,13 @@ export const sidebarNav: NavSection[] = [
         permission: { action: "read", subject: "Rbac" },
       },
     ],
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    icon: Bell,
+    href: "/dashboard/notifications",
+    permission: { action: "read", subject: "Notification" },
   },
   {
     id: "settings",

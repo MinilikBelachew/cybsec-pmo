@@ -122,20 +122,8 @@ export class TasksService {
     return {
       ...attachment,
       sizeBytes: attachment.sizeBytes != null ? Number(attachment.sizeBytes) : null,
-      url: this.resolveStorageUrl(attachment.s3Key),
+      url: null,
     };
-  }
-
-  private resolveStorageUrl(storageKey: string): string {
-    if (storageKey.startsWith('http://') || storageKey.startsWith('https://')) {
-      return storageKey;
-    }
-    if (storageKey.startsWith('/')) {
-      const backendDomain =
-        process.env.BACKEND_DOMAIN?.replace(/\/$/, '') ?? 'http://localhost:6001';
-      return `${backendDomain}${storageKey}`;
-    }
-    return storageKey;
   }
 
   private filterCommentsForRole<T extends { isInternal: boolean }>(
@@ -1127,7 +1115,7 @@ export class TasksService {
       projectId: task.projectId,
       projectName: task.project?.name ?? null,
       taskTitle: task.title,
-      link: `/dashboard/projects/${task.projectId}`,
+      link: `/dashboard/projects/${task.projectId}?taskId=${encodeURIComponent(task.id)}`,
     };
   }
 

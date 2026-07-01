@@ -17,6 +17,11 @@ import {
   useGetTaskDependenciesQuery,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
+import {
+  canMoveTaskToStatus,
+  formatTaskApiError,
+  getTaskStatusMoveDeniedMessage,
+} from "@/domains/projects/utils/task-status-permissions";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { toast } from "react-hot-toast";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
@@ -451,10 +456,20 @@ export function ProjectWorkspace() {
     const target = tasks.find((t) => t.id === taskId);
     if (!target) return;
     const newStatus = target.status === "Done" || target.status === "Approved" ? "To_Do" : "Done";
+    const isOwner = user?.id === target.assigneeId;
+    if (
+      !canMoveTaskToStatus(target.status, newStatus, isOwner, canReviewProgress)
+    ) {
+      toast.error(
+        getTaskStatusMoveDeniedMessage(target.status, newStatus, isOwner, canReviewProgress),
+      );
+      return;
+    }
     try {
       await updateTask({ id: taskId, body: { status: newStatus } }).unwrap();
     } catch (err) {
       console.error("Failed to toggle task:", err);
+      toast.error(formatTaskApiError(err, "Failed to update task status"));
     }
   };
 
@@ -503,6 +518,17 @@ export function ProjectWorkspace() {
   };
 
   const handleMoveTask = async (taskId: string, toStatus: Status) => {
+    const target = tasks.find((t) => t.id === taskId);
+    if (target && target.status !== toStatus) {
+      const isOwner = user?.id === target.assigneeId;
+      if (!canMoveTaskToStatus(target.status, toStatus, isOwner, canReviewProgress)) {
+        toast.error(
+          getTaskStatusMoveDeniedMessage(target.status, toStatus, isOwner, canReviewProgress),
+        );
+        return;
+      }
+    }
+
     try {
       await updateTask({ id: taskId, body: { status: toStatus } }).unwrap();
       const friendlyName = toStatus === "To_Do"
@@ -515,7 +541,7 @@ export function ProjectWorkspace() {
       toast.success(`Task moved to ${friendlyName}`);
     } catch (err) {
       console.error("Failed to move task:", err);
-      toast.error("Failed to move task");
+      toast.error(formatTaskApiError(err, "Failed to move task"));
     }
   };
 

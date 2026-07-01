@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsInt,
   IsNumber,
   IsOptional,
@@ -8,7 +9,9 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { ProgressEvidenceFileDto } from './progress-evidence-file.dto';
 
 export class CreateProgressUpdateDto {
   @ApiProperty({ example: 25, minimum: 0, maximum: 100 })
@@ -35,4 +38,14 @@ export class CreateProgressUpdateDto {
   @IsString()
   @MaxLength(512)
   s3EvidenceKey?: string;
+
+  @ApiPropertyOptional({
+    type: [ProgressEvidenceFileDto],
+    description: 'One or more evidence files from POST /files/upload',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProgressEvidenceFileDto)
+  evidenceFiles?: ProgressEvidenceFileDto[];
 }

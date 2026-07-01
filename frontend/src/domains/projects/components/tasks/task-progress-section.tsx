@@ -5,11 +5,11 @@ import { toast } from "react-hot-toast";
 import {
   CheckCircle2,
   Clock,
-  FileText,
   Loader2,
   Paperclip,
   RotateCcw,
   Send,
+  X,
   XCircle,
 } from "lucide-react";
 import {
@@ -19,14 +19,16 @@ import {
   useUploadFileMutation,
   type Task,
   type TaskProgressUpdate,
-  type TaskStatus,
+  type ProgressEvidenceFile,
 } from "@/domains/projects";
+import { formatTaskApiError } from "@/domains/projects/utils/task-status-permissions";
 import { useAuth, useAppAbility } from "@/domains/auth";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/utils/cn";
+import { SecureFileLink } from "@/shared/components/secure-file-link";
 
 const STATUS_BADGE: Record<string, string> = {
   Pending: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
@@ -55,8 +57,9 @@ export function TaskProgressSection({
   const [progressPercent, setProgressPercent] = useState("");
   const [hoursSpent, setHoursSpent] = useState("");
   const [comment, setComment] = useState("");
-  const [evidenceKey, setEvidenceKey] = useState<string | undefined>();
-  const [evidenceName, setEvidenceName] = useState<string | undefined>();
+  const [evidenceFiles, setEvidenceFiles] = useState<
+    Pick<ProgressEvidenceFile, "storageKey" | "filename">[]
+  >([]);
   const [reviewReason, setReviewReason] = useState("");
   const [isUploading, setIsUploading] = useState(false);
 
@@ -104,26 +107,49 @@ export function TaskProgressSection({
     setProgressPercent("");
     setHoursSpent("");
     setComment("");
-    setEvidenceKey(undefined);
-    setEvidenceName(undefined);
+    setEvidenceFiles([]);
     setReviewReason("");
   }, [task.id, task.progressApproved, task.status, pendingUpdate?.id]);
 
   async function handleEvidenceSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
     setIsUploading(true);
     try {
-      const result = await uploadFile(file).unwrap();
-      setEvidenceKey(result.storageKey);
-      setEvidenceName(result.filename);
-      toast.success("Evidence uploaded");
+      const uploaded = await Promise.all(
+        files.map(async (file) => {
+          const result = await uploadFile(file).unwrap();
+          return {
+            storageKey: result.storageKey,
+            filename: result.filename,
+          };
+        }),
+      );
+
+      setEvidenceFiles((prev) => {
+        const byKey = new Map(prev.map((item) => [item.storageKey, item]));
+        for (const file of uploaded) {
+          byKey.set(file.storageKey, file);
+        }
+        return Array.from(byKey.values());
+      });
+
+      toast.success(
+        uploaded.length === 1
+          ? "Evidence file attached"
+          : `${uploaded.length} evidence files attached`,
+      );
     } catch {
       toast.error("Failed to upload evidence");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  function removeEvidenceFile(storageKey: string) {
+    setEvidenceFiles((prev) => prev.filter((file) => file.storageKey !== storageKey));
   }
 
   async function handleSubmit() {
@@ -150,7 +176,7 @@ export function TaskProgressSection({
         progressPercent: percent,
         hoursSpent: hours,
         comment: comment.trim() || undefined,
-        s3EvidenceKey: evidenceKey,
+        evidenceFiles: evidenceFiles.length > 0 ? evidenceFiles : undefined,
       }).unwrap();
       toast.success(
         hasPartialApproval
@@ -159,16 +185,10 @@ export function TaskProgressSection({
       );
       setComment("");
       setHoursSpent("");
-      setEvidenceKey(undefined);
-      setEvidenceName(undefined);
+      setEvidenceFiles([]);
       onUpdated?.();
     } catch (err: unknown) {
-      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
-      toast.error(
-        apiError?.data?.errors
-          ? Object.values(apiError.data.errors)[0]
-          : apiError?.data?.message ?? "Failed to submit progress",
-      );
+      toast.error(formatTaskApiError(err, "Failed to submit progress"));
     }
   }
 
@@ -196,12 +216,7 @@ export function TaskProgressSection({
       setReviewReason("");
       onUpdated?.();
     } catch (err: unknown) {
-      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
-      toast.error(
-        apiError?.data?.errors
-          ? Object.values(apiError.data.errors)[0]
-          : apiError?.data?.message ?? "Failed to review progress",
-      );
+      toast.error(formatTaskApiError(err, "Failed to review progress"));
     }
   }
 
@@ -312,6 +327,7 @@ export function TaskProgressSection({
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               className="hidden"
               onChange={handleEvidenceSelected}
             />
@@ -329,8 +345,25 @@ export function TaskProgressSection({
               )}
               Attach evidence
             </Button>
-            {evidenceName && (
-              <span className="text-[11px] text-muted-foreground">{evidenceName}</span>
+            {evidenceFiles.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {evidenceFiles.map((file) => (
+                  <span
+                    key={file.storageKey}
+                    className="inline-flex max-w-[200px] items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] text-muted-foreground"
+                  >
+                    <span className="truncate">{file.filename}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-sm text-muted-foreground transition-colors hover:text-destructive"
+                      aria-label={`Remove ${file.filename}`}
+                      onClick={() => removeEvidenceFile(file.storageKey)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
             )}
             <Button
               type="button"
@@ -460,48 +493,38 @@ function ProgressUpdateRow({
           Review note: {update.reviewReason}
         </p>
       )}
-      {update.evidenceUrl && (
-        <a
-          href={update.evidenceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-        >
-          <FileText className="size-3.5" /> View evidence
-        </a>
-      )}
+      {(() => {
+        const files =
+          update.evidenceFiles && update.evidenceFiles.length > 0
+            ? update.evidenceFiles
+            : update.s3EvidenceKey
+              ? [{ storageKey: update.s3EvidenceKey, filename: "Evidence file" }]
+              : [];
+
+        if (files.length === 0) return null;
+
+        return (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {files.map((file) => (
+              <SecureFileLink
+                key={file.storageKey}
+                storageKey={file.storageKey}
+                filename={file.filename}
+                showLabel
+                label={files.length === 1 ? "View evidence" : file.filename}
+                className="text-[11px]"
+              />
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
-export function filterStatusOptionsForRole(
-  currentStatus: TaskStatus,
-  options: { value: TaskStatus; label: string }[],
-  isOwner: boolean,
-  canApprove: boolean,
-): { value: TaskStatus; label: string }[] {
-  if (canApprove) {
-    const pmAllowed: Partial<Record<TaskStatus, TaskStatus[]>> = {
-      To_Do: ["In_Progress"],
-      In_Progress: ["To_Do", "Submitted_for_Review"],
-      Submitted_for_Review: ["Approved", "Rework"],
-      Approved: ["Done"],
-      Rework: ["In_Progress", "Submitted_for_Review"],
-      Done: [],
-    };
-    const allowed = new Set([currentStatus, ...(pmAllowed[currentStatus] ?? [])]);
-    return options.filter((opt) => allowed.has(opt.value));
-  }
-
-  if (!isOwner) {
-    return options.filter((opt) => opt.value === currentStatus);
-  }
-
-  const engineerAllowed: Partial<Record<TaskStatus, TaskStatus[]>> = {
-    To_Do: ["In_Progress"],
-    In_Progress: ["To_Do"],
-    Rework: ["In_Progress"],
-  };
-  const allowed = new Set([currentStatus, ...(engineerAllowed[currentStatus] ?? [])]);
-  return options.filter((opt) => allowed.has(opt.value));
-}
+export {
+  filterStatusOptionsForRole,
+  canMoveTaskToStatus,
+  getTaskStatusMoveDeniedMessage,
+  formatTaskApiError,
+} from "@/domains/projects/utils/task-status-permissions";

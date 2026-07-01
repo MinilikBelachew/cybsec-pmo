@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Clock,
   ExternalLink,
   Loader2,
   RotateCcw,
@@ -19,7 +18,9 @@ import {
 import type { TaskProgressUpdate } from "../../types/tasks.types";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import { cn } from "@/shared/utils/cn";
+
+const INITIAL_VISIBLE_COUNT = 3;
+const LOAD_MORE_BATCH = 3;
 
 type ProgressReviewInboxProps = {
   projectId: string;
@@ -32,20 +33,34 @@ export function ProgressReviewInbox({
   projectId,
   onOpenTask,
   onReviewed,
-  defaultExpanded = true,
+  defaultExpanded = false,
 }: ProgressReviewInboxProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_COUNT);
   const [expandedActionId, setExpandedActionId] = useState<string | null>(null);
   const [reviewReason, setReviewReason] = useState("");
 
   const { data, isLoading, refetch } = useGetPendingProgressReviewsQuery(
-    { projectId, limit: 20 },
+    { projectId, limit: visibleLimit },
     { skip: !projectId },
   );
   const [reviewProgress, { isLoading: isReviewing }] = useReviewTaskProgressUpdateMutation();
 
   const pending = data?.data ?? [];
   const total = data?.meta.total ?? 0;
+  const hasMore = total > pending.length;
+
+  useEffect(() => {
+    setVisibleLimit(INITIAL_VISIBLE_COUNT);
+    setExpandedActionId(null);
+    setReviewReason("");
+  }, [projectId]);
+
+  useEffect(() => {
+    if (total === 0) {
+      setVisibleLimit(INITIAL_VISIBLE_COUNT);
+    }
+  }, [total]);
 
   if (total === 0 && !isLoading) {
     return null;
@@ -225,11 +240,18 @@ export function ProgressReviewInbox({
             ))
           )}
 
-          {total > pending.length && (
-            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-              <Clock className="size-3" />
-              Showing {pending.length} of {total} pending submissions
-            </p>
+          {!isLoading && hasMore && (
+            <div className="flex justify-center pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 text-xs text-muted-foreground"
+                onClick={() => setVisibleLimit((current) => current + LOAD_MORE_BATCH)}
+              >
+                Load more ({total - pending.length} remaining)
+              </Button>
+            </div>
           )}
         </div>
       )}

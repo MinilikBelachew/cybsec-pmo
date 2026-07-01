@@ -38,13 +38,13 @@ export interface Project {
   objective: string;
   departmentId: string;
   customerId: string;
-  engagementType: EngagementType;
-  billingModel: BillingModel;
+  engagementType?: EngagementType;
+  billingModel?: BillingModel;
   priority: PriorityLevel;
   startDate: string;
   endDate: string;
-  value: number;
-  currency: CurrencyCode;
+  value?: number;
+  currency?: CurrencyCode;
   primaryPmId: string;
   secondaryPmId: string | null;
   status: ProjectStatus;
@@ -91,7 +91,7 @@ export interface ProjectPortfolioStats {
   atRisk: number;
   delayed: number;
   completed: number;
-  totalValue: number;
+  totalValue?: number;
 }
 
 export interface CreateProjectDto {

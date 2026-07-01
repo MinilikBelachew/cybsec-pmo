@@ -2,18 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type ColumnDef, type SortingState } from "@tanstack/react-table";
-import { Copy, Download, FileJson, Table2 } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
 import { createSelectColumn } from "@/shared/components/data-table-select-column";
 import { useServerTableState } from "@/shared/hooks/use-server-table-state";
-import { Button } from "@/shared/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
 import {
   downloadAuditBlob,
   downloadAuditBlobAsJson,
@@ -41,8 +33,8 @@ export function AuditTrailPage() {
   const [actorFilter, setActorFilter] = useState("");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
-  const [bulkActive, setBulkActive] = useState(false);
   const [selectedRows, setSelectedRows] = useState<AuditLogEntry[]>([]);
+  const [bulkActive, setBulkActive] = useState(true);
   const [detailEntry, setDetailEntry] = useState<AuditLogEntry | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -123,6 +115,7 @@ export function AuditTrailPage() {
   const [exportAuditFile, { isFetching: isExporting }] = useLazyExportAuditFileQuery();
 
   const tableData = useMemo(() => data?.data ?? [], [data?.data]);
+  const hasSelection = selectedRows.length > 0;
 
   const handleView = useCallback((entry: AuditLogEntry) => {
     setDetailEntry(entry);
@@ -130,67 +123,71 @@ export function AuditTrailPage() {
   }, []);
 
   const columns = useMemo((): ColumnDef<AuditLogEntry>[] => {
-    const cols: ColumnDef<AuditLogEntry>[] = [];
+    return [
+      createSelectColumn<AuditLogEntry>(),
+      ...auditDataColumns,
+      {
+        id: "actions",
+        header: () => (
+          <span className="block text-right text-sm font-medium text-muted-foreground">
+            Actions
+          </span>
+        ),
+        cell: ({ row }) => (
+          <AuditRowActions entry={row.original} onView={handleView} />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+        meta: { sticky: "right" },
+      },
+    ];
+  }, [handleView]);
 
-    if (bulkActive) {
-      cols.push(createSelectColumn<AuditLogEntry>());
-    }
+  const exportRows = useCallback(
+    async (format: AuditExportFormat) => {
+      const prefix = hasSelection ? "audit-export-selected" : "audit-export";
+      const timestamp = Date.now();
 
-    cols.push(...auditDataColumns);
+      try {
+        if (hasSelection) {
+          const rows = selectedRows;
 
-    cols.push({
-      id: "actions",
-      header: () => (
-        <span className="block text-right text-sm font-medium text-muted-foreground">
-          Actions
-        </span>
-      ),
-      cell: ({ row }) => (
-        <AuditRowActions entry={row.original} onView={handleView} />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-      meta: { sticky: "right" },
-    });
+          if (format === "json") {
+            downloadAuditJson(`${prefix}-${timestamp}.json`, rows);
+            return;
+          }
 
-    return cols;
-  }, [bulkActive, handleView]);
+          if (format === "csv") {
+            downloadAuditCsv(`${prefix}-${timestamp}.csv`, rows);
+            return;
+          }
 
-  const bulkExport = (rows: AuditLogEntry[], format: "json" | "csv" = "json") => {
-    if (format === "csv") {
-      downloadAuditCsv(`audit-export-selected-${Date.now()}.csv`, rows);
-    } else {
-      downloadAuditJson(`audit-export-selected-${Date.now()}.json`, rows);
-    }
-  };
+          const blob = await exportAuditFile({
+            params: { eventIds: rows.map((row) => row.id) },
+            format,
+          }).unwrap();
+          downloadAuditBlob(`${prefix}-${timestamp}.${format}`, blob);
+          return;
+        }
 
-  /**
-   * Export filtered rows.
-   * - csv  → built entirely on the frontend from the full export JSON
-   * - json → fetched from backend, then pretty-printed before saving
-   * - xlsx / pdf → streamed directly from the backend as-is
-   */
-  const exportFiltered = async (format: AuditExportFormat) => {
-    try {
-      if (format === "csv") {
-        // Fetch full JSON export, then convert to CSV on the frontend
-        const blob = await exportAuditFile({ params: queryParams, format: "json" }).unwrap();
-        const text = await blob.text();
-        const entries: AuditLogEntry[] = JSON.parse(text);
-        downloadAuditCsv(`audit-export-${Date.now()}.csv`, entries);
-      } else if (format === "json") {
-        // Fetch JSON blob from backend and re-save as pretty-printed JSON
-        const blob = await exportAuditFile({ params: queryParams, format: "json" }).unwrap();
-        await downloadAuditBlobAsJson(`audit-export-${Date.now()}.json`, blob);
-      } else {
-        // xlsx / pdf — download the backend blob directly
-        const blob = await exportAuditFile({ params: queryParams, format }).unwrap();
-        downloadAuditBlob(`audit-export-${Date.now()}.${format}`, blob);
+        if (format === "csv") {
+          const blob = await exportAuditFile({ params: queryParams, format: "json" }).unwrap();
+          const text = await blob.text();
+          const entries: AuditLogEntry[] = JSON.parse(text);
+          downloadAuditCsv(`${prefix}-${timestamp}.csv`, entries);
+        } else if (format === "json") {
+          const blob = await exportAuditFile({ params: queryParams, format: "json" }).unwrap();
+          await downloadAuditBlobAsJson(`${prefix}-${timestamp}.json`, blob);
+        } else {
+          const blob = await exportAuditFile({ params: queryParams, format }).unwrap();
+          downloadAuditBlob(`${prefix}-${timestamp}.${format}`, blob);
+        }
+      } catch {
+        // RTK surfaces errors via hook state
       }
-    } catch {
-      // RTK surfaces errors via hook state
-    }
-  };
+    },
+    [exportAuditFile, hasSelection, queryParams, selectedRows],
+  );
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
@@ -200,7 +197,12 @@ export function AuditTrailPage() {
         actions={
           <AuditExportMenu
             disabled={isExporting}
-            onExport={(format) => void exportFiltered(format)}
+            label={
+              hasSelection
+                ? `Export selected (${selectedRows.length})`
+                : "Export filtered"
+            }
+            onExport={(format) => void exportRows(format)}
           />
         }
       />
@@ -245,72 +247,17 @@ export function AuditTrailPage() {
         }
         bulkSelect={{
           active: bulkActive,
-          onActiveChange: setBulkActive,
-          actions:
-            selectedRows.length > 0 ? (
-              <>
-                {/* Bulk export dropdown for selected rows */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9 gap-1.5 border-border/60 bg-white shadow-none dark:bg-card text-xs"
-                        title={`Export ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"}`}
-                      />
-                    }
-                  >
-                    <Download className="size-3.5" />
-                    Export ({selectedRows.length})
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-52 p-2 shadow-none">
-                    <div className="space-y-1">
-                      <DropdownMenuItem
-                        onClick={() => bulkExport(selectedRows, "json")}
-                        className="flex items-start gap-3 rounded-xl border border-transparent px-2.5 py-1.5 cursor-pointer hover:border-border/60 hover:bg-muted/50"
-                      >
-                        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted/50">
-                          <FileJson className="size-3.5 text-amber-500" />
-                        </div>
-                        <span className="min-w-0">
-                          <span className="block text-xs font-semibold">JSON</span>
-                          <span className="block text-[10px] text-muted-foreground">Pretty-printed, structured</span>
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => bulkExport(selectedRows, "csv")}
-                        className="flex items-start gap-3 rounded-xl border border-transparent px-2.5 py-1.5 cursor-pointer hover:border-border/60 hover:bg-muted/50"
-                      >
-                        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted/50">
-                          <Table2 className="size-3.5 text-emerald-500" />
-                        </div>
-                        <span className="min-w-0">
-                          <span className="block text-xs font-semibold">CSV</span>
-                          <span className="block text-[10px] text-muted-foreground">Spreadsheet rows</span>
-                        </span>
-                      </DropdownMenuItem>
-                    </div>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  className="size-9 border-border/60 bg-white shadow-none dark:bg-card"
-                  title="Copy selected IDs"
-                  onClick={() =>
-                    void navigator.clipboard.writeText(
-                      selectedRows.map((r) => r.id).join("\n"),
-                    )
-                  }
-                >
-                  <Copy className="size-4" />
-                </Button>
-              </>
-            ) : null,
+          onActiveChange: (active) => {
+            setBulkActive(active);
+            if (!active) setSelectedRows([]);
+          },
+          actions: hasSelection ? (
+            <AuditExportMenu
+              disabled={isExporting}
+              label={`Export (${selectedRows.length})`}
+              onExport={(format) => void exportRows(format)}
+            />
+          ) : null,
         }}
       />
 
