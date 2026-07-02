@@ -49,7 +49,7 @@ import {
   Search, Plus, LayoutGrid, List, FolderKanban,
   CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
   ChevronDown, X, Calendar, Milestone,
-  Pencil, Trash2, Activity, CheckCircle2, PauseCircle,
+  Pencil, Eye, Trash2, Activity, CheckCircle2, PauseCircle,
   Upload,
   Download,
   Loader2,
@@ -358,7 +358,7 @@ export function ProjectsList() {
   const projectSheetActionLabel = canUpdate ? "Edit" : "View";
   const canDelete = canApproveProjects;
   
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [view, setView] = useState<"grid" | "list">("list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityLevel | "all">("all");
@@ -886,7 +886,11 @@ function ProjectGridCard({
                         onEdit(p);
                       }}
                     >
-                      <Pencil className="size-3.5" />
+                      {projectSheetActionLabel === "Edit" ? (
+                        <Pencil className="size-3.5" />
+                      ) : (
+                        <Eye className="size-3.5" />
+                      )}
                       {projectSheetActionLabel}
                     </DropdownMenuItem>
                   )}

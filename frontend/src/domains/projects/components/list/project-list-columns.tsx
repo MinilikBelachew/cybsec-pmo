@@ -1,7 +1,7 @@
 "use client";
 
 import { type ColumnDef } from "@tanstack/react-table";
-import { Calendar, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Calendar, MoreHorizontal, Pencil, Eye, Trash2 } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
 import { cn } from "@/shared/utils/cn";
@@ -66,7 +66,7 @@ export function createProjectListColumns({
               type="button"
               onClick={() => onNavigate(project.id)}
               title={project.name}
-              className="block w-full max-w-full truncate text-left text-sm font-semibold transition-colors hover:text-primary"
+              className="block w-full max-w-full truncate text-left text-sm font-semibold transition-colors hover:text-primary cursor-pointer"
             >
               {project.name}
             </button>
@@ -296,7 +296,11 @@ export function createProjectListColumns({
                     onEdit(project);
                   }}
                 >
-                  <Pencil className="size-3.5" />
+                  {projectSheetActionLabel === "Edit" ? (
+                    <Pencil className="size-3.5" />
+                  ) : (
+                    <Eye className="size-3.5" />
+                  )}
                   {projectSheetActionLabel}
                 </DropdownMenuItem>
               )}
