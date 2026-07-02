@@ -213,21 +213,34 @@ curl -sfL https://get.k3s.io | sh -s - --disable traefik
 ### 2. Configure Kubernetes for Private Docker Hub Registry
 Run this command on the server to create a pull secret (replace `<your-password>` with your Docker Hub password or token):
 ```bash
-kubectl create secret docker-registry dockerhub-registry \
+sudo kubectl create secret docker-registry dockerhub-registry \
   --docker-username=aynuayex \
   --docker-password="<your-password>" \
   --docker-email="your-email@example.com"
 ```
 
 ### 3. Apply the Manifests
-Navigate to your manifest directory on the server and deploy:
-```bash
-cd k8s/
-kubectl apply -f postgres-deployment.yaml
-kubectl apply -f redis-deployment.yaml
-kubectl apply -f backend-deployment.yaml
-kubectl apply -f frontend-deployment.yaml
-```
+To deploy to Kubernetes (K3s), you should create and configure the deployment files directly on the server (this keeps sensitive credentials out of Git):
+
+1. **Create the manifest directory on the server**:
+   ```bash
+   mkdir -p /var/www/cybsec-pmo/k8s
+   cd /var/www/cybsec-pmo/k8s/
+   ```
+2. **Create and write each configuration file** on the server using `nano`:
+   ```bash
+   nano postgres-deployment.yaml
+   nano redis-deployment.yaml
+   nano backend-deployment.yaml  # <-- Make sure to replace placeholders with your actual production credentials here!
+   nano frontend-deployment.yaml
+   ```
+3. **Deploy all manifests to the cluster**:
+   ```bash
+   sudo kubectl apply -f postgres-deployment.yaml
+   sudo kubectl apply -f redis-deployment.yaml
+   sudo kubectl apply -f backend-deployment.yaml
+   sudo kubectl apply -f frontend-deployment.yaml
+   ```
 
 ### 4. Transitioning from Docker Compose to Kubernetes (K3s)
 If you have already deployed using Docker Compose and want to switch to Kubernetes (K3s) on the same VPS, follow this sequence:
@@ -247,8 +260,14 @@ If you have already deployed using Docker Compose and want to switch to Kubernet
    # (You should see your server status as Ready)
    ```
 3. **Apply the Kubernetes Manifests**:
+   *(Note: Make sure to configure the production credentials in the manifest directly on the server first!)*
    ```bash
    cd k8s/
+   
+   # 1. Edit the manifest on the server to input real credentials
+   sudo nano backend-deployment.yaml
+   
+   # 2. Apply all configurations
    sudo kubectl apply -f postgres-deployment.yaml
    sudo kubectl apply -f redis-deployment.yaml
    sudo kubectl apply -f backend-deployment.yaml
