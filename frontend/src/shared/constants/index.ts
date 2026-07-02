@@ -1,4 +1,4 @@
-export const APP_NAME = "Enterprise App";
+export const APP_NAME = "CYBSEC PMO";
 export const APP_VERSION = "1.0.0";
 
 export const PAGINATION_PAGE_SIZE = 20;

@@ -68,9 +68,10 @@ export function convertToCSV(
   projects: any[],
   departments: Department[],
   customers: Customer[],
-  managers: ProjectManager[]
+  managers: ProjectManager[],
+  selectedFields?: string[]
 ): string {
-  const headers = [
+  const allHeaders = [
     "Name",
     "Objective",
     "Department",
@@ -86,6 +87,7 @@ export function convertToCSV(
     "Secondary PM",
     "Status",
   ];
+  const headers = selectedFields || allHeaders;
 
   const escapeCSV = (str: any) => {
     if (str == null) return "";
@@ -102,22 +104,24 @@ export function convertToCSV(
     const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
     const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
 
-    return [
-      p.name,
-      p.objective,
-      deptName,
-      custName,
-      p.engagementType,
-      p.billingModel,
-      p.priority,
-      p.startDate ? p.startDate.split("T")[0] : "",
-      p.endDate ? p.endDate.split("T")[0] : "",
-      p.value,
-      p.currency,
-      primaryPmName,
-      secondaryPmName,
-      p.status,
-    ].map(escapeCSV);
+    const allData: Record<string, any> = {
+      "Name": p.name,
+      "Objective": p.objective,
+      "Department": deptName,
+      "Customer": custName,
+      "Engagement Type": p.engagementType,
+      "Billing Model": p.billingModel,
+      "Priority": p.priority,
+      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
+      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
+      "Value": p.value,
+      "Currency": p.currency,
+      "Primary PM": primaryPmName,
+      "Secondary PM": secondaryPmName,
+      "Status": p.status,
+    };
+
+    return headers.map((field) => escapeCSV(allData[field]));
   });
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -127,9 +131,12 @@ export function exportProjectsToXLSX(
   projects: any[],
   departments: Department[],
   customers: Customer[],
-  managers: ProjectManager[]
+  managers: ProjectManager[],
+  selectedFields?: string[],
+  tasks?: any[],
+  selectedTaskFields?: string[]
 ): ArrayBuffer {
-  const headers = [
+  const allHeaders = [
     "Name",
     "Objective",
     "Department",
@@ -145,6 +152,7 @@ export function exportProjectsToXLSX(
     "Secondary PM",
     "Status",
   ];
+  const headers = selectedFields || allHeaders;
 
   const data = projects.map((p) => {
     const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
@@ -152,7 +160,7 @@ export function exportProjectsToXLSX(
     const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
     const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
 
-    return {
+    const allData: Record<string, any> = {
       "Name": p.name || "",
       "Objective": p.objective || "",
       "Department": deptName,
@@ -168,14 +176,434 @@ export function exportProjectsToXLSX(
       "Secondary PM": secondaryPmName,
       "Status": p.status || "",
     };
+
+    const filtered: Record<string, any> = {};
+    headers.forEach((field) => {
+      filtered[field] = allData[field];
+    });
+    return filtered;
   });
 
   const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Projects");
+
+  if (tasks && tasks.length > 0) {
+    // Group tasks by project name
+    const tasksByProject: Record<string, any[]> = {};
+    tasks.forEach((t) => {
+      const projName = t.projectName || "Tasks";
+      if (!tasksByProject[projName]) {
+        tasksByProject[projName] = [];
+      }
+      tasksByProject[projName].push(t);
+    });
+
+    const allTaskHeaders = [
+      "Title",
+      "Description",
+      "Priority",
+      "Status",
+      "Assignee",
+      "Phase",
+      "Start Date",
+      "End Date",
+      "Effort Hours",
+    ];
+    const taskHeaders = selectedTaskFields || allTaskHeaders;
+
+    Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
+      const tasksData = projTasks.map((t) => {
+        const assigneeName = t.owner?.displayName || t.assigneeName || "";
+        const phaseName = t.phase?.name || t.phaseName || "";
+
+        const allTaskData: Record<string, any> = {
+          "Title": t.title || "",
+          "Description": t.description || "",
+          "Priority": t.priority || "",
+          "Status": t.status || "",
+          "Assignee": assigneeName,
+          "Phase": phaseName,
+          "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+          "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+          "Effort Hours": t.effortHours != null ? t.effortHours : 0,
+        };
+
+        const filtered: Record<string, any> = {};
+        taskHeaders.forEach((field) => {
+          filtered[field] = allTaskData[field];
+        });
+        return filtered;
+      });
+
+      // Excel sheet names have a limit of 31 chars and cannot contain certain characters
+      const cleanProjName = projName.replace(/[\\/?*:[\]]/g, "").trim().slice(0, 25);
+      const sheetName = cleanProjName ? `${cleanProjName} Tasks` : "Tasks";
+      const finalSheetName = sheetName.slice(0, 31);
+
+      // Resolve duplicate sheet names if any
+      let uniqueSheetName = finalSheetName;
+      let counter = 1;
+      while (workbook.SheetNames.includes(uniqueSheetName)) {
+        const suffix = ` (${counter})`;
+        uniqueSheetName = finalSheetName.slice(0, 31 - suffix.length) + suffix;
+        counter++;
+      }
+
+      const tasksWorksheet = XLSX.utils.json_to_sheet(tasksData, { header: taskHeaders });
+      XLSX.utils.book_append_sheet(workbook, tasksWorksheet, uniqueSheetName);
+    });
+  }
+
   return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// XLSX IMPORT UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Reads a named sheet from an XLSX ArrayBuffer and returns its contents as a
+ * 2-D string array (same shape as parseCSV output) so existing row processors
+ * can be reused without modification.
+ *
+ * Falls back to the first sheet when `sheetName` is not found, unless
+ * `strict` is true — in which case it returns an empty array.
+ */
+export function parseXLSXSheet(
+  buffer: ArrayBuffer,
+  sheetName: string,
+  strict = false,
+): string[][] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
+
+  const target =
+    workbook.SheetNames.includes(sheetName)
+      ? sheetName
+      : strict
+        ? null
+        : workbook.SheetNames[0] ?? null;
+
+  if (!target) return [];
+
+  const sheet = workbook.Sheets[target];
+  if (!sheet) return [];
+
+  // header:1 → returns each row as a plain array; defval → empty string for blank cells
+  const rows: string[][] = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    raw: false, // always stringify so date serials come out as formatted strings
+  });
+
+  // Strip fully empty rows
+  return rows.filter((r) => r.some((c) => String(c).trim() !== ""));
+}
+
+/**
+ * Returns all sheet names present in an XLSX ArrayBuffer.
+ */
+export function getXLSXSheetNames(buffer: ArrayBuffer): string[] {
+  const workbook = XLSX.read(buffer, { type: "array" });
+  return workbook.SheetNames;
+}
+
+/**
+ * From a list of sheet names, returns those whose name ends with the given
+ * suffix (e.g. " Tasks", " Phases", " Milestones"), along with the derived
+ * project name (sheet name minus the suffix).
+ */
+export function getProjectSheetsByType(
+  sheetNames: string[],
+  suffix: " Tasks" | " Phases" | " Milestones",
+): { projectName: string; sheetName: string }[] {
+  return sheetNames
+    .filter((n) => n.endsWith(suffix))
+    .map((n) => ({
+      projectName: n.slice(0, n.length - suffix.length).trim(),
+      sheetName: n,
+    }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE PARSING
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ParsedPhaseRow {
+  name: string;
+  description: string;
+  orderIndex: number;
+  status: string; // "Planned" | "Active" | "Completed" | "On_Hold"
+  startDate: string;
+  endDate: string;
+  errors: string[];
+  warnings: string[];
+}
+
+function normalizePhaseStatus(raw: string): string {
+  const s = raw.toLowerCase().trim().replace(/[\s-]/g, "_");
+  if (["active"].includes(s)) return "Active";
+  if (["completed", "done", "closed"].includes(s)) return "Completed";
+  if (["on_hold", "onhold", "on_hold"].includes(s)) return "On_Hold";
+  return "Planned";
+}
+
+export function processRawPhaseRows(rows: string[][]): ParsedPhaseRow[] {
+  if (rows.length <= 1) return [];
+
+  const headers = rows[0].map((h) => String(h).toLowerCase().trim());
+  const dataRows = rows.slice(1);
+
+  const getIdx = (aliases: string[]) =>
+    headers.findIndex((h) => aliases.includes(h));
+
+  const nameIdx   = getIdx(["name", "phase name", "phase"]);
+  const descIdx   = getIdx(["description", "desc", "details"]);
+  const orderIdx  = getIdx(["order", "order index", "orderindex", "sequence"]);
+  const statusIdx = getIdx(["status", "phase status"]);
+  const startIdx  = getIdx(["start date", "start"]);
+  const endIdx    = getIdx(["end date", "end"]);
+
+  return dataRows.map((row, i) => {
+    const getVal = (idx: number, fallback = "") =>
+      idx !== -1 && row[idx] ? String(row[idx]).trim() : fallback;
+
+    const name        = getVal(nameIdx);
+    const description = getVal(descIdx);
+    const rawOrder    = getVal(orderIdx, String(i + 1));
+    const orderIndex  = parseInt(rawOrder, 10) || i + 1;
+    const rawStatus   = getVal(statusIdx, "Planned");
+    const status      = normalizePhaseStatus(rawStatus);
+    const startDate   = getVal(startIdx);
+    const endDate     = getVal(endIdx);
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!name) errors.push("Phase name is required.");
+
+    if (startDate && isNaN(Date.parse(startDate))) {
+      errors.push("Start date must be a valid date (YYYY-MM-DD).");
+    }
+    if (endDate && isNaN(Date.parse(endDate))) {
+      errors.push("End date must be a valid date (YYYY-MM-DD).");
+    }
+    if (
+      startDate &&
+      endDate &&
+      !isNaN(Date.parse(startDate)) &&
+      !isNaN(Date.parse(endDate))
+    ) {
+      if (new Date(startDate) > new Date(endDate)) {
+        errors.push("End date must be on or after start date.");
+      }
+    }
+
+    return { name, description, orderIndex, status, startDate, endDate, errors, warnings };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MILESTONE PARSING
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ParsedMilestoneRow {
+  title: string;
+  targetDate: string;
+  weight: number;
+  status: string; // "Pending" | "Completed" | "Missed"
+  phaseName: string;
+  errors: string[];
+  warnings: string[];
+}
+
+function normalizeMilestoneStatus(raw: string): string {
+  const s = raw.toLowerCase().trim();
+  if (["completed", "done", "achieved"].includes(s)) return "Completed";
+  if (["missed", "failed", "overdue"].includes(s)) return "Missed";
+  return "Pending";
+}
+
+export function processRawMilestoneRows(rows: string[][]): ParsedMilestoneRow[] {
+  if (rows.length <= 1) return [];
+
+  const headers = rows[0].map((h) => String(h).toLowerCase().trim());
+  const dataRows = rows.slice(1);
+
+  const getIdx = (aliases: string[]) =>
+    headers.findIndex((h) => aliases.includes(h));
+
+  const titleIdx      = getIdx(["title", "milestone", "milestone name"]);
+  const targetDateIdx = getIdx(["target date", "due date", "date"]);
+  const weightIdx     = getIdx(["weight", "weight (%)", "percent"]);
+  const statusIdx     = getIdx(["status", "milestone status"]);
+  const phaseIdx      = getIdx(["phase", "phase name"]);
+
+  return dataRows.map((row) => {
+    const getVal = (idx: number, fallback = "") =>
+      idx !== -1 && row[idx] ? String(row[idx]).trim() : fallback;
+
+    const title      = getVal(titleIdx);
+    const targetDate = getVal(targetDateIdx);
+    const rawWeight  = getVal(weightIdx, "0");
+    const weight     = parseFloat(rawWeight.replace(/[^0-9.-]/g, "")) || 0;
+    const rawStatus  = getVal(statusIdx, "Pending");
+    const status     = normalizeMilestoneStatus(rawStatus);
+    const phaseName  = getVal(phaseIdx);
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!title) errors.push("Milestone title is required.");
+    if (!targetDate) {
+      errors.push("Target date is required.");
+    } else if (isNaN(Date.parse(targetDate))) {
+      errors.push("Target date must be a valid date (YYYY-MM-DD).");
+    }
+
+    return { title, targetDate, weight, status, phaseName, errors, warnings };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SAMPLE TEMPLATE GENERATORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generates a 4-sheet sample XLSX workbook for the Import Projects dialog.
+ *
+ * Sheets:
+ *   1. "Projects"
+ *   2. "Cyber Security Assessment Phases"
+ *   3. "Cyber Security Assessment Tasks"
+ *   4. "Cyber Security Assessment Milestones"
+ */
+export function generateProjectsXLSXTemplate(
+  departments: Department[],
+  customers: Customer[],
+  managers: ProjectManager[],
+): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+
+  const deptName = departments[0]?.name            || "Security";
+  const custName = customers[0]?.displayName        || "Acme Corp";
+  const pm1Name  = managers[0]?.displayName         || "John Doe";
+  const pm2Name  = managers[1]?.displayName         || "";
+
+  // ── Sheet 1: Projects ──────────────────────────────────────────────────────
+  const projectHeaders = [
+    "Name", "Objective", "Department", "Customer",
+    "Engagement Type", "Billing Model", "Priority",
+    "Start Date", "End Date", "Value", "Currency",
+    "Primary PM", "Secondary PM",
+  ];
+  const projectRows = [
+    [
+      "Security Assessment",
+      "Perform vulnerability assessments and compliance audits.",
+      deptName, custName,
+      "FixedPrice", "FixedPrice", "High",
+      "2026-07-01", "2026-09-30", "45000", "USD",
+      pm1Name, pm2Name,
+    ],
+    [
+      "Cloud Infrastructure Migration",
+      "Migrate legacy servers to AWS cloud environments.",
+      deptName, custName,
+      "ManagedServices", "TimeAndMaterial", "Medium",
+      "2026-08-15", "2027-02-15", "120000", "USD",
+      pm1Name, "",
+    ],
+  ];
+  const projectWS = XLSX.utils.aoa_to_sheet([projectHeaders, ...projectRows]);
+  XLSX.utils.book_append_sheet(wb, projectWS, "Projects");
+
+  // ── Sheet 2: Phases ────────────────────────────────────────────────────────
+  const phaseHeaders = [
+    "Name", "Description", "Order", "Status", "Start Date", "End Date",
+  ];
+  const phaseRows = [
+    ["Discovery & Planning", "Kick-off, scoping and requirement gathering.", "1", "Active",  "2026-07-01", "2026-07-31"],
+    ["Assessment Execution", "Run vulnerability scans and penetration tests.", "2", "Planned", "2026-08-01", "2026-09-15"],
+    ["Reporting & Closure",  "Compile findings and present final report.",     "3", "Planned", "2026-09-16", "2026-09-30"],
+  ];
+  const phaseWS = XLSX.utils.aoa_to_sheet([phaseHeaders, ...phaseRows]);
+  XLSX.utils.book_append_sheet(wb, phaseWS, "Security Assessment Phases");
+
+  // ── Sheet 3: Tasks ─────────────────────────────────────────────────────────
+  const taskHeaders = [
+    "Title", "Description", "Priority", "Status",
+    "Assignee", "Phase", "Start Date", "End Date", "Effort Hours",
+  ];
+  const taskRows = [
+    [
+      "Kick-off Meeting",
+      "Conduct initial project kick-off meeting with stakeholders.",
+      "High", "To_Do", "", "Discovery & Planning", "2026-07-01", "2026-07-02", "4",
+    ],
+    [
+      "Scope Document",
+      "Define and document the engagement scope.",
+      "High", "To_Do", "", "Discovery & Planning", "2026-07-03", "2026-07-10", "16",
+    ],
+    [
+      "Network Vulnerability Scan",
+      "Run automated scans across the internal network.",
+      "Critical", "To_Do", "", "Assessment Execution", "2026-08-01", "2026-08-05", "24",
+    ],
+  ];
+  const taskWS = XLSX.utils.aoa_to_sheet([taskHeaders, ...taskRows]);
+  XLSX.utils.book_append_sheet(wb, taskWS, "Security Assessment Tasks");
+
+  // ── Sheet 4: Milestones ────────────────────────────────────────────────────
+  const milestoneHeaders = [
+    "Title", "Target Date", "Weight (%)", "Status", "Phase",
+  ];
+  const milestoneRows = [
+    ["Scope Document Approved", "2026-07-10", "20", "Pending", "Discovery & Planning"],
+    ["Assessment Complete",     "2026-09-15", "50", "Pending", "Assessment Execution"],
+    ["Final Report Delivered",  "2026-09-30", "30", "Pending", "Reporting & Closure"],
+  ];
+  const milestoneWS = XLSX.utils.aoa_to_sheet([milestoneHeaders, ...milestoneRows]);
+  XLSX.utils.book_append_sheet(wb, milestoneWS, "Security Assessment Milestones");
+
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+}
+
+/**
+ * Generates a single-sheet sample XLSX workbook for the Import Tasks dialog.
+ */
+export function generateTasksXLSXTemplate(
+  assignees: ProjectTaskAssignee[],
+  phases: ProjectPhase[],
+): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+
+  const defaultAssignee = assignees[0]?.displayName || "Team Member";
+  const defaultPhase    = phases[0]?.name            || "Phase 1";
+
+  const headers = [
+    "Title", "Description", "Priority", "Status",
+    "Assignee", "Phase", "Start Date", "End Date", "Effort Hours",
+  ];
+  const rows = [
+    [
+      "Design Authentication UI",
+      "Create wireframes and mockup designs for login/signup screens.",
+      "High", "To_Do", defaultAssignee, defaultPhase, "2026-07-01", "2026-07-05", "12",
+    ],
+    [
+      "Setup NestJS Backend API",
+      "Initialize backend application and configure base folders.",
+      "Critical", "In_Progress", defaultAssignee, defaultPhase, "2026-07-01", "2026-07-10", "24",
+    ],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+}
 export interface ParsedProjectRow {
   name: string;
   objective: string;
@@ -255,7 +683,7 @@ export function processRawCSVRows(
     const currency = getVal(curIdx, "USD");
     const primaryPmName = getVal(pmIdx);
     const secondaryPmName = getVal(pm2Idx);
-    const status = getVal(statusIdx, "Planned");
+    const status = getVal(statusIdx, "Draft");
 
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -495,9 +923,10 @@ export function processRawCSVRows(
 export function convertTasksToCSV(
   tasks: Task[],
   phases: ProjectPhase[],
-  assignees: ProjectTaskAssignee[]
+  assignees: ProjectTaskAssignee[],
+  selectedFields?: string[]
 ): string {
-  const headers = [
+  const allHeaders = [
     "Title",
     "Description",
     "Priority",
@@ -508,6 +937,7 @@ export function convertTasksToCSV(
     "End Date",
     "Effort Hours"
   ];
+  const headers = selectedFields || allHeaders;
 
   const escapeCSV = (str: any) => {
     if (str == null) return "";
@@ -525,17 +955,19 @@ export function convertTasksToCSV(
       "";
     const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
 
-    return [
-      t.title || "",
-      t.description || "",
-      t.priority || "",
-      t.status || "",
-      assigneeName,
-      phaseName,
-      t.startDate ? t.startDate.split("T")[0] : "",
-      t.endDate ? t.endDate.split("T")[0] : "",
-      t.effortHours != null ? String(t.effortHours) : "",
-    ].map(escapeCSV);
+    const allData: Record<string, any> = {
+      "Title": t.title || "",
+      "Description": t.description || "",
+      "Priority": t.priority || "",
+      "Status": t.status || "",
+      "Assignee": assigneeName,
+      "Phase": phaseName,
+      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+      "Effort Hours": t.effortHours != null ? String(t.effortHours) : "",
+    };
+
+    return headers.map((field) => escapeCSV(allData[field]));
   });
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -544,9 +976,10 @@ export function convertTasksToCSV(
 export function exportTasksToXLSX(
   tasks: Task[],
   phases: ProjectPhase[],
-  assignees: ProjectTaskAssignee[]
+  assignees: ProjectTaskAssignee[],
+  selectedFields?: string[]
 ): ArrayBuffer {
-  const headers = [
+  const allHeaders = [
     "Title",
     "Description",
     "Priority",
@@ -557,6 +990,7 @@ export function exportTasksToXLSX(
     "End Date",
     "Effort Hours",
   ];
+  const headers = selectedFields || allHeaders;
 
   const data = tasks.map((t) => {
     const assigneeName =
@@ -565,7 +999,7 @@ export function exportTasksToXLSX(
       "";
     const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
 
-    return {
+    const allData: Record<string, any> = {
       "Title": t.title || "",
       "Description": t.description || "",
       "Priority": t.priority || "",
@@ -576,6 +1010,12 @@ export function exportTasksToXLSX(
       "End Date": t.endDate ? t.endDate.split("T")[0] : "",
       "Effort Hours": t.effortHours != null ? t.effortHours : 0,
     };
+
+    const filtered: Record<string, any> = {};
+    headers.forEach((field) => {
+      filtered[field] = allData[field];
+    });
+    return filtered;
   });
 
   const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });

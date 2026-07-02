@@ -1,6 +1,6 @@
 export const siteConfig = {
-  name: "Enterprise Boilerplate",
-  description: "Next.js 16 Enterprise-grade Boilerplate with Domain-Driven Design",
+  name: "CYBSEC PMO",
+  description: "Cybersec PMO Platform",
   url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
   links: {
     github: "https://github.com/your-org/nextjs-enterprise-boilerplate",
