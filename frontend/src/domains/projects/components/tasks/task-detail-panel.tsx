@@ -644,13 +644,13 @@ export function TaskDetailPanel({
                   showAttachments
                   defaultTab={initialTab ?? (hasParent ? "comments" : "subtasks")}
                   className="h-full"
-                  subTaskMode={isEngineerView || hasParent ? "immediate" : "draft"}
+                  subTaskMode="immediate"
                   draftSubTasks={draftSubTasks}
                   onDraftSubTasksChange={setDraftSubTasks}
-                  commentMode={isEngineerView || initialTab === "comments" ? "immediate" : "draft"}
+                  commentMode="immediate"
                   draftComments={draftComments}
                   onDraftCommentsChange={setDraftComments}
-                  attachmentMode={isEngineerView ? "immediate" : "draft"}
+                  attachmentMode="immediate"
                   draftFiles={draftFiles}
                   onDraftFilesChange={setDraftFiles}
                   pendingAttachmentDeletes={pendingAttachmentDeletes}

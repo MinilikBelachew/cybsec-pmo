@@ -8,6 +8,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   MinLength,
   Validate,
@@ -85,6 +86,7 @@ export class CreateProjectDto {
   @ApiProperty({ example: 250000 })
   @IsNumber()
   @IsPositive()
+  @Max(100000000, { message: 'Value exceeds maximum project boundary limit' })
   value: number;
 
   @ApiPropertyOptional({ example: 'USD', default: 'USD' })

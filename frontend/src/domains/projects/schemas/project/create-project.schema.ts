@@ -27,7 +27,8 @@ const baseProjectSchema = z
       z.coerce
         .number({ message: "Budget value is required" })
         .min(0, "Value cannot be negative")
-        .positive("Value must be greater than zero"),
+        .positive("Value must be greater than zero")
+        .max(100000000, "Value exceeds maximum project boundary limit"),
     ),
     currency: z.string().min(2).max(4).toUpperCase(),
     primaryPmId: z.string().uuid("Please assign a primary PM"),
