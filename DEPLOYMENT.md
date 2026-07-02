@@ -130,13 +130,14 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
 5. **Build and push the Frontend image** (passing your domain at build time):
    ```bash
    cd ../frontend
-    docker build \
-      --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1 \
-      --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
-      --build-arg NEXT_PUBLIC_ENTRA_CLIENT_ID=1977447d-18f8-4fa3-9be1-4d2b196e0ede \
-      --build-arg NEXT_PUBLIC_ENTRA_TENANT_ID=301b9d6d-03a0-4afa-994d-367a03b30b5a \
-      -t aynuayex/cybersec-pmo:frontend .
-    docker push aynuayex/cybersec-pmo:frontend
+     docker build \
+       --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1 \
+       --build-arg NEXT_PUBLIC_WS_URL=https://cybsec.addisanalytics.com \
+       --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
+       --build-arg NEXT_PUBLIC_ENTRA_CLIENT_ID=1977447d-18f8-4fa3-9be1-4d2b196e0ede \
+       --build-arg NEXT_PUBLIC_ENTRA_TENANT_ID=301b9d6d-03a0-4afa-994d-367a03b30b5a \
+       -t aynuayex/cybersec-pmo:frontend .
+     docker push aynuayex/cybersec-pmo:frontend
    ```
 
 6. **Log in to Docker on the VPS** so it can pull the private images:
