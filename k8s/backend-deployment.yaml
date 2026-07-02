@@ -66,7 +66,39 @@ spec:
             - name: AUTH_CONFIRM_EMAIL_SECRET
               value: "change-me-to-confirm-secure-random-key"
             - name: SECURITY_ALERTS_ENABLED
+              value: "true"
+            - name: SECURITY_ALERT_EMAIL
+              value: "bminilik12@gmail.com"
+            - name: ENTRA_TENANT_ID
+              value: "301b9d6d-03a0-4afa-994d-367a03b30b5a"
+            - name: ENTRA_CLIENT_ID
+              value: "1977447d-18f8-4fa3-9be1-4d2b196e0ede"
+            - name: ENTRA_CLIENT_SECRET
+              value: "change-me-to-your-entra-client-secret"
+            - name: ENTRA_REDIRECT_URI
+              value: "https://cybsec.addisanalytics.com/api/v1/auth/entra/callback"
+            - name: MAIL_HOST
+              value: "smtp.gmail.com"
+            - name: MAIL_PORT
+              value: "587"
+            - name: MAIL_USER
+              value: "bminilik12@gmail.com"
+            - name: MAIL_PASSWORD
+              value: "change-me-to-your-mail-password"
+            - name: MAIL_IGNORE_TLS
               value: "false"
+            - name: MAIL_SECURE
+              value: "false"
+            - name: MAIL_REQUIRE_TLS
+              value: "true"
+            - name: MAIL_DEFAULT_EMAIL
+              value: "noreply@paini.com"
+            - name: MAIL_DEFAULT_NAME
+              value: "Konax"
+            - name: BREAK_GLASS_ENABLED
+              value: "true"
+            - name: BREAK_GLASS_EMERGENCY_SECRET
+              value: "change-me-to-your-break-glass-secret"
       imagePullSecrets:
         - name: dockerhub-registry
 

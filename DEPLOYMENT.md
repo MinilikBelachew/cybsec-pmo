@@ -130,13 +130,14 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
 5. **Build and push the Frontend image** (passing your domain at build time):
    ```bash
    cd ../frontend
-    docker build \
-      --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1 \
-      --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
-      --build-arg NEXT_PUBLIC_ENTRA_CLIENT_ID=1977447d-18f8-4fa3-9be1-4d2b196e0ede \
-      --build-arg NEXT_PUBLIC_ENTRA_TENANT_ID=301b9d6d-03a0-4afa-994d-367a03b30b5a \
-      -t aynuayex/cybersec-pmo:frontend .
-    docker push aynuayex/cybersec-pmo:frontend
+     docker build \
+       --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1 \
+       --build-arg NEXT_PUBLIC_WS_URL=https://cybsec.addisanalytics.com \
+       --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
+       --build-arg NEXT_PUBLIC_ENTRA_CLIENT_ID=1977447d-18f8-4fa3-9be1-4d2b196e0ede \
+       --build-arg NEXT_PUBLIC_ENTRA_TENANT_ID=301b9d6d-03a0-4afa-994d-367a03b30b5a \
+       -t aynuayex/cybersec-pmo:frontend .
+     docker push aynuayex/cybersec-pmo:frontend
    ```
 
 6. **Log in to Docker on the VPS** so it can pull the private images:
@@ -213,21 +214,79 @@ curl -sfL https://get.k3s.io | sh -s - --disable traefik
 ### 2. Configure Kubernetes for Private Docker Hub Registry
 Run this command on the server to create a pull secret (replace `<your-password>` with your Docker Hub password or token):
 ```bash
-kubectl create secret docker-registry dockerhub-registry \
+sudo kubectl create secret docker-registry dockerhub-registry \
   --docker-username=aynuayex \
   --docker-password="<your-password>" \
   --docker-email="your-email@example.com"
 ```
 
 ### 3. Apply the Manifests
-Navigate to your manifest directory on the server and deploy:
-```bash
-cd k8s/
-kubectl apply -f postgres-deployment.yaml
-kubectl apply -f redis-deployment.yaml
-kubectl apply -f backend-deployment.yaml
-kubectl apply -f frontend-deployment.yaml
-```
+To deploy to Kubernetes (K3s), you should create and configure the deployment files directly on the server (this keeps sensitive credentials out of Git):
+
+1. **Create the manifest directory on the server**:
+   ```bash
+   mkdir -p /var/www/cybsec-pmo/k8s
+   cd /var/www/cybsec-pmo/k8s/
+   ```
+2. **Create and write each configuration file** on the server using `nano`:
+   ```bash
+   nano postgres-deployment.yaml
+   nano redis-deployment.yaml
+   nano backend-deployment.yaml  # <-- Make sure to replace placeholders with your actual production credentials here!
+   nano frontend-deployment.yaml
+   ```
+3. **Deploy all manifests to the cluster**:
+   ```bash
+   sudo kubectl apply -f postgres-deployment.yaml
+   sudo kubectl apply -f redis-deployment.yaml
+   sudo kubectl apply -f backend-deployment.yaml
+   sudo kubectl apply -f frontend-deployment.yaml
+   ```
+
+### 4. Transitioning from Docker Compose to Kubernetes (K3s)
+If you have already deployed using Docker Compose and want to switch to Kubernetes (K3s) on the same VPS, follow this sequence:
+
+1. **Tear down Docker Compose containers & free up ports**:
+   ```bash
+   cd /var/www/cybsec-pmo
+   sudo docker compose -f docker-compose.prod.yml down
+   ```
+2. **Start & Enable K3s service**:
+   ```bash
+   sudo systemctl enable k3s
+   sudo systemctl start k3s
+   
+   # Verify Kubernetes is active:
+   sudo kubectl get nodes
+   # (You should see your server status as Ready)
+   ```
+3. **Apply the Kubernetes Manifests**:
+   *(Note: Make sure to configure the production credentials in the manifest directly on the server first!)*
+   ```bash
+   cd k8s/
+   
+   # 1. Edit the manifest on the server to input real credentials
+   sudo nano backend-deployment.yaml
+   
+   # 2. Apply all configurations
+   sudo kubectl apply -f postgres-deployment.yaml
+   sudo kubectl apply -f redis-deployment.yaml
+   sudo kubectl apply -f backend-deployment.yaml
+   sudo kubectl apply -f frontend-deployment.yaml
+   
+   # Verify Pod status (it may take a minute to pull the images and initialize the PostgreSQL database):
+   sudo kubectl get pods
+   # (Wait until all pods show STATUS: Running and READY: 1/1)
+   ```
+4. **Switch Nginx Routing Mode**:
+   Open `/etc/nginx/sites-available/cybsec.conf` on the VPS and:
+   * Comment out all ports under **Option A** (ports `3010` and `6010`).
+   * Uncomment all ports under **Option B** (ports `30300` and `30601` for NodePorts).
+   * Test and reload Nginx:
+     ```bash
+     sudo nginx -t
+     sudo systemctl reload nginx
+     ```
 
 ---
 
@@ -269,3 +328,26 @@ Enable K3s service to run at system boot:
 ```bash
 sudo systemctl enable k3s
 ```
+
+---
+
+## 🔒 Step 6: Handling Secrets in Kubernetes (K3s)
+
+For security, the manifest files committed to Git (such as `k8s/backend-deployment.yaml`) contain **placeholders** for sensitive variables (like `ENTRA_CLIENT_SECRET`, `MAIL_PASSWORD`, and `BREAK_GLASS_EMERGENCY_SECRET`) to prevent leaks.
+
+When deploying to your Kubernetes cluster on the VPS:
+
+1. **Pull the latest code** to your VPS.
+2. **Open the deployment manifest on the server**:
+   ```bash
+   nano /var/www/cybsec-pmo/k8s/backend-deployment.yaml
+   ```
+3. Locate the placeholders and **replace them with your actual values**:
+   * `ENTRA_CLIENT_SECRET`: Put your real Active Directory application secret.
+   * `MAIL_PASSWORD`: Put your Gmail App Password.
+   * `BREAK_GLASS_EMERGENCY_SECRET`: Put your emergency access secret.
+4. **Save the file** (`Ctrl + O`, then `Enter`, then `Ctrl + X`).
+5. **Apply the configuration**:
+   ```bash
+   sudo kubectl apply -f /var/www/cybsec-pmo/k8s/backend-deployment.yaml
+   ```
