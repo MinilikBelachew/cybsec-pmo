@@ -85,8 +85,8 @@ export function ProjectAuditView({ projectId }: ProjectAuditViewProps) {
   }, [handleView]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
-      <div className="mb-3">
+    <div className="flex flex-col h-full overflow-hidden bg-transparent">
+      <div className="px-6 py-4 border-b border-border/50 shrink-0">
         <h2 className="text-sm font-bold text-foreground">Project audit log</h2>
         <p className="text-xs text-muted-foreground">
           All activity for this project — updates, tasks, phases, milestones, team, and imports.
@@ -96,25 +96,27 @@ export function ProjectAuditView({ projectId }: ProjectAuditViewProps) {
         </p>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={tableData}
-        getRowId={(row) => row.id}
-        manual
-        searchPlaceholder="Search action, actor, object, IP…"
-        pageCount={data?.meta.totalPages ?? 0}
-        totalRows={data?.meta.total ?? 0}
-        pageIndex={pageIndex}
-        pageSize={pageSize}
-        onPageSizeChange={setPageSize}
-        onPageChange={setPageIndex}
-        sorting={sorting}
-        onSortingChange={setSorting}
-        searchValue={search}
-        onSearchChange={setSearch}
-        isLoading={isLoading}
-        emptyMessage="No audit events recorded for this project yet."
-      />
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <DataTable
+          columns={columns}
+          data={tableData}
+          getRowId={(row) => row.id}
+          manual
+          searchPlaceholder="Search action, actor, object, IP…"
+          pageCount={data?.meta.totalPages ?? 0}
+          totalRows={data?.meta.total ?? 0}
+          pageIndex={pageIndex}
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          onPageChange={setPageIndex}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          searchValue={search}
+          onSearchChange={setSearch}
+          isLoading={isLoading}
+          emptyMessage="No audit events recorded for this project yet."
+        />
+      </div>
 
       <AuditDetailSheet
         open={detailOpen}
