@@ -36,6 +36,7 @@ import {
 } from "@/domains/projects";
 import { TASKS_POLLING_INTERVAL_MS } from "@/domains/projects/constants/tasks-polling";
 import type { Task, TaskPriority, TaskStatus } from "@/domains/projects";
+import { ProjectFilterSelect } from "./project-filter-select";
 
 // ─── Status & priority maps ───────────────────────────────────────────────────
 
@@ -441,14 +442,7 @@ export function ActiveTasksPage() {
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard/projects")}
-          className="flex shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-opacity hover:opacity-90"
-        >
-          <Plus className="size-4" />
-          Add Task
-        </button>
+    
       </div>
 
       {/* Stat strip — projects page style */}
@@ -532,13 +526,11 @@ export function ActiveTasksPage() {
           onChange={(v) => setPriorityFilter(v as TaskPriority | "all")}
           options={PRIORITY_FILTER_OPTIONS.map((o) => [o.value, o.label])}
         />
-        <FilterSelect
+        <ProjectFilterSelect
           value={projectFilter}
-          onChange={setProjectFilter}
-          options={[
-            ["all", "All Projects"],
-            ...projects.map((p) => [p.id, p.name] as [string, string]),
-          ]}
+          onValueChange={setProjectFilter}
+          projects={projects}
+          allLabel="All Projects"
         />
 
         <Button

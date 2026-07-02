@@ -16,14 +16,7 @@ import {
 } from "@/domains/projects";
 import type { ProjectPhase, Task } from "@/domains/projects";
 import { mapTasksToGanttRows } from "@/domains/projects/utils/map-task-to-gantt";
-
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
+import { ProjectFilterSelect } from "./project-filter-select";
 
 function minDateString(dates: (string | null | undefined)[]): string {
   const valid = dates.filter(Boolean).map((d) => new Date(d!).getTime());
@@ -177,26 +170,11 @@ export function PortfolioGanttPage() {
           )}
         </div>
 
-        <Select
+        <ProjectFilterSelect
           value={projectFilter}
-          onValueChange={(val) => setProjectFilter(val ?? "all")}
-        >
-          <SelectTrigger className="h-9 min-w-[160px] rounded-xl border border-border/50 bg-muted/50 text-sm focus:ring-1 focus:ring-primary/30">
-            <SelectValue placeholder="All projects">
-              {projectFilter === "all"
-                ? "All projects"
-                : (projects.find((p) => p.id === projectFilter)?.name ?? "Select project")}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className="max-h-72">
-            <SelectItem value="all">All projects</SelectItem>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          onValueChange={setProjectFilter}
+          projects={projects}
+        />
 
         {isFetching && !isLoading && (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
