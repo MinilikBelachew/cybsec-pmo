@@ -24,10 +24,7 @@ services:
       - redis_data:/data
 
   mpxj-service:
-    # Built on the server (no Docker Hub image yet). Rebuild after mpxj-service/ changes.
-    build:
-      context: ./mpxj-service
-      dockerfile: Dockerfile
+    image: aynuayex/cybersec-pmo:mpxj-service
     container_name: cybersec-mpxj-service
     restart: always
     expose:
