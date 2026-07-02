@@ -867,6 +867,32 @@ export class ProjectsService {
         });
       }
     }
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+    if (!project) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { project: 'projectNotFound' },
+      });
+    }
+
+    if (dto.targetDate) {
+      const target = new Date(dto.targetDate);
+      const start = new Date(project.startDate);
+      const end = new Date(project.endDate);
+      target.setHours(0, 0, 0, 0);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+
+      if (target < start || target > end) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { targetDate: 'milestoneTargetDateOutsideProject' },
+        });
+      }
+    }
+
     const milestone = await this.prisma.projectMilestone.create({
       data: {
         projectId,
