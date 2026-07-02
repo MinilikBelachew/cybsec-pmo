@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <style>
+    .slash-1 {
+      fill: #7B3FE4;
+    }
+    .slash-2 {
+      fill: #171717;
+    }
+    @media (prefers-color-scheme: dark) {
+      .slash-2 {
+        fill: #F3F4F6;
+      }
+    }
+  </style>
+  <g transform="translate(6.4, 0) skewX(-12)">
+    <rect class="slash-1" x="8" y="4" width="4" height="24" rx="2" />
+    <rect class="slash-2" x="14" y="4" width="4" height="24" rx="2" />
+  </g>
+</svg>
