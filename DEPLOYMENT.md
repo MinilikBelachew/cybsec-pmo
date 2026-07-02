@@ -229,6 +229,45 @@ kubectl apply -f backend-deployment.yaml
 kubectl apply -f frontend-deployment.yaml
 ```
 
+### 4. Transitioning from Docker Compose to Kubernetes (K3s)
+If you have already deployed using Docker Compose and want to switch to Kubernetes (K3s) on the same VPS, follow this sequence:
+
+1. **Tear down Docker Compose containers & free up ports**:
+   ```bash
+   cd /var/www/cybsec-pmo
+   sudo docker compose -f docker-compose.prod.yml down
+   ```
+2. **Start & Enable K3s service**:
+   ```bash
+   sudo systemctl enable k3s
+   sudo systemctl start k3s
+   
+   # Verify Kubernetes is active:
+   sudo kubectl get nodes
+   # (You should see your server status as Ready)
+   ```
+3. **Apply the Kubernetes Manifests**:
+   ```bash
+   cd k8s/
+   sudo kubectl apply -f postgres-deployment.yaml
+   sudo kubectl apply -f redis-deployment.yaml
+   sudo kubectl apply -f backend-deployment.yaml
+   sudo kubectl apply -f frontend-deployment.yaml
+   
+   # Verify Pod status (it may take a minute to pull the images and initialize the PostgreSQL database):
+   sudo kubectl get pods
+   # (Wait until all pods show STATUS: Running and READY: 1/1)
+   ```
+4. **Switch Nginx Routing Mode**:
+   Open `/etc/nginx/sites-available/cybsec.conf` on the VPS and:
+   * Comment out all ports under **Option A** (ports `3010` and `6010`).
+   * Uncomment all ports under **Option B** (ports `30300` and `30601` for NodePorts).
+   * Test and reload Nginx:
+     ```bash
+     sudo nginx -t
+     sudo systemctl reload nginx
+     ```
+
 ---
 
 ## 🛡️ Step 4: Configure Nginx & SSL (Certbot) on Host VPS
@@ -269,3 +308,26 @@ Enable K3s service to run at system boot:
 ```bash
 sudo systemctl enable k3s
 ```
+
+---
+
+## 🔒 Step 6: Handling Secrets in Kubernetes (K3s)
+
+For security, the manifest files committed to Git (such as `k8s/backend-deployment.yaml`) contain **placeholders** for sensitive variables (like `ENTRA_CLIENT_SECRET`, `MAIL_PASSWORD`, and `BREAK_GLASS_EMERGENCY_SECRET`) to prevent leaks.
+
+When deploying to your Kubernetes cluster on the VPS:
+
+1. **Pull the latest code** to your VPS.
+2. **Open the deployment manifest on the server**:
+   ```bash
+   nano /var/www/cybsec-pmo/k8s/backend-deployment.yaml
+   ```
+3. Locate the placeholders and **replace them with your actual values**:
+   * `ENTRA_CLIENT_SECRET`: Put your real Active Directory application secret.
+   * `MAIL_PASSWORD`: Put your Gmail App Password.
+   * `BREAK_GLASS_EMERGENCY_SECRET`: Put your emergency access secret.
+4. **Save the file** (`Ctrl + O`, then `Enter`, then `Ctrl + X`).
+5. **Apply the configuration**:
+   ```bash
+   sudo kubectl apply -f /var/www/cybsec-pmo/k8s/backend-deployment.yaml
+   ```
