@@ -12,10 +12,12 @@ import {
   useGetCustomersQuery,
   useGetProjectManagersQuery,
 } from "../../api/projects.api";
+import { useLazyExportTasksQuery } from "../../api/tasks.api";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { createProjectListColumns } from "./project-list-columns";
-import { exportProjectsToXLSX } from "../../utils/import-export";
+import { exportProjectsToXLSX, convertToCSV } from "../../utils/import-export";
+import { ExportProjectsDialog } from "./export-projects-dialog";
 import {
   DEFAULT_PROJECT_DEPT_COLOR,
   formatProjectTimeline,
@@ -363,6 +365,7 @@ export function ProjectsList() {
   const [listSorting, setListSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProcessedProject | null>(null);
 
@@ -378,6 +381,7 @@ export function ProjectsList() {
 
   const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
   const [triggerExportProjects, { isFetching: isExporting }] = useLazyExportProjectsQuery();
+  const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
 
   const queryParams = useMemo((): GetProjectsParams => {
     const isListView = view === "list";
@@ -446,14 +450,14 @@ export function ProjectsList() {
     }
   };
 
-  const handleExportXLSX = async () => {
+  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv", selectedTaskFields?: string[]) => {
     const exportParams: GetProjectsParams = {};
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) exportParams.search = trimmedSearch;
     if (statusFilter !== "all") exportParams.status = statusFilter;
     if (priorityFilter !== "all") exportParams.priority = priorityFilter;
 
-    const exportToast = toast.loading("Preparing portfolio export...");
+    const exportToast = toast.loading(`Preparing portfolio export (${format.toUpperCase()})...`);
     try {
       const projectsToExport = await triggerExportProjects(exportParams).unwrap();
       if (!projectsToExport || projectsToExport.length === 0) {
@@ -462,18 +466,42 @@ export function ProjectsList() {
         return;
       }
 
-      const xlsxBuffer = exportProjectsToXLSX(projectsToExport, departments, customers, managers);
-      const blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      let blob: Blob;
+      let filename: string;
+
+      if (format === "xlsx") {
+        toast.loading("Fetching tasks for projects...", { id: exportToast });
+        const tasksPromises = projectsToExport.map((proj) =>
+          triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
+        );
+        const tasksResults = await Promise.all(tasksPromises);
+        const allTasks = tasksResults.flatMap((tasks, index) => {
+          const proj = projectsToExport[index];
+          return tasks.map((t) => ({
+            ...t,
+            projectName: proj.name,
+          }));
+        });
+
+        const xlsxBuffer = exportProjectsToXLSX(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
+        blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        filename = `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`;
+      } else {
+        const csvContent = convertToCSV(projectsToExport, departments, customers, managers, selectedFields);
+        blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        filename = `projects_export_${new Date().toISOString().split("T")[0]}.csv`;
+      }
+
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`);
+      link.setAttribute("download", filename);
       link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       toast.dismiss(exportToast);
-      toast.success("Portfolio exported successfully to Excel.");
+      toast.success(`Portfolio exported successfully to ${format.toUpperCase()}.`);
     } catch (err) {
       console.error(err);
       toast.dismiss(exportToast);
@@ -639,7 +667,7 @@ export function ProjectsList() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleExportXLSX}
+            onClick={() => setShowExport(true)}
             disabled={isExporting}
             className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
           >
@@ -735,6 +763,12 @@ export function ProjectsList() {
         onClose={() => setShowImport(false)}
         refetch={refetch}
         existingProjectNames={existingProjectNames}
+      />
+      <ExportProjectsDialog
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        onExport={handleExportData}
+        isExporting={isExporting || isExportingTasks}
       />
       <DeleteDialog
         isOpen={Boolean(deleteTarget)}

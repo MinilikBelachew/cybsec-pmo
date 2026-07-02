@@ -68,9 +68,10 @@ export function convertToCSV(
   projects: any[],
   departments: Department[],
   customers: Customer[],
-  managers: ProjectManager[]
+  managers: ProjectManager[],
+  selectedFields?: string[]
 ): string {
-  const headers = [
+  const allHeaders = [
     "Name",
     "Objective",
     "Department",
@@ -86,6 +87,7 @@ export function convertToCSV(
     "Secondary PM",
     "Status",
   ];
+  const headers = selectedFields || allHeaders;
 
   const escapeCSV = (str: any) => {
     if (str == null) return "";
@@ -102,22 +104,24 @@ export function convertToCSV(
     const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
     const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
 
-    return [
-      p.name,
-      p.objective,
-      deptName,
-      custName,
-      p.engagementType,
-      p.billingModel,
-      p.priority,
-      p.startDate ? p.startDate.split("T")[0] : "",
-      p.endDate ? p.endDate.split("T")[0] : "",
-      p.value,
-      p.currency,
-      primaryPmName,
-      secondaryPmName,
-      p.status,
-    ].map(escapeCSV);
+    const allData: Record<string, any> = {
+      "Name": p.name,
+      "Objective": p.objective,
+      "Department": deptName,
+      "Customer": custName,
+      "Engagement Type": p.engagementType,
+      "Billing Model": p.billingModel,
+      "Priority": p.priority,
+      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
+      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
+      "Value": p.value,
+      "Currency": p.currency,
+      "Primary PM": primaryPmName,
+      "Secondary PM": secondaryPmName,
+      "Status": p.status,
+    };
+
+    return headers.map((field) => escapeCSV(allData[field]));
   });
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -127,9 +131,12 @@ export function exportProjectsToXLSX(
   projects: any[],
   departments: Department[],
   customers: Customer[],
-  managers: ProjectManager[]
+  managers: ProjectManager[],
+  selectedFields?: string[],
+  tasks?: any[],
+  selectedTaskFields?: string[]
 ): ArrayBuffer {
-  const headers = [
+  const allHeaders = [
     "Name",
     "Objective",
     "Department",
@@ -145,6 +152,7 @@ export function exportProjectsToXLSX(
     "Secondary PM",
     "Status",
   ];
+  const headers = selectedFields || allHeaders;
 
   const data = projects.map((p) => {
     const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
@@ -152,7 +160,7 @@ export function exportProjectsToXLSX(
     const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
     const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
 
-    return {
+    const allData: Record<string, any> = {
       "Name": p.name || "",
       "Objective": p.objective || "",
       "Department": deptName,
@@ -168,13 +176,88 @@ export function exportProjectsToXLSX(
       "Secondary PM": secondaryPmName,
       "Status": p.status || "",
     };
+
+    const filtered: Record<string, any> = {};
+    headers.forEach((field) => {
+      filtered[field] = allData[field];
+    });
+    return filtered;
   });
 
   const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Projects");
+
+  if (tasks && tasks.length > 0) {
+    // Group tasks by project name
+    const tasksByProject: Record<string, any[]> = {};
+    tasks.forEach((t) => {
+      const projName = t.projectName || "Tasks";
+      if (!tasksByProject[projName]) {
+        tasksByProject[projName] = [];
+      }
+      tasksByProject[projName].push(t);
+    });
+
+    const allTaskHeaders = [
+      "Title",
+      "Description",
+      "Priority",
+      "Status",
+      "Assignee",
+      "Phase",
+      "Start Date",
+      "End Date",
+      "Effort Hours",
+    ];
+    const taskHeaders = selectedTaskFields || allTaskHeaders;
+
+    Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
+      const tasksData = projTasks.map((t) => {
+        const assigneeName = t.owner?.displayName || t.assigneeName || "";
+        const phaseName = t.phase?.name || t.phaseName || "";
+
+        const allTaskData: Record<string, any> = {
+          "Title": t.title || "",
+          "Description": t.description || "",
+          "Priority": t.priority || "",
+          "Status": t.status || "",
+          "Assignee": assigneeName,
+          "Phase": phaseName,
+          "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+          "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+          "Effort Hours": t.effortHours != null ? t.effortHours : 0,
+        };
+
+        const filtered: Record<string, any> = {};
+        taskHeaders.forEach((field) => {
+          filtered[field] = allTaskData[field];
+        });
+        return filtered;
+      });
+
+      // Excel sheet names have a limit of 31 chars and cannot contain certain characters
+      const cleanProjName = projName.replace(/[\\/?*:[\]]/g, "").trim().slice(0, 25);
+      const sheetName = cleanProjName ? `${cleanProjName} Tasks` : "Tasks";
+      const finalSheetName = sheetName.slice(0, 31);
+
+      // Resolve duplicate sheet names if any
+      let uniqueSheetName = finalSheetName;
+      let counter = 1;
+      while (workbook.SheetNames.includes(uniqueSheetName)) {
+        const suffix = ` (${counter})`;
+        uniqueSheetName = finalSheetName.slice(0, 31 - suffix.length) + suffix;
+        counter++;
+      }
+
+      const tasksWorksheet = XLSX.utils.json_to_sheet(tasksData, { header: taskHeaders });
+      XLSX.utils.book_append_sheet(workbook, tasksWorksheet, uniqueSheetName);
+    });
+  }
+
   return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
+
 
 export interface ParsedProjectRow {
   name: string;
@@ -495,9 +578,10 @@ export function processRawCSVRows(
 export function convertTasksToCSV(
   tasks: Task[],
   phases: ProjectPhase[],
-  assignees: ProjectTaskAssignee[]
+  assignees: ProjectTaskAssignee[],
+  selectedFields?: string[]
 ): string {
-  const headers = [
+  const allHeaders = [
     "Title",
     "Description",
     "Priority",
@@ -508,6 +592,7 @@ export function convertTasksToCSV(
     "End Date",
     "Effort Hours"
   ];
+  const headers = selectedFields || allHeaders;
 
   const escapeCSV = (str: any) => {
     if (str == null) return "";
@@ -525,17 +610,19 @@ export function convertTasksToCSV(
       "";
     const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
 
-    return [
-      t.title || "",
-      t.description || "",
-      t.priority || "",
-      t.status || "",
-      assigneeName,
-      phaseName,
-      t.startDate ? t.startDate.split("T")[0] : "",
-      t.endDate ? t.endDate.split("T")[0] : "",
-      t.effortHours != null ? String(t.effortHours) : "",
-    ].map(escapeCSV);
+    const allData: Record<string, any> = {
+      "Title": t.title || "",
+      "Description": t.description || "",
+      "Priority": t.priority || "",
+      "Status": t.status || "",
+      "Assignee": assigneeName,
+      "Phase": phaseName,
+      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+      "Effort Hours": t.effortHours != null ? String(t.effortHours) : "",
+    };
+
+    return headers.map((field) => escapeCSV(allData[field]));
   });
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -544,9 +631,10 @@ export function convertTasksToCSV(
 export function exportTasksToXLSX(
   tasks: Task[],
   phases: ProjectPhase[],
-  assignees: ProjectTaskAssignee[]
+  assignees: ProjectTaskAssignee[],
+  selectedFields?: string[]
 ): ArrayBuffer {
-  const headers = [
+  const allHeaders = [
     "Title",
     "Description",
     "Priority",
@@ -557,6 +645,7 @@ export function exportTasksToXLSX(
     "End Date",
     "Effort Hours",
   ];
+  const headers = selectedFields || allHeaders;
 
   const data = tasks.map((t) => {
     const assigneeName =
@@ -565,7 +654,7 @@ export function exportTasksToXLSX(
       "";
     const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
 
-    return {
+    const allData: Record<string, any> = {
       "Title": t.title || "",
       "Description": t.description || "",
       "Priority": t.priority || "",
@@ -576,6 +665,12 @@ export function exportTasksToXLSX(
       "End Date": t.endDate ? t.endDate.split("T")[0] : "",
       "Effort Hours": t.effortHours != null ? t.effortHours : 0,
     };
+
+    const filtered: Record<string, any> = {};
+    headers.forEach((field) => {
+      filtered[field] = allData[field];
+    });
+    return filtered;
   });
 
   const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });

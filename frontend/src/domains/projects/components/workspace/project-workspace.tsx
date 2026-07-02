@@ -72,7 +72,8 @@ import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
-import { exportTasksToXLSX } from "../../utils/import-export";
+import { exportTasksToXLSX, convertTasksToCSV } from "../../utils/import-export";
+import { ExportTasksDialog } from "../tasks/export-tasks-dialog";
 import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
@@ -285,6 +286,7 @@ export function ProjectWorkspace() {
 
   const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
 
@@ -319,8 +321,8 @@ export function ProjectWorkspace() {
       });
   }, [milestones]);
 
-  const handleExport = async () => {
-    const exportToast = toast.loading("Preparing tasks export...");
+  const handleExportData = async (selectedFields: string[], format: "xlsx") => {
+    const exportToast = toast.loading(`Preparing tasks export (${format.toUpperCase()})...`);
     try {
       const exportParams: GetTasksParams = {
         projectId: id,
@@ -345,22 +347,24 @@ export function ProjectWorkspace() {
         return;
       }
 
-      const xlsxBuffer = exportTasksToXLSX(tasksToExport, phases, assignees);
+      const xlsxBuffer = exportTasksToXLSX(tasksToExport, phases, assignees, selectedFields);
       const blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const filename = `${project?.name || "project"}_tasks.xlsx`;
+
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `${project?.name || "project"}_tasks.xlsx`);
+      link.setAttribute("download", filename);
       link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       toast.dismiss(exportToast);
-      toast.success("Tasks exported to Excel successfully.");
+      toast.success(`Tasks exported successfully to Excel.`);
     } catch (err) {
       console.error(err);
       toast.dismiss(exportToast);
-      toast.error("Failed to export tasks to Excel.");
+      toast.error(`Failed to export tasks.`);
     }
   };
 
@@ -846,7 +850,7 @@ export function ProjectWorkspace() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleExport}
+                onClick={() => setShowExport(true)}
                 disabled={isExportingTasks}
                 className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
               >
@@ -1069,6 +1073,13 @@ export function ProjectWorkspace() {
         onClose={() => setIsImportOpen(false)}
         refetch={refetchTasks}
         projectId={id}
+      />
+
+      <ExportTasksDialog
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        onExport={handleExportData}
+        isExporting={isExportingTasks}
       />
     </div>
   );
