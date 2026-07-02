@@ -69,7 +69,8 @@ Docker Hub only allows **one free private repository** per account. Because we h
 4. Click **Create**.
 - We will push the backend image as: `aynuayex/cybersec-pmo:backend`
 - We will push the frontend image as: `aynuayex/cybersec-pmo:frontend`
-*This allows you to store both images completely privately in your single free repository!*
+- We will push the mpxj-service image as: `aynuayex/cybersec-pmo:mpxj-service`
+*This allows you to store all three images completely privately in your single free repository!*
 
 ---
 
@@ -127,7 +128,14 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
    docker push aynuayex/cybersec-pmo:backend
    ```
 
-5. **Build and push the Frontend image** (passing your domain at build time):
+5. **Build and push the MPXJ Service image**:
+   ```bash
+   cd ../mpxj-service
+   docker build -t aynuayex/cybersec-pmo:mpxj-service .
+   docker push aynuayex/cybersec-pmo:mpxj-service
+   ```
+
+6. **Build and push the Frontend image** (passing your domain at build time):
    ```bash
    cd ../frontend
      docker build \
@@ -140,12 +148,12 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
      docker push aynuayex/cybersec-pmo:frontend
    ```
 
-6. **Log in to Docker on the VPS** so it can pull the private images:
+7. **Log in to Docker on the VPS** so it can pull the private images:
    ```bash
    ssh root@YOUR_CONTABO_VPS_IP "docker login -u aynuayex"
    ```
 
-7. **Start the application on the VPS**:
+8. **Start the application on the VPS**:
    Navigate to the directory on your VPS and run:
    ```bash
    cd /var/www/cybsec-pmo
@@ -232,6 +240,7 @@ To deploy to Kubernetes (K3s), you should create and configure the deployment fi
    ```bash
    nano postgres-deployment.yaml
    nano redis-deployment.yaml
+   nano mpxj-deployment.yaml
    nano backend-deployment.yaml  # <-- Make sure to replace placeholders with your actual production credentials here!
    nano frontend-deployment.yaml
    ```
@@ -239,6 +248,7 @@ To deploy to Kubernetes (K3s), you should create and configure the deployment fi
    ```bash
    sudo kubectl apply -f postgres-deployment.yaml
    sudo kubectl apply -f redis-deployment.yaml
+   sudo kubectl apply -f mpxj-deployment.yaml
    sudo kubectl apply -f backend-deployment.yaml
    sudo kubectl apply -f frontend-deployment.yaml
    ```
@@ -271,6 +281,7 @@ If you have already deployed using Docker Compose and want to switch to Kubernet
    # 2. Apply all configurations
    sudo kubectl apply -f postgres-deployment.yaml
    sudo kubectl apply -f redis-deployment.yaml
+   sudo kubectl apply -f mpxj-deployment.yaml
    sudo kubectl apply -f backend-deployment.yaml
    sudo kubectl apply -f frontend-deployment.yaml
    
