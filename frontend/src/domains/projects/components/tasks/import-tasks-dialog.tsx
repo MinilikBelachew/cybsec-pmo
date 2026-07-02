@@ -10,10 +10,11 @@ import {
 import { useCreateTaskMutation } from "../../api/tasks.api";
 import { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import {
-  parseCSV,
+  parseXLSXSheet,
   processRawTaskCSVRows,
   detectTaskCsvImportKind,
   revalidateParsedTaskRow,
+  generateTasksXLSXTemplate,
   ParsedTaskRow,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
@@ -158,111 +159,62 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
 
   const [createTask] = useCreateTaskMutation();
 
-  const downloadSampleCSV = (e: React.MouseEvent) => {
+  const downloadSampleXLSX = (e: React.MouseEvent) => {
     e.stopPropagation();
-
-    const headers = [
-      "Title",
-      "Description",
-      "Priority",
-      "Status",
-      "Assignee",
-      "Phase",
-      "Start Date",
-      "End Date",
-      "Effort Hours"
-    ];
-
-    const defaultAssignee = assignees[0]?.displayName || "Team Member";
-    const defaultPhase = phases[0]?.name || "Phase 1";
-
-    const sampleRows = [
-      [
-        "Design Authentication UI",
-        "Create wireframes and mockup designs for login/signup screens.",
-        "High",
-        "To_Do",
-        defaultAssignee,
-        defaultPhase,
-        "2026-07-01",
-        "2026-07-05",
-        "12"
-      ],
-      [
-        "Setup NestJS Backend API",
-        "Initialize backend application and configure base folders.",
-        "Critical",
-        "In_Progress",
-        defaultAssignee,
-        defaultPhase,
-        "2026-07-01",
-        "2026-07-10",
-        "24"
-      ]
-    ];
-
-    const escapeCSV = (str: any) => {
-      if (str == null) return "";
-      const s = String(str);
-      if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
-        return `"${s.replace(/"/g, '""')}"`;
-      }
-      return s;
-    };
-
-    const csvContent = [
-      headers.join(","),
-      ...sampleRows.map(row => row.map(escapeCSV).join(","))
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "tasks_import_template.csv");
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success("Sample CSV template downloaded.");
+    try {
+      const buffer = generateTasksXLSXTemplate(assignees, phases);
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "tasks_import_template.xlsx");
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("Sample XLSX template downloaded.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate sample tasks XLSX.");
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    if (!selectedFile.name.endsWith(".csv")) {
-      toast.error("Please upload a valid CSV file.");
+    if (!selectedFile.name.endsWith(".xlsx")) {
+      toast.error("Please upload a valid Excel (.xlsx) file.");
       return;
     }
     setFile(selectedFile);
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target?.result as string;
-        const csvData = parseCSV(text);
-        if (csvData.length <= 1) {
-          toast.error("The CSV file is empty or only contains headers.");
+        const buffer = event.target?.result as ArrayBuffer;
+        const taskData = parseXLSXSheet(buffer, "Tasks");
+        if (taskData.length <= 1) {
+          toast.error("The XLSX file is empty or only contains headers.");
           return;
         }
 
-        const importKind = detectTaskCsvImportKind(csvData);
+        const importKind = detectTaskCsvImportKind(taskData);
         if (importKind === "projects") {
           toast.error(
-            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample CSV.",
+            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample XLSX.",
           );
           return;
         }
 
-        const processed = processRawTaskCSVRows(csvData, phases, assignees);
+        const processed = processRawTaskCSVRows(taskData, phases, assignees);
         setParsedRows(processed);
-        toast.success(`Loaded ${processed.length} rows from CSV`);
+        toast.success(`Loaded ${processed.length} rows from XLSX`);
       } catch (err) {
         console.error(err);
-        toast.error("Failed to parse CSV file.");
+        toast.error("Failed to parse XLSX file.");
       }
     };
-    reader.readAsText(selectedFile);
+    reader.readAsArrayBuffer(selectedFile);
   };
 
   const handleReset = () => {
@@ -366,11 +318,11 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                 <Button
                   variant="outline"
                   size="xs"
-                  onClick={downloadSampleCSV}
+                  onClick={downloadSampleXLSX}
                   className="h-8 gap-1 rounded-lg text-[11px] font-bold cursor-pointer border-primary/20 text-primary hover:bg-primary/5"
                 >
                   <Download className="size-3.5" />
-                  Download Sample CSV
+                  Download Sample XLSX
                 </Button>
               )}
               {!isImporting && (
@@ -396,15 +348,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  accept=".csv"
+                  accept=".xlsx"
                   className="hidden"
                 />
                 <div className="size-12 rounded-xl bg-primary/5 border border-primary/20 flex items-center justify-center text-primary">
                   <Upload className="size-6" />
                 </div>
                 <div className="text-center space-y-1">
-                  <p className="text-sm font-bold text-foreground">Click to select or drag CSV file</p>
-                  <p className="text-xs text-muted-foreground">Supported format: CSV only (.csv)</p>
+                  <p className="text-sm font-bold text-foreground">Click to select or drag XLSX file</p>
+                  <p className="text-xs text-muted-foreground">Supported format: Excel workbook only (.xlsx)</p>
                 </div>
                 <div className="mt-4 p-3 bg-muted/40 border border-border/50 rounded-xl max-w-md text-[10px] text-muted-foreground space-y-1 font-medium leading-relaxed">
                   <p className="font-bold text-foreground mb-1 uppercase tracking-wider">Required Column Headers:</p>

@@ -1,8 +1,8 @@
 import { LandingPage } from "@/domains/marketing";
 
 export const metadata = {
-  title: "Secure Enterprise PMO Platform",
-  description: "Advanced cybersecurity project portfolio management and workspace automation.",
+  title: "CYBSEC PMO",
+  description: "Cybersec PMO Platform",
 };
 
 export default async function Home({
