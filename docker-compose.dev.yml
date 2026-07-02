@@ -24,6 +24,14 @@ services:
       - "1080:1080"
       - "1025:1025"
 
+  mpxj-service:
+    build:
+      context: ./mpxj-service
+      dockerfile: Dockerfile
+    expose:
+      - "8080"
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -35,6 +43,8 @@ services:
     volumes:
       - ./backend:/usr/src/app
       - /usr/src/app/node_modules
+      - /usr/src/app/dist
+      - mpp_import_data:/tmp/mpp-imports
     env_file:
       - ./backend/.env
     environment:
@@ -44,9 +54,13 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - WORKER_HOST=redis://redis:6379/1
+      - MPXJ_SERVICE_URL=http://mpxj-service:8080
+      - MPP_IMPORT_STORAGE_DIR=/tmp/mpp-imports
+      - MPP_IMPORT_MAX_FILE_SIZE_BYTES=52428800
     depends_on:
       - postgres
       - redis
+      - mpxj-service
 
   frontend:
     image: node:22.18.0-slim
@@ -57,6 +71,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - /app/.next
     env_file:
       - ./frontend/.env
     depends_on:
@@ -64,3 +79,4 @@ services:
 
 volumes:
   postgres_dev_data:
+  mpp_import_data:

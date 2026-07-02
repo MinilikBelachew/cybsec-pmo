@@ -14,6 +14,7 @@ import {
 } from "../../api/projects.api";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
+import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { createProjectListColumns } from "./project-list-columns";
 import { exportProjectsToXLSX } from "../../utils/import-export";
 import {
@@ -50,6 +51,7 @@ import {
   Upload,
   Download,
   Loader2,
+  FileUp,
 } from "lucide-react";
 
 // ─── Status Config Mapping ────────────────────────────────────────────────────
@@ -363,6 +365,7 @@ export function ProjectsList() {
   const [listSorting, setListSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showMppImport, setShowMppImport] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProcessedProject | null>(null);
 
@@ -635,6 +638,17 @@ export function ProjectsList() {
             Import
           </Button>
           )}
+          {canImportProjects && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowMppImport(true)}
+            className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
+          >
+            <FileUp className="size-3.5" />
+            Import MPP
+          </Button>
+          )}
           {canExportProjects && (
           <Button
             variant="outline"
@@ -735,6 +749,11 @@ export function ProjectsList() {
         onClose={() => setShowImport(false)}
         refetch={refetch}
         existingProjectNames={existingProjectNames}
+      />
+      <ImportMppDialog
+        open={showMppImport}
+        onClose={() => setShowMppImport(false)}
+        onCompleted={refetch}
       />
       <DeleteDialog
         isOpen={Boolean(deleteTarget)}

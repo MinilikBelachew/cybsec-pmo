@@ -1,4 +1,8 @@
 import { api } from "@/core/api/api";
+import type {
+  AuditLogsQuery,
+  AuditLogsResponse,
+} from "@/domains/audit/api/audit.api";
 import {
   type CreateProjectDto,
   type CreateProjectBundleDto,
@@ -331,6 +335,31 @@ export const projectsApi = api.injectEndpoints({
         return `/projects/${projectId}/team/task-availability?${queryParams.toString()}`;
       },
     }),
+
+    getProjectAuditEvents: builder.query<
+      AuditLogsResponse,
+      { projectId: string } & AuditLogsQuery
+    >({
+      query: ({ projectId, page, limit, breakGlassOnly, externalOnly, actorId, dateFrom, dateTo, action, search, sortBy, sortOrder }) => {
+        const queryParams = new URLSearchParams();
+        if (page) queryParams.append("page", String(page));
+        if (limit) queryParams.append("limit", String(limit));
+        if (breakGlassOnly) queryParams.append("breakGlassOnly", "true");
+        if (externalOnly) queryParams.append("externalOnly", "true");
+        if (actorId) queryParams.append("actorId", actorId);
+        if (dateFrom) queryParams.append("dateFrom", dateFrom);
+        if (dateTo) queryParams.append("dateTo", dateTo);
+        if (action) queryParams.append("action", action);
+        if (search?.trim()) queryParams.append("search", search.trim().slice(0, 200));
+        if (sortBy) queryParams.append("sortBy", sortBy);
+        if (sortOrder) queryParams.append("sortOrder", sortOrder);
+        const qs = queryParams.toString();
+        return `/projects/${projectId}/audit-events${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: (_result, _error, { projectId }) => [
+        { type: "Audit", id: `project-${projectId}` },
+      ],
+    }),
   }),
 });
 
@@ -362,4 +391,5 @@ export const {
   useAddProjectTeamMembersMutation,
   useRemoveProjectTeamMemberMutation,
   useGetTaskAssigneeAvailabilityQuery,
+  useGetProjectAuditEventsQuery,
 } = projectsApi;

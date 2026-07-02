@@ -8,6 +8,8 @@ import { LoginSecurityConfig } from '../auth/config/login-security.config';
 import { SessionSecurityConfig } from '../auth/config/session-security.config';
 import { SecurityAlertsConfig } from '../auth/config/security-alerts.config';
 import { BreakGlassConfig } from '../auth/config/break-glass.config';
+import { MppImportConfig } from '../mpp-import/config/mpp-import-config.type';
+import mppImportConfig from '../mpp-import/config/mpp-import.config';
 
 export type AllConfigType = {
   app: AppConfig;
@@ -20,6 +22,7 @@ export type AllConfigType = {
   sessionSecurity: SessionSecurityConfig;
   securityAlerts: SecurityAlertsConfig;
   breakGlass: BreakGlassConfig;
+  mppImport: MppImportConfig;
 };
 
 

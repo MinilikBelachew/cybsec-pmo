@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -53,6 +54,8 @@ import {
   TeamCandidateDto,
 } from './dto/project-allocation.dto';
 import { CreateProjectTeamDto } from './dto/create-allocation.dto';
+import { QueryProjectAuditDto } from '../audit/dto/query-project-audit.dto';
+import { AuditLogsService } from '../audit/audit-logs.service';
 import {
   InfinityPaginationResponse,
   InfinityPaginationResponseDto,
@@ -72,6 +75,7 @@ export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,
     private readonly projectTeamService: ProjectTeamService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   @CheckAbility('read', 'Project')
@@ -446,5 +450,28 @@ export class ProjectsController {
     @Request() request: RequestWithAbility,
   ) {
     return this.projectsService.removeMilestone(milestoneId, request.caslUser!);
+  }
+
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('audit', 'view')
+  @Get(':id/audit-events')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  async findProjectAuditEvents(
+    @Param('id') id: string,
+    @Query() query: QueryProjectAuditDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    const project = await this.projectsService.findById(
+      id,
+      request.caslUser!,
+      request.ability!,
+    );
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    return this.auditLogsService.findForProject(id, query);
   }
 }

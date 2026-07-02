@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma } from '@prisma/client';
+import { buildProjectAuditLogWhere } from './audit-log-project-query.util';
+import { buildAuditLogOrderBy, buildAuditLogWhere } from './audit-log-query.util';
+import { QueryAuditDto } from './dto/query-audit.dto';
+import { QueryProjectAuditDto } from './dto/query-project-audit.dto';
 
 @Injectable()
 export class AuditLogsService {
@@ -66,6 +70,38 @@ export class AuditLogsService {
 
   async count(where?: Prisma.AuditLogWhereInput) {
     return this.prisma.auditLog.count({ where });
+  }
+
+  async findForProject(projectId: string, query: QueryProjectAuditDto) {
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const projectScope = await buildProjectAuditLogWhere(this.prisma, projectId);
+    const filters = buildAuditLogWhere(query as QueryAuditDto);
+    const filterClauses = Object.keys(filters).length > 0 ? [filters] : [];
+
+    const where: Prisma.AuditLogWhereInput = {
+      AND: [projectScope, ...filterClauses],
+    };
+    const orderBy = buildAuditLogOrderBy(query as QueryAuditDto);
+
+    const [data, total] = await Promise.all([
+      this.findAll({ where, skip, take: limit, orderBy }),
+      this.count(where),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   async logStatusChange(params: {

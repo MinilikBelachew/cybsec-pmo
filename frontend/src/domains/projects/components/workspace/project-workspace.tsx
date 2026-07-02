@@ -53,8 +53,10 @@ import {
   Clock,
   Upload,
   Download,
+  FileUp,
   Maximize2,
   Minimize2,
+  ScrollText,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -68,6 +70,7 @@ import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
 import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
+import { ProjectAuditView } from "./workspace-views/project-audit-view";
 import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
@@ -75,6 +78,7 @@ import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
 import { exportTasksToXLSX } from "../../utils/import-export";
 import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
+import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { formatProjectBudget } from "../../utils/format-budget";
 import { useRole } from "@/shared/providers/role-provider";
@@ -82,7 +86,7 @@ import { useRole } from "@/shared/providers/role-provider";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
-type View = "list" | "board" | "calendar" | "gantt" | "table" | "phases";
+type View = "list" | "board" | "calendar" | "gantt" | "table" | "phases" | "audit";
 
 interface Task {
   id: string;
@@ -131,6 +135,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "gantt", label: "Gantt", icon: ChartGantt },
   { id: "table", label: "Table", icon: Table2 },
   { id: "phases", label: "Phases", icon: Flag },
+  { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
 const PRIORITY_FILTER_TO_API: Record<string, TaskPriority | undefined> = {
@@ -229,7 +234,7 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases } = useModulePermissions();
+  const { canCreatePhases, canImportProjects, canViewAudit } = useModulePermissions();
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
   const canManageTasks = ability?.can("create", "Task") ?? false;
   const canCreateTask = canManageTasks;
@@ -285,6 +290,7 @@ export function ProjectWorkspace() {
 
   const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isMppImportOpen, setIsMppImportOpen] = useState(false);
 
   const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
 
@@ -378,6 +384,11 @@ export function ProjectWorkspace() {
 
   const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
 
+  const visibleViews = useMemo(
+    () => (canViewAudit ? VIEWS : VIEWS.filter((view) => view.id !== "audit")),
+    [canViewAudit],
+  );
+
   // States
   const [activeView, setActiveView] = useState<View>("list");
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
@@ -391,6 +402,12 @@ export function ProjectWorkspace() {
   const [parentTaskId, setParentTaskId] = useState<string | null>(null);
   const [newTaskStartDate, setNewTaskStartDate] = useState<string | null>(null);
   const [newTaskEndDate, setNewTaskEndDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeView === "audit" && !canViewAudit) {
+      setActiveView("list");
+    }
+  }, [activeView, canViewAudit]);
 
   const openTaskDetail = (
     taskId: string,
@@ -767,7 +784,7 @@ export function ProjectWorkspace() {
       {/* ─── TABS NAV ────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
         <div className="flex items-center">
-          {VIEWS.map(({ id, label, icon: Icon }) => (
+          {visibleViews.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActiveView(id)}
@@ -797,6 +814,7 @@ export function ProjectWorkspace() {
       </div>
 
       {/* ─── TOOLBAR & SEARCH / FILTERS ──────────────────────────────────────── */}
+      {activeView !== "audit" && (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Left Side: Search & Filters */}
         <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
@@ -843,6 +861,17 @@ export function ProjectWorkspace() {
                   Import Tasks
                 </Button>
               )}
+              {canImportProjects && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsMppImportOpen(true)}
+                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                >
+                  <FileUp className="size-4" />
+                  Import MPP
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -887,6 +916,7 @@ export function ProjectWorkspace() {
           ) : null}
         </div>
       </div>
+      )}
 
       {/* ─── ACTIVE VIEW DISPLAY AREA ────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
@@ -1007,6 +1037,10 @@ export function ProjectWorkspace() {
             }
           />
         )}
+
+        {activeView === "audit" && canViewAudit && (
+          <ProjectAuditView projectId={id} />
+        )}
       </div>
 
       {/* Add Task Side Sheet */}
@@ -1068,6 +1102,12 @@ export function ProjectWorkspace() {
         open={isImportOpen}
         onClose={() => setIsImportOpen(false)}
         refetch={refetchTasks}
+        projectId={id}
+      />
+      <ImportMppDialog
+        open={isMppImportOpen}
+        onClose={() => setIsMppImportOpen(false)}
+        onCompleted={() => refetchTasks()}
         projectId={id}
       />
     </div>

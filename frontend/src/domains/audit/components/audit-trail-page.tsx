@@ -22,6 +22,7 @@ import { auditDataColumns } from "./audit-columns";
 import { AuditDetailSheet } from "./audit-detail-sheet";
 import { AuditFilters } from "./audit-filters";
 import { AuditRowActions } from "./audit-row-actions";
+import { AUDIT_POLLING_INTERVAL_MS } from "../constants/audit-polling";
 
 const SORTABLE_COLUMNS = new Set(["createdAt", "action", "objectType"]);
 
@@ -111,7 +112,9 @@ export function AuditTrailPage() {
     sorting,
   ]);
 
-  const { data, isLoading, isFetching } = useGetAuditEventsQuery(queryParams);
+  const { data, isLoading, isFetching } = useGetAuditEventsQuery(queryParams, {
+    pollingInterval: AUDIT_POLLING_INTERVAL_MS,
+  });
   const [exportAuditFile, { isFetching: isExporting }] = useLazyExportAuditFileQuery();
 
   const tableData = useMemo(() => data?.data ?? [], [data?.data]);
@@ -193,7 +196,11 @@ export function AuditTrailPage() {
     <div className="mx-auto max-w-[1400px] space-y-6">
       <PageHeader
         title="Audit Trail"
-        description="Read-only activity log with server-side search, filters, and sorting."
+        description={
+          isFetching && !isLoading
+            ? "Read-only activity log with server-side search, filters, and sorting. Refreshing…"
+            : "Read-only activity log with server-side search, filters, and sorting."
+        }
         actions={
           <AuditExportMenu
             disabled={isExporting}
@@ -223,7 +230,7 @@ export function AuditTrailPage() {
         onSortingChange={setSorting}
         searchValue={search}
         onSearchChange={setSearch}
-        isLoading={isLoading || isFetching}
+        isLoading={isLoading}
         emptyMessage="No audit events match your filters."
         onSelectionChange={bulkActive ? setSelectedRows : undefined}
         filters={

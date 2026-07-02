@@ -35,6 +35,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { CurrenciesModule } from './currencies/currencies.module';
 import { SearchModule } from './search/search.module';
+import { MppImportModule } from './mpp-import/mpp-import.module';
+import mppImportConfig from './mpp-import/config/mpp-import.config';
 
 @Module({
   imports: [
@@ -51,6 +53,7 @@ import { SearchModule } from './search/search.module';
         sessionSecurityConfig,
         securityAlertsConfig,
         breakGlassConfig,
+        mppImportConfig,
       ],
       envFilePath: ['.env'],
     }),
@@ -114,6 +117,7 @@ import { SearchModule } from './search/search.module';
     DashboardModule,
     CurrenciesModule,
     SearchModule,
+    MppImportModule,
     ScheduleModule.forRoot(),
   ],
 })

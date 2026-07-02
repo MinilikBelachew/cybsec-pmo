@@ -1,7 +1,9 @@
 FROM node:22.18.0-slim
 
-# Install openssl required by Prisma engine binaries (apt-get works on Debian slim)
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# openssl: required by Prisma engine binaries.
+# procps: provides `ps`, which `nest start --watch` (tsc-watch/ps-tree) needs to kill
+# child processes on each recompile; without it the watcher crashes with "spawn ps ENOENT".
+RUN apt-get update -y && apt-get install -y openssl procps && rm -rf /var/lib/apt/lists/*
 
 RUN npm i -g @nestjs/cli typescript ts-node
 
