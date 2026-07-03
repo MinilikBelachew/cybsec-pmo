@@ -20,7 +20,7 @@ async function selectDropdown(page: any, label: string, optionText: string) {
   // Close any open Select dropdowns first
   await dismissDropdowns(page);
 
-  let scope = page.locator('[role="dialog"]');
+  let scope = page.locator('[role="dialog"]:visible');
   if (await scope.count() === 0) {
     scope = page.locator('body');
   }
@@ -51,7 +51,7 @@ async function pickDate(page: any, label: string, day: string, goNextMonths = 0)
   await dismissDropdowns(page);
   await page.waitForTimeout(200);
 
-  let scope = page.locator('[role="dialog"]');
+  let scope = page.locator('[role="dialog"]:visible');
   if (await scope.count() === 0) {
     scope = page.locator('body');
   }
@@ -63,9 +63,9 @@ async function pickDate(page: any, label: string, day: string, goNextMonths = 0)
     container = container.locator('xpath=..');
   }
 
-  const trigger = container.locator('button').first();
-  await trigger.scrollIntoViewIfNeeded();
-  await trigger.click();
+  // Re-locate fresh to avoid stale context after DOM modifications
+  await container.locator('button').first().scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+  await container.locator('button').first().click();
 
   // Wait for the calendar popup to appear
   const calendar = page.locator('[data-slot="calendar"]');
@@ -270,7 +270,8 @@ test.describe("Project Management (Foundation Phase)", () => {
     expect(dbRes.rows[0].primary_pm_id).toBe(pmId);
     expect(dbRes.rows[0].secondary_pm_id).toBe(bobPmId);
 
-    // 7. Verify Audit Logs
+    // 7. Verify Audit Logs — wait briefly for async write
+    await new Promise((r) => setTimeout(r, 2000));
     const auditRes = await dbClient.query(
       "SELECT * FROM audit_logs WHERE object_type = 'Project' AND object_id = $1 AND action = 'CREATE_PROJECT' LIMIT 1",
       [dbRes.rows[0].id]
@@ -388,7 +389,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await selectDropdown(page, "Client / Customer", "CUST-101");
     await selectDropdown(page, "Primary PM", "John Smith");
     await pickDate(page, "Start Date", "30", 0);
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(800);
     await pickDate(page, "End Date", "15", 1);
     await page.fill('input[name="value"]', "90000");
     await selectDropdown(page, "Engagement Type", "Fixed Price");

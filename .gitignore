@@ -13,3 +13,11 @@
 !/mpxj-service/
 !/DEPLOYMENT.md
 
+# Ignore Java build outputs and IDE files
+/mpxj-service/target/
+/mpxj-service/.idea/
+/mpxj-service/*.iml
+/mpxj-service/.settings/
+/mpxj-service/.classpath
+/mpxj-service/.project
+/mpxj-service/.factorypath
