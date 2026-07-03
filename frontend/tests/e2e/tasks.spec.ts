@@ -395,25 +395,38 @@ test.describe("Tasks", () => {
   test("TC-M1.3-06: Resource Availability", async ({ page }) => {
     await loginViaSessionInjection(page, pmEmail);
     await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("networkidle", { timeout: 30000 });
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(1500);
 
     await page.locator('button:has-text("Add Task")').click();
+    await page.waitForTimeout(800);
 
     // Fill name, dates, effort
     await page.fill('input[placeholder="Task title..."]', "Resource Availability Task");
     await page.fill('textarea[placeholder="Add a description..."]', "Checking availability check message");
-    
-    // Choose start/end date and assignee to trigger alert query
+
+    // Choose assignee and dates to trigger over-allocation alert
     await selectDropdown(page, "Assignee", "Brian Nguyen");
     await pickDateInTaskSheet(page, "Start date *", "10", 0);
     await pickDateInTaskSheet(page, "Due date *", "15", 0);
 
-    // Effort hours
+    // Set effort to 40 hours — triggers over-allocation warning
     await page.fill('input[placeholder="Optional"]', "40");
 
-    // Wait for availability status check text to resolve and show Brian is utilized
+    // Wait for and confirm the over-allocation warning appears in the form
+    await expect(page.locator("body")).toContainText("over-allocated", { timeout: 10000 });
     await expect(page.locator("body")).toContainText("Nguyen");
-    await expect(page.locator("body")).toContainText("over-allocated");
+
+    // Hold so video clearly shows the warning banner
+    await page.waitForTimeout(2500);
+
+    // Submit the task — this may show a toast/success notification
+    const createBtn = page.locator('button:has-text("Create Task")').first();
+    if (await createBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await createBtn.click();
+      // Wait for toast to appear and be captured by video
+      await page.waitForTimeout(4000);
+    }
   });
 
   test("TC-M1.3-07: Workflow States", async ({ page }) => {
@@ -452,7 +465,8 @@ test.describe("Tasks", () => {
 
     // Save changes
     await page.click('button:has-text("Save changes")');
-    await expect(page.locator("body")).toContainText("Task updated");
+    await page.waitForTimeout(500); // give React time to dispatch mutation
+    await expect(page.locator("body")).toContainText("Task updated", { timeout: 15000 });
 
     // Verify DB
     let dbRes = await dbClient.query("SELECT status FROM tasks WHERE id = $1", [taskId]);
@@ -480,7 +494,8 @@ test.describe("Tasks", () => {
     
     // Save changes
     await page.click('button:has-text("Save changes")');
-    await expect(page.locator("body")).toContainText("Task updated");
+    await page.waitForTimeout(500); // give React time to dispatch mutation
+    await expect(page.locator("body")).toContainText("Task updated", { timeout: 15000 });
 
     dbRes = await dbClient.query("SELECT status FROM tasks WHERE id = $1", [taskId]);
     expect(dbRes.rows[0].status).toBe("Approved");
@@ -591,9 +606,12 @@ test.describe("Tasks", () => {
     // 2. Log in as PM
     await loginViaSessionInjection(page, pmEmail);
     await page.goto(`/en/dashboard/projects/${projectId}`);
+    await page.waitForLoadState("networkidle");
 
-    // 3. Open task details panel as PM
-    await page.locator(`button:has-text("${taskTitle}")`).first().click();
+    // 3. Open task details panel as PM — scroll into view in case task list has grown
+    const taskBtn = page.locator(`button:has-text("${taskTitle}")`).first();
+    await taskBtn.scrollIntoViewIfNeeded({ timeout: 30000 });
+    await taskBtn.click();
     await expect(page.locator('text="Loading task..."')).toBeHidden();
     await page.waitForTimeout(600);
 

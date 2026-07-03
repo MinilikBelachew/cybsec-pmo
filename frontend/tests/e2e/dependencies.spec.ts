@@ -305,12 +305,18 @@ test.describe("Dependencies", () => {
   });
 
   test("TC-M1.5-04: Affected owners notified on schedule impact", async ({ page }) => {
-    // 1. Get Brian Nguyen's ID
-    const engEmail = "briannguyen@bminilik12gmail.onmicrosoft.com";
-    const engRes = await dbClient.query("SELECT id FROM users WHERE email = $1", [engEmail]);
+    const ENG = "briannguyen@bminilik12gmail.onmicrosoft.com";
+    // Navigate to notifications page FIRST so video shows meaningful UI (not blank)
+    await loginViaSessionInjection(page, ENG);
+    await page.goto("/en/dashboard/notifications");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000); // Let notifications load
+
+    // Get Brian Nguyen's DB ID
+    const engRes = await dbClient.query("SELECT id FROM users WHERE email = $1", [ENG]);
     const engId = engRes.rows[0].id;
 
-    // 2. Verify notification was created for Brian Nguyen with eventType 'DEPENDENCY_SCHEDULE_IMPACT'
+    // Poll DB to verify DEPENDENCY_SCHEDULE_IMPACT notification was created
     let notificationRes = null;
     for (let i = 0; i < 15; i++) {
       notificationRes = await dbClient.query(
@@ -322,47 +328,51 @@ test.describe("Dependencies", () => {
     }
     expect(notificationRes.rows.length).toBe(1);
     expect(notificationRes.rows[0].title).toBe("Task schedule updated");
+
+    // Reload notifications page to show the notification in the UI
+    await page.reload();
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(3000);
   });
 
   test("TC-M1.5-01: FS/SS/FF/SF dependency types supported", async ({ page }) => {
-    // 1. Visit Project workspace page as PM
+    // 1. Start on login page so video never begins blank
+    await page.goto("/en/login");
+    await page.waitForLoadState("load");
+
+    // 2. Visit Project workspace page as PM
     await loginViaSessionInjection(page, pmEmail);
     await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("networkidle", { timeout: 30000 });
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000);
 
-    // 2. Open task sheet for Task B via direct URL click approach
+    // 3. Open task sheet for Task B via direct URL click approach
     await page.locator('button:has-text("Risk Assessment")').first().click();
-    // Wait for the sheet to appear — be generous
+    // Wait for the sheet to appear
     await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
     await page.waitForTimeout(800);
 
-    // 3. Navigate to Dependencies tab
+    // 4. Navigate to Dependencies tab
     const depsTab = page.locator('[role="dialog"] button:has-text("Dependencies")').first();
     if (await depsTab.isVisible()) {
       await depsTab.click({ force: true });
       await page.waitForTimeout(500);
     }
 
-    // 4. Verify that the dependency type select options FS, SS, FF, SF exist
-    // Check via the DOM — look for any select element with those values
-    const selectContent = await page.evaluate(() => {
-      const selects = Array.from(document.querySelectorAll('select, [role="option"], [data-value]'));
-      return selects.map(el => el.textContent || '').join(' ');
-    });
-
-    // Also try clicking a select trigger if present
+    // 5. Verify that the dependency type select options FS, SS, FF, SF exist
     const selectTriggers = page.locator('[role="dialog"] [data-slot="select-trigger"], [role="dialog"] select');
     const count = await selectTriggers.count();
     if (count > 0) {
       await selectTriggers.first().click({ force: true, timeout: 5000 }).catch(() => {});
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(800); // Show the dropdown options in the video
     }
 
     // Check the page content for the dependency type options
-    const bodyText = await page.locator('[role="dialog"]').textContent({ timeout: 5000 }).catch(() => '');
-    // The dependency types should be visible somewhere in the dialog or select popup
     const pageBody = await page.content();
     expect(pageBody).toMatch(/FS|Finish.to.Start/i);
+
+    // Hold so video captures the dependency types dialog
+    await page.waitForTimeout(3000);
   });
 });
 

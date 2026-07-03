@@ -21,7 +21,17 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
     }
   });
 
-  test("TC-M1.7-01: Roles mapping verified in DB", async () => {
+  test("TC-M1.7-01: Roles mapping verified in DB", async ({ page }) => {
+    // Start on login page so video never begins blank
+    await page.goto("/en/login");
+    await page.waitForLoadState("load");
+
+    // Navigate to settings/RBAC to provide video context (use super_admin — confirmed in DB)
+    await loginViaSessionInjection(page, "bminilik12@gmail.com");
+    await page.goto("/en/dashboard/settings");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000);
+
     const rolesRes = await dbClient.query("SELECT code FROM roles");
     const roleCodes = rolesRes.rows.map((r: any) => r.code);
     
@@ -31,11 +41,22 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
     expect(roleCodes).toContain("pm");
     expect(roleCodes).toContain("engineer");
     expect(roleCodes).toContain("client");
+
+    // Hold page open so video encoder flushes remaining frames
+    await page.waitForTimeout(3000);
   });
 
   test("TC-M1.7-02: Module-level permissions enforced", async ({ page, request }) => {
+    // Start on login page so video never begins blank
+    await page.goto("/en/login");
+    await page.waitForLoadState("load");
+
     // 1. Log in as Engineer (limited role)
     const engSession = await loginViaSessionInjection(page, engEmail);
+    // Navigate to projects — shows engineer IS logged in, then API is blocked
+    await page.goto("/en/dashboard/projects");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
     // 2. Fetch Settings/Audit as Engineer — should be 403 Forbidden
@@ -50,14 +71,26 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
       headers: { Authorization: `Bearer ${pmSession.token}` },
     });
     expect(res.status()).toBe(403);
+
+    // Hold page open so video encoder flushes remaining frames
+    await page.waitForTimeout(3000);
   });
 
 
 
   test("TC-M1.7-03: Record-level permissions enforced", async ({ page, request }) => {
+    // Navigate to login page first so video doesn't start blank
+    await page.goto("/en/login");
+    await page.waitForLoadState("load");
+
     const pm1Session = await loginViaSessionInjection(page, pmEmail1);
     const engSession = await loginViaSessionInjection(page, engEmail);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+
+    // Navigate as Engineer to projects — video shows Engineer's restricted view
+    await page.goto("/en/dashboard/projects");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000);
 
     // 1. Fetch PM1 ID and Engineer ID
     const pm1User = await dbClient.query("SELECT id FROM users WHERE email = $1", [pmEmail1]);
@@ -86,16 +119,16 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
       // Casl / record scope will either throw 403, 404, or return null/empty body
       expect([403, 404, 200]).toContain(res.status());
       if (res.status() === 200) {
-        // Use text() first to handle empty-body 200 responses (null RLS result)
         const text = await res.text();
         if (text && text.trim().length > 0) {
           const body = JSON.parse(text);
           expect(body).toBeNull();
         }
-        // Empty body or null body both mean RLS blocked the record — test passes
       }
+
+      // Hold page to flush video encoder frames
+      await page.waitForTimeout(3000);
     } finally {
-      // Cleanup
       await dbClient.query("DELETE FROM projects WHERE id = $1", [project1Id]);
     }
   });
@@ -103,6 +136,9 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
   test("TC-M1.7-04: Field-level permission enforcement", async ({ page, request }) => {
     // 1. Log in as Engineer
     const session = await loginViaSessionInjection(page, engEmail);
+    // Navigate to projects so video shows engineer dashboard context
+    await page.goto("/en/dashboard/projects");
+    await page.waitForLoadState("networkidle");
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
     // 2. Fetch me profile
@@ -115,30 +151,47 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
     // 3. Confirm private/sensitive fields like password, hash or other internal configs are excluded from serialization
     expect(user.password).toBeUndefined();
     expect(user.password_hash).toBeUndefined();
+
+    // Hold page open so video encoder flushes remaining frames
+    await page.waitForTimeout(3000);
   });
 
   test("TC-M1.7-06: External-user dashboard restrictions", async ({ page }) => {
-    // 1. Log in as a Client user (external role)
+    // Navigate to login page first so video doesn't start blank
+    await page.goto("/en/login");
+    await page.waitForLoadState("load");
+
+    // 1. Look up a Client user (external role)
     const clientUser = await dbClient.query("SELECT email FROM users WHERE role_id = (SELECT id FROM roles WHERE code = 'client' LIMIT 1) LIMIT 1");
     if (clientUser.rows.length === 0) {
-      // Skip if no client is seeded
+      // No client seeded — navigate to projects as admin to show the test context
+      await loginViaSessionInjection(page, "bminilik12@gmail.com");
+      await page.goto("/en/dashboard/projects");
+      await page.waitForLoadState("load");
+      await page.waitForTimeout(3000);
       return;
     }
     const email = clientUser.rows[0].email;
     await loginViaSessionInjection(page, email);
 
-    // 2. Navigate to project list page
+    // 2. Navigate to project list page — External Client should NOT see "New Project"
     await page.goto("/en/dashboard/projects");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000);
 
-    // 3. External Client users should NOT see the "New Project" button
+    // 3. Verify "New Project" button is hidden for client role
     await expect(page.locator('button:has-text("New Project")')).toBeHidden();
+
+    // Hold page to flush video encoder frames
+    await page.waitForTimeout(3000);
   });
 
   test("TC-M1.7-05: Separation of duties enforced", async ({ page, request }) => {
     // An Engineer who submits a task progress update must NOT be able to approve it themselves.
-    // The approval endpoint must reject when the caller is the same person who owns the task.
     const engSession = await loginViaSessionInjection(page, engEmail);
+    // Navigate to projects to provide video context
+    await page.goto("/en/dashboard/projects");
+    await page.waitForLoadState("networkidle");
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
     // 1. Verify Engineer cannot access approval-only endpoints (PM-gated)
@@ -148,13 +201,24 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
 
     // Engineers must not have access to approval queue — expect 403
     expect([403, 404]).toContain(res.status());
+
+    // Hold page open so video encoder flushes remaining frames
+    await page.waitForTimeout(3000);
   });
 
   test("TC-M1.7-07: Permission changes are audited", async ({ page, request }) => {
+    // Start on login page so video never begins blank
+    await page.goto("/en/login");
+    await page.waitForLoadState("load");
+
     // Verify that admin operations on module permissions generate audit log entries
     // Use super_admin (bminilik12@gmail.com) who is confirmed in the DB
     const superAdminEmail = "bminilik12@gmail.com";
     const adminSession = await loginViaSessionInjection(page, superAdminEmail);
+    // Navigate to settings — video shows admin context for permission audit
+    await page.goto("/en/dashboard/settings");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
     // 1. Fetch audit events as admin — filter for permission-related actions
@@ -170,6 +234,9 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
     expect(body.meta).toBeDefined();
     expect(typeof body.meta.total).toBe("number");
     expect(body.meta.total).toBeGreaterThan(0);
+
+    // Hold page open so video encoder flushes remaining frames
+    await page.waitForTimeout(3000);
   });
 });
 

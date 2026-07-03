@@ -414,11 +414,46 @@ test.describe("Project Management (Foundation Phase)", () => {
   });
 
   test("TC-M1.1-06: Exception Handling", async ({ page }) => {
+    // Navigate to login first so video starts with visible UI (not blank)
+    await page.goto("/en/login");
+    await page.waitForLoadState("load");
+
     // 1. Log in as PM
     const session = await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+
+    // Navigate to projects page
+    await page.goto("/en/dashboard/projects");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(2000);
+
+    // 2. Open the New Project dialog — show it in the video
+    const newProjectBtn = page.locator('button:has-text("New Project")').first();
+    await newProjectBtn.waitFor({ state: "visible", timeout: 10000 });
+    await newProjectBtn.click();
+    await page.waitForTimeout(1500); // Dialog opens
+
+    // 3. Fill in name field with the invalid project name so it's visible in the video
+    const nameInput = page.locator('input[placeholder*="name"], input[placeholder*="Name"], input[name="name"]').first();
+    if (await nameInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await nameInput.fill("Exception Bypass Project");
+      await page.waitForTimeout(800);
+    }
+
+    // 4. Scroll down inside the dialog to show more fields (Status is locked to Draft)
+    const dialog = page.locator('[role="dialog"]').first();
+    if (await dialog.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await dialog.evaluate((el) => { el.scrollTop += 250; });
+      await page.waitForTimeout(1500); // Show Status = Draft locked field
+    }
+
+    // 5. Close the dialog without submitting
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1000);
+
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
-    // 2. Direct API call bypassing frontend to create project with invalid status "Active"
+    // 6. Attempt to bypass via direct API call with invalid status "Active"
+    //    The UI locks status to Draft on creation — this proves backend enforces it too
     const res = await page.request.post(`${apiUrl}/projects`, {
       headers: {
         Authorization: `Bearer ${session.token}`,
@@ -427,25 +462,28 @@ test.describe("Project Management (Foundation Phase)", () => {
       data: {
         name: "Exception Bypass Project",
         objective: "Objective",
-        status: "Active", // Invalid status on creation (only Draft allowed)
+        status: "Active", // Invalid — only Draft is allowed on creation
         value: 120000,
         engagementType: "FixedPrice",
         billingModel: "FixedPrice",
       },
     });
 
-    // Expect NestJS to reject with 422 Unprocessable Entity
+    // API must reject with 422 Unprocessable Entity
     expect(res.status()).toBe(422);
 
-    // 3. Verify no DB writes occurred
+    // 7. Verify no DB write occurred
     const dbRes = await dbClient.query("SELECT * FROM projects WHERE name = 'Exception Bypass Project'");
     expect(dbRes.rows.length).toBe(0);
 
-    // 4. Verify no audit trail logs exist
+    // 8. Verify no audit trail log for the rejected attempt
     const auditRes = await dbClient.query(
       "SELECT * FROM audit_logs WHERE action = 'CREATE_PROJECT' AND new_value->>'name' = 'Exception Bypass Project'"
     );
     expect(auditRes.rows.length).toBe(0);
+
+    // Hold on projects list — shows no rogue project was created
+    await page.waitForTimeout(3000);
   });
 
   test("TC-M1.2-01: Supported States", async ({ page }) => {
