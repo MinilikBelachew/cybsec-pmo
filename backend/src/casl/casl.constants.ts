@@ -40,6 +40,7 @@ export const PERMISSION_ACTION_TO_CASL: Record<string, CaslAction> = {
   session: 'read',
   mfa: 'read',
   export: 'read',
+  view_project: 'read',
   create: 'create',
   import: 'create',
   instantiate: 'create',
@@ -69,4 +70,13 @@ export function toCaslSubject(module: string): string {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join('');
+}
+
+/** CASL subject for a catalog permission — splits project audit from system-wide audit. */
+export function resolveCaslSubject(module: string, action: string): string {
+  if (module === 'audit' && action === 'view_project') {
+    return 'ProjectAuditLog';
+  }
+
+  return toCaslSubject(module);
 }

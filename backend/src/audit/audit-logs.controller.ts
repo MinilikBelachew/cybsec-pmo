@@ -15,8 +15,9 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
-import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
 import { CaslGuard } from '../casl/casl.guard';
+import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { AuditLogsService } from './audit-logs.service';
 import { AuditExportService } from './audit-export.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
@@ -42,7 +43,7 @@ type AuditLogWithUser = Prisma.AuditLogGetPayload<{
 }>;
 
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
 @UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('AuditLogs')
 @Controller({
@@ -56,7 +57,7 @@ export class AuditLogsController {
     private readonly appSettingsService: AppSettingsService,
   ) {}
 
-  @CheckAbility('read', 'AuditLog')
+  @CheckModulePermission('audit', 'view')
   @Get('events')
   @HttpCode(HttpStatus.OK)
   async findAll(@Query() query: QueryAuditDto) {
@@ -90,7 +91,7 @@ export class AuditLogsController {
     };
   }
 
-  @CheckAbility('read', 'AuditLog')
+  @CheckModulePermission('audit', 'export')
   @Get('events/:id/export')
   async exportOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -101,7 +102,7 @@ export class AuditLogsController {
     await this.sendExportResponse(res, [row], format, `audit-event-${id}`);
   }
 
-  @CheckAbility('read', 'AuditLog')
+  @CheckModulePermission('audit', 'export')
   @Get('export')
   async export(
     @Query() query: QueryAuditDto,

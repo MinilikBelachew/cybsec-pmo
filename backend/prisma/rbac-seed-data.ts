@@ -153,6 +153,7 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'documents', action: 'upload_shared', recordScope: 'all' },
     { module: 'portal_client', action: 'view', recordScope: 'all' },
     { module: 'portal_vendor', action: 'view', recordScope: 'all' },
+    { module: 'audit', action: 'view_project', recordScope: 'all' },
   ],
   pm: [
     { module: 'notifications', action: 'view', recordScope: 'own_projects' },
@@ -197,6 +198,7 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'documents', action: 'upload_shared', recordScope: 'own_projects' },
     { module: 'portal_client', action: 'view', recordScope: 'own_projects' },
     { module: 'portal_vendor', action: 'view', recordScope: 'own_projects' },
+    { module: 'audit', action: 'view_project', recordScope: 'own_projects' },
   ],
   team_lead: [
     { module: 'notifications', action: 'view', recordScope: 'team' },
@@ -225,6 +227,7 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'issues', action: 'edit', recordScope: 'team' },
     { module: 'documents', action: 'view_internal', recordScope: 'team' },
     { module: 'documents', action: 'upload_shared', recordScope: 'team' },
+    { module: 'audit', action: 'view_project', recordScope: 'team' },
   ],
   engineer: [
     { module: 'notifications', action: 'view', recordScope: 'assigned' },

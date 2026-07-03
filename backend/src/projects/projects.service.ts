@@ -35,6 +35,7 @@ import {
   assertValidProjectStatusTransition,
 } from './project-status.transitions';
 import { RoleEnum } from '../roles/roles.enum';
+import { deleteProjectWithDependents } from './project-delete.cascade';
 
 const PROJECT_INCLUDE = {
   department: true,
@@ -596,7 +597,7 @@ export class ProjectsService {
       });
     }
 
-    await this.prisma.project.delete({ where: { id } });
+    await this.prisma.$transaction((tx) => deleteProjectWithDependents(tx, id));
   }
 
   async findDepartments() {

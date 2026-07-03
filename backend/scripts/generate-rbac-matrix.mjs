@@ -50,6 +50,10 @@ const MATRIX = {
     super_admin: 'View', it_admin: 'View', pmo_lead: 'None', pm: 'None', team_lead: 'None',
     engineer: 'None', finance: 'None', hr: 'None', sales: 'None', client: 'None', vendor: 'None',
   },
+  'Project audit — View (in project workspace)': {
+    super_admin: 'View', it_admin: 'View', pmo_lead: 'View', pm: 'View', team_lead: 'View',
+    engineer: 'None', finance: 'None', hr: 'None', sales: 'None', client: 'None', vendor: 'None',
+  },
   'Audit Trail — Export': {
     super_admin: 'Edit', it_admin: 'View', pmo_lead: 'None', pm: 'None', team_lead: 'None',
     engineer: 'None', finance: 'None', hr: 'None', sales: 'None', client: 'None', vendor: 'None',
@@ -328,6 +332,7 @@ function buildPermissionsSeedSheet() {
     'Roles & Permissions — View matrix': { module: 'rbac', action: 'view' },
     'Roles & Permissions — Edit grants': { module: 'rbac', action: 'manage' },
     'Audit Trail — View / search': { module: 'audit', action: 'view' },
+    'Project audit — View (in project workspace)': { module: 'audit', action: 'view_project' },
     'Audit Trail — Export': { module: 'audit', action: 'export' },
     'Settings — Security / break-glass': { module: 'settings', action: 'security' },
     'Integrations — View status': { module: 'integrations', action: 'view' },

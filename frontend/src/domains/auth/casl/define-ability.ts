@@ -1,5 +1,5 @@
 import { AbilityBuilder, createMongoAbility, type MongoAbility } from "@casl/ability";
-import { toCaslAction, toCaslSubject, type CaslAction } from "./casl.constants";
+import { toCaslAction, resolveCaslSubject, type CaslAction } from "./casl.constants";
 import type { PermissionRow } from "../types/permissions.types";
 
 export type AppAbility = MongoAbility<[CaslAction, string]>;
@@ -10,7 +10,7 @@ export function defineAbilityFor(permissions: PermissionRow[]): AppAbility {
 
   for (const permission of permissions) {
     const action = toCaslAction(permission.action);
-    const subject = toCaslSubject(permission.module);
+    const subject = resolveCaslSubject(permission.module, permission.action);
     const key = `${action}:${subject}`;
     if (applied.has(key)) {
       continue;

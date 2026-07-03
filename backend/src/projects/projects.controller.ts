@@ -25,6 +25,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
+import { CheckAnyModulePermission } from '../casl/decorators/check-any-module-permission.decorator';
 import { CaslGuard } from '../casl/casl.guard';
 import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { RequestWithAbility } from '../casl/casl.guard';
@@ -453,7 +454,10 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
-  @CheckModulePermission('audit', 'view')
+  @CheckAnyModulePermission(
+    { module: 'audit', action: 'view' },
+    { module: 'audit', action: 'view_project' },
+  )
   @Get(':id/audit-events')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })

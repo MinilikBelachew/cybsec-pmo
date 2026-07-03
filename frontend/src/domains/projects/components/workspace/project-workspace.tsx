@@ -235,7 +235,7 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases, canImportProjects, canViewAudit } = useModulePermissions();
+  const { canCreatePhases, canImportProjects, canViewProjectAudit } = useModulePermissions();
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
   const canManageTasks = ability?.can("create", "Task") ?? false;
   const canCreateTask = canManageTasks;
@@ -389,8 +389,8 @@ export function ProjectWorkspace() {
   const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
 
   const visibleViews = useMemo(
-    () => (canViewAudit ? VIEWS : VIEWS.filter((view) => view.id !== "audit")),
-    [canViewAudit],
+    () => (canViewProjectAudit ? VIEWS : VIEWS.filter((view) => view.id !== "audit")),
+    [canViewProjectAudit],
   );
 
   // States
@@ -408,10 +408,10 @@ export function ProjectWorkspace() {
   const [newTaskEndDate, setNewTaskEndDate] = useState<string | null>(null);
 
   useEffect(() => {
-    if (activeView === "audit" && !canViewAudit) {
+    if (activeView === "audit" && !canViewProjectAudit) {
       setActiveView("list");
     }
-  }, [activeView, canViewAudit]);
+  }, [activeView, canViewProjectAudit]);
 
   const openTaskDetail = (
     taskId: string,
@@ -1042,7 +1042,7 @@ export function ProjectWorkspace() {
           />
         )}
 
-        {activeView === "audit" && canViewAudit && (
+        {activeView === "audit" && canViewProjectAudit && (
           <ProjectAuditView projectId={id} />
         )}
       </div>

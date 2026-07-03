@@ -16,6 +16,9 @@ export function useModulePermissions() {
       canViewPhases: hasModulePermission(permissions, "phases", "view"),
       canViewTeam: hasModulePermission(permissions, "team", "view"),
       canViewAudit: hasModulePermission(permissions, "audit", "view"),
+      canViewProjectAudit:
+        hasModulePermission(permissions, "audit", "view") ||
+        hasModulePermission(permissions, "audit", "view_project"),
       canCreateProjects: hasModulePermission(permissions, "projects", "create"),
       canEditProjects: hasModulePermission(permissions, "projects", "edit"),
       canApproveProjects: hasModulePermission(permissions, "projects", "approve"),

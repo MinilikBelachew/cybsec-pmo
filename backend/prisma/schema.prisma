@@ -427,7 +427,7 @@ model ProjectDomain {
   projectId String @map("project_id") @db.Uuid
   domainId  String @map("domain_id") @db.Uuid
 
-  project Project        @relation(fields: [projectId], references: [id])
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   domain  SecurityDomain @relation(fields: [domainId], references: [id])
 
   @@unique([projectId, domainId], map: "uq_project_domain")
@@ -447,7 +447,7 @@ model ProjectPhase {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project    Project            @relation(fields: [projectId], references: [id])
+  project    Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   milestones ProjectMilestone[]
   tasks      Task[]
 
@@ -465,8 +465,8 @@ model ProjectMilestone {
   status     String        @default("Pending") @db.VarChar(30)
   createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz
 
-  project   Project       @relation(fields: [projectId], references: [id])
-  phase     ProjectPhase? @relation(fields: [phaseId], references: [id])
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
   invoices  Invoice[]
 
   @@index([projectId], map: "idx_milestones_project")
@@ -497,10 +497,10 @@ model Task {
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project     Project @relation(fields: [projectId], references: [id])
-  parentTask  Task?   @relation("SubTasks", fields: [parentTaskId], references: [id])
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentTask  Task?   @relation("SubTasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
   subTasks    Task[]  @relation("SubTasks")
-  phase       ProjectPhase? @relation(fields: [phaseId], references: [id])
+  phase       ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
   owner       User?   @relation("TaskOwner", fields: [ownerId], references: [id])
 
   comments          TaskComment[]
@@ -526,7 +526,7 @@ model TaskComment {
   isInternal Boolean  @default(true) @map("is_internal")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  task   Task @relation(fields: [taskId], references: [id])
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   author User @relation(fields: [authorId], references: [id])
 
   @@index([taskId], map: "idx_task_comments_task")
@@ -543,7 +543,7 @@ model TaskAttachment {
   sizeBytes  BigInt?  @map("size_bytes")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  task     Task @relation(fields: [taskId], references: [id])
+  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   uploader User @relation(fields: [uploadedBy], references: [id])
 
   @@index([taskId], map: "idx_task_attachments_task")
@@ -558,8 +558,8 @@ model TaskDependency {
   lagDays       Int      @default(0) @map("lag_days")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  predecessor Task @relation("DependencyPredecessor", fields: [predecessorId], references: [id])
-  successor   Task @relation("DependencySuccessor", fields: [successorId], references: [id])
+  predecessor Task @relation("DependencyPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successor   Task @relation("DependencySuccessor", fields: [successorId], references: [id], onDelete: Cascade)
 
   @@unique([predecessorId, successorId], map: "uq_task_dependency")
   @@index([predecessorId], map: "idx_deps_predecessor")
@@ -582,7 +582,7 @@ model TaskProgressUpdate {
   reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  task     Task  @relation(fields: [taskId], references: [id])
+  task     Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   engineer User  @relation("ProgressEngineer", fields: [engineerId], references: [id])
   reviewer User? @relation("ProgressReviewer", fields: [reviewedBy], references: [id])
 
@@ -641,7 +641,7 @@ model Allocation {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
-  project  Project  @relation(fields: [projectId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   approver User?    @relation(fields: [approvedBy], references: [id])
 
   @@index([employeeId], map: "idx_allocations_employee")
@@ -682,8 +682,8 @@ model Timesheet {
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
-  project  Project  @relation(fields: [projectId], references: [id])
-  task     Task     @relation(fields: [taskId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   approvals TimesheetApproval[]
 
@@ -744,7 +744,7 @@ model ProjectBudget {
   approvedAt     DateTime     @map("approved_at") @db.Timestamptz
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project @relation(fields: [projectId], references: [id])
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   approver User    @relation(fields: [approvedBy], references: [id])
 
   revisions BudgetRevision[]
@@ -798,7 +798,7 @@ model EmployeeCost {
   computedAt    DateTime @map("computed_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
-  project  Project  @relation(fields: [projectId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([employeeId, projectId, periodYear, periodMonth], map: "uq_emp_cost_period")
   @@index([employeeId], map: "idx_emp_costs_employee")
@@ -821,8 +821,8 @@ model Invoice {
   syncedAt           DateTime     @map("synced_at") @db.Timestamptz
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
-  project   Project           @relation(fields: [projectId], references: [id])
-  milestone ProjectMilestone? @relation(fields: [matchedMilestoneId], references: [id])
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone ProjectMilestone? @relation(fields: [matchedMilestoneId], references: [id], onDelete: SetNull)
 
   @@index([projectId], map: "idx_invoices_project")
   @@index([zohoInvoiceId], map: "idx_invoices_zoho")
@@ -891,7 +891,7 @@ model Risk {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   owner   User    @relation(fields: [ownerId], references: [id])
 
   @@index([projectId], map: "idx_risks_project")
@@ -915,7 +915,7 @@ model Issue {
   createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   owner   User    @relation(fields: [ownerId], references: [id])
   raiser  User    @relation("IssueRaiser", fields: [raisedBy], references: [id])
 
@@ -991,7 +991,7 @@ model CustomerEscalation {
   closedAt          DateTime? @map("closed_at") @db.Timestamptz
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project  @relation(fields: [projectId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id])
   owner    User     @relation(fields: [ownerId], references: [id])
 
@@ -1032,7 +1032,7 @@ model ActionPoint {
   closedAt    DateTime?     @map("closed_at") @db.Timestamptz
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
 
-  project Project? @relation(fields: [projectId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   owner   User     @relation(fields: [ownerId], references: [id])
 
   @@index([ownerId], map: "idx_actions_owner")
@@ -1053,7 +1053,7 @@ model LessonsLearned {
   authorId       String   @map("author_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project Project? @relation(fields: [projectId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   author  User     @relation(fields: [authorId], references: [id])
 
   @@index([category], map: "idx_lessons_category")
@@ -1091,7 +1091,7 @@ model KpiSnapshot {
   ruleVersion String   @map("rule_version") @db.VarChar(20)
   capturedAt  DateTime @default(now()) @map("captured_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId], map: "idx_kpi_project")
   @@index([kpiFamily], map: "idx_kpi_family")
@@ -1114,7 +1114,7 @@ model GeneratedReport {
   approvedAt    DateTime? @map("approved_at") @db.Timestamptz
   distributedAt DateTime? @map("distributed_at") @db.Timestamptz
 
-  project   Project? @relation(fields: [projectId], references: [id])
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   generator User?    @relation("ReportGenerator", fields: [generatedBy], references: [id])
   approver  User?    @relation("ReportApprover", fields: [approvedBy], references: [id])
 
@@ -1135,7 +1135,7 @@ model ReportSchedule {
   createdBy      String    @map("created_by") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  project Project? @relation(fields: [projectId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   creator User     @relation(fields: [createdBy], references: [id])
 
   recipients ReportScheduleRecipient[]
@@ -1186,7 +1186,7 @@ model Meeting {
   status         String   @default("Scheduled") @db.VarChar(20)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project   Project @relation(fields: [projectId], references: [id])
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   organiser User    @relation(fields: [organiserId], references: [id])
 
   attendees MeetingAttendee[]
@@ -1276,7 +1276,7 @@ model ExternalAccessGrant {
   grantedBy   String   @map("granted_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation("AccessUser", fields: [userId], references: [id])
   grantor User    @relation("AccessGrantor", fields: [grantedBy], references: [id])
 
@@ -1294,7 +1294,7 @@ model WorkspaceThread {
   isInternal Boolean  @default(true) @map("is_internal")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   author  User    @relation(fields: [authorId], references: [id])
 
   posts WorkspaceThreadPost[]
@@ -1333,7 +1333,7 @@ model WorkspaceDocument {
   uploadedBy   String   @map("uploaded_by") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project @relation(fields: [projectId], references: [id])
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   uploader User    @relation(fields: [uploadedBy], references: [id])
 
   @@unique([logicalDocId, version], map: "uq_doc_version")
@@ -1399,7 +1399,7 @@ model ProjectCharter {
   s3PdfKey         String?   @map("s3_pdf_key") @db.VarChar(512)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project   @relation(fields: [projectId], references: [id])
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   customer Customer? @relation(fields: [customerId], references: [id])
   approver User?     @relation(fields: [approvedBy], references: [id])
 
@@ -1426,7 +1426,7 @@ model SowDocument {
   crmWrittenBackAt   DateTime? @map("crm_written_back_at") @db.Timestamptz
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  project     Project         @relation(fields: [projectId], references: [id])
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   opportunity CrmOpportunity? @relation(fields: [opportunityId], references: [id])
   approver    User?           @relation(fields: [approvedBy], references: [id])
 
@@ -1486,7 +1486,7 @@ model ClosureChecklist {
   status     String   @default("In Progress") @db.VarChar(20)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project          @relation(fields: [projectId], references: [id])
+  project  Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   template ProjectTemplate? @relation(fields: [templateId], references: [id])
 
   items ChecklistItem[]
@@ -1557,7 +1557,7 @@ model SlaTicket {
   updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   contract SlaContract @relation(fields: [contractId], references: [id])
-  project  Project?    @relation(fields: [projectId], references: [id])
+  project  Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   owner    User?       @relation(fields: [ownerId], references: [id])
 
   timerEvents     TicketTimerEvent[]
@@ -1753,7 +1753,7 @@ model ProjectVendor {
   status            String       @default("Active") @db.VarChar(20)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
-  project         Project @relation(fields: [projectId], references: [id])
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   vendor          Vendor  @relation(fields: [vendorId], references: [id])
   internalContact User?   @relation(fields: [internalContactId], references: [id])
 

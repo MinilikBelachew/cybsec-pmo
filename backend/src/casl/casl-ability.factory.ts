@@ -1,6 +1,6 @@
 import { AbilityBuilder, createMongoAbility } from '@casl/ability';
 import { Injectable } from '@nestjs/common';
-import { toCaslAction, toCaslSubject } from './casl.constants';
+import { toCaslAction, resolveCaslSubject } from './casl.constants';
 import {
   AppAbility,
   CaslUserContext,
@@ -27,7 +27,7 @@ export class CaslAbilityFactory {
 
     for (const permission of permissions) {
       const action = toCaslAction(permission.action);
-      const subject = toCaslSubject(permission.module);
+      const subject = resolveCaslSubject(permission.module, permission.action);
 
       if (subject === 'all') {
         continue;
