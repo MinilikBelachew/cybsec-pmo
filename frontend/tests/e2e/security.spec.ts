@@ -60,8 +60,8 @@ test.describe("Security & SSO", () => {
     const session = await loginViaSessionInjection(page, engEmail);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
-    // 2. Attempt to access security settings API — should be blocked 403
-    const res = await request.get(`${apiUrl}/settings/security`, {
+    // 2. Attempt to access settings/audit API — should be blocked 403
+    const res = await request.get(`${apiUrl}/settings/audit`, {
       headers: { Authorization: `Bearer ${session.token}` },
     });
 

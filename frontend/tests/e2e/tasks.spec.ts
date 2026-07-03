@@ -20,7 +20,7 @@ async function selectDropdown(page: any, label: string, optionText: string) {
   // Close any open Select dropdowns first
   await dismissDropdowns(page);
 
-  let scope = page.locator('[role="dialog"]');
+  let scope = page.locator('[role="dialog"]:visible');
   if (await scope.count() === 0) {
     scope = page.locator('body');
   }
@@ -49,7 +49,7 @@ async function pickDateInTaskSheet(page: any, label: string, day: string, goNext
   await dismissDropdowns(page);
   await page.waitForTimeout(200);
 
-  let scope = page.locator('[role="dialog"]');
+  let scope = page.locator('[role="dialog"]:visible');
   if (await scope.count() === 0) {
     scope = page.locator('body');
   }
@@ -61,9 +61,9 @@ async function pickDateInTaskSheet(page: any, label: string, day: string, goNext
     container = container.locator('xpath=..');
   }
 
-  const trigger = container.locator('button').first();
-  await trigger.scrollIntoViewIfNeeded();
-  await trigger.click();
+  // Re-locate fresh to avoid stale context after DOM modifications
+  await container.locator('button').first().scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+  await container.locator('button').first().click();
 
   const calendar = page.locator('[data-slot="calendar"]');
   await expect(calendar).toBeVisible({ timeout: 8000 });
