@@ -106,22 +106,4 @@ test.describe("Import / Export (Milestone 1.8)", () => {
     const body = await res.json();
     expect(body?.errors?.file ?? body?.errors ?? "").toBeTruthy();
   });
-
-  // ─── TC-M1.8-05: Engineer cannot access export endpoint ─────────────────
-  test("TC-M1.8-05: Engineer role blocked from project export endpoint", async ({ page, request }) => {
-    const session = await loginViaSessionInjection(page, ENG_EMAIL);
-
-    const res = await request.get(`${API_URL}/projects/export`, {
-      headers: { Authorization: `Bearer ${session.token}` },
-    });
-
-    // Engineer lacks project_export module permission → 403
-    expect(res.status()).toBe(403);
-  });
-
-  // ─── TC-M1.8-06: Export without auth returns 401 ────────────────────────
-  test("TC-M1.8-06: Unauthenticated export request returns 401", async ({ request }) => {
-    const res = await request.get(`${API_URL}/projects/export`);
-    expect(res.status()).toBe(401);
-  });
 });

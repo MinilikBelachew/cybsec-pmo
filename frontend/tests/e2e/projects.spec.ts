@@ -270,7 +270,8 @@ test.describe("Project Management (Foundation Phase)", () => {
     expect(dbRes.rows[0].primary_pm_id).toBe(pmId);
     expect(dbRes.rows[0].secondary_pm_id).toBe(bobPmId);
 
-    // 7. Verify Audit Logs
+    // 7. Verify Audit Logs — wait briefly for async write
+    await new Promise((r) => setTimeout(r, 2000));
     const auditRes = await dbClient.query(
       "SELECT * FROM audit_logs WHERE object_type = 'Project' AND object_id = $1 AND action = 'CREATE_PROJECT' LIMIT 1",
       [dbRes.rows[0].id]

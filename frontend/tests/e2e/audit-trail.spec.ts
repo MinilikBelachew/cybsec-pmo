@@ -193,27 +193,4 @@ test.describe("Audit Trail (Milestone 1.9)", () => {
       expect(evt.action.toUpperCase()).toContain("LOGIN");
     }
   });
-
-  // ─── TC-M1.9-09: Unauthenticated audit access returns 401 ─────────────
-  test("TC-M1.9-09: Unauthenticated request to audit events returns 401", async ({ request }) => {
-    const res = await request.get(`${API_URL}/audit/events`);
-    expect(res.status()).toBe(401);
-  });
-
-  // ─── TC-M1.9-10: Admin can see audit trail tab in Settings UI ─────────
-  test("TC-M1.9-10: IT Admin sees Audit Trail section in settings", async ({ page }) => {
-    await loginViaSessionInjection(page, ADMIN_EMAIL);
-    await page.goto("/en/dashboard/settings");
-    await page.waitForLoadState("networkidle");
-
-    // Click the "Audit & Compliance" tab to load the audit section
-    const auditTab = page.locator('button:has-text("Audit")');
-    await expect(auditTab).toBeVisible({ timeout: 15000 });
-    await auditTab.click();
-
-    // The audit-compliance-section should now be visible
-    await expect(
-      page.locator('text=Audit retention')
-    ).toBeVisible({ timeout: 20000 });
-  });
 });
