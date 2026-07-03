@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "react-hot-toast";
 import { Copy, ChevronDown } from "lucide-react";
 import {
   Sheet,
@@ -50,11 +51,13 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
 
     if (format === "json") {
       downloadAuditJson(`${base}.json`, entry);
+      toast.success("Event exported as JSON");
       return;
     }
 
     if (format === "csv") {
       downloadAuditCsv(`${base}.csv`, [entry]);
+      toast.success("Event exported as CSV");
       return;
     }
 
@@ -64,8 +67,9 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
         format,
       }).unwrap();
       downloadAuditBlob(`${base}.${format}`, blob);
+      toast.success(`Event exported as ${format.toUpperCase()}`);
     } catch {
-      // RTK surfaces errors via hook state
+      toast.error("Event export failed. Please try again.");
     }
   };
 

@@ -114,17 +114,20 @@ export function PermissionsMatrix() {
     role: PermissionMatrixRole,
     permissionId: string,
     cell: PermissionMatrixCell | undefined,
+    permissionLabel: string,
   ) => {
     if (!canManage) return;
 
     const cellKey = `${role.id}:${permissionId}`;
     if (togglingCell === cellKey) return;
 
+    const wasGranted = Boolean(cell?.granted && cell.grantId);
     setTogglingCell(cellKey);
 
     try {
-      if (cell?.granted && cell.grantId) {
+      if (wasGranted && cell?.grantId) {
         await revokePermission({ roleId: role.id, grantId: cell.grantId }).unwrap();
+        toast.success(`Removed ${permissionLabel} from ${role.label}`);
       } else {
         await grantPermission({
           roleId: role.id,
@@ -133,10 +136,11 @@ export function PermissionsMatrix() {
             recordScope: defaultRecordScopeForRole(role.code),
           },
         }).unwrap();
+        toast.success(`Granted ${permissionLabel} to ${role.label}`);
       }
     } catch {
       toast.error(
-        cell?.granted
+        wasGranted
           ? "Could not revoke permission."
           : "Could not grant permission. It may already exist.",
       );
@@ -348,7 +352,7 @@ export function PermissionsMatrix() {
                             canManage={canManage}
                             isPending={togglingCell === cellKey}
                             onToggle={() =>
-                              handleToggleCell(role, row.permissionId, cell)
+                              handleToggleCell(role, row.permissionId, cell, permissionLabel)
                             }
                           />
                         );

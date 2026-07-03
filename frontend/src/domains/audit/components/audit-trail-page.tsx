@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import { type ColumnDef, type SortingState } from "@tanstack/react-table";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
@@ -23,6 +24,7 @@ import { AuditDetailSheet } from "./audit-detail-sheet";
 import { AuditFilters } from "./audit-filters";
 import { AuditRowActions } from "./audit-row-actions";
 import { AUDIT_POLLING_INTERVAL_MS } from "../constants/audit-polling";
+import { useAuditPollToasts } from "../hooks/use-audit-poll-toasts";
 
 const SORTABLE_COLUMNS = new Set(["createdAt", "action", "objectType"]);
 
@@ -120,6 +122,40 @@ export function AuditTrailPage() {
   const tableData = useMemo(() => data?.data ?? [], [data?.data]);
   const hasSelection = selectedRows.length > 0;
 
+  const pollResetKey = useMemo(
+    () =>
+      JSON.stringify({
+        breakGlassOnly,
+        externalOnly,
+        actionFilter,
+        objectTypeFilter,
+        actorFilter,
+        dateFromFilter,
+        dateToFilter,
+        debouncedSearch,
+        sorting,
+      }),
+    [
+      breakGlassOnly,
+      externalOnly,
+      actionFilter,
+      objectTypeFilter,
+      actorFilter,
+      dateFromFilter,
+      dateToFilter,
+      debouncedSearch,
+      sorting,
+    ],
+  );
+
+  useAuditPollToasts({
+    entries: tableData,
+    isLoading,
+    isFetching,
+    enabled: pageIndex === 0,
+    resetKey: pollResetKey,
+  });
+
   const handleView = useCallback((entry: AuditLogEntry) => {
     setDetailEntry(entry);
     setDetailOpen(true);
@@ -150,6 +186,7 @@ export function AuditTrailPage() {
     async (format: AuditExportFormat) => {
       const prefix = hasSelection ? "audit-export-selected" : "audit-export";
       const timestamp = Date.now();
+      const formatLabel = format.toUpperCase();
 
       try {
         if (hasSelection) {
@@ -157,11 +194,13 @@ export function AuditTrailPage() {
 
           if (format === "json") {
             downloadAuditJson(`${prefix}-${timestamp}.json`, rows);
+            toast.success(`Exported ${rows.length} event(s) as ${formatLabel}`);
             return;
           }
 
           if (format === "csv") {
             downloadAuditCsv(`${prefix}-${timestamp}.csv`, rows);
+            toast.success(`Exported ${rows.length} event(s) as ${formatLabel}`);
             return;
           }
 
@@ -170,6 +209,7 @@ export function AuditTrailPage() {
             format,
           }).unwrap();
           downloadAuditBlob(`${prefix}-${timestamp}.${format}`, blob);
+          toast.success(`Exported ${rows.length} event(s) as ${formatLabel}`);
           return;
         }
 
@@ -178,15 +218,18 @@ export function AuditTrailPage() {
           const text = await blob.text();
           const entries: AuditLogEntry[] = JSON.parse(text);
           downloadAuditCsv(`${prefix}-${timestamp}.csv`, entries);
+          toast.success(`Exported ${entries.length} event(s) as CSV`);
         } else if (format === "json") {
           const blob = await exportAuditFile({ params: queryParams, format: "json" }).unwrap();
           await downloadAuditBlobAsJson(`${prefix}-${timestamp}.json`, blob);
+          toast.success(`Exported filtered audit log as ${formatLabel}`);
         } else {
           const blob = await exportAuditFile({ params: queryParams, format }).unwrap();
           downloadAuditBlob(`${prefix}-${timestamp}.${format}`, blob);
+          toast.success(`Exported filtered audit log as ${formatLabel}`);
         }
       } catch {
-        // RTK surfaces errors via hook state
+        toast.error("Audit export failed. Please try again.");
       }
     },
     [exportAuditFile, hasSelection, queryParams, selectedRows],

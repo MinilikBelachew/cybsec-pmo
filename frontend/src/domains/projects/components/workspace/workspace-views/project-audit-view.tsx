@@ -9,6 +9,7 @@ import { auditDataColumns } from "@/domains/audit/components/audit-columns";
 import { AuditDetailSheet } from "@/domains/audit/components/audit-detail-sheet";
 import { AuditRowActions } from "@/domains/audit/components/audit-row-actions";
 import { AUDIT_POLLING_INTERVAL_MS } from "@/domains/audit/constants/audit-polling";
+import { useAuditPollToasts } from "@/domains/audit/hooks/use-audit-poll-toasts";
 import type { AuditLogEntry, AuditLogsQuery } from "@/domains/audit/api/audit.api";
 
 const SORTABLE_COLUMNS = new Set(["createdAt", "action", "objectType"]);
@@ -58,6 +59,19 @@ export function ProjectAuditView({ projectId }: ProjectAuditViewProps) {
   );
 
   const tableData = useMemo(() => data?.data ?? [], [data?.data]);
+
+  const pollResetKey = useMemo(
+    () => JSON.stringify({ projectId, debouncedSearch, sorting }),
+    [projectId, debouncedSearch, sorting],
+  );
+
+  useAuditPollToasts({
+    entries: tableData,
+    isLoading,
+    isFetching,
+    enabled: pageIndex === 0,
+    resetKey: pollResetKey,
+  });
 
   const handleView = useCallback((entry: AuditLogEntry) => {
     setDetailEntry(entry);
