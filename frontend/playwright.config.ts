@@ -8,8 +8,14 @@ export default defineConfig({
   workers: 1, // Single worker for sequential database verification
   timeout: 120000,
   reporter: "html",
+  globalTeardown: "./global-teardown.ts",
   use: {
     baseURL: "http://localhost:3000",
+
+    // Use domcontentloaded instead of load to avoid hanging on WebSocket/live connections
+    navigationTimeout: 30000,
+    actionTimeout: 15000,
+
     trace: "on-first-retry",
     video: "on",
     screenshot: "on",
@@ -21,3 +27,4 @@ export default defineConfig({
     },
   ],
 });
+
