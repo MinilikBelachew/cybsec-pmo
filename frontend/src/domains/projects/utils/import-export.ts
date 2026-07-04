@@ -257,10 +257,7 @@ export function exportProjectsToXLSX(
 
   return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // XLSX IMPORT UTILITIES
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Reads a named sheet from an XLSX ArrayBuffer and returns its contents as a
@@ -324,10 +321,7 @@ export function getProjectSheetsByType(
       sheetName: n,
     }));
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // PHASE PARSING
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface ParsedPhaseRow {
   name: string;
@@ -402,10 +396,7 @@ export function processRawPhaseRows(rows: string[][]): ParsedPhaseRow[] {
     return { name, description, orderIndex, status, startDate, endDate, errors, warnings };
   });
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // MILESTONE PARSING
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface ParsedMilestoneRow {
   title: string;
@@ -464,10 +455,7 @@ export function processRawMilestoneRows(rows: string[][]): ParsedMilestoneRow[] 
     return { title, targetDate, weight, status, phaseName, errors, warnings };
   });
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SAMPLE TEMPLATE GENERATORS
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Generates a 4-sheet sample XLSX workbook for the Import Projects dialog.
@@ -489,8 +477,6 @@ export function generateProjectsXLSXTemplate(
   const custName = customers[0]?.displayName        || "Acme Corp";
   const pm1Name  = managers[0]?.displayName         || "John Doe";
   const pm2Name  = managers[1]?.displayName         || "";
-
-  // ── Sheet 1: Projects ──────────────────────────────────────────────────────
   const projectHeaders = [
     "Name", "Objective", "Department", "Customer",
     "Engagement Type", "Billing Model", "Priority",
@@ -517,8 +503,6 @@ export function generateProjectsXLSXTemplate(
   ];
   const projectWS = XLSX.utils.aoa_to_sheet([projectHeaders, ...projectRows]);
   XLSX.utils.book_append_sheet(wb, projectWS, "Projects");
-
-  // ── Sheet 2: Phases ────────────────────────────────────────────────────────
   const phaseHeaders = [
     "Name", "Description", "Order", "Status", "Start Date", "End Date",
   ];
@@ -529,8 +513,6 @@ export function generateProjectsXLSXTemplate(
   ];
   const phaseWS = XLSX.utils.aoa_to_sheet([phaseHeaders, ...phaseRows]);
   XLSX.utils.book_append_sheet(wb, phaseWS, "Security Assessment Phases");
-
-  // ── Sheet 3: Tasks ─────────────────────────────────────────────────────────
   const taskHeaders = [
     "Title", "Description", "Priority", "Status",
     "Assignee", "Phase", "Start Date", "End Date", "Effort Hours",
@@ -554,8 +536,6 @@ export function generateProjectsXLSXTemplate(
   ];
   const taskWS = XLSX.utils.aoa_to_sheet([taskHeaders, ...taskRows]);
   XLSX.utils.book_append_sheet(wb, taskWS, "Security Assessment Tasks");
-
-  // ── Sheet 4: Milestones ────────────────────────────────────────────────────
   const milestoneHeaders = [
     "Title", "Target Date", "Weight (%)", "Status", "Phase",
   ];

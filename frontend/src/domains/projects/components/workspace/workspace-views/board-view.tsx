@@ -716,8 +716,6 @@ function ColumnInlineAddTask({
 const BoardAssigneePicker = TaskAssigneePicker;
 const BoardStatusPicker = TaskStatusPicker;
 const BoardCommentPicker = TaskCommentPicker;
-
-// ─── Board Card Component ────────────────────────────────────────────────────────
 interface BoardCardProps {
   task: Task;
   isDragging: boolean;

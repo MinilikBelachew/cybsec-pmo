@@ -55,8 +55,6 @@ import {
   Loader2,
   FileUp,
 } from "lucide-react";
-
-// ─── Status Config Mapping ────────────────────────────────────────────────────
 const STATUS_CONFIG = PROJECT_STATUS_CONFIG;
 
 const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: string; text: string }> = {
@@ -289,7 +287,7 @@ function FilterCardDropdown<T extends string>({
             variant="outline"
             size="sm"
             className={cn(
-              "h-9 gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none",
+              "h-9 w-full gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none sm:w-auto",
               value !== "all" && "border-primary/40 bg-primary/5",
             )}
           />
@@ -514,8 +512,6 @@ export function ProjectsList() {
 
   return (
     <div className="space-y-6 pb-10">
-      
-      {/* ── Page Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
@@ -529,8 +525,6 @@ export function ProjectsList() {
           </Button>
         )}
       </div>
-
-      {/* ── Summary Strip ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <PortfolioStatCard
           title={canViewFinancials ? "Total value" : "Total projects"}
@@ -586,11 +580,8 @@ export function ProjectsList() {
           theme={CARD_THEMES.completed}
         />
       </div>
-
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3">
-        {/* Search */}
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col gap-3">
+        <div className="relative w-full min-w-0 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
           <input
             type="search"
@@ -609,95 +600,92 @@ export function ProjectsList() {
           )}
         </div>
 
-        {/* Filters */}
-        <FilterCardDropdown
-          label="Status"
-          value={statusFilter}
-          options={STATUS_FILTER_OPTIONS}
-          onChange={setStatusFilter}
-        />
-        <FilterCardDropdown
-          label="Priority"
-          value={priorityFilter}
-          options={PRIORITY_FILTER_OPTIONS}
-          onChange={setPriorityFilter}
-        />
-
-        <div className="flex-1" />
-
-        {/* Count */}
-        <span className="text-xs text-muted-foreground">
-          {processedProjects.length} of {portfolioKpis.total}
-          {hasActiveFilters ? " matching" : ""}
-        </span>
-
-        {/* Grid/List View Toggles */}
-        <div className="flex items-center gap-0.5 p-1 rounded-xl bg-muted/50 border border-border/50">
-          <button
-            onClick={() => setView("grid")}
-            className={cn(
-              "p-1.5 rounded-lg transition-all",
-              view === "grid" ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <LayoutGrid className="size-4" />
-          </button>
-          <button
-            onClick={() => setView("list")}
-            className={cn(
-              "p-1.5 rounded-lg transition-all",
-              view === "list" ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <List className="size-4" />
-          </button>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+          <FilterCardDropdown
+            label="Status"
+            value={statusFilter}
+            options={STATUS_FILTER_OPTIONS}
+            onChange={setStatusFilter}
+          />
+          <FilterCardDropdown
+            label="Priority"
+            value={priorityFilter}
+            options={PRIORITY_FILTER_OPTIONS}
+            onChange={setPriorityFilter}
+          />
         </div>
 
-        {(canImportProjects || canExportProjects) && (
-        <div className="flex items-center gap-1.5">
-          {canImportProjects && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowImport(true)}
-            className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
-          >
-            <Upload className="size-3.5" />
-            Import
-          </Button>
-          )}
-          {canImportProjects && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowMppImport(true)}
-            className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
-          >
-            <FileUp className="size-3.5" />
-            Import MPP
-          </Button>
-          )}
-          {canExportProjects && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowExport(true)}
-            disabled={isExporting}
-            className="h-9 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-3 font-semibold shadow-none cursor-pointer"
-          >
-            {isExporting ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Download className="size-3.5" />
-            )}
-            Export
-          </Button>
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+          <span className="text-xs text-muted-foreground w-full sm:w-auto sm:mr-auto">
+            {processedProjects.length} of {portfolioKpis.total}
+            {hasActiveFilters ? " matching" : ""}
+          </span>
+
+          <div className="flex items-center gap-0.5 p-1 rounded-xl bg-muted/50 border border-border/50 shrink-0">
+            <button
+              onClick={() => setView("grid")}
+              className={cn(
+                "p-1.5 rounded-lg transition-all",
+                view === "grid" ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <LayoutGrid className="size-4" />
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className={cn(
+                "p-1.5 rounded-lg transition-all",
+                view === "list" ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <List className="size-4" />
+            </button>
+          </div>
+
+          {(canImportProjects || canExportProjects) && (
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto">
+              {canImportProjects && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowImport(true)}
+                  className="h-9 flex-1 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-2.5 text-xs font-semibold shadow-none cursor-pointer sm:flex-none sm:px-3"
+                >
+                  <Upload className="size-3.5 shrink-0" />
+                  Import
+                </Button>
+              )}
+              {canImportProjects && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowMppImport(true)}
+                  className="h-9 flex-1 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-2.5 text-xs font-semibold shadow-none cursor-pointer sm:flex-none sm:px-3"
+                >
+                  <FileUp className="size-3.5 shrink-0" />
+                  Import MPP
+                </Button>
+              )}
+              {canExportProjects && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowExport(true)}
+                  disabled={isExporting}
+                  className="h-9 flex-1 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-2.5 text-xs font-semibold shadow-none cursor-pointer sm:flex-none sm:px-3"
+                >
+                  {isExporting ? (
+                    <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <Download className="size-3.5 shrink-0" />
+                  )}
+                  Export
+                </Button>
+              )}
+            </div>
           )}
         </div>
-        )}
       </div>
-
-      {/* ── Content View ── */}
       {isLoading && view === "grid" && (
         <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
           <p className="text-sm font-semibold animate-pulse">Loading projects...</p>
@@ -763,8 +751,6 @@ export function ProjectsList() {
           showBudget={canViewFinancials}
         />
       )}
-
-      {/* ── New Project Side Sheet ── */}
       <CreateProjectSheet open={showNew} onClose={() => setShowNew(false)} refetch={refetch} />
       <CreateProjectSheet
         open={Boolean(editProject)}
@@ -804,8 +790,6 @@ export function ProjectsList() {
     </div>
   );
 }
-
-// ─── Subcomponents ───────────────────────────────────────────────────────────
 
 function ProjectGridCard({
   project: p,

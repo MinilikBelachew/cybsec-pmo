@@ -695,8 +695,6 @@ export function AddTaskSheet({
                 </div>
               </div>
             </div>
-
-            {/* ── Right: sub-tasks, comments & attachments ── */}
             <div className={cn(TASK_SHEET_COLUMN_CLASS, "bg-muted/20")}>
               <div className="flex shrink-0 border-b border-border">
                 {!parentTaskId && (
@@ -957,8 +955,6 @@ export function AddTaskSheet({
         </form>
       </SheetContent>
     </Sheet>
-
-    {/* ── Create Phase Modal ── */}
     <DialogPrimitive.Root open={showCreatePhase} onOpenChange={(open) => !open && setShowCreatePhase(false)}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />

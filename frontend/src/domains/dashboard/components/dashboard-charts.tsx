@@ -1,8 +1,6 @@
 "use client";
 
 import { cn } from "@/shared/utils/cn";
-
-// ─── Inline Sparkline ───
 export function Sparkline({ data, color }: { data: number[]; color: string }) {
   const max = Math.max(...data);
   const min = Math.min(...data);
@@ -27,8 +25,6 @@ export function Sparkline({ data, color }: { data: number[]; color: string }) {
     </svg>
   );
 }
-
-// ─── Mini Trend Chart (Project style KPI Sparkline) ───
 export function MiniTrendChart({ data, colorClass }: { data: number[]; colorClass: string }) {
   const max = Math.max(...data);
   const min = Math.min(...data);
@@ -56,8 +52,6 @@ export function MiniTrendChart({ data, colorClass }: { data: number[]; colorClas
     </svg>
   );
 }
-
-// ─── Card Themes ───
 export const CARD_THEMES = {
   slate: {
     border: "border-slate-200 dark:border-slate-800/60",

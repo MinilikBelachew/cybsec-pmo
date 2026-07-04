@@ -38,8 +38,6 @@ import { TASKS_POLLING_INTERVAL_MS } from "@/domains/projects/constants/tasks-po
 import type { Task, TaskPriority, TaskStatus } from "@/domains/projects";
 import { ProjectFilterSelect } from "./project-filter-select";
 
-// ─── Status & priority maps ───────────────────────────────────────────────────
-
 const PRIORITY_CONFIG: Record<
   TaskPriority,
   { label: string; text: string; bg: string; border: string }
@@ -165,8 +163,6 @@ const AVATAR_COLORS = [
   "bg-primary/70",
   "bg-primary/60",
 ];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function taskGroupKey(status: TaskStatus): TaskGroupKey {
   if (status === "In_Progress" || status === "Submitted_for_Review") return "in_progress";
@@ -296,8 +292,6 @@ function TaskStatCard({
     </div>
   );
 }
-
-// ─── Main page ────────────────────────────────────────────────────────────────
 
 export function ActiveTasksPage() {
   const router = useRouter();
@@ -671,8 +665,6 @@ export function ActiveTasksPage() {
     </div>
   );
 }
-
-// ─── Task row (PBO layout) ────────────────────────────────────────────────────
 
 function TaskRow({
   task,

@@ -154,7 +154,6 @@ export function SidebarNav() {
 
     return (
       <div className="flex h-full gap-2">
-        {/* ── 1. Left Icon Rail (Sleeker and smaller width: w-14) ──────────────── */}
         <div className="flex flex-col w-14 shrink-0 rounded-xl border border-sidebar-rail-to/50 bg-[linear-gradient(180deg,var(--sidebar-rail-from)_0%,color-mix(in_oklch,var(--sidebar-rail-from)_55%,var(--sidebar-rail-to))_38%,var(--sidebar-rail-to)_100%)] overflow-hidden text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.12)]">
           <div className="flex items-center justify-center h-14 border-b border-white/10 shrink-0">
             <div className="flex items-center gap-1">
@@ -228,8 +227,6 @@ export function SidebarNav() {
             </div>
           )}
         </div>
-
-        {/* ── 2. Expanded Navigation Panel ─────────────────────────────────── */}
         <div
           className={cn(
             "flex flex-col rounded-xl border border-border bg-card transition-all duration-300 ease-in-out",
@@ -249,8 +246,6 @@ export function SidebarNav() {
 
           {/* Navigation Items */}
           <div className="flex-1 overflow-y-auto py-3 px-2 space-y-1 scrollbar-none">
-            
-            {/* ── Pinned Section ── */}
             {pinnedItems.length > 0 && (
               <div className="mb-3 space-y-0.5 border-b border-border/60 pb-3">
                 <p className="text-[10px] font-bold text-muted-foreground/50 px-2 mb-1 uppercase tracking-wider whitespace-nowrap">
@@ -284,8 +279,6 @@ export function SidebarNav() {
                 })}
               </div>
             )}
-
-            {/* ── Regular Navigation Sections ── */}
             {visibleSections.map((section) => {
               const Icon = section.icon;
 
@@ -396,7 +389,7 @@ export function SidebarNav() {
   if (isMobile) {
     return (
       <Sheet>
-        <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden ml-2" />}>
+        <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden size-9 shrink-0" />}>
           <Menu className="h-5 w-5" />
           <span className="sr-only">Toggle navigation</span>
         </SheetTrigger>

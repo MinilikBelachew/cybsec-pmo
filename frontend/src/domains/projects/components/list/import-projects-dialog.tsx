@@ -75,8 +75,6 @@ export function ImportProjectsDialog({
   const [createMilestone] = useCreateMilestoneMutation();
   const [createTask] = useCreateTaskMutation();
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
   const hasExtraData = (projName: string) =>
     (parsedPhases[projName]?.length || 0) > 0 ||
     (parsedTasks[projName]?.length || 0) > 0 ||
@@ -95,8 +93,6 @@ export function ImportProjectsDialog({
     }
     return false;
   }, [validRows, parsedPhases, parsedTasks, parsedMilestones]);
-
-  // ── Sample XLSX download ──────────────────────────────────────────────────
 
   const downloadSampleXLSX = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -119,8 +115,6 @@ export function ImportProjectsDialog({
       toast.error("Failed to generate XLSX template.");
     }
   };
-
-  // ── File parsing ──────────────────────────────────────────────────────────
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -208,8 +202,6 @@ export function ImportProjectsDialog({
     reader.readAsArrayBuffer(selectedFile);
   };
 
-  // ── Reset & Close ─────────────────────────────────────────────────────────
-
   const handleReset = () => {
     setFile(null);
     setParsedRows([]);
@@ -229,8 +221,6 @@ export function ImportProjectsDialog({
     handleReset();
     onClose();
   };
-
-  // ── Inline edit handlers ──────────────────────────────────────────────────
 
   const handleInlineChange = (index: number, field: keyof ParsedProjectRow, value: any) => {
     setParsedRows((prev) =>
@@ -366,8 +356,6 @@ export function ImportProjectsDialog({
       });
     }
   };
-
-  // ── Import ────────────────────────────────────────────────────────────────
 
   const handleImport = async () => {
     if (validRows.length === 0) {
@@ -523,15 +511,11 @@ export function ImportProjectsDialog({
     handleClose();
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <DialogPrimitive.Popup className="fixed left-1/2 top-1/2 z-50 w-full max-w-7xl -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-background shadow-2xl transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-ending-style:scale-95 data-starting-style:scale-95 overflow-hidden flex flex-col max-h-[90vh]">
-
-          {/* ── Header ── */}
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="size-5 text-primary" />
@@ -561,8 +545,6 @@ export function ImportProjectsDialog({
               )}
             </div>
           </div>
-
-          {/* ── Body ── */}
           <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
             {!file ? (
               /* Drop zone */
@@ -698,8 +680,6 @@ export function ImportProjectsDialog({
               </div>
             )}
           </div>
-
-          {/* ── Footer ── */}
           <div className="border-t border-border px-6 py-4 flex items-center justify-between bg-muted/15">
             <div className="text-xs text-muted-foreground font-semibold font-mono">
               {file && !isImporting && (

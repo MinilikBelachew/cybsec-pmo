@@ -63,7 +63,6 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Badge } from "@/shared/ui/badge";
 
-// Import child views
 import { ListView } from "./workspace-views/list-view";
 import { BoardView, type BoardQuickCreatePayload } from "./workspace-views/board-view";
 import { CalendarView } from "./workspace-views/calendar-view";
@@ -186,7 +185,7 @@ function FilterCardDropdown<T extends string>({
             variant="outline"
             size="sm"
             className={cn(
-              "h-9 gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none text-xs select-none hover:bg-muted/50 cursor-pointer transition-colors",
+              "h-9 w-full gap-2 rounded-xl border-border/60 bg-muted/45 px-3 font-normal shadow-none text-xs select-none hover:bg-muted/50 cursor-pointer transition-colors sm:w-auto",
               value !== "ALL" && "border-primary/40 bg-primary/5",
             )}
           />
@@ -249,7 +248,6 @@ export function ProjectWorkspace() {
     setIsFullscreen((prev) => !prev);
   };
 
-  // Fetch project details
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -296,10 +294,8 @@ export function ProjectWorkspace() {
 
   const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
 
-  // Fetch phases
   const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(id);
 
-  // Fetch milestones
   const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id);
 
   const { data: taskDependencies = [] } = useGetTaskDependenciesQuery(
@@ -393,11 +389,9 @@ export function ProjectWorkspace() {
     [canViewProjectAudit],
   );
 
-  // States
   const [activeView, setActiveView] = useState<View>("list");
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
 
-// Side Sheet states
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<Status>("To_Do");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -442,7 +436,6 @@ export function ProjectWorkspace() {
     router.replace(`/dashboard/projects/${id}`);
   }, [searchParams, id, router]);
 
-  // Gantt Zoom state
   const [ganttZoom, setGanttZoom] = useState(1);
 
   const toggleGroup = (status: Status) => {
@@ -682,7 +675,6 @@ export function ProjectWorkspace() {
         "h-[calc(100vh-6rem)] -m-6 bg-transparent"
       )}
     >
-      {/* ─── BREADCRUMB / TITLE BAR ────────────────────────────────────── */}
       {!isFullscreen && (
         <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
           <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
@@ -698,8 +690,6 @@ export function ProjectWorkspace() {
           onReviewed={() => refetchTasks()}
         />
       )}
-
-      {/* ─── PROJECT OVERVIEW HEADER PANEL ───────────────────────────────────── */}
       {!isFullscreen && (
         <div className="px-5 py-4 bg-slate-500/5 dark:bg-white/[0.02] border-b border-slate-200/60 dark:border-white/[0.08] grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0 bg-transparent">
           {/* Progress Tracker */}
@@ -784,10 +774,8 @@ export function ProjectWorkspace() {
           </div>
         </div>
       )}
-
-      {/* ─── TABS NAV ────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
-        <div className="flex items-center">
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
+        <div className="flex min-w-0 flex-1 items-center overflow-x-auto scrollbar-none">
           {visibleViews.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -816,42 +804,39 @@ export function ProjectWorkspace() {
           )}
         </button>
       </div>
-
-      {/* ─── TOOLBAR & SEARCH / FILTERS ──────────────────────────────────────── */}
       {activeView !== "audit" && (
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-3 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
-        {/* Left Side: Search & Filters */}
-        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
-          {/* Search */}
-          <div className="relative w-full max-w-xs shrink-0">
+      <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
+        {/* Search & Filters */}
+        <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="relative w-full min-w-0 sm:max-w-xs sm:flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
               placeholder="Search tasks..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 h-9 text-xs rounded-xl"
+              className="pl-9 h-9 text-xs rounded-xl w-full"
             />
           </div>
 
-          {/* Status Filter */}
-          <FilterCardDropdown
-            label="Status"
-            value={statusFilter}
-            options={STATUS_FILTER_OPTIONS}
-            onChange={setStatusFilter}
-          />
+          <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+            <FilterCardDropdown
+              label="Status"
+              value={statusFilter}
+              options={STATUS_FILTER_OPTIONS}
+              onChange={setStatusFilter}
+            />
 
-          {/* Priority Filter */}
-          <FilterCardDropdown
-            label="Priority"
-            value={priorityFilter}
-            options={PRIORITY_FILTER_OPTIONS}
-            onChange={setPriorityFilter}
-          />
+            <FilterCardDropdown
+              label="Priority"
+              value={priorityFilter}
+              options={PRIORITY_FILTER_OPTIONS}
+              onChange={setPriorityFilter}
+            />
+          </div>
         </div>
 
-        {/* Right Side: Action buttons */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Action buttons */}
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
           {activeView !== "phases" && (
             <>
               {canCreateTask && (
@@ -859,10 +844,10 @@ export function ProjectWorkspace() {
                   variant="outline"
                   size="sm"
                   onClick={() => setIsImportOpen(true)}
-                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                  className="h-9 flex-1 gap-1.5 rounded-xl border-slate-200/60 px-2.5 text-xs font-semibold hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5 sm:flex-none sm:px-3"
                 >
-                  <Upload className="size-4" />
-                  Import Tasks
+                  <Upload className="size-4 shrink-0" />
+                  <span className="truncate">Import Tasks</span>
                 </Button>
               )}
               {canImportProjects && (
@@ -870,10 +855,10 @@ export function ProjectWorkspace() {
                   variant="outline"
                   size="sm"
                   onClick={() => setIsMppImportOpen(true)}
-                  className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                  className="h-9 flex-1 gap-1.5 rounded-xl border-slate-200/60 px-2.5 text-xs font-semibold hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5 sm:flex-none sm:px-3"
                 >
-                  <FileUp className="size-4" />
-                  Import MPP
+                  <FileUp className="size-4 shrink-0" />
+                  <span className="truncate">Import MPP</span>
                 </Button>
               )}
               <Button
@@ -881,14 +866,14 @@ export function ProjectWorkspace() {
                 size="sm"
                 onClick={() => setShowExport(true)}
                 disabled={isExportingTasks}
-                className="gap-1.5 font-semibold text-xs h-9 rounded-xl border-slate-200/60 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5"
+                className="h-9 flex-1 gap-1.5 rounded-xl border-slate-200/60 px-2.5 text-xs font-semibold hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5 sm:flex-none sm:px-3"
               >
                 {isExportingTasks ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <Loader2 className="size-4 shrink-0 animate-spin" />
                 ) : (
-                  <Download className="size-4" />
+                  <Download className="size-4 shrink-0" />
                 )}
-                Export Tasks
+                <span className="truncate">Export Tasks</span>
               </Button>
             </>
           )}
@@ -921,8 +906,6 @@ export function ProjectWorkspace() {
         </div>
       </div>
       )}
-
-      {/* ─── ACTIVE VIEW DISPLAY AREA ────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
         {activeView === "list" && (
           <ListView

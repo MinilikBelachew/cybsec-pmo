@@ -1,7 +1,9 @@
 import { APP_URL, ADMIN_EMAIL, ADMIN_PASSWORD } from '../utils/constants';
 import request from 'supertest';
 import { RoleEnum } from '../../src/roles/roles.enum';
-import { StatusEnum } from '../../src/statuses/statuses.enum';
+
+/** Active user status id (legacy StatusEnum.active). */
+const ACTIVE_USER_STATUS_ID = 1;
 
 describe('Users Module', () => {
   const app = APP_URL;
@@ -102,7 +104,7 @@ describe('Users Module', () => {
               id: 6,
             },
             status: {
-              id: StatusEnum.active,
+              id: ACTIVE_USER_STATUS_ID,
             },
           })
           .expect(201);

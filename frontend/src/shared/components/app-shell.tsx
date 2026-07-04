@@ -28,11 +28,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
               <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
                 <BreakGlassBanner />
-                <div className="flex relative items-center shrink-0">
-                  <div className="absolute left-2 z-50 md:hidden">
+                <div className="flex items-center shrink-0 min-w-0 border-b border-border/85">
+                  <div className="shrink-0 pl-2 md:hidden">
                     <SidebarNav />
                   </div>
-                  <div className="w-full">
+                  <div className="min-w-0 flex-1">
                     <TopBar />
                   </div>
                 </div>

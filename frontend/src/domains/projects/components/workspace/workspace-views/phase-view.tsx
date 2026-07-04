@@ -375,8 +375,6 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
             </Button>
           )}
         </div>
-
-        {/* ── Modals & Dialogs ── */}
         <DeleteDialog
           isOpen={deleteConfirm.isOpen}
           onClose={() => setDeleteConfirm({ isOpen: false, type: null, id: "" })}
@@ -711,8 +709,6 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
           )}
         </div>
       </div>
-
-      {/* ── Modals & Dialogs ── */}
       <DeleteDialog
         isOpen={deleteConfirm.isOpen}
         onClose={() => setDeleteConfirm({ isOpen: false, type: null, id: "" })}

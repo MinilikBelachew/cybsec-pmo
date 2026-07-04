@@ -174,8 +174,6 @@ export async function downloadAuditBlobAsJson(filename: string, blob: Blob) {
   }
 }
 
-// ─── CSV helpers ────────────────────────────────────────────────────────────
-
 const CSV_AUDIT_HEADERS = [
   "Time",
   "Actor",

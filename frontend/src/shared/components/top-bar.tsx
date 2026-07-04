@@ -100,9 +100,7 @@ export function TopBar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between h-14 px-5 bg-background/90 backdrop-blur-md border-b border-border/85 shrink-0">
-      
-      {/* ── Breadcrumbs ── */}
+    <header className="sticky top-0 z-40 flex items-center justify-between h-14 px-3 sm:px-5 bg-background/90 backdrop-blur-md shrink-0 md:border-b md:border-border/85">
       <div className="flex items-center gap-1 text-sm min-w-0 flex-1">
         {breadcrumbs.length === 0 ? (
           <Link
@@ -136,8 +134,6 @@ export function TopBar() {
           ))
         )}
       </div>
-
-      {/* ── Center Search Bar ── */}
       <div className="flex-1 flex justify-center max-w-xl mx-4 relative hidden md:flex">
         <button
           type="button"
@@ -164,8 +160,6 @@ export function TopBar() {
           </div>
         </button>
       </div>
-
-      {/* ── Right Actions ── */}
       <div className="flex items-center gap-2 flex-1 justify-end">
         <button
           type="button"

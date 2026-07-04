@@ -256,8 +256,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     }
   }, [open, project, reset]);
 
-  const onFormError = (formErrors: any) => {
-    console.log("Validation errors:", formErrors);
+  const onFormError = () => {
     setTimeout(() => {
       const firstErrorElement = document.querySelector("p.text-rose-500");
       if (firstErrorElement) {

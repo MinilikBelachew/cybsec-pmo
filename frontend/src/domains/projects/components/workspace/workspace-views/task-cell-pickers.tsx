@@ -18,8 +18,6 @@ import type { ProjectTaskAssignee } from "@/domains/projects/types/projects.type
 // Re-export the date picker so consumers only need one import file
 export { BoardTaskDatePicker as TaskDatePicker } from "./board-task-date-picker";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 
 const STATUS_OPTIONS: { value: Status; label: string }[] = [
@@ -39,8 +37,6 @@ export const STATUS_PILL: Record<Status, string> = {
   Rework: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
   Done: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
 };
-
-// ─── Avatar helpers ────────────────────────────────────────────────────────────
 
 const ASSIGNEE_AVATAR_COLORS = [
   "bg-slate-600",
@@ -64,8 +60,6 @@ export function assigneeAvatarInitials(name: string) {
 export function assigneeAvatarColor(userId: string) {
   return ASSIGNEE_AVATAR_COLORS[userId.charCodeAt(0) % ASSIGNEE_AVATAR_COLORS.length];
 }
-
-// ─── TaskAssigneePicker ────────────────────────────────────────────────────────
 
 interface TaskAssigneePickerProps {
   assignees: ProjectTaskAssignee[];
@@ -191,8 +185,6 @@ export function TaskAssigneePicker({
   );
 }
 
-// ─── TaskStatusPicker ─────────────────────────────────────────────────────────
-
 interface TaskStatusPickerProps {
   task: {
     id: string;
@@ -279,8 +271,6 @@ export function TaskStatusPicker({
     </Popover>
   );
 }
-
-// ─── TaskCommentPicker ────────────────────────────────────────────────────────
 
 interface TaskCommentPickerProps {
   taskId: string;
@@ -407,8 +397,6 @@ export function TaskCommentPicker({ taskId, commentCount, children }: TaskCommen
 // Re-export STATUS_OPTIONS for use in consumers
 export { STATUS_OPTIONS };
 export type { Status };
-
-// ─── TaskPriorityPicker ──────────────────────────────────────────────────────
 
 export type ApiPriority = "Low" | "Medium" | "High" | "Critical";
 
