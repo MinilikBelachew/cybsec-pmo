@@ -12,6 +12,7 @@
 !/nginx/
 !/mpxj-service/
 !/DEPLOYMENT.md
+!/scripts/
 
 # Ignore Java build outputs and IDE files
 /mpxj-service/target/

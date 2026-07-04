@@ -12,6 +12,10 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:3000",
 
+    // Use domcontentloaded instead of load to avoid hanging on WebSocket/live connections
+    navigationTimeout: 30000,
+    actionTimeout: 15000,
+
     trace: "on-first-retry",
     video: "on",
     screenshot: "on",

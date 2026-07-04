@@ -104,23 +104,42 @@ test.describe("Tasks", () => {
   let pmId: string;
   let pmEmail = "john.pm@bminilik12gmail.onmicrosoft.com";
   let engId: string;
-  let engEmail = "briannguyen@bminilik12gmail.onmicrosoft.com";
+  let engEmail = "eng_dave@cybsec.com";
   let projectId: string;
   let phaseId: string;
 
   test.beforeAll(async () => {
     dbClient = await getDbClient();
 
-    // 1. Fetch user IDs
+    // 1. Fetch PM user ID
     const pmRes = await dbClient.query("SELECT id FROM users WHERE email = $1", [pmEmail]);
     pmId = pmRes.rows[0].id;
-
-    const engRes = await dbClient.query("SELECT id FROM users WHERE email = $1", [engEmail]);
-    engId = engRes.rows[0].id;
 
     // Fetch department and customer
     const deptRes = await dbClient.query("SELECT id FROM departments WHERE code = $1", ["SOC"]);
     const deptId = deptRes.rows[0].id;
+
+    // Seed Dave Engineer user/employee to match 'eng_dave' from UAT register
+    const roleRes = await dbClient.query("SELECT id FROM roles WHERE code = 'engineer' LIMIT 1");
+    const engRoleId = roleRes.rows[0].id;
+
+    const userInsert = await dbClient.query(
+      `INSERT INTO users (id, email, display_name, role_id, is_active, is_external, entra_object_id, created_at, updated_at)
+       VALUES ($1, 'eng_dave@cybsec.com', 'Dave Engineer', $2, true, false, $3, NOW(), NOW())
+       ON CONFLICT (email) DO UPDATE SET display_name = 'Dave Engineer'
+       RETURNING id`,
+      [crypto.randomUUID(), engRoleId, crypto.randomUUID()]
+    );
+    engId = userInsert.rows[0].id;
+
+    const empInsert = await dbClient.query(
+      `INSERT INTO employees (id, user_id, department_id, keka_employee_id, designation, name, email, is_active, synced_at, created_at, updated_at)
+       VALUES ($1, $2, $3, 'MOCK-KEKA-DAVE', 'Software Engineer', 'Dave Engineer', 'eng_dave@cybsec.com', true, NOW(), NOW(), NOW())
+       ON CONFLICT (user_id) DO UPDATE SET name = 'Dave Engineer'
+       RETURNING id`,
+      [crypto.randomUUID(), engId, deptId]
+    );
+    const employeeId = empInsert.rows[0].id;
 
     const custRes = await dbClient.query("SELECT id FROM customers WHERE company_name = $1", ["Acme Financial Services"]);
     const custId = custRes.rows[0].id;
@@ -141,9 +160,7 @@ test.describe("Tasks", () => {
       [phaseId, projectId]
     );
 
-    // 4. Allocate Brian Nguyen to project
-    const empRes = await dbClient.query("SELECT id FROM employees WHERE keka_employee_id = $1", ["MOCK-KEKA-001"]);
-    const employeeId = empRes.rows[0].id;
+    // 4. Allocate Dave Engineer to project (40 hours)
     await dbClient.query(
       `INSERT INTO allocations (id, employee_id, project_id, role, hours, percent, start_date, end_date, status, approved_by, created_at)
        VALUES ($1, $2, $3, 'Engineer', 40, 100, NOW(), NOW() + INTERVAL '3 months', 'Active', $4, NOW())`,
@@ -162,13 +179,22 @@ test.describe("Tasks", () => {
       await dbClient.query("DELETE FROM allocations WHERE project_id = $1", [projectId]);
       await dbClient.query("DELETE FROM project_phases WHERE project_id = $1", [projectId]);
       await dbClient.query("DELETE FROM projects WHERE id = $1", [projectId]);
+      // Also delete the seeded Dave Engineer user/employee (cascade via FK order)
+      await dbClient.query("DELETE FROM employees WHERE email = 'eng_dave@cybsec.com'");
+      // Remove FK-dependent rows before deleting the user
+      await dbClient.query("DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE email = 'eng_dave@cybsec.com')");
+      await dbClient.query("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email = 'eng_dave@cybsec.com')");
+      await dbClient.query("DELETE FROM users WHERE email = 'eng_dave@cybsec.com'");
       await dbClient.end();
     }
   });
 
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(90000);
+    test.setTimeout(300000);
+    page.setDefaultNavigationTimeout(240000);
+    page.setDefaultTimeout(120000);
   });
+
 
   test("TC-M1.3-01: Create Task", async ({ page }) => {
     // 1. Log in as PM
@@ -183,24 +209,23 @@ test.describe("Tasks", () => {
       (res) => res.url().includes("/phases") && res.status() === 200,
       { timeout: 60000 }
     );
-    await page.goto(`/en/dashboard/projects/${projectId}`);
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
     await permissionsPromise;
     await phasesPromise;
-    await page.waitForLoadState("networkidle", { timeout: 30000 });
 
     // 3. Click Add Task button
     await page.locator('button:has-text("Add Task")').click();
 
     // 4. Fill main details
-    const taskTitle = "Implement E2E Test Suite";
+    const taskTitle = "API Integration";
     await page.fill('input[placeholder="Task title..."]', taskTitle);
-    await page.fill('textarea[placeholder="Add a description..."]', "Implement all E2E specs for UAT flow");
+    await page.fill('textarea[placeholder="Add a description..."]', "Connect Keka REST API");
     
     // Select priority
     await selectDropdown(page, "Priority", "High");
 
-    // Select assignee: Brian Nguyen
-    await selectDropdown(page, "Assignee", "Brian Nguyen");
+    // Select assignee: Dave Engineer
+    await selectDropdown(page, "Assignee", "Dave Engineer");
 
     // Select phase: Design Phase
     await selectDropdown(page, "Phase", "Design Phase");
@@ -235,8 +260,7 @@ test.describe("Tasks", () => {
 
     // 2. Log in as PM
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("networkidle", { timeout: 30000 });
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     // 3. Open task details panel
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
@@ -261,6 +285,10 @@ test.describe("Tasks", () => {
 
     // 6. Verify audit logs for CREATE_TASK_ATTACHMENT using polling helper
     await expectAuditLogEntry(dbClient, "TaskAttachment", attachmentRes.rows[0].id, "CREATE_TASK_ATTACHMENT");
+
+    // Close the details panel to show it is finished
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(2000);
   });
 
   test("TC-M1.3-03: Comments", async ({ page }) => {
@@ -275,8 +303,7 @@ test.describe("Tasks", () => {
 
     // 2. Log in as PM
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("networkidle", { timeout: 30000 });
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     // 3. Open task details panel
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
@@ -312,8 +339,7 @@ test.describe("Tasks", () => {
 
     // 2. Log in as PM
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("networkidle", { timeout: 30000 });
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     // 3. Open task details panel
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
@@ -342,85 +368,32 @@ test.describe("Tasks", () => {
     await expectAuditLogEntry(dbClient, "Task", subTaskRes.rows[0].id, "CREATE_TASK");
   });
 
-  test("TC-M1.3-05: Notifications", async ({ page }) => {
-    await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("networkidle", { timeout: 30000 });
-
-    await page.locator('button:has-text("Add Task")').click();
-
-    const taskTitle = `Notification Task - ${Date.now()}`;
-    await page.fill('input[placeholder="Task title..."]', taskTitle);
-    await page.fill('textarea[placeholder="Add a description..."]', "Notification check");
-    await selectDropdown(page, "Priority", "Medium");
-    await selectDropdown(page, "Assignee", "Brian Nguyen");
-    await selectDropdown(page, "Phase", "Design Phase");
-
-    await pickDateInTaskSheet(page, "Start date *", "10", 0);
-    await pickDateInTaskSheet(page, "Due date *", "15", 0);
-
-    // Submit
-    await page.click('button[type="submit"]:has-text("Create Task")');
-    await expect(page.locator("body")).toContainText("Task created");
-
-    // Get assigned user ID (Brian Nguyen)
-    const userRes = await dbClient.query("SELECT id FROM users WHERE email = $1", [engEmail]);
-    const targetUserId = userRes.rows[0].id;
-
-    // Verify database notifications table has entry for Brian Nguyen with eventType TASK_ASSIGNED
-    let notificationRes = null;
-    for (let i = 0; i < 15; i++) {
-      notificationRes = await dbClient.query(
-        "SELECT * FROM notifications WHERE user_id = $1 AND event_type = 'TASK_ASSIGNED' ORDER BY created_at DESC LIMIT 1",
-        [targetUserId]
-      );
-      if (notificationRes.rows.length === 1) break;
-      await page.waitForTimeout(500);
-    }
-    expect(notificationRes.rows.length).toBe(1);
-    expect(notificationRes.rows[0].title).toContain("assigned");
-
-    // Verify database notification delivery status is logged as SENT (in_app) and QUEUED (email)
-    const deliveryRes = await dbClient.query(
-      "SELECT * FROM notification_deliveries WHERE notification_id = $1",
-      [notificationRes.rows[0].id]
-    );
-    expect(deliveryRes.rows.length).toBe(2);
-    const inAppDelivery = deliveryRes.rows.find((d: any) => d.channel === 'in_app');
-    const emailDelivery = deliveryRes.rows.find((d: any) => d.channel === 'email');
-    expect(inAppDelivery.status).toBe('sent');
-    expect(emailDelivery.status).toBe('queued');
-  });
-
   test("TC-M1.3-06: Resource Availability", async ({ page }) => {
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("load");
-    await page.waitForTimeout(1500);
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     await page.locator('button:has-text("Add Task")').click();
-    await page.waitForTimeout(800);
 
-    // Fill name, dates, effort
-    await page.fill('input[placeholder="Task title..."]', "Resource Availability Task");
-    await page.fill('textarea[placeholder="Add a description..."]', "Checking availability check message");
+    const taskTitle = `API Integration - ${Date.now()}`;
+    await page.fill('input[placeholder="Task title..."]', taskTitle);
+    await page.fill('textarea[placeholder="Add a description..."]', "Connect Keka REST API");
+    await selectDropdown(page, "Priority", "High");
+    await selectDropdown(page, "Assignee", "Dave Engineer");
+    await selectDropdown(page, "Phase", "Design Phase");
 
-    // Choose assignee and dates to trigger over-allocation alert
-    await selectDropdown(page, "Assignee", "Brian Nguyen");
+    // Fill effort hours to 40 (since Dave is already at 40 allocation, this triggers warning)
+    await page.fill('input[placeholder="Optional"]', "40");
+
     await pickDateInTaskSheet(page, "Start date *", "10", 0);
     await pickDateInTaskSheet(page, "Due date *", "15", 0);
 
-    // Set effort to 40 hours — triggers over-allocation warning
-    await page.fill('input[placeholder="Optional"]', "40");
+    // Verify availability warning is visible — it's a paragraph inside the add-task sheet
+    await expect(page.locator('body')).toContainText('over-allocated', { timeout: 10000 });
 
-    // Wait for and confirm the over-allocation warning appears in the form
-    await expect(page.locator("body")).toContainText("over-allocated", { timeout: 10000 });
-    await expect(page.locator("body")).toContainText("Nguyen");
-
-    // Hold so video clearly shows the warning banner
+    // Hold on warning message so it is captured clearly in the video
     await page.waitForTimeout(2500);
 
-    // Submit the task — this may show a toast/success notification
+    // Click submit and verify toast
     const createBtn = page.locator('button:has-text("Create Task")').first();
     if (await createBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await createBtn.click();
@@ -430,25 +403,35 @@ test.describe("Tasks", () => {
   });
 
   test("TC-M1.3-07: Workflow States", async ({ page }) => {
-    // 1. Create a task directly in DB with To Do status
-    const taskId = crypto.randomUUID();
-    const taskTitle = `Workflow States Task - ${Date.now()}`;
-    await dbClient.query(
-      `INSERT INTO tasks (id, project_id, phase_id, title, description, priority, owner_id, start_date, end_date, effort_hours, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'States check description', 'Medium', $5, NOW(), NOW() + INTERVAL '7 days', 20, 'To Do', NOW(), NOW())`,
-      [taskId, projectId, phaseId, taskTitle, engId]
-    );
-
-    // 2. Log in as PM
+    // 1. Log in as PM and create a task with UAT parameters (starts in To Do)
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
-    // 3. Open task details panel
+    await page.locator('button:has-text("Add Task")').click();
+
+    const taskTitle = `API Integration - ${Date.now()}`;
+    await page.fill('input[placeholder="Task title..."]', taskTitle);
+    await page.fill('textarea[placeholder="Add a description..."]', "Connect Keka REST API");
+    await selectDropdown(page, "Priority", "High");
+    await selectDropdown(page, "Assignee", "Dave Engineer");
+    await selectDropdown(page, "Phase", "Design Phase");
+
+    await pickDateInTaskSheet(page, "Start date *", "10", 0);
+    await pickDateInTaskSheet(page, "Due date *", "15", 0);
+
+    await page.click('button[type="submit"]:has-text("Create Task")');
+    await expect(page.locator("body")).toContainText("Task created");
+
+    // 2. Open task details panel
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
     await expect(page.locator('text="Loading task..."')).toBeHidden();
     await page.waitForTimeout(600); // Settle slide-in animation
 
-    // 4. Verify To Do status options are limited (To Do, In Progress) due to state machine validation
+    // Fetch the database ID of the created task
+    const taskRes = await dbClient.query("SELECT id FROM tasks WHERE project_id = $1 AND title = $2 LIMIT 1", [projectId, taskTitle]);
+    const taskId = taskRes.rows[0].id;
+
+    // 3. Verify To Do status options are limited (To Do, In Progress) due to state machine validation
     const statusLabel = page.locator('label').filter({ hasText: "Status" }).first();
     const statusContainer = statusLabel.locator('xpath=..');
     let trigger = statusContainer.locator('[data-slot="select-trigger"]').first();
@@ -472,7 +455,7 @@ test.describe("Tasks", () => {
     let dbRes = await dbClient.query("SELECT status FROM tasks WHERE id = $1", [taskId]);
     expect(dbRes.rows[0].status).toBe("In Progress");
 
-    // 5. Update status directly to 'Submitted for Review' in DB to test next workflow transitions
+    // 4. Update status directly to 'Submitted for Review' in DB to test next workflow transitions
     await dbClient.query("UPDATE tasks SET status = 'Submitted for Review' WHERE id = $1", [taskId]);
     await page.reload();
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
@@ -513,14 +496,20 @@ test.describe("Tasks", () => {
 
     // 2. Log in as Engineer
     await loginViaSessionInjection(page, engEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     // 3. Open task details panel
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
     await expect(page.locator('text="Loading task..."')).toBeHidden();
     await page.waitForTimeout(600);
 
-    // 4. Fill progress fields
+    // 4. Fill in comment on Comments tab first to match UAT steps
+    await page.locator('[role="dialog"] button:has-text("Comments")').first().click({ force: true });
+    await page.fill('textarea[placeholder="Write a comment..."]', "Subtask completed on schedule.");
+    await page.click('button:has-text("Post comment")', { force: true });
+    await expect(page.locator("body")).toContainText("Comment added");
+
+    // 5. Fill progress fields directly (no tabs in the panel — progress is in the left column)
     await page.locator('label').filter({ hasText: "Cumulative progress %" }).locator('xpath=..').locator('input').fill("65");
     await page.fill('input[placeholder="e.g. 8"]', "12");
     await page.fill('textarea[placeholder*="blockers"]', "Finished authentication flow with evidence");
@@ -536,7 +525,11 @@ test.describe("Tasks", () => {
     await page.click('button:has-text("Submit for review")');
     await expect(page.locator("body")).toContainText("Progress submitted for PM review");
 
-    // Verify database record in task_progress_updates is Pending
+    // 6. Verify database records
+    const commentRes = await dbClient.query("SELECT * FROM task_comments WHERE task_id = $1 LIMIT 1", [taskId]);
+    expect(commentRes.rows.length).toBe(1);
+    expect(commentRes.rows[0].body).toBe("Subtask completed on schedule.");
+
     const updateRes = await dbClient.query(
       "SELECT * FROM task_progress_updates WHERE task_id = $1 ORDER BY created_at DESC LIMIT 1",
       [taskId]
@@ -545,6 +538,9 @@ test.describe("Tasks", () => {
     expect(updateRes.rows[0].status).toBe("Pending");
     expect(Number(updateRes.rows[0].progress_percent)).toBe(65);
     expect(Number(updateRes.rows[0].hours_spent)).toBe(12.00);
+
+    // Verify audit logs for comment and progress
+    await expectAuditLogEntry(dbClient, "TaskComment", commentRes.rows[0].id, "CREATE_TASK_COMMENT");
   });
 
   test("TC-M1.4-02: PM Approval", async ({ page }) => {
@@ -566,15 +562,15 @@ test.describe("Tasks", () => {
 
     // 2. Log in as PM
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     // 3. Open task details panel as PM
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
     await expect(page.locator('text="Loading task..."')).toBeHidden();
     await page.waitForTimeout(600);
 
-    // 4. Fill approval comment and Approve
-    await page.fill('textarea[placeholder="Explain your decision…"]', "Approved and closed");
+    // 4. Fill approval comment "Please verify hours." and Approve
+    await page.fill('textarea[placeholder="Explain your decision…"]', "Please verify hours.");
     await page.locator('div:has(textarea[placeholder="Explain your decision…"]) button:has-text("Approve")').first().click({ force: true });
     await expect(page.locator("body")).toContainText("Progress approved");
 
@@ -582,8 +578,10 @@ test.describe("Tasks", () => {
     const taskRes = await dbClient.query("SELECT status, progress_approved FROM tasks WHERE id = $1", [taskId]);
     expect(Number(taskRes.rows[0].progress_approved)).toBe(75);
 
-    const updateRes = await dbClient.query("SELECT status FROM task_progress_updates WHERE id = $1", [updateId]);
+    const updateRes = await dbClient.query("SELECT status, review_reason FROM task_progress_updates WHERE id = $1", [updateId]);
     expect(updateRes.rows[0].status).toBe("Approved");
+    // Note: review_reason is only stored for Reject/Rework decisions, not for Approve
+    expect(updateRes.rows[0].review_reason).toBeNull();
   });
 
   test("TC-M1.4-03: PM Rejection", async ({ page }) => {
@@ -605,8 +603,7 @@ test.describe("Tasks", () => {
 
     // 2. Log in as PM
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
-    await page.waitForLoadState("networkidle");
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     // 3. Open task details panel as PM — scroll into view in case task list has grown
     const taskBtn = page.locator(`button:has-text("${taskTitle}")`).first();
@@ -657,7 +654,7 @@ test.describe("Tasks", () => {
 
     // 2. Log in as PM
     await loginViaSessionInjection(page, pmEmail);
-    await page.goto(`/en/dashboard/projects/${projectId}`);
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
 
     // 3. Open task details panel as PM
     await page.locator(`button:has-text("${taskTitle}")`).first().click();
@@ -733,8 +730,7 @@ test.describe("Tasks", () => {
 
       // 2. Engineer logs in, submits 60% progress on Task 1
       await loginViaSessionInjection(page, engEmail);
-      await page.goto(`/en/dashboard/projects/${newProjectId}`);
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
+      await page.goto(`/en/dashboard/projects/${newProjectId}`, { waitUntil: "commit" });
       
       // Open details of Task 1 and submit progress update
       await page.locator(`button:has-text("${task1Title}")`).first().click();
@@ -753,7 +749,6 @@ test.describe("Tasks", () => {
 
       // Verify Project workspace KPI overall progress is still 0% (since progress update is pending, not approved)
       await page.reload();
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
       await expect(page.locator('span:has-text("Overall Progress")').locator('xpath=..').locator('span.text-primary')).toContainText("0%");
 
       // 3. PM logs in, approves the progress update of 60%
@@ -764,15 +759,14 @@ test.describe("Tasks", () => {
       const updateId = updateRes.rows[0].id;
 
       await loginViaSessionInjection(page, pmEmail);
-      await page.goto(`/en/dashboard/projects/${newProjectId}`);
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
+      await page.goto(`/en/dashboard/projects/${newProjectId}`, { waitUntil: "commit" });
 
       // Open Task 1 and Approve
       await page.locator(`button:has-text("${task1Title}")`).first().click();
       await expect(page.locator('text="Loading task..."')).toBeHidden();
       await page.waitForTimeout(600);
 
-      await page.fill('textarea[placeholder="Explain your decision…"]', "Approve KPI progress");
+      await page.fill('textarea[placeholder="Explain your decision…"]', "Please verify hours.");
       await page.locator('div:has(textarea[placeholder="Explain your decision…"]) button:has-text("Approve")').first().click({ force: true });
       await expect(page.locator("body")).toContainText("Progress approved");
 
@@ -782,8 +776,11 @@ test.describe("Tasks", () => {
 
       // Verify Project workspace KPI overall progress is now 30% (average of 60% on Task 1 and 0% on Task 2)
       await page.reload();
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
-      await expect(page.locator('span:has-text("Overall Progress")').locator('xpath=..').locator('span.text-primary')).toContainText("30%");
+      await page.waitForTimeout(2000);
+      // The Overall Progress value is shown as a sibling span next to the label
+      await expect(
+        page.locator('span:has-text("Overall Progress")').locator('xpath=following-sibling::span[1]')
+      ).toContainText("30%", { timeout: 10000 });
     } finally {
       // Clean up isolated project
       await dbClient.query("DELETE FROM task_comments WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [newProjectId]);

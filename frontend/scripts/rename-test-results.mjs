@@ -16,7 +16,9 @@ const RESULTS = resolve(__dirname, "..", "test-results");
 // Value = TC code to append
 const MAP = [
   // ─── Audit Trail (M1.9) ───────────────────────────────────────────────
-  ["nated-audit-events-from-API",           "TC-M1.9-01"],
+  ["Audit-Trail-Mi-33a92",                  "TC-M1.9-01"],  // hash for pagination/capture
+  ["pagination-and-capture",                "TC-M1.9-01"],  // fallback
+  ["nated-audit-events-from-API",           "TC-M1.9-01"],  // fallback
   ["Engineer-role-blocked",                 "TC-M1.9-02"],  // may not appear due to hash
   ["PM-role-blocked",                       "TC-M1.9-03"],  // may not appear due to hash
   ["Mi-3ce03",                              "TC-M1.9-02"],  // hash for Engineer blocked
@@ -34,10 +36,14 @@ const MAP = [
   ["notified-on-schedule-impact",           "TC-M1.5-04"],
 
   // ─── Import / Export (M1.8) ───────────────────────────────────────────
-  ["API-return-well-formed-JSON",           "TC-M1.8-01"],
-  ["oint-respects-status-filter",           "TC-M1.8-02"],
-  ["ible-to-PM-on-projects-page",           "TC-M1.8-03"],
-  ["ects-invalid-file-extension",           "TC-M1.8-04"],
+  ["Import-Expor-93904",                    "TC-M1.8-01"],  // MPP import validation report
+  ["Import-Expor-dbdf7",                    "TC-M1.8-02"],  // Excel import validation report
+  ["Import-Expor-7c961",                    "TC-M1.8-03"],  // Export preserves agreed fields
+  ["Import-Expor-d0872",                    "TC-M1.8-04"],  // Re-import without duplication
+  ["API-return-well-formed-JSON",           "TC-M1.8-01"],  // fallback
+  ["oint-respects-status-filter",           "TC-M1.8-02"],  // fallback
+  ["ible-to-PM-on-projects-page",           "TC-M1.8-03"],  // fallback
+  ["ects-invalid-file-extension",           "TC-M1.8-04"],  // fallback
 
   // ─── Projects — Foundation (M1.1) ────────────────────────────────────
   ["TC-M1-1-01-Titan-Create",               "TC-M1.1-01"],
@@ -46,6 +52,8 @@ const MAP = [
   ["Phase-TC-M1-1-02",                      "TC-M1.1-02"],
   ["TC-M1-1-03-Milestones",                 "TC-M1.1-03"],
   ["Phase-TC-M1-1-03",                      "TC-M1.1-03"],
+  ["TC-M1-1-03-Configure-milestones-on-the-project", "TC-M1.1-03"],
+  ["Project-Managemen-e674d",               "TC-M1.1-03"],  // hash for milestone test
   ["TC-M1-1-04-Mandatory-Fields",           "TC-M1.1-04"],
   ["M1-1-05-Status-on-Creation",            "TC-M1.1-05"],
   ["M1-1-06-Exception-Handling",            "TC-M1.1-06"],
@@ -68,14 +76,12 @@ const MAP = [
   ["mission-changes-are-audited",           "TC-M1.7-07"],
 
   // ─── Security & SSO (M1.6) ───────────────────────────────────────────
+  ["TC-M1-6-01",                            "TC-M1.6-01"],
   ["ired-for-privileged-actions",           "TC-M1.6-02"],
   ["led-login-controls-enforced",           "TC-M1.6-03"],
   ["ut-revocation-enforced-401",            "TC-M1.6-04"],
   ["TC-M1-6-05-Security-alerts",            "TC-M1.6-05"],
   ["TC-M1-6-06-Break-glass",                "TC-M1.6-06"],
-
-  // ─── SSO Login ───────────────────────────────────────────────────────
-  ["via-Microsoft-without-MFA",             "SSO-Login"],
 
   // ─── Tasks (M1.3) ────────────────────────────────────────────────────
   ["TC-M1-3-01-Create-Task",                "TC-M1.3-01"],

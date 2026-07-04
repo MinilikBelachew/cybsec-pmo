@@ -16,6 +16,27 @@ async function dismissDropdowns(page: any) {
   }
 }
 
+/** Navigate to /en/dashboard/projects and wait for the projects API to respond */
+async function gotoProjectsPage(page: any) {
+  const projectsLoaded = page.waitForResponse(
+    (res: any) => res.url().includes("/projects") && res.status() === 200,
+    { timeout: 120000 }
+  ).catch(() => null);
+  const permissionsLoaded = page.waitForResponse(
+    (res: any) => res.url().includes("/permissions") && res.status() === 200,
+    { timeout: 120000 }
+  ).catch(() => null);
+  await page.goto("/en/dashboard/projects", { waitUntil: "commit" });
+  await Promise.all([projectsLoaded, permissionsLoaded]);
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText;
+      return text.includes("Project") || text.includes("New Project") || text.includes("No projects") || text.includes("permission");
+    },
+    { timeout: 40000 }
+  ).catch(() => {});
+}
+
 async function selectDropdown(page: any, label: string, optionText: string) {
   // Close any open Select dropdowns first
   await dismissDropdowns(page);
@@ -101,6 +122,7 @@ async function ensureListView(page: any) {
 test.describe("Project Management (Foundation Phase)", () => {
   let dbClient: any;
   let bobPmId: string;
+  let alicePmId: string;
 
   test.beforeAll(async () => {
     dbClient = await getDbClient();
@@ -118,6 +140,17 @@ test.describe("Project Management (Foundation Phase)", () => {
       [bobPmId, pmRoleId, crypto.randomUUID()]
     );
     bobPmId = insertRes.rows[0].id;
+
+    // Insert PM Alice so we have a primary PM matching the test register 'PM_Alice'
+    alicePmId = crypto.randomUUID();
+    const insertAliceRes = await dbClient.query(
+      `INSERT INTO users (id, email, display_name, role_id, is_active, is_external, entra_object_id, created_at, updated_at)
+       VALUES ($1, 'alice.pm@bminilik12gmail.onmicrosoft.com', 'PM Alice', $2, true, false, $3, NOW(), NOW())
+       ON CONFLICT (email) DO UPDATE SET display_name = 'PM Alice'
+       RETURNING id`,
+      [alicePmId, pmRoleId, crypto.randomUUID()]
+    );
+    alicePmId = insertAliceRes.rows[0].id;
 
     // 2. Ensure Department 'IT' exists
     await dbClient.query(
@@ -160,7 +193,9 @@ test.describe("Project Management (Foundation Phase)", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(60000);
+    test.setTimeout(300000);
+    page.setDefaultNavigationTimeout(240000);
+    page.setDefaultTimeout(120000);
   });
 
   test("TC-M1.1-01: Titan Create", async ({ page }) => {
@@ -168,7 +203,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page and wait for layout hydration by checking the button visibility
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Open project creation sheet
@@ -229,7 +264,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Open project creation sheet
@@ -242,8 +277,8 @@ test.describe("Project Management (Foundation Phase)", () => {
     await selectDropdown(page, "Department", "Security Operations Center");
     await selectDropdown(page, "Client / Customer", "Acme Financial Services");
 
-    // Select Primary PM: John Smith
-    await selectDropdown(page, "Primary PM", "John Smith");
+    // Select Primary PM: PM Alice
+    await selectDropdown(page, "Primary PM", "PM Alice");
 
     // Select Secondary PM: PM Bob
     await selectDropdown(page, "Secondary PM", "PM Bob");
@@ -265,9 +300,7 @@ test.describe("Project Management (Foundation Phase)", () => {
       [projectName]
     );
     expect(dbRes.rows.length).toBe(1);
-    const pmRes = await dbClient.query("SELECT id FROM users WHERE email = $1", ["john.pm@bminilik12gmail.onmicrosoft.com"]);
-    const pmId = pmRes.rows[0].id;
-    expect(dbRes.rows[0].primary_pm_id).toBe(pmId);
+    expect(dbRes.rows[0].primary_pm_id).toBe(alicePmId);
     expect(dbRes.rows[0].secondary_pm_id).toBe(bobPmId);
 
     // 7. Verify Audit Logs — wait briefly for async write
@@ -278,23 +311,23 @@ test.describe("Project Management (Foundation Phase)", () => {
     );
     expect(auditRes.rows.length).toBe(1);
     expect(auditRes.rows[0].new_value).toBeDefined();
-    expect(auditRes.rows[0].new_value.primaryPmId).toBe(pmId);
+    expect(auditRes.rows[0].new_value.primaryPmId).toBe(alicePmId);
     expect(auditRes.rows[0].new_value.secondaryPmId).toBe(bobPmId);
   });
 
-  test("TC-M1.1-03: Milestones", async ({ page }) => {
+  test("TC-M1.1-03: Configure milestones on the project", async ({ page }) => {
     // 1. Log in as PM
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Open project creation sheet
     await page.locator('button:has-text("New Project")').click();
 
     // 4. Fill basic fields
-    const projectName = `Project Milestones - ${Date.now()}`;
+    const projectName = `Project Titan (Milestones) - ${Date.now()}`;
     await page.fill('input[placeholder="e.g. ERP Migration Phase 3"]', projectName);
     await page.fill('textarea[placeholder*="Brief overview"]', "Objectives");
     await selectDropdown(page, "Department", "Security Operations Center");
@@ -348,7 +381,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Open sheet
@@ -375,7 +408,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Open project creation sheet
@@ -399,18 +432,83 @@ test.describe("Project Management (Foundation Phase)", () => {
     await page.click('button[type="submit"]:has-text("Create Project")');
     await expect(page.locator("body")).toContainText("Project created");
 
-    // 6. Verify DB has status Draft
+    // 6. Verify DB has status Draft on creation
     const dbRes = await dbClient.query("SELECT * FROM projects WHERE name = $1 LIMIT 1", [projectName]);
     expect(dbRes.rows.length).toBe(1);
     expect(dbRes.rows[0].status).toBe("Draft");
+    const projectId = dbRes.rows[0].id;
 
-    // 7. Verify Audit Log
+    // 7. Verify Audit Log for creation
     const auditRes = await dbClient.query(
       "SELECT * FROM audit_logs WHERE object_type = 'Project' AND object_id = $1 AND action = 'CREATE_PROJECT' LIMIT 1",
-      [dbRes.rows[0].id]
+      [projectId]
     );
     expect(auditRes.rows.length).toBe(1);
     expect(auditRes.rows[0].new_value.status).toBe("Draft");
+
+    // Ensure list view is active
+    await ensureListView(page);
+
+    // 8. Edit the project status: Draft -> Active (transitions: DRAFT -> ACTIVE)
+    const row = page.locator("tr").filter({ hasText: projectName });
+    await expect(row).toBeVisible({ timeout: 15000 });
+
+    await row.locator("button").last().click();
+    await page.locator('[role="menuitem"]:has-text("Edit")').click();
+    await selectDropdown(page, "Status", "Active");
+    let responsePromise = page.waitForResponse(
+      (res) => res.url().includes(`/projects/${projectId}`) && res.status() === 200
+    );
+    await page.click('button[type="submit"]:has-text("Save Changes")');
+    await responsePromise;
+    await expect(page.locator("body")).toContainText("Project updated successfully!");
+
+    // Verify DB updated to Active
+    let statusCheck = await dbClient.query("SELECT status FROM projects WHERE id = $1", [projectId]);
+    expect(statusCheck.rows[0].status).toBe("Active");
+
+    // 9. Transition: Active -> On Hold
+    await row.locator("button").last().click();
+    await page.locator('[role="menuitem"]:has-text("Edit")').click();
+    await selectDropdown(page, "Status", "On Hold");
+    responsePromise = page.waitForResponse(
+      (res) => res.url().includes(`/projects/${projectId}`) && res.status() === 200
+    );
+    await page.click('button[type="submit"]:has-text("Save Changes")');
+    await responsePromise;
+    await expect(page.locator("body")).toContainText("Project updated successfully!");
+
+    // Verify DB updated to On Hold
+    statusCheck = await dbClient.query("SELECT status FROM projects WHERE id = $1", [projectId]);
+    expect(statusCheck.rows[0].status).toBe("On Hold");
+
+    // 10. Transition: On Hold -> Active -> Pending Closure
+    await row.locator("button").last().click();
+    await page.locator('[role="menuitem"]:has-text("Edit")').click();
+    await selectDropdown(page, "Status", "Active");
+    responsePromise = page.waitForResponse(
+      (res) => res.url().includes(`/projects/${projectId}`) && res.status() === 200
+    );
+    await page.click('button[type="submit"]:has-text("Save Changes")');
+    await responsePromise;
+    await expect(page.locator("body")).toContainText("Project updated successfully!");
+
+    await row.locator("button").last().click();
+    await page.locator('[role="menuitem"]:has-text("Edit")').click();
+    await selectDropdown(page, "Status", "Pending Closure");
+    responsePromise = page.waitForResponse(
+      (res) => res.url().includes(`/projects/${projectId}`) && res.status() === 200
+    );
+    await page.click('button[type="submit"]:has-text("Save Changes")');
+    await responsePromise;
+    await expect(page.locator("body")).toContainText("Project updated successfully!");
+
+    // Verify DB updated to Pending Closure
+    statusCheck = await dbClient.query("SELECT status FROM projects WHERE id = $1", [projectId]);
+    expect(statusCheck.rows[0].status).toBe("Pending Closure");
+
+    // Hold page so video encoder captures the final Pending Closure status list
+    await page.waitForTimeout(3000);
   });
 
   test("TC-M1.1-06: Exception Handling", async ({ page }) => {
@@ -422,8 +520,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     const session = await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // Navigate to projects page
-    await page.goto("/en/dashboard/projects");
-    await page.waitForLoadState("load");
+    await gotoProjectsPage(page);
     await page.waitForTimeout(2000);
 
     // 2. Open the New Project dialog — show it in the video
@@ -439,14 +536,15 @@ test.describe("Project Management (Foundation Phase)", () => {
       await page.waitForTimeout(800);
     }
 
-    // 4. Scroll down inside the dialog to show more fields (Status is locked to Draft)
-    const dialog = page.locator('[role="dialog"]').first();
-    if (await dialog.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await dialog.evaluate((el) => { el.scrollTop += 250; });
-      await page.waitForTimeout(1500); // Show Status = Draft locked field
+    // 4. Click Create Project button to trigger client-side validation errors
+    const submitBtn = page.locator('button[type="submit"]:has-text("Create Project")').first();
+    if (await submitBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await submitBtn.click();
+      // Wait for validation errors to display on screen and be captured in the video
+      await page.waitForTimeout(2500);
     }
 
-    // 5. Close the dialog without submitting
+    // 5. Close the dialog
     await page.keyboard.press("Escape");
     await page.waitForTimeout(1000);
 
@@ -491,7 +589,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Create a project in Draft (default)
@@ -582,7 +680,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Open sheet
@@ -628,7 +726,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Open sheet
@@ -651,7 +749,10 @@ test.describe("Project Management (Foundation Phase)", () => {
     await page.click('button[type="submit"]:has-text("Create Project")');
 
     // 6. Verify validation message
-    await expect(page.locator("body")).toContainText("Please assign a primary PM");
+    const errorEl = page.locator('text="Please assign a primary PM"').first();
+    await expect(errorEl).toBeVisible({ timeout: 5000 });
+    await errorEl.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(3000); // Hold so video captures the scrolled validation error
 
     // 7. Verify no database writes occurred
     const dbRes = await dbClient.query("SELECT * FROM projects WHERE name = 'Missing Owner Project'");
@@ -668,7 +769,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
 
     // 2. Go to projects list page
-    await page.goto("/en/dashboard/projects");
+    await gotoProjectsPage(page);
     await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
 
     // 3. Create a project in Draft (default)
@@ -709,18 +810,77 @@ test.describe("Project Management (Foundation Phase)", () => {
     await expect(page.locator("body")).toContainText("Project updated successfully!");
 
     // Verify DB
-    const statusCheck = await dbClient.query("SELECT status FROM projects WHERE id = $1", [projectId]);
+    let statusCheck = await dbClient.query("SELECT status FROM projects WHERE id = $1", [projectId]);
     expect(statusCheck.rows[0].status).toBe("Active");
 
     // Verify Audit Logs show transition Draft -> Active
-    const auditRes = await dbClient.query(
+    let auditRes = await dbClient.query(
       "SELECT * FROM audit_logs WHERE object_type = 'Project' AND object_id = $1 AND action = 'PROJECT_STATUS_CHANGED' ORDER BY created_at DESC LIMIT 1",
       [projectId]
     );
     expect(auditRes.rows.length).toBe(1);
-    expect(auditRes.rows[0].new_value).toBeDefined();
-    expect(auditRes.rows[0].new_value.statusTransition).toBeDefined();
     expect(auditRes.rows[0].new_value.statusTransition.from).toBe("Draft");
     expect(auditRes.rows[0].new_value.statusTransition.to).toBe("Active");
+
+    // Transition: Active -> On Hold
+    await row.locator("button").last().click();
+    await page.locator('[role="menuitem"]:has-text("Edit")').click();
+    await selectDropdown(page, "Status", "On Hold");
+    const responsePromise2 = page.waitForResponse(
+      (res) => res.url().includes(`/projects/${projectId}`) && res.status() === 200
+    );
+    await page.click('button[type="submit"]:has-text("Save Changes")');
+    await responsePromise2;
+    await expect(page.locator("body")).toContainText("Project updated successfully!");
+
+    // Verify DB
+    statusCheck = await dbClient.query("SELECT status FROM projects WHERE id = $1", [projectId]);
+    expect(statusCheck.rows[0].status).toBe("On Hold");
+
+    // Verify Audit Logs show transition Active -> On Hold
+    auditRes = await dbClient.query(
+      "SELECT * FROM audit_logs WHERE object_type = 'Project' AND object_id = $1 AND action = 'PROJECT_STATUS_CHANGED' ORDER BY created_at DESC LIMIT 1",
+      [projectId]
+    );
+    expect(auditRes.rows.length).toBe(1);
+    expect(auditRes.rows[0].new_value.statusTransition.from).toBe("Active");
+    expect(auditRes.rows[0].new_value.statusTransition.to).toBe("OnHold");
+
+    // Transition: On Hold -> Active -> Pending Closure
+    await row.locator("button").last().click();
+    await page.locator('[role="menuitem"]:has-text("Edit")').click();
+    await selectDropdown(page, "Status", "Active");
+    const responsePromise3a = page.waitForResponse(
+      (res) => res.url().includes(`/projects/${projectId}`) && res.status() === 200
+    );
+    await page.click('button[type="submit"]:has-text("Save Changes")');
+    await responsePromise3a;
+    await expect(page.locator("body")).toContainText("Project updated successfully!");
+
+    await row.locator("button").last().click();
+    await page.locator('[role="menuitem"]:has-text("Edit")').click();
+    await selectDropdown(page, "Status", "Pending Closure");
+    const responsePromise3 = page.waitForResponse(
+      (res) => res.url().includes(`/projects/${projectId}`) && res.status() === 200
+    );
+    await page.click('button[type="submit"]:has-text("Save Changes")');
+    await responsePromise3;
+    await expect(page.locator("body")).toContainText("Project updated successfully!");
+
+    // Verify DB
+    statusCheck = await dbClient.query("SELECT status FROM projects WHERE id = $1", [projectId]);
+    expect(statusCheck.rows[0].status).toBe("Pending Closure");
+
+    // Verify Audit Logs show transition Active -> Pending Closure
+    auditRes = await dbClient.query(
+      "SELECT * FROM audit_logs WHERE object_type = 'Project' AND object_id = $1 AND action = 'PROJECT_STATUS_CHANGED' ORDER BY created_at DESC LIMIT 1",
+      [projectId]
+    );
+    expect(auditRes.rows.length).toBe(1);
+    expect(auditRes.rows[0].new_value.statusTransition.from).toBe("Active");
+    expect(auditRes.rows[0].new_value.statusTransition.to).toBe("PendingClosure");
+
+    // Hold page for video capture
+    await page.waitForTimeout(3000);
   });
 });
