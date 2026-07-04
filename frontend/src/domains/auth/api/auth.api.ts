@@ -1,10 +1,8 @@
 import { api } from "@/core/api/api";
+import type { ApiUser, SessionPolicy } from "../types/auth.types";
+import type { PermissionRow } from "../types/permissions.types";
 
-export type SessionPolicy = {
-  idleTimeoutMs: number;
-  warningAtMs: number;
-  warningBeforeMs: number;
-};
+export type { SessionPolicy } from "../types/auth.types";
 
 export const authApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -12,13 +10,13 @@ export const authApi = api.injectEndpoints({
       query: () => "/auth/session-policy",
     }),
 
-    getMe: builder.query<import("../types/auth.types").ApiUser, void>({
+    getMe: builder.query<ApiUser, void>({
       query: () => "/auth/me",
       providesTags: ["User"],
     }),
 
     getMyPermissions: builder.query<
-      import("../types/permissions.types").PermissionRow[],
+      PermissionRow[],
       void
     >({
       query: () => "/auth/me/permissions",
@@ -48,7 +46,7 @@ export const authApi = api.injectEndpoints({
     }),
 
     activateBreakGlass: builder.mutation<
-      { user: import("../types/auth.types").ApiUser; breakGlass: true },
+      { user: ApiUser; breakGlass: true },
       { reason: string }
     >({
       query: (body) => ({
@@ -60,7 +58,7 @@ export const authApi = api.injectEndpoints({
     }),
 
     emergencyLogin: builder.mutation<
-      { user: import("../types/auth.types").ApiUser; breakGlass: true },
+      { user: ApiUser; breakGlass: true },
       { email: string; secret: string; reason: string }
     >({
       query: (body) => ({

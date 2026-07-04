@@ -1,23 +1,5 @@
 import { api } from "@/core/api/api";
-
-export type AuditSettings = {
-  auditRetentionMonths: number;
-  auditExportMaxRows: number;
-  auditExportExcelJsonCellLimit: number;
-  auditExportPdfJsonLimit: number;
-  auditArchiveEnabled: boolean;
-  lastAuditArchiveAt: string | null;
-  lastAuditArchiveCount: number;
-  updatedAt: string;
-};
-
-export type UpdateAuditSettingsPayload = {
-  auditRetentionMonths?: number;
-  auditExportMaxRows?: number;
-  auditExportExcelJsonCellLimit?: number;
-  auditExportPdfJsonLimit?: number;
-  auditArchiveEnabled?: boolean;
-};
+import type { AuditSettings, UpdateAuditSettingsPayload } from "../types/settings.types";
 
 export const settingsApi = api.injectEndpoints({
   endpoints: (builder) => ({

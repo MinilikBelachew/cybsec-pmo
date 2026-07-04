@@ -20,3 +20,9 @@ export interface User {
   /** Real role code from API (pm, it_admin, engineer, …). */
   backendRoleCode?: string;
 }
+
+export type SessionPolicy = {
+  idleTimeoutMs: number;
+  warningAtMs: number;
+  warningBeforeMs: number;
+};
