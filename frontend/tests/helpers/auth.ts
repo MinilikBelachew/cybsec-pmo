@@ -32,7 +32,14 @@ export async function loginViaSessionInjection(
       path: "/",
       httpOnly: true,
       sameSite: "Lax",
-      // Expose to http://localhost:3000
+    },
+    {
+      name: "access_token",
+      value: sessionResult.token,
+      domain: "127.0.0.1",
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax",
     },
   ]);
 

@@ -368,6 +368,68 @@ test.describe("Tasks", () => {
     await expectAuditLogEntry(dbClient, "Task", subTaskRes.rows[0].id, "CREATE_TASK");
   });
 
+  test("TC-M1.3-05: Notifications", async ({ page }) => {
+    // 1. Log in as PM
+    await loginViaSessionInjection(page, pmEmail);
+
+    const permissionsPromise = page.waitForResponse(
+      (res) => res.url().includes("/auth/me/permissions") && res.status() === 200,
+      { timeout: 60000 }
+    ).catch(() => null);
+    const phasesPromise = page.waitForResponse(
+      (res) => res.url().includes("/phases") && res.status() === 200,
+      { timeout: 60000 }
+    ).catch(() => null);
+
+    await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
+    await permissionsPromise;
+    await phasesPromise;
+
+    // 2. Click "Add Task"
+    await page.locator('button:has-text("Add Task")').click();
+
+    // 3. Fill out the task details and assign it to Dave Engineer
+    const taskTitle = `Notification Task - ${Date.now()}`;
+    await page.fill('input[placeholder="Task title..."]', taskTitle);
+    await page.fill('textarea[placeholder="Add a description..."]', "Task to trigger notification");
+    await selectDropdown(page, "Priority", "Medium");
+    await selectDropdown(page, "Assignee", "Dave Engineer");
+    await selectDropdown(page, "Phase", "Design Phase");
+
+    await pickDateInTaskSheet(page, "Start date *", "10", 0);
+    await pickDateInTaskSheet(page, "Due date *", "15", 0);
+
+    // 4. Click Submit
+    await page.click('button[type="submit"]:has-text("Create Task")');
+    await expect(page.locator("body")).toContainText("Task created");
+
+    // 5. Poll database notifications table to verify notification entry exists for Dave Engineer (engId)
+    let notificationRes = null;
+    for (let i = 0; i < 15; i++) {
+      notificationRes = await dbClient.query(
+        "SELECT * FROM notifications WHERE user_id = $1 AND event_type = 'TASK_ASSIGNED' ORDER BY created_at DESC LIMIT 1",
+        [engId]
+      );
+      if (notificationRes.rows.length === 1) break;
+      await page.waitForTimeout(500);
+    }
+    expect(notificationRes.rows.length).toBe(1);
+    expect(notificationRes.rows[0].title).toBe("Task assigned");
+
+    // 6. Log in as Dave Engineer (Assignee) to view notifications in UI
+    await loginViaSessionInjection(page, engEmail);
+    const permPromise = page.waitForResponse(
+      (res) => res.url().includes("/permissions") && res.status() === 200,
+      { timeout: 120000 }
+    ).catch(() => null);
+    await page.goto("/en/dashboard/notifications", { waitUntil: "domcontentloaded" });
+    await permPromise;
+
+    // Verify notifications page is loaded and show notification list
+    await page.waitForTimeout(2000); // Allow notifications API call to complete
+    await expect(page.locator("body")).toContainText("Task assigned", { timeout: 15000 });
+  });
+
   test("TC-M1.3-06: Resource Availability", async ({ page }) => {
     await loginViaSessionInjection(page, pmEmail);
     await page.goto(`/en/dashboard/projects/${projectId}`, { waitUntil: "commit" });
