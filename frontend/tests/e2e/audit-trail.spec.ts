@@ -70,6 +70,10 @@ test.describe("Audit Trail (Milestone 1.9)", () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    page.on("pageerror", (err) => {
+      console.error("PAGE ERROR DETAIL:", err.message);
+      console.error("PAGE ERROR STACK:", err.stack);
+    });
     test.setTimeout(300000);
     page.setDefaultNavigationTimeout(240000);
     page.setDefaultTimeout(120000);

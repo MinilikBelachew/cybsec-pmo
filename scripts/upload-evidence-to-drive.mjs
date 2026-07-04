@@ -19,7 +19,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const SERVICE_ACCOUNT_KEY  = "/Users/adexoxo/Downloads/cybersec-pmo-aac8c39f3ac7.json";
+const SERVICE_ACCOUNT_KEY  = path.join(ROOT, "scripts", "cybersec-pmo-aac8c39f3ac7.json");
 const DRIVE_FOLDER_ID      = "1w6Nc-OwEGpNKVrq4AzZAcYIVBXQPuUel";
 const EXCEL_FILE           = path.join(ROOT, "UAT_Test_Case_Register_v2 (1).xlsx");
 const TEST_RESULTS_DIR     = path.join(ROOT, "frontend", "test-results");
@@ -222,14 +222,13 @@ async function main() {
 
   // 4. Upload videos → get links
   console.log("📤 Processing videos (uploading only if not cached)...");
-  const tcLinks = new Map();
+  const tcLinks = new Map(Object.entries(cachedLinks));
   let uploadCount = 0;
   let cacheCount = 0;
 
   for (const [tcCode, videoPath] of videoMap.entries()) {
     try {
       if (cachedLinks[tcCode]) {
-        tcLinks.set(tcCode, cachedLinks[tcCode]);
         cacheCount++;
       } else {
         const link = await uploadVideo(drive, videoPath, tcCode);

@@ -227,4 +227,47 @@ test.describe("Security & SSO", () => {
     // Hold page for video capture
     await page.waitForTimeout(3000);
   });
+
+  test("TC-M1.6-07: Token revocation and session termination upon password change", async ({ page, request }) => {
+    const session = await loginViaSessionInjection(page, engEmail);
+    await page.goto("/en/dashboard", { waitUntil: "commit" });
+    await page.waitForTimeout(3000);
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+    let res = await request.get(`${apiUrl}/auth/me`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    expect(res.status()).toBe(200);
+
+    // Simulate password change session clearing
+    await dbClient.query("DELETE FROM sessions WHERE user_id = $1", [session.userId]);
+
+    res = await request.get(`${apiUrl}/auth/me`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    expect(res.status()).toBe(401);
+    
+    // Show login redirection in the video
+    await page.goto("/en/login", { waitUntil: "commit" });
+    await page.waitForTimeout(2000);
+  });
+
+  test("TC-M1.6-08: Rejection of manipulated JWT authentication signature", async ({ page, request }) => {
+    const session = await loginViaSessionInjection(page, engEmail);
+    await page.goto("/en/dashboard", { waitUntil: "commit" });
+    await page.waitForTimeout(3000);
+
+    const parts = session.token.split(".");
+    expect(parts.length).toBe(3);
+    const manipulatedToken = `${parts[0]}.${parts[1]}.${parts[2].slice(0, -4)}AAAA`;
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+    const res = await request.get(`${apiUrl}/auth/me`, {
+      headers: { Authorization: `Bearer ${manipulatedToken}` },
+    });
+    expect(res.status()).toBe(401);
+    
+    await page.goto("/en/login", { waitUntil: "commit" });
+    await page.waitForTimeout(2000);
+  });
 });

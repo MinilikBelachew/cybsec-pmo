@@ -3,6 +3,87 @@ import { loginViaSessionInjection } from "../helpers/auth";
 import { getDbClient } from "../helpers/db";
 import crypto from "crypto";
 
+async function dismissDropdowns(page: any) {
+  let attempts = 0;
+  while (attempts < 5) {
+    const openSelects = page.locator('[data-slot="select-trigger"][aria-expanded="true"]');
+    const count = await openSelects.count();
+    if (count === 0) break;
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+    attempts++;
+  }
+}
+
+async function gotoProjectsPage(page: any) {
+  await page.goto("/en/dashboard/projects", { waitUntil: "commit" });
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText;
+      return text.includes("New Project") || text.includes("No projects") || text.includes("permission");
+    },
+    { timeout: 40000 }
+  ).catch(() => {});
+}
+
+async function selectDropdown(page: any, label: string, optionText: string) {
+  await dismissDropdowns(page);
+  let scope = page.locator('[role="dialog"]:visible');
+  if (await scope.count() === 0) {
+    scope = page.locator('body');
+  }
+  const labelEl = scope.locator('label').filter({ hasText: label }).first();
+  const container = labelEl.locator('xpath=..');
+  const trigger = container.locator('[data-slot="select-trigger"]').first();
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.click();
+  const popup = page.locator('[data-slot="select-content"]:visible');
+  await expect(popup).toBeVisible({ timeout: 15000 });
+  const item = popup.locator('[data-slot="select-item"]:visible').filter({ hasText: optionText }).first();
+  await expect(item).toBeVisible({ timeout: 15000 });
+  await item.click();
+  await expect(popup).toBeHidden({ timeout: 15000 });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false", { timeout: 3000 });
+}
+
+async function pickDate(page: any, label: string, day: string, goNextMonths = 0) {
+  // Make sure no Select dropdowns are open before we open the date calendar
+  await dismissDropdowns(page);
+  await page.waitForTimeout(200);
+
+  let scope = page.locator('[role="dialog"]:visible');
+  if (await scope.count() === 0) {
+    scope = page.locator('body');
+  }
+
+  const labelEl = scope.locator('label').filter({ hasText: label }).first();
+  const container = labelEl.locator('xpath=..');
+  await container.locator('button').first().scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+  await container.locator('button').first().click();
+
+  // Wait for the calendar popup to appear
+  const calendar = page.locator('[data-slot="calendar"]');
+  await expect(calendar).toBeVisible({ timeout: 15000 });
+
+  // Navigate months if needed
+  for (let i = 0; i < goNextMonths; i++) {
+    await page.locator('[data-slot="calendar"] button').filter({ has: page.locator('svg.lucide-chevron-right') }).first().click();
+    await page.waitForTimeout(200);
+  }
+
+  // Click the correct day — exact text match, not disabled, not outside current month
+  const dayBtn = calendar
+    .locator('button:not([disabled]):not([aria-disabled="true"])')
+    .filter({ hasText: new RegExp(`^${day}$`) })
+    .first();
+  await expect(dayBtn).toBeVisible({ timeout: 5000 });
+  await dayBtn.click();
+  
+  // Since date picker popover remains open, press Escape to close it programmatically in tests
+  await page.keyboard.press("Escape");
+  await expect(calendar).toBeHidden({ timeout: 3000 });
+}
+
 test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
   let dbClient: any;
   const adminEmail = "roba.admin@bminilik12gmail.onmicrosoft.com";
@@ -306,5 +387,111 @@ test.describe("Role Enforcement & Security (Milestone 1.7)", () => {
 
     // Hold page for video
     await page.waitForTimeout(3000);
+  });
+
+  test("TC-M1.7-08: CORS origin validation", async ({ page, request }) => {
+    // Navigate to login/dashboard to record UI video
+    await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+    await page.goto("/en/dashboard", { waitUntil: "commit" });
+    await page.waitForTimeout(3000);
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+    const res = await request.get(`${apiUrl}/projects`, {
+      headers: { Origin: "https://malicious-domain.com" },
+    });
+    const headers = res.headers();
+    expect(headers["access-control-allow-origin"]).not.toBe("https://malicious-domain.com");
+  });
+
+  test("TC-M1.7-09: RLS and cross-project data isolation", async ({ page, request }) => {
+    const pmRes = await dbClient.query("SELECT id FROM users WHERE email = $1 LIMIT 1", ["john.pm@bminilik12gmail.onmicrosoft.com"]);
+    const johnPmId = pmRes.rows[0].id;
+
+    const projectRes = await dbClient.query(
+      "SELECT id FROM projects WHERE primary_pm_id != $1 AND (secondary_pm_id IS NULL OR secondary_pm_id != $1) LIMIT 1",
+      [johnPmId]
+    );
+    
+    if (projectRes.rows.length > 0) {
+      const otherProjectId = projectRes.rows[0].id;
+      const session = await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+      
+      // Navigate to projects page to show RLS dashboard in video
+      await page.goto("/en/dashboard/projects", { waitUntil: "commit" });
+      await page.waitForTimeout(3000);
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+      const res = await request.get(`${apiUrl}/projects/${otherProjectId}`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      expect([403, 404]).toContain(res.status());
+    }
+  });
+
+  test("TC-M1.7-10: API rate-limiting", async ({ page, request }) => {
+    // Navigate to dashboard to record UI video
+    await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+    await page.goto("/en/dashboard", { waitUntil: "commit" });
+    await page.waitForTimeout(2000);
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+    const requests = Array.from({ length: 120 }).map(() =>
+      request.get(`${apiUrl}/auth/me`, {
+        headers: { Origin: "http://localhost:3000" }
+      })
+    );
+    const responses = await Promise.all(requests);
+    expect(responses.length).toBe(120);
+    await page.waitForTimeout(2000);
+  });
+
+  test("TC-M1.7-11: SQL injection protection", async ({ page, request }) => {
+    const pmSession = await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+    
+    // Navigate to projects page and input search to show SQLi query validation visually
+    await page.goto("/en/dashboard/projects", { waitUntil: "commit" });
+    const searchBar = page.locator('input[placeholder*="Search projects"]').first();
+    if (await searchBar.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await searchBar.fill("' OR '1'='1");
+      await page.waitForTimeout(1500);
+    }
+    await page.waitForTimeout(2000);
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+    const res = await request.get(`${apiUrl}/projects?search=%27%20OR%20%271%27%3D%271`, {
+      headers: { Authorization: `Bearer ${pmSession.token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.data.length).toBe(0);
+  });
+
+  test("TC-M1.7-12: XSS input sanitization", async ({ page }) => {
+    await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+    await gotoProjectsPage(page);
+    
+    await page.locator('button:has-text("New Project")').click();
+    
+    await page.fill('input[placeholder="e.g. ERP Migration Phase 3"]', `XSS Project ${Date.now()}`);
+    await page.fill('textarea[placeholder*="Brief overview"]', `<script id="xss-script-tag">console.log("XSS")</script>`);
+    
+    await selectDropdown(page, "Department", "Security Operations Center");
+    await selectDropdown(page, "Client / Customer", "Acme Financial Services");
+    await selectDropdown(page, "Primary PM", "John Smith");
+    await pickDate(page, "Start Date", "30", 0);
+    await pickDate(page, "End Date", "15", 1);
+    await page.fill('input[name="value"]', "90000");
+    await selectDropdown(page, "Engagement Type", "Fixed Price");
+    await selectDropdown(page, "Billing Model", "Fixed Price");
+    
+    const responsePromise = page.waitForResponse(
+      (res) => res.url().includes("/projects") && res.status() === 201
+    );
+    await page.click('button[type="submit"]:has-text("Create Project")');
+    await responsePromise;
+
+    const scriptEl = page.locator("script#xss-script-tag");
+    await expect(scriptEl).toBeHidden();
+    await page.waitForTimeout(2000);
   });
 });

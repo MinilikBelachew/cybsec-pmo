@@ -98,6 +98,18 @@ const MAP = [
   ["TC-M1-4-03-PM-Rejection",               "TC-M1.4-03"],
   ["TC-M1-4-04-PM-can-request-rework",      "TC-M1.4-04"],
   ["TC-M1-4-05",                            "TC-M1.4-05"],
+
+  // ─── 10 New E2E Test Cases (Added) ──────────────────────────────────
+  ["roject-Value-Boundary-Limit",           "TC-M1.2-05"],
+  ["tone-target-date-validation",           "TC-M1.3-08"],
+  ["CORS-origin-validation",                "TC-M1.7-08"],
+  ["ross-project-data-isolation",           "TC-M1.7-09"],
+  ["API-rate-limiting",                     "TC-M1.7-10"],
+  ["SQL-injection-protection",              "TC-M1.7-11"],
+  ["XSS-input-sanitization",                "TC-M1.7-12"],
+  ["nation-upon-password-change",           "TC-M1.6-07"],
+  ["WT-authentication-signature",           "TC-M1.6-08"],
+  ["database-write-restriction",            "TC-M1.8-05"],
 ];
 
 if (!existsSync(RESULTS)) {

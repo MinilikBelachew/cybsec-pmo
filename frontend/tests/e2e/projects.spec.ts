@@ -18,20 +18,11 @@ async function dismissDropdowns(page: any) {
 
 /** Navigate to /en/dashboard/projects and wait for the projects API to respond */
 async function gotoProjectsPage(page: any) {
-  const projectsLoaded = page.waitForResponse(
-    (res: any) => res.url().includes("/projects") && res.status() === 200,
-    { timeout: 120000 }
-  ).catch(() => null);
-  const permissionsLoaded = page.waitForResponse(
-    (res: any) => res.url().includes("/permissions") && res.status() === 200,
-    { timeout: 120000 }
-  ).catch(() => null);
   await page.goto("/en/dashboard/projects", { waitUntil: "commit" });
-  await Promise.all([projectsLoaded, permissionsLoaded]);
   await page.waitForFunction(
     () => {
       const text = document.body.innerText;
-      return text.includes("Project") || text.includes("New Project") || text.includes("No projects") || text.includes("permission");
+      return text.includes("New Project") || text.includes("No projects") || text.includes("permission");
     },
     { timeout: 40000 }
   ).catch(() => {});
@@ -47,22 +38,17 @@ async function selectDropdown(page: any, label: string, optionText: string) {
   }
 
   const labelEl = scope.locator('label').filter({ hasText: label }).first();
-  let container = labelEl.locator('xpath=..');
-  const isFlex = await container.evaluate((el: any) => el.classList.contains('flex') || el.className.includes('flex')).catch(() => false);
-  if (isFlex) {
-    container = container.locator('xpath=..');
-  }
-
+  const container = labelEl.locator('xpath=..');
   const trigger = container.locator('[data-slot="select-trigger"]').first();
   await trigger.scrollIntoViewIfNeeded();
   await trigger.click();
   const popup = page.locator('[data-slot="select-content"]:visible');
-  await expect(popup).toBeVisible({ timeout: 5000 });
+  await expect(popup).toBeVisible({ timeout: 15000 });
   const item = popup.locator('[data-slot="select-item"]:visible').filter({ hasText: optionText }).first();
-  await expect(item).toBeVisible({ timeout: 5000 });
+  await expect(item).toBeVisible({ timeout: 15000 });
   await item.click();
   // Wait until the popup is fully gone
-  await expect(popup).toBeHidden({ timeout: 5000 });
+  await expect(popup).toBeHidden({ timeout: 15000 });
   // Confirm trigger is closed
   await expect(trigger).toHaveAttribute("aria-expanded", "false", { timeout: 3000 });
 }
@@ -78,19 +64,13 @@ async function pickDate(page: any, label: string, day: string, goNextMonths = 0)
   }
 
   const labelEl = scope.locator('label').filter({ hasText: label }).first();
-  let container = labelEl.locator('xpath=..');
-  const isFlex = await container.evaluate((el: any) => el.classList.contains('flex') || el.className.includes('flex')).catch(() => false);
-  if (isFlex) {
-    container = container.locator('xpath=..');
-  }
-
-  // Re-locate fresh to avoid stale context after DOM modifications
+  const container = labelEl.locator('xpath=..');
   await container.locator('button').first().scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
   await container.locator('button').first().click();
 
   // Wait for the calendar popup to appear
   const calendar = page.locator('[data-slot="calendar"]');
-  await expect(calendar).toBeVisible({ timeout: 8000 });
+  await expect(calendar).toBeVisible({ timeout: 15000 });
 
   // Navigate months if needed
   for (let i = 0; i < goNextMonths; i++) {
@@ -882,5 +862,65 @@ test.describe("Project Management (Foundation Phase)", () => {
 
     // Hold page for video capture
     await page.waitForTimeout(3000);
+  });
+
+  test("TC-M1.2-05: Project Value Boundary Limit", async ({ page }) => {
+    await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+    await gotoProjectsPage(page);
+    await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
+    await page.locator('button:has-text("New Project")').click();
+
+    await page.fill('input[placeholder="e.g. ERP Migration Phase 3"]', "Overlimit Project");
+    await page.fill('textarea[placeholder*="Brief overview"]', "Budget Boundary Check");
+    await selectDropdown(page, "Department", "Security Operations Center");
+    await selectDropdown(page, "Client / Customer", "Acme Financial Services");
+    await selectDropdown(page, "Primary PM", "John Smith");
+    await pickDate(page, "Start Date", "30", 0);
+    await pickDate(page, "End Date", "15", 1);
+
+    // Enter budget exceeding limit ($150,000,000)
+    await page.fill('input[name="value"]', "150000000");
+
+    await selectDropdown(page, "Engagement Type", "Fixed Price");
+    await selectDropdown(page, "Billing Model", "Fixed Price");
+
+    await page.click('button[type="submit"]:has-text("Create Project")');
+
+    await expect(page.locator("body")).toContainText("Value exceeds maximum project boundary limit", { timeout: 15000 });
+    await page.waitForTimeout(2000);
+  });
+
+  test("TC-M1.3-08: Milestone target date validation", async ({ page }) => {
+    await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+    await gotoProjectsPage(page);
+    await expect(page.locator('button:has-text("New Project")')).toBeVisible({ timeout: 45000 });
+    await page.locator('button:has-text("New Project")').click();
+
+    await page.fill('input[placeholder="e.g. ERP Migration Phase 3"]', "Milestone Date Project");
+    await page.fill('textarea[placeholder*="Brief overview"]', "Milestone date range validation");
+    await selectDropdown(page, "Department", "Security Operations Center");
+    await selectDropdown(page, "Client / Customer", "CUST-101");
+    await selectDropdown(page, "Primary PM", "John Smith");
+    await pickDate(page, "Start Date", "30", 0);
+    await pickDate(page, "End Date", "15", 1);
+
+    await page.fill('input[name="value"]', "80000");
+    await selectDropdown(page, "Engagement Type", "Fixed Price");
+    await selectDropdown(page, "Billing Model", "Fixed Price");
+
+    await page.click('button:has-text("Add Milestones")');
+    const milestoneSection = page.locator('section:has-text("Milestones")');
+    await milestoneSection.locator('input[placeholder="e.g. Phase 1 sign-off"]').fill("Out of Range Milestone");
+    
+    await page.click('button:has-text("Pick a date")');
+    const calendar = page.locator('[data-slot="calendar"]');
+    await expect(calendar).toBeVisible({ timeout: 15000 });
+
+    await page.locator('[data-slot="calendar"] button').filter({ has: page.locator('svg.lucide-chevron-right') }).first().click();
+    await page.waitForTimeout(500);
+
+    const targetDay = page.locator('[data-slot="calendar"] button').filter({ hasText: /^28$/ }).first();
+    await expect(targetDay).toBeDisabled();
+    await page.waitForTimeout(2000);
   });
 });

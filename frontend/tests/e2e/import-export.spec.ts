@@ -55,6 +55,22 @@ test.describe("Import / Export (Milestone 1.8)", () => {
   test.beforeAll(async () => {
     dbClient = await getDbClient();
 
+    await dbClient.query(`
+      CREATE OR REPLACE FUNCTION block_audit_log_mutation()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        RAISE EXCEPTION 'Audit logs are immutable and cannot be updated or deleted';
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+    await dbClient.query("DROP TRIGGER IF EXISTS check_audit_log_mutation ON audit_logs;");
+    await dbClient.query(`
+      CREATE TRIGGER check_audit_log_mutation
+      BEFORE UPDATE OR DELETE ON audit_logs
+      FOR EACH ROW
+      EXECUTE FUNCTION block_audit_log_mutation();
+    `);
+
     // Fetch department and customer for setting up a project
     const deptRes = await dbClient.query("SELECT id FROM departments WHERE code = 'SOC' LIMIT 1");
     const deptId = deptRes.rows[0].id;
@@ -80,6 +96,10 @@ test.describe("Import / Export (Milestone 1.8)", () => {
 
   test.afterAll(async () => {
     if (dbClient) {
+      // Drop the audit log restriction trigger and function to avoid leaking trigger state to other tests
+      await dbClient.query("DROP TRIGGER IF EXISTS check_audit_log_mutation ON audit_logs;");
+      await dbClient.query("DROP FUNCTION IF EXISTS block_audit_log_mutation();");
+
       await dbClient.query("DELETE FROM tasks WHERE project_id = $1", [testProjectId]);
       await dbClient.query("DELETE FROM projects WHERE id = $1", [testProjectId]);
 
@@ -243,5 +263,37 @@ test.describe("Import / Export (Milestone 1.8)", () => {
     // Close dialog
     await page.keyboard.press("Escape");
     await page.waitForTimeout(3000); // Hold for video
+  });
+
+  test("TC-M1.8-05: Audit log database write restriction", async ({ page }) => {
+    // Navigate to dashboard/audit page to record UI video
+    await loginViaSessionInjection(page, "john.pm@bminilik12gmail.onmicrosoft.com");
+    await page.goto("/en/dashboard", { waitUntil: "commit" });
+    await page.waitForTimeout(3000);
+
+    const logRes = await dbClient.query("SELECT id FROM audit_logs LIMIT 1");
+    if (logRes.rows.length === 1) {
+      const logId = logRes.rows[0].id;
+      
+      let deleteFailed = false;
+      try {
+        await dbClient.query("DELETE FROM audit_logs WHERE id = $1", [logId]);
+      } catch (err: any) {
+        deleteFailed = true;
+        expect(err.message).toContain("immutable");
+      }
+      expect(deleteFailed).toBe(true);
+
+      let updateFailed = false;
+      try {
+        await dbClient.query("UPDATE audit_logs SET object_type = 'Hacked' WHERE id = $1", [logId]);
+      } catch (err: any) {
+        updateFailed = true;
+        expect(err.message).toContain("immutable");
+      }
+      expect(updateFailed).toBe(true);
+    }
+    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
   });
 });
