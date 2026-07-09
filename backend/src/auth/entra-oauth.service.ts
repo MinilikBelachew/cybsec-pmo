@@ -10,6 +10,8 @@ import { RedisService } from '../redis/redis.service';
 
 const OAUTH_STATE_TTL_SECONDS = 600;
 const OAUTH_STATE_PREFIX = 'entra:oauth:';
+const OAUTH_CODE_PREFIX = 'entra:oauth:code:';
+const OAUTH_CODE_TTL_SECONDS = 300;
 
 type StoredOAuthState = {
   codeVerifier: string;
@@ -84,6 +86,20 @@ export class EntraOauthService {
     code: string,
     state: string,
   ): Promise<{ idToken: string; nonce: string; returnTo: string }> {
+    const codeCacheKey = `${OAUTH_CODE_PREFIX}${this.hashValue(code)}`;
+    const cachedResult = await this.redisService.get(codeCacheKey);
+    if (cachedResult) {
+      try {
+        return JSON.parse(cachedResult) as {
+          idToken: string;
+          nonce: string;
+          returnTo: string;
+        };
+      } catch {
+        await this.redisService.del(codeCacheKey);
+      }
+    }
+
     const stored = await this.consumeOAuthState(state);
     if (!stored) {
       throw new BadRequestException('Invalid or expired OAuth state');
@@ -128,11 +144,19 @@ export class EntraOauthService {
       );
     }
 
-    return {
+    const result = {
       idToken: tokenResponse.id_token,
       nonce: stored.nonce,
       returnTo: stored.returnTo,
     };
+
+    await this.redisService.set(
+      codeCacheKey,
+      JSON.stringify(result),
+      OAUTH_CODE_TTL_SECONDS,
+    );
+
+    return result;
   }
 
   getFrontendCallbackUrl(returnTo: string, error?: string): string {
@@ -203,5 +227,9 @@ export class EntraOauthService {
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/g, '');
+  }
+
+  private hashValue(value: string): string {
+    return crypto.createHash('sha256').update(value).digest('hex');
   }
 }

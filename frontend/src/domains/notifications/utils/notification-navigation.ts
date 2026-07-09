@@ -21,6 +21,17 @@ export function notificationIcon(eventType: string) {
     case "PROGRESS_REJECTED":
     case "PROGRESS_REWORK":
       return AlertTriangle;
+    case "TIMESHEET_SUBMITTED":
+    case "TIMESHEET_RESUBMITTED":
+      return Clock;
+    case "TIMESHEET_APPROVED":
+      return CheckCircle2;
+    case "TIMESHEET_REJECTED":
+      return AlertTriangle;
+    case "TIMESHEET_ESCALATED":
+      return Bell;
+    case "LEAVE_CRITICAL_CONFLICT":
+      return AlertTriangle;
     default:
       return Bell;
   }
@@ -38,6 +49,17 @@ export function notificationIconClass(eventType: string): string {
       return "text-emerald-500";
     case "PROGRESS_REJECTED":
     case "PROGRESS_REWORK":
+      return "text-rose-500";
+    case "TIMESHEET_SUBMITTED":
+    case "TIMESHEET_RESUBMITTED":
+      return "text-violet-500";
+    case "TIMESHEET_APPROVED":
+      return "text-emerald-500";
+    case "TIMESHEET_REJECTED":
+      return "text-rose-500";
+    case "TIMESHEET_ESCALATED":
+      return "text-amber-600";
+    case "LEAVE_CRITICAL_CONFLICT":
       return "text-rose-500";
     default:
       return "text-primary";

@@ -1,0 +1,767 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Send,
+  Trash2,
+} from "lucide-react";
+import { toast } from "react-hot-toast";
+import { PageHeader } from "@/shared/components/page-header";
+import { Button } from "@/shared/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import { cn } from "@/shared/utils/cn";
+import {
+  useCreateTimesheetEntryMutation,
+  useDeleteTimesheetEntryMutation,
+  useGetTimesheetContextQuery,
+  useGetTimesheetWeekQuery,
+  useResubmitTimesheetWeekMutation,
+  useSubmitTimesheetWeekMutation,
+  useUpdateTimesheetEntryMutation,
+} from "../api/resources.api";
+import type {
+  TimesheetContextProject,
+  TimesheetEntryStatus,
+  TimesheetWeekEntry,
+} from "../types/resources.types";
+import { TIMESHEET_STATUS_CONFIG } from "../utils/resource-ui.config";
+
+function toUiStatus(status: string): TimesheetEntryStatus {
+  return status.toLowerCase() as TimesheetEntryStatus;
+}
+
+function shiftWeekStart(weekStart: string, weeks: number) {
+  const date = new Date(`${weekStart}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + weeks * 7);
+  return date.toISOString().slice(0, 10);
+}
+
+export function LogHoursPage() {
+  const searchParams = useSearchParams();
+  const initialWeekStart = searchParams.get("weekStart") ?? undefined;
+  const [weekStart, setWeekStart] = useState<string | undefined>(initialWeekStart);
+  const [activeDate, setActiveDate] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+
+  const { data: context, isLoading: contextLoading } = useGetTimesheetContextQuery();
+  const {
+    data: week,
+    isLoading: weekLoading,
+    isFetching,
+    error: weekError,
+  } = useGetTimesheetWeekQuery(weekStart ? { weekStart } : undefined);
+
+  const [createEntry, { isLoading: creating }] = useCreateTimesheetEntryMutation();
+  const [deleteEntry] = useDeleteTimesheetEntryMutation();
+  const [updateEntry, { isLoading: updating }] = useUpdateTimesheetEntryMutation();
+  const [submitWeek, { isLoading: submitting }] = useSubmitTimesheetWeekMutation();
+  const [resubmitWeek, { isLoading: resubmitting }] = useResubmitTimesheetWeekMutation();
+
+  useEffect(() => {
+    if (initialWeekStart) {
+      setWeekStart(initialWeekStart);
+    }
+  }, [initialWeekStart]);
+
+  useEffect(() => {
+    if (week?.weekStart && weekStart === undefined) {
+      setWeekStart(week.weekStart);
+    }
+  }, [week?.weekStart, weekStart]);
+
+  useEffect(() => {
+    if (!week?.days.length) return;
+    if (!activeDate || !week.days.some((day) => day.date === activeDate)) {
+      const today = new Date().toISOString().slice(0, 10);
+      const todayInWeek = week.days.find((day) => day.date === today);
+      setActiveDate(todayInWeek?.date ?? week.days[week.days.length - 1].date);
+    }
+  }, [week?.days, activeDate]);
+
+  const dayEntries = useMemo(
+    () => week?.entries.filter((entry) => entry.workDate === activeDate) ?? [],
+    [week?.entries, activeDate],
+  );
+
+  const activeDay = week?.days.find((day) => day.date === activeDate);
+  const dayHours = activeDay?.totalHours ?? 0;
+  const overThreshold = activeDay?.isOverThreshold ?? false;
+  const draftCount =
+    week?.entries.filter((entry) => toUiStatus(entry.status) === "draft").length ?? 0;
+
+  const rejectedEntries = useMemo(
+    () =>
+      week?.entries.filter((entry) => toUiStatus(entry.status) === "rejected") ?? [],
+    [week?.entries],
+  );
+
+  const rejectedCount = rejectedEntries.length;
+
+  async function handleDelete(id: string) {
+    try {
+      await deleteEntry(id).unwrap();
+    } catch {
+      toast.error("Could not delete entry.");
+    }
+  }
+
+  async function handleSubmitWeek() {
+    if (!week?.weekStart) return;
+    try {
+      const result = await submitWeek({ weekStart: week.weekStart }).unwrap();
+      toast.success(`Submitted ${result.submittedCount} entries for approval.`);
+    } catch {
+      toast.error("Could not submit week.");
+    }
+  }
+
+  async function handleResubmitWeek() {
+    if (!week?.weekStart) return;
+    try {
+      const result = await resubmitWeek({ weekStart: week.weekStart }).unwrap();
+      toast.success(`Resubmitted ${result.submittedCount} entries for approval.`);
+    } catch {
+      toast.error("Could not resubmit week.");
+    }
+  }
+
+  const loading = contextLoading || weekLoading;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 size-5 animate-spin" />
+        Loading timesheet...
+      </div>
+    );
+  }
+
+  if (weekError || !week) {
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center text-muted-foreground">
+        Could not load timesheet data.
+      </div>
+    );
+  }
+
+  if (!context?.projects.length) {
+    return (
+      <div className="mx-auto max-w-lg space-y-2 py-16 text-center text-muted-foreground">
+        <p className="font-medium text-foreground">No active project allocations</p>
+        <p className="text-sm">
+          You need an active project allocation before you can log hours.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 pb-10">
+      <PageHeader
+        title="Log Hours"
+        description={`Week of ${week.weekLabel} · ${week.totalHours.toFixed(1)}h logged`}
+        actions={
+          <div className="flex items-center gap-2">
+            <div className="flex items-center rounded-lg border border-border/60">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                onClick={() => setWeekStart(shiftWeekStart(week.weekStart, -1))}
+                aria-label="Previous week"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                onClick={() => setWeekStart(shiftWeekStart(week.weekStart, 1))}
+                aria-label="Next week"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+            {rejectedCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400"
+                onClick={handleResubmitWeek}
+                disabled={resubmitting || isFetching}
+              >
+                <RefreshCw className={cn("size-3.5", resubmitting && "animate-spin")} />
+                Resubmit Week ({rejectedCount})
+              </Button>
+            )}
+            {draftCount > 0 && (
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={handleSubmitWeek}
+                disabled={submitting || isFetching}
+              >
+                <Send className="size-3.5" />
+                Submit Week ({draftCount})
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {week.recentWeeks.map((summary) => {
+          const statusKey =
+            summary.status === "mixed" ? "submitted" : summary.status;
+          const status = TIMESHEET_STATUS_CONFIG[statusKey];
+          const StatusIcon = status.icon;
+          const isCurrent = summary.weekStart === week.weekStart;
+
+          return (
+            <button
+              key={summary.weekStart}
+              type="button"
+              onClick={() => setWeekStart(summary.weekStart)}
+              className={cn(
+                "rounded-xl border p-4 text-left transition-colors",
+                isCurrent
+                  ? "border-primary/30 bg-primary/5"
+                  : "border-border/50 bg-card hover:border-border",
+              )}
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {summary.weekLabel}
+                </p>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold",
+                    status.bg,
+                    status.text,
+                    status.border,
+                  )}
+                >
+                  <StatusIcon className="size-3" />
+                  {summary.status === "mixed" ? "In progress" : status.label}
+                </span>
+              </div>
+              <p className="text-xl font-bold">
+                {summary.totalHours.toFixed(1)}h{" "}
+                <span className="text-sm font-normal text-muted-foreground">
+                  / {summary.billableHours.toFixed(1)}h billable
+                </span>
+              </p>
+              {summary.approvedBy && (
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Approved by {summary.approvedBy}
+                </p>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+        <div className="flex border-b border-border/50">
+          {week.days.map((day) => {
+            const isActive = day.date === activeDate;
+            const [weekday, ...rest] = day.label.split(" ");
+
+            return (
+              <button
+                key={day.date}
+                type="button"
+                onClick={() => {
+                  setActiveDate(day.date);
+                  setShowForm(false);
+                }}
+                className={cn(
+                  "-mb-px flex flex-1 flex-col items-center border-b-2 px-2 py-3 text-sm transition-colors",
+                  isActive
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-transparent text-muted-foreground hover:bg-muted/20 hover:text-foreground",
+                )}
+              >
+                <span className="text-[11px] font-semibold">{weekday}</span>
+                <span className="text-xs">{rest.join(" ")}</span>
+                {day.totalHours > 0 && (
+                  <span
+                    className={cn(
+                      "mt-0.5 text-[10px] font-bold",
+                      isActive ? "text-primary" : "text-muted-foreground",
+                      day.isOverThreshold && "text-rose-500",
+                    )}
+                  >
+                    {day.totalHours.toFixed(1)}h
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold">{activeDay?.label}</p>
+              <p
+                className={cn(
+                  "mt-0.5 text-xs",
+                  overThreshold ? "font-semibold text-rose-500" : "text-muted-foreground",
+                )}
+              >
+                {dayHours.toFixed(1)}h logged
+                {overThreshold && " — exceeds 10h threshold"}
+              </p>
+            </div>
+            <Button size="sm" className="gap-1.5" onClick={() => setShowForm(!showForm)}>
+              <Plus className="size-3.5" />
+              Add Entry
+            </Button>
+          </div>
+
+          {overThreshold && (
+            <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-400">
+              <AlertCircle className="size-3.5 shrink-0" />
+              Logged hours exceed the daily threshold. This entry will require manual approval.
+            </div>
+          )}
+
+          {showForm && activeDate && (
+            <AddEntryForm
+              date={activeDate}
+              projects={context.projects}
+              dailyThreshold={context.dailyThresholdHours}
+              saving={creating}
+              onAdd={async (payload) => {
+                try {
+                  await createEntry(payload).unwrap();
+                  setShowForm(false);
+                  toast.success("Entry added.");
+                } catch {
+                  toast.error("Could not add entry. Check for duplicates or daily limits.");
+                }
+              }}
+              onCancel={() => setShowForm(false)}
+            />
+          )}
+
+          {dayEntries.length === 0 && !showForm ? (
+            <div className="flex flex-col items-center justify-center space-y-2 py-10 text-center">
+              <Clock className="size-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No hours logged for this day</p>
+              <Button variant="link" size="sm" onClick={() => setShowForm(true)}>
+                + Add entry
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {dayEntries.map((entry) => (
+                <EntryRow
+                  key={entry.id}
+                  entry={entry}
+                  saving={updating}
+                  onDelete={() => handleDelete(entry.id)}
+                  onSave={async (payload) => {
+                    try {
+                      await updateEntry({ id: entry.id, ...payload }).unwrap();
+                      toast.success(
+                        toUiStatus(entry.status) === "rejected"
+                          ? "Entry updated and moved to draft."
+                          : "Entry updated.",
+                      );
+                    } catch {
+                      toast.error("Could not update entry.");
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {rejectedEntries.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-900/20">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-bold text-rose-700 dark:text-rose-400">
+              Entries requiring resubmission
+            </p>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={handleResubmitWeek}
+              disabled={resubmitting || isFetching}
+            >
+              <RefreshCw className={cn("size-3.5", resubmitting && "animate-spin")} />
+              Resubmit all ({rejectedCount})
+            </Button>
+          </div>
+          <p className="text-xs text-rose-700/80 dark:text-rose-400/80">
+            Edit entries below to address feedback, or resubmit as-is with one click.
+          </p>
+          {rejectedEntries.map((entry) => (
+            <div
+              key={entry.id}
+              className="flex items-start gap-3 text-xs text-rose-700 dark:text-rose-400"
+            >
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              <div>
+                <span className="font-semibold">
+                  {entry.projectName} — {entry.taskName}
+                </span>
+                {entry.feedback && (
+                  <span className="text-muted-foreground"> · {entry.feedback}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EntryRow({
+  entry,
+  saving,
+  onDelete,
+  onSave,
+}: {
+  entry: TimesheetWeekEntry;
+  saving: boolean;
+  onDelete: () => void;
+  onSave: (payload: { hours?: number; notes?: string }) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [hours, setHours] = useState(String(entry.hours));
+  const [notes, setNotes] = useState(entry.notes ?? "");
+
+  const status = TIMESHEET_STATUS_CONFIG[toUiStatus(entry.status)];
+  const StatusIcon = status.icon;
+  const canEdit =
+    toUiStatus(entry.status) === "draft" || toUiStatus(entry.status) === "rejected";
+  const parsedHours = parseFloat(hours);
+  const canSave = Boolean(hours && parsedHours > 0 && parsedHours <= 24);
+
+  const inputClass =
+    "h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-sm outline-none transition-all focus:ring-1 focus:ring-primary/30";
+
+  if (editing) {
+    return (
+      <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+        <p className="text-xs font-bold uppercase tracking-wider text-primary">
+          Edit Entry · {entry.projectName} — {entry.taskName}
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Hours
+            </label>
+            <input
+              type="number"
+              min="0.25"
+              max="24"
+              step="0.25"
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className={cn(inputClass, "h-auto resize-none py-2")}
+            />
+          </div>
+        </div>
+        {entry.feedback && (
+          <p className="text-xs text-rose-600 dark:text-rose-400">
+            PM feedback: {entry.feedback}
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setEditing(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={!canSave || saving}
+            onClick={async () => {
+              await onSave({
+                hours: parsedHours,
+                notes: notes.trim() || undefined,
+              });
+              setEditing(false);
+            }}
+          >
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save changes"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-4 rounded-xl border p-4 transition-colors",
+        toUiStatus(entry.status) === "rejected"
+          ? "border-rose-200 bg-rose-50/50 dark:border-rose-800 dark:bg-rose-900/10"
+          : "border-border/50 bg-muted/20 hover:bg-muted/40",
+      )}
+    >
+      <div className="flex size-12 shrink-0 flex-col items-center justify-center rounded-xl border border-border/60 bg-card">
+        <span className="text-base font-bold leading-none">{entry.hours}</span>
+        <span className="text-[9px] text-muted-foreground">hrs</span>
+      </div>
+
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold">{entry.taskName}</span>
+          <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {entry.projectName}
+          </span>
+        </div>
+        {entry.notes && (
+          <p className="text-xs text-muted-foreground">{entry.notes}</p>
+        )}
+        {entry.feedback && (
+          <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+            Feedback: {entry.feedback}
+          </p>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold",
+            status.bg,
+            status.text,
+            status.border,
+          )}
+        >
+          <StatusIcon className="size-3" />
+          {status.label}
+        </span>
+        {canEdit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-primary"
+              onClick={() => setEditing(true)}
+              aria-label="Edit entry"
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-destructive"
+              onClick={onDelete}
+              aria-label="Delete entry"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AddEntryForm({
+  date,
+  projects,
+  dailyThreshold,
+  saving,
+  onAdd,
+  onCancel,
+}: {
+  date: string;
+  projects: TimesheetContextProject[];
+  dailyThreshold: number;
+  saving: boolean;
+  onAdd: (payload: {
+    projectId: string;
+    taskId: string;
+    workDate: string;
+    hours: number;
+    notes?: string;
+  }) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [projectId, setProjectId] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const [hours, setHours] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const selectedProject = projects.find((item) => item.id === projectId);
+  const parsedHours = parseFloat(hours);
+  const canSubmit = Boolean(
+    projectId && taskId && hours && parsedHours > 0 && parsedHours <= 24,
+  );
+
+  async function handleAdd() {
+    if (!canSubmit) return;
+    await onAdd({
+      projectId,
+      taskId,
+      workDate: date,
+      hours: parsedHours,
+      notes: notes.trim() || undefined,
+    });
+  }
+
+  const inputClass =
+    "h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-sm outline-none transition-all focus:ring-1 focus:ring-primary/30";
+
+  return (
+    <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+      <p className="text-xs font-bold uppercase tracking-wider text-primary">
+        New Entry
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Project
+          </label>
+          <Select
+            value={projectId}
+            onValueChange={(value) => {
+              setProjectId(value ?? "");
+              setTaskId("");
+            }}
+          >
+            <SelectTrigger className={cn("h-9 w-full rounded-xl", inputClass)}>
+              <SelectValue placeholder="Select project...">
+                {selectedProject?.name ?? "Select project..."}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false} className="max-h-64">
+              {projects.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Task
+          </label>
+          <Select
+            value={taskId}
+            onValueChange={(value) => setTaskId(value ?? "")}
+            disabled={!selectedProject}
+          >
+            <SelectTrigger
+              className={cn(
+                "h-9 w-full rounded-xl",
+                inputClass,
+                !selectedProject && "cursor-not-allowed opacity-50",
+              )}
+            >
+              <SelectValue placeholder="Select task...">
+                {selectedProject?.tasks.find((task) => task.id === taskId)?.title ??
+                  "Select task..."}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false} className="max-h-64">
+              {selectedProject?.tasks.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Hours Worked
+          </label>
+          <input
+            type="number"
+            min="0.25"
+            max="24"
+            step="0.25"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            placeholder="e.g. 4.5"
+            className={inputClass}
+          />
+          {parsedHours > dailyThreshold && (
+            <p className="text-[10px] text-rose-500">
+              Over {dailyThreshold}h — may require approval
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Date
+          </label>
+          <input
+            type="date"
+            value={date}
+            readOnly
+            className={cn(inputClass, "cursor-not-allowed opacity-60")}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Task Details (optional)
+        </label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Brief description of work done..."
+          rows={2}
+          className={cn(inputClass, "h-auto resize-none py-2")}
+        />
+      </div>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          className="gap-1.5"
+          onClick={handleAdd}
+          disabled={!canSubmit || saving}
+        >
+          {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+          Add Entry
+        </Button>
+      </div>
+    </div>
+  );
+}

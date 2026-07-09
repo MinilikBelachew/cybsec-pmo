@@ -20,6 +20,7 @@ import { FilesUploadService, UploadedFileResult } from '../files/files-upload.se
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { ProjectTeamService } from '../projects/project-team.service';
+import { LeaveBackupService } from '../resources/leave-backup.service';
 import { TaskDependenciesService } from './task-dependencies.service';
 import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
@@ -28,7 +29,15 @@ const EXTERNAL_ROLES = [RoleEnum.client, RoleEnum.vendor];
 
 const TASK_INCLUDE = {
   project: { select: { id: true, name: true } },
-  owner: { select: { id: true, displayName: true, email: true } },
+  owner: {
+    select: {
+      id: true,
+      displayName: true,
+      email: true,
+      employees: { select: { id: true } },
+    },
+  },
+  backupOwner: { select: { id: true, displayName: true, email: true } },
   parentTask: { select: { id: true, title: true } },
   phase: { select: { id: true, name: true } },
   subTasks: {
@@ -73,6 +82,7 @@ export class TasksService {
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly notificationsService: NotificationsService,
     private readonly projectTeamService: ProjectTeamService,
+    private readonly leaveBackupService: LeaveBackupService,
     private readonly taskDependenciesService: TaskDependenciesService,
   ) {}
 
@@ -146,6 +156,22 @@ export class TasksService {
       comments: this.filterCommentsForRole(comments ?? [], roleCode),
       attachments: (attachments ?? []).map((a: any) => this.mapAttachment(a)),
     };
+  }
+
+  private async attachScheduleImpact<T extends Record<string, unknown>>(task: T) {
+    const scheduleImpact = await this.leaveBackupService.resolveTaskScheduleImpact({
+      id: String(task.id),
+      projectId: String(task.projectId),
+      priority: task.priority as PriorityLevel,
+      isOnCriticalPath: Boolean(task.isOnCriticalPath),
+      startDate: task.startDate ? new Date(String(task.startDate)) : null,
+      endDate: task.endDate ? new Date(String(task.endDate)) : null,
+      ownerId: (task.ownerId as string | null) ?? null,
+      backupOwnerId: (task.backupOwnerId as string | null) ?? null,
+      owner: task.owner as { employees?: { id: string } | null } | null,
+    });
+
+    return { ...task, scheduleImpact };
   }
 
   private formatDateParam(value?: Date | null): string | undefined {
@@ -333,6 +359,7 @@ export class TasksService {
         description: dto.description ?? null,
         priority: (dto.priority as PriorityLevel) ?? PriorityLevel.Medium,
         ownerId: dto.ownerId ?? null,
+        backupOwnerId: dto.backupOwnerId ?? null,
         startDate: dto.startDate ?? null,
         endDate: dto.endDate ?? null,
         effortHours: dto.effortHours ?? null,
@@ -724,7 +751,11 @@ export class TasksService {
       include: TASK_INCLUDE,
     });
 
-    return tasks.map((task) => this.formatTask(task, viewerRoleCode));
+    return Promise.all(
+      tasks.map(async (task) =>
+        this.attachScheduleImpact(this.formatTask(task, viewerRoleCode)),
+      ),
+    );
   }
 
   async countMany(query: QueryTaskDto, caslUser: CaslUserContext) {
@@ -857,7 +888,7 @@ export class TasksService {
       });
     }
 
-    return this.formatTask(task, viewerRoleCode);
+    return this.attachScheduleImpact(this.formatTask(task, viewerRoleCode));
   }
 
   async update(
@@ -909,6 +940,8 @@ export class TasksService {
         description: dto.description ?? undefined,
         priority: (dto.priority as PriorityLevel) ?? undefined,
         ownerId: dto.ownerId !== undefined ? dto.ownerId : undefined,
+        backupOwnerId:
+          dto.backupOwnerId !== undefined ? dto.backupOwnerId : undefined,
         phaseId: dto.phaseId !== undefined ? dto.phaseId : undefined,
         startDate: dto.startDate !== undefined ? dto.startDate : undefined,
         endDate: dto.endDate !== undefined ? dto.endDate : undefined,

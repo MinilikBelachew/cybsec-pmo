@@ -71,6 +71,11 @@
   --sidebar-ring: oklch(0.60 0.16 230);
   --sidebar-rail-from: oklch(from var(--primary) 0.58 calc(c * 1.15) h);
   --sidebar-rail-to: oklch(from var(--primary) 0.11 calc(c * 0.88) h);
+  --chart-1: oklch(0.60 0.16 230);
+  --chart-2: oklch(0.62 0.17 160);
+  --chart-3: oklch(0.55 0.12 280);
+  --chart-4: oklch(0.75 0.15 85);
+  --chart-5: oklch(0.65 0.18 25);
 }
 
 .dark {
@@ -102,6 +107,11 @@
   --sidebar-ring: oklch(0.68 0.14 225);
   --sidebar-rail-from: oklch(from var(--primary) 0.52 calc(c * 1.1) h);
   --sidebar-rail-to: oklch(from var(--primary) 0.09 calc(c * 0.9) h);
+  --chart-1: oklch(0.68 0.14 225);
+  --chart-2: oklch(0.70 0.15 160);
+  --chart-3: oklch(0.62 0.12 280);
+  --chart-4: oklch(0.78 0.14 85);
+  --chart-5: oklch(0.72 0.16 25);
 }
 
 @layer base {

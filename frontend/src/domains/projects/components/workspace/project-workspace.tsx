@@ -15,6 +15,8 @@ import {
   useCreateTaskMutation,
   useGetProjectTaskAssigneesQuery,
   useGetTaskDependenciesQuery,
+  useApplyLeaveBackupMutation,
+  useGetProjectLeaveImpactsQuery,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
 import {
@@ -57,6 +59,7 @@ import {
   Maximize2,
   Minimize2,
   ScrollText,
+  Users2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -70,6 +73,7 @@ import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
 import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
 import { ProjectAuditView } from "./workspace-views/project-audit-view";
+import { TeamView } from "./workspace-views/team-view";
 import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
@@ -86,7 +90,7 @@ import { useRole } from "@/shared/providers/role-provider";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
-type View = "list" | "board" | "calendar" | "gantt" | "table" | "phases" | "audit";
+type View = "list" | "board" | "calendar" | "gantt" | "table" | "phases" | "team" | "audit";
 
 interface Task {
   id: string;
@@ -135,6 +139,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "gantt", label: "Gantt", icon: ChartGantt },
   { id: "table", label: "Table", icon: Table2 },
   { id: "phases", label: "Phases", icon: Flag },
+  { id: "team", label: "Team", icon: Users2 },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -234,7 +239,9 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases, canImportProjects, canViewProjectAudit } = useModulePermissions();
+  const { canCreatePhases, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam } =
+    useModulePermissions();
+  const canManageProjectTeam = canEditProjects && canEditTeam;
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
   const canManageTasks = ability?.can("create", "Task") ?? false;
   const canCreateTask = canManageTasks;
@@ -249,6 +256,19 @@ export function ProjectWorkspace() {
   };
 
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
+  const { data: leaveImpacts } = useGetProjectLeaveImpactsQuery(id);
+  const leaveImpactSummary = useMemo(() => {
+    const rows = leaveImpacts?.rows ?? [];
+    if (rows.length === 0) {
+      return null;
+    }
+    const maxSlip = rows.reduce(
+      (max, row) => Math.max(max, row.task.estimatedDelayDays),
+      0,
+    );
+    const criticalWithoutBackup = rows.filter((row) => row.isCritical && !row.hasBackup).length;
+    return { count: rows.length, maxSlip, criticalWithoutBackup };
+  }, [leaveImpacts]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -279,6 +299,8 @@ export function ProjectWorkspace() {
   
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
+  const [applyLeaveBackup] = useApplyLeaveBackupMutation();
+  const applyBackupHandled = useRef<string | null>(null);
   const [createTask] = useCreateTaskMutation();
   const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
 
@@ -426,15 +448,36 @@ export function ProjectWorkspace() {
 
   useEffect(() => {
     const taskIdParam = searchParams.get("taskId");
-    if (!taskIdParam) return;
+    if (!taskIdParam || !id) return;
 
+    const shouldApplyBackup = searchParams.get("applyBackup") === "1";
     const shouldFocusReview = searchParams.get("reviewProgress") === "1";
     const shouldFocusProgress = searchParams.get("progress") === "1";
-    setTaskDetailDefaultTab(undefined);
-    setFocusProgressReview(shouldFocusReview || shouldFocusProgress);
-    setSelectedTaskId(taskIdParam);
-    router.replace(`/dashboard/projects/${id}`);
-  }, [searchParams, id, router]);
+
+    const run = async () => {
+      if (shouldApplyBackup && applyBackupHandled.current !== taskIdParam) {
+        applyBackupHandled.current = taskIdParam;
+        try {
+          const result = await applyLeaveBackup({
+            projectId: id,
+            taskId: taskIdParam,
+          }).unwrap();
+          toast.success(
+            `Task reassigned to ${result.ownerName ?? "backup resource"}.`,
+          );
+        } catch {
+          toast.error("Could not assign backup resource to this task.");
+        }
+      }
+
+      setTaskDetailDefaultTab(undefined);
+      setFocusProgressReview(shouldFocusReview || shouldFocusProgress);
+      setSelectedTaskId(taskIdParam);
+      router.replace(`/dashboard/projects/${id}`);
+    };
+
+    void run();
+  }, [searchParams, id, router, applyLeaveBackup]);
 
   const [ganttZoom, setGanttZoom] = useState(1);
 
@@ -691,14 +734,30 @@ export function ProjectWorkspace() {
         />
       )}
       {!isFullscreen && (
+        <div className="px-5 pt-3">
+          {activeView !== "team" && leaveImpactSummary && leaveImpactSummary.count > 0 && (
+            <p className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+              {leaveImpactSummary.count} leave conflict
+              {leaveImpactSummary.count === 1 ? "" : "s"} detected — see the Team tab for details.
+            </p>
+          )}
+        </div>
+      )}
+      {!isFullscreen && (
         <div className="px-5 py-4 bg-slate-500/5 dark:bg-white/[0.02] border-b border-slate-200/60 dark:border-white/[0.08] grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0 bg-transparent">
           {/* Progress Tracker */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-muted-foreground">Project Health</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-                on track
-              </span>
+              {leaveImpactSummary && leaveImpactSummary.maxSlip > 0 ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  ~{leaveImpactSummary.maxSlip}d slip risk
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  on track
+                </span>
+              )}
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs font-semibold">
@@ -712,7 +771,9 @@ export function ProjectWorkspace() {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground">
-                Average approved progress across tasks
+                {leaveImpactSummary
+                  ? `${leaveImpactSummary.count} leave conflict${leaveImpactSummary.count === 1 ? "" : "s"} · projected slip up to ~${leaveImpactSummary.maxSlip} day(s)`
+                  : "Average approved progress across tasks"}
               </p>
             </div>
           </div>
@@ -804,7 +865,7 @@ export function ProjectWorkspace() {
           )}
         </button>
       </div>
-      {activeView !== "audit" && (
+      {activeView !== "audit" && activeView !== "team" && (
       <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Search & Filters */}
         <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1022,6 +1083,16 @@ export function ProjectWorkspace() {
                   }
                 : undefined
             }
+          />
+        )}
+
+        {activeView === "team" && (
+          <TeamView
+            projectId={id}
+            departmentId={project.departmentId}
+            startDate={project.startDate}
+            endDate={project.endDate}
+            canEdit={canManageProjectTeam}
           />
         )}
 

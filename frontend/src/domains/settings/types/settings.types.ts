@@ -16,3 +16,11 @@ export type UpdateAuditSettingsPayload = {
   auditExportPdfJsonLimit?: number;
   auditArchiveEnabled?: boolean;
 };
+
+export type {
+  AllocationPolicies,
+  UpdateAllocationPoliciesPayload,
+  DesignationRule,
+  DepartmentStaffingRules,
+  PolicyEnforcementMode,
+} from "@/domains/resources/types/allocation-policy.types";

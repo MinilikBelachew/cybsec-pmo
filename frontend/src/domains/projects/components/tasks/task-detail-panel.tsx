@@ -165,6 +165,7 @@ export function TaskDetailPanel({
       priority: "Medium",
       status: "To_Do",
       ownerId: null,
+      backupOwnerId: null,
       startDate: undefined,
       endDate: undefined,
       effortHours: undefined,
@@ -172,11 +173,18 @@ export function TaskDetailPanel({
   });
 
   const watchedOwnerId = watch("ownerId");
+  const watchedBackupOwnerId = watch("backupOwnerId");
   const watchedStartDate = watch("startDate");
   const watchedEndDate = watch("endDate");
   const watchedEffortHours = watch("effortHours");
   const watchedStatus = watch("status");
   const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
+  const activeBackupOwner = assignees.find(
+    (assignee) => assignee.userId === watchedBackupOwnerId,
+  );
+  const backupOwnerCandidates = assignees.filter(
+    (assignee) => assignee.userId !== watchedOwnerId,
+  );
 
   const canManageTasks = ability?.can("create", "Task") ?? false;
   const isTaskOwner = user?.id === task?.ownerId;
@@ -511,6 +519,63 @@ export function TaskDetailPanel({
                         )}
                       />
                       <FieldError message={errors.phaseId?.message} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Backup owner</Label>
+                      <Controller
+                        control={control}
+                        name="backupOwnerId"
+                        render={({ field }) => (
+                          <Select
+                            value={field.value ?? "none"}
+                            onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                            disabled={loadingAssignees || !canEditTaskFields}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="No backup">
+                                {activeBackupOwner ? (
+                                  <span className="flex items-center gap-2">
+                                    <Avatar className="size-5">
+                                      <AvatarFallback className="text-[9px]">
+                                        {initials(activeBackupOwner.displayName)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    {activeBackupOwner.displayName}
+                                  </span>
+                                ) : field.value ? (
+                                  task?.backupOwner?.displayName ?? "Former backup (not on project team)"
+                                ) : (
+                                  "No backup"
+                                )}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent alignItemWithTrigger={false}>
+                              <SelectItem value="none">No backup</SelectItem>
+                              {backupOwnerCandidates.map((assignee) => (
+                                <SelectItem key={assignee.userId} value={assignee.userId}>
+                                  <div className="flex items-center gap-2.5 py-0.5">
+                                    <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                                      {initials(assignee.displayName)}
+                                    </span>
+                                    <div className="flex flex-col gap-0.5 text-left">
+                                      <span>{assignee.displayName}</span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {assignee.role} · {assignee.department.name}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Covers this task when the assignee is on leave.
+                      </p>
                     </div>
                   </div>
 

@@ -5,14 +5,15 @@ import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAuth } from "@/domains/auth";
-import { Users, Settings, ShieldAlert, Archive } from "lucide-react";
+import { Users, Settings, ShieldAlert, Archive, Briefcase } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
 import { BreakGlassSection } from "./break-glass-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
+import { AllocationPoliciesSection } from "./allocation-policies-section";
 
-type SettingsTab = "profile" | "users" | "security" | "audit";
+type SettingsTab = "profile" | "users" | "security" | "audit" | "allocation";
 
 export function SettingsPage() {
   const ability = useAppAbility();
@@ -73,6 +74,21 @@ export function SettingsPage() {
         {canManageSecurity && (
           <button
             type="button"
+            onClick={() => setActiveTab("allocation")}
+            className={cn(
+              "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+              activeTab === "allocation"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Briefcase className="size-4" />
+            Resource policies
+          </button>
+        )}
+        {canManageSecurity && (
+          <button
+            type="button"
             onClick={() => setActiveTab("audit")}
             className={cn(
               "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
@@ -106,6 +122,13 @@ export function SettingsPage() {
 
       {activeTab === "users" && canManageUsers && (
         <UserDirectorySection
+          onSuccess={notifySuccess}
+          onError={notifyError}
+        />
+      )}
+
+      {activeTab === "allocation" && canManageSecurity && (
+        <AllocationPoliciesSection
           onSuccess={notifySuccess}
           onError={notifyError}
         />

@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { Button } from "@/shared/ui/button";
 import { env } from "@/config/env.config";
 import { useSearchParams } from "next/navigation";
 import { normalizeReturnPath } from "@/shared/utils/return-path";
+import { useAppDispatch } from "@/store/hooks";
+import { clearUser } from "../store/auth.slice";
 
 function getErrorMessage(code: string | null): string | null {
   if (!code) return null;
@@ -14,7 +17,7 @@ function getErrorMessage(code: string | null): string | null {
     return "Sign-in session expired. Please try Microsoft sign-in again.";
   }
   if (code === "invalid_token") {
-    return "Microsoft sign-in could not be verified. Check Entra app registration (redirect URI and client secret), then try again.";
+    return "Microsoft sign-in could not be verified. Clear site data for localhost (or try a fresh sign-in without using the browser back button), then try again.";
   }
   if (code === "login_locked") {
     return "Too many failed sign-in attempts. Wait 30 minutes or use emergency login.";
@@ -33,9 +36,16 @@ function getErrorMessage(code: string | null): string | null {
 
 export function LoginForm() {
   const searchParams = useSearchParams();
+  const dispatch = useAppDispatch();
   const error = getErrorMessage(searchParams.get("error"));
 
+  useEffect(() => {
+    if (!searchParams.get("error")) return;
+    dispatch(clearUser());
+  }, [dispatch, searchParams]);
+
   const handleMicrosoftLogin = () => {
+    dispatch(clearUser());
     const returnTo = normalizeReturnPath(searchParams.get("callbackUrl"));
     const url = new URL(`${env.apiUrl}/auth/entra/authorize`);
     url.searchParams.set("returnTo", returnTo);

@@ -508,6 +508,16 @@ export function GanttView({
                               title="Critical path"
                             />
                           )}
+                          {task.scheduleImpact?.hasLeaveConflict && (
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-amber-500"
+                              title={
+                                task.scheduleImpact.isCritical
+                                  ? `Leave conflict · ${task.scheduleImpact.overlapDays}d overlap · ~${task.scheduleImpact.estimatedDelayDays}d projected slip${task.scheduleImpact.hasBackup ? " · backup set" : " · no backup"}`
+                                  : `Leave overlap · ${task.scheduleImpact.overlapDays}d · ~${task.scheduleImpact.estimatedDelayDays}d slip`
+                              }
+                            />
+                          )}
                         </div>
                       ))}
                   </React.Fragment>

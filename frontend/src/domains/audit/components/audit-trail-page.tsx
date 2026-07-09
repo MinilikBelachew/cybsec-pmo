@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import { type ColumnDef, type SortingState } from "@tanstack/react-table";
+import { ClipboardList, Plug } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
 import { createSelectColumn } from "@/shared/components/data-table-select-column";
 import { useServerTableState } from "@/shared/hooks/use-server-table-state";
+import { cn } from "@/shared/utils/cn";
 import {
   downloadAuditBlob,
   downloadAuditBlobAsJson,
@@ -23,12 +25,16 @@ import { auditDataColumns } from "./audit-columns";
 import { AuditDetailSheet } from "./audit-detail-sheet";
 import { AuditFilters } from "./audit-filters";
 import { AuditRowActions } from "./audit-row-actions";
+import { AuditKekaIntegrationPanel } from "./audit-keka-integration-panel";
 import { AUDIT_POLLING_INTERVAL_MS } from "../constants/audit-polling";
 import { useAuditPollToasts } from "../hooks/use-audit-poll-toasts";
 
 const SORTABLE_COLUMNS = new Set(["createdAt", "action", "objectType"]);
 
+type AuditTab = "activity" | "keka";
+
 export function AuditTrailPage() {
+  const [activeTab, setActiveTab] = useState<AuditTab>("activity");
   const [breakGlassOnly, setBreakGlassOnly] = useState(false);
   const [externalOnly, setExternalOnly] = useState(false);
   const [actionFilter, setActionFilter] = useState("");
@@ -116,6 +122,7 @@ export function AuditTrailPage() {
 
   const { data, isLoading, isFetching } = useGetAuditEventsQuery(queryParams, {
     pollingInterval: AUDIT_POLLING_INTERVAL_MS,
+    skip: activeTab !== "activity",
   });
   const [exportAuditFile, { isFetching: isExporting }] = useLazyExportAuditFileQuery();
 
@@ -240,23 +247,60 @@ export function AuditTrailPage() {
       <PageHeader
         title="Audit Trail"
         description={
-          isFetching && !isLoading
-            ? "Read-only activity log with server-side search, filters, and sorting. Refreshing…"
-            : "Read-only activity log with server-side search, filters, and sorting."
+          activeTab === "keka"
+            ? "Keka integration sync log and unresolved failure records."
+            : isFetching && !isLoading
+              ? "Read-only activity log with server-side search, filters, and sorting. Refreshing…"
+              : "Read-only activity log with server-side search, filters, and sorting."
         }
         actions={
-          <AuditExportMenu
-            disabled={isExporting}
-            label={
-              hasSelection
-                ? `Export selected (${selectedRows.length})`
-                : "Export filtered"
-            }
-            onExport={(format) => void exportRows(format)}
-          />
+          activeTab === "activity" ? (
+            <AuditExportMenu
+              disabled={isExporting}
+              label={
+                hasSelection
+                  ? `Export selected (${selectedRows.length})`
+                  : "Export filtered"
+              }
+              onExport={(format) => void exportRows(format)}
+            />
+          ) : null
         }
       />
 
+      <div className="flex border-b border-border gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("activity")}
+          className={cn(
+            "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+            activeTab === "activity"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <ClipboardList className="size-4" />
+          Activity log
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("keka")}
+          className={cn(
+            "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+            activeTab === "keka"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Plug className="size-4" />
+          Keka integration
+        </button>
+      </div>
+
+      {activeTab === "keka" ? (
+        <AuditKekaIntegrationPanel />
+      ) : (
+        <>
       <DataTable
         columns={columns}
         data={tableData}
@@ -316,6 +360,8 @@ export function AuditTrailPage() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
       />
+        </>
+      )}
     </div>
   );
 }

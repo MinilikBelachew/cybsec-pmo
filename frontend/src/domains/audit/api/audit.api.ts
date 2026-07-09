@@ -14,6 +14,11 @@ import type {
   AuditLogsResponse,
   AuditExportFormat,
   AuditLogsQuery,
+  KekaSyncLogsResponse,
+  KekaSyncLogsQuery,
+  FailedSyncRecordsResponse,
+  FailedSyncRecordsQuery,
+  RetryKekaSyncResult,
 } from "../types/audit.types";
 
 function buildAuditFilterParams(
@@ -86,6 +91,53 @@ export const auditApi = api.injectEndpoints({
         responseHandler: async (response) => response.blob(),
       }),
     }),
+
+    getKekaSyncLogs: builder.query<KekaSyncLogsResponse, KekaSyncLogsQuery>({
+      query: (params) => ({
+        url: "/audit/integrations/keka/sync-logs",
+        params,
+      }),
+      providesTags: ["KekaSyncLogs"],
+    }),
+
+    getFailedSyncRecords: builder.query<
+      FailedSyncRecordsResponse,
+      FailedSyncRecordsQuery
+    >({
+      query: (params) => ({
+        url: "/audit/integrations/keka/failed-syncs",
+        params,
+      }),
+      providesTags: ["FailedSyncRecords"],
+    }),
+
+    retryKekaSync: builder.mutation<
+      RetryKekaSyncResult,
+      { failedSyncRecordId?: string; entityType?: string; entityId?: string }
+    >({
+      query: (body) => ({
+        url: "/audit/integrations/keka/retry",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "TimesheetApprovals"],
+    }),
+
+    triggerKekaEmployeeSync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/employees",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    triggerKekaLeaveSync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/leave",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
   }),
 });
 
@@ -94,6 +146,11 @@ export const {
   useLazyExportAuditEventsQuery,
   useLazyExportAuditFileQuery,
   useExportAuditEventFileMutation,
+  useGetKekaSyncLogsQuery,
+  useGetFailedSyncRecordsQuery,
+  useRetryKekaSyncMutation,
+  useTriggerKekaEmployeeSyncMutation,
+  useTriggerKekaLeaveSyncMutation,
 } = auditApi;
 
 export function downloadAuditBlob(filename: string, blob: Blob) {

@@ -111,8 +111,11 @@ export function buildAvailabilitySummary(
   };
 }
 
+/** Keep Prisma DATE values on UTC calendar days to avoid TZ-boundary drift. */
 function stripTime(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
 }
 
 function roundHours(value: number): number {

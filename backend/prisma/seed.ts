@@ -1,13 +1,20 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
-import { assertKnownRecordScopes } from '../src/casl/record-scope.validation';
+import {
+  assertKnownRecordScopes,
+} from '../src/casl/record-scope.validation';
 import {
   ROLE_CATALOG,
   ROLE_ID_BY_CODE,
   buildPermissionCatalog,
   buildRolePermissionRows,
 } from './rbac-seed-data';
+import {
+  KEKA_MOCK_DEPARTMENTS,
+  KEKA_MOCK_EMPLOYEE_IDS,
+  KEKA_MOCK_JOB_TITLE_IDS,
+} from '../src/keka/mock/keka-mock.ids';
 
 const prisma = new PrismaClient();
 
@@ -160,17 +167,27 @@ async function main() {
 
   console.log('Seeding departments...');
   const departments = [
-    { code: 'SOC', name: 'Security Operations Center' },
-    { code: 'GRC', name: 'Governance, Risk & Compliance' },
-    { code: 'CLOUD', name: 'Cloud Security' },
-    { code: 'APPSEC', name: 'Application Security' },
+    ...KEKA_MOCK_DEPARTMENTS.map((department) => ({
+      code: department.code,
+      name: department.name,
+      kekaDepartmentId: department.id,
+    })),
   ];
 
   for (const dept of departments) {
     await prisma.department.upsert({
       where: { code: dept.code },
-      update: { name: dept.name, isActive: true },
-      create: { ...dept, isActive: true },
+      update: {
+        name: dept.name,
+        isActive: true,
+        kekaDepartmentId: dept.kekaDepartmentId,
+      },
+      create: {
+        code: dept.code,
+        name: dept.name,
+        isActive: true,
+        kekaDepartmentId: dept.kekaDepartmentId,
+      },
     });
   }
   console.log('Departments seeded successfully.');
@@ -188,10 +205,15 @@ async function main() {
   type DemoStaffSeed = {
     email: string;
     displayName: string;
+    firstName: string;
+    lastName: string;
+    employeeNumber: string;
     roleCode: keyof typeof ROLE_ID_BY_CODE;
     kekaEmployeeId: string;
     departmentCode: keyof typeof departmentByCode;
+    kekaDepartmentGroupId: string;
     designation: string;
+    jobTitleIdentifier: string;
     managerKekaId?: string;
   };
 
@@ -199,37 +221,57 @@ async function main() {
     {
       email: 'rachelgreen@bminilik12gmail.onmicrosoft.com',
       displayName: 'Rachel Green',
+      firstName: 'Rachel',
+      lastName: 'Green',
+      employeeNumber: 'EMP004',
       roleCode: 'team_lead',
-      kekaEmployeeId: 'MOCK-KEKA-004',
+      kekaEmployeeId: KEKA_MOCK_EMPLOYEE_IDS.rachel,
       departmentCode: 'SOC',
+      kekaDepartmentGroupId: KEKA_MOCK_DEPARTMENTS[0].id,
       designation: 'Team Lead',
+      jobTitleIdentifier: KEKA_MOCK_JOB_TITLE_IDS.teamLead,
     },
     {
       email: 'briannguyen@bminilik12gmail.onmicrosoft.com',
       displayName: 'Brian Nguyen',
+      firstName: 'Brian',
+      lastName: 'Nguyen',
+      employeeNumber: 'EMP001',
       roleCode: 'engineer',
-      kekaEmployeeId: 'MOCK-KEKA-001',
+      kekaEmployeeId: KEKA_MOCK_EMPLOYEE_IDS.brian,
       departmentCode: 'SOC',
+      kekaDepartmentGroupId: KEKA_MOCK_DEPARTMENTS[0].id,
       designation: 'Security Consultant',
-      managerKekaId: 'MOCK-KEKA-004',
+      jobTitleIdentifier: KEKA_MOCK_JOB_TITLE_IDS.securityConsultant,
+      managerKekaId: KEKA_MOCK_EMPLOYEE_IDS.rachel,
     },
     {
       email: 'emilydavis@bminilik12gmail.onmicrosoft.com',
       displayName: 'Emily Davis',
+      firstName: 'Emily',
+      lastName: 'Davis',
+      employeeNumber: 'EMP002',
       roleCode: 'engineer',
-      kekaEmployeeId: 'MOCK-KEKA-002',
+      kekaEmployeeId: KEKA_MOCK_EMPLOYEE_IDS.emily,
       departmentCode: 'GRC',
+      kekaDepartmentGroupId: KEKA_MOCK_DEPARTMENTS[1].id,
       designation: 'GRC Analyst',
-      managerKekaId: 'MOCK-KEKA-004',
+      jobTitleIdentifier: KEKA_MOCK_JOB_TITLE_IDS.grcAnalyst,
+      managerKekaId: KEKA_MOCK_EMPLOYEE_IDS.rachel,
     },
     {
       email: 'sarahjenkins@bminilik12gmail.onmicrosoft.com',
       displayName: 'Sarah Jenkins',
+      firstName: 'Sarah',
+      lastName: 'Jenkins',
+      employeeNumber: 'EMP003',
       roleCode: 'engineer',
-      kekaEmployeeId: 'MOCK-KEKA-003',
+      kekaEmployeeId: KEKA_MOCK_EMPLOYEE_IDS.sarah,
       departmentCode: 'CLOUD',
+      kekaDepartmentGroupId: KEKA_MOCK_DEPARTMENTS[2].id,
       designation: 'Cloud Security Engineer',
-      managerKekaId: 'MOCK-KEKA-004',
+      jobTitleIdentifier: KEKA_MOCK_JOB_TITLE_IDS.cloudEngineer,
+      managerKekaId: KEKA_MOCK_EMPLOYEE_IDS.rachel,
     },
   ];
 
@@ -265,9 +307,17 @@ async function main() {
       update: {
         userId: user.id,
         name: person.displayName,
+        firstName: person.firstName,
+        lastName: person.lastName,
+        displayName: person.displayName,
+        employeeNumber: person.employeeNumber,
         email: person.email,
         departmentId,
+        kekaDepartmentGroupId: person.kekaDepartmentGroupId,
         designation: person.designation,
+        jobTitleIdentifier: person.jobTitleIdentifier,
+        reportsToKekaId: person.managerKekaId ?? null,
+        employmentStatus: 0,
         weeklyHours: new Prisma.Decimal(40),
         isActive: true,
         syncedAt,
@@ -276,9 +326,17 @@ async function main() {
         kekaEmployeeId: person.kekaEmployeeId,
         userId: user.id,
         name: person.displayName,
+        firstName: person.firstName,
+        lastName: person.lastName,
+        displayName: person.displayName,
+        employeeNumber: person.employeeNumber,
         email: person.email,
         departmentId,
+        kekaDepartmentGroupId: person.kekaDepartmentGroupId,
         designation: person.designation,
+        jobTitleIdentifier: person.jobTitleIdentifier,
+        reportsToKekaId: person.managerKekaId ?? null,
+        employmentStatus: 0,
         weeklyHours: new Prisma.Decimal(40),
         isActive: true,
         syncedAt,

@@ -30,6 +30,7 @@ export interface GanttTaskRow {
   rawStartDate?: string | null;
   rawEndDate?: string | null;
   isOnCriticalPath?: boolean;
+  scheduleImpact?: Task["scheduleImpact"];
   owner?: Task["owner"];
 }
 
@@ -80,6 +81,7 @@ export function mapTaskToGanttRow(
     rawStartDate: task.startDate,
     rawEndDate: task.endDate,
     isOnCriticalPath: Boolean(task.isOnCriticalPath),
+    scheduleImpact: task.scheduleImpact ?? null,
     owner: task.owner,
   };
 }

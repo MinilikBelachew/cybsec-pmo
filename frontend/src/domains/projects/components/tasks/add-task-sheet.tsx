@@ -251,6 +251,7 @@ export function AddTaskSheet({
       priority: "Medium",
       status: WORKSPACE_STATUS_TO_API[defaultStatus],
       ownerId: null,
+      backupOwnerId: null,
       startDate: defaultStartDate ? new Date(defaultStartDate) : defaultDates.startDate,
       endDate: defaultEndDate ? new Date(defaultEndDate) : defaultDates.endDate,
       effortHours: undefined,
@@ -258,11 +259,18 @@ export function AddTaskSheet({
   });
 
   const watchedOwnerId = watch("ownerId");
+  const watchedBackupOwnerId = watch("backupOwnerId");
   const watchedStartDate = watch("startDate");
   const watchedEndDate = watch("endDate");
   const watchedEffortHours = watch("effortHours");
   const watchedPhaseId = watch("phaseId");
   const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
+  const activeBackupOwner = assignees.find(
+    (assignee) => assignee.userId === watchedBackupOwnerId,
+  );
+  const backupOwnerCandidates = assignees.filter(
+    (assignee) => assignee.userId !== watchedOwnerId,
+  );
   const selectedPhase = phases.find((p) => p.id === watchedPhaseId);
 
   // Compute disabled-date bounds from project and selected phase
@@ -331,6 +339,7 @@ export function AddTaskSheet({
       priority: "Medium",
       status: WORKSPACE_STATUS_TO_API[defaultStatus],
       ownerId: null,
+      backupOwnerId: null,
       startDate: defaultStartDate ? new Date(defaultStartDate) : dates.startDate,
       endDate: defaultEndDate ? new Date(defaultEndDate) : dates.endDate,
       effortHours: undefined,
@@ -609,6 +618,59 @@ export function AddTaskSheet({
                       />
                     )}
                     <FieldError message={errors.phaseId?.message} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Backup owner</Label>
+                    <Controller
+                      control={control}
+                      name="backupOwnerId"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value ?? "none"}
+                          onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                          disabled={loadingAssignees}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="No backup">
+                              {activeBackupOwner ? (
+                                <span className="flex items-center gap-2">
+                                  <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[9px] font-bold text-primary">
+                                    {getInitials(activeBackupOwner.displayName)}
+                                  </span>
+                                  {activeBackupOwner.displayName}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">No backup</span>
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No backup</SelectItem>
+                            {backupOwnerCandidates.map((assignee) => (
+                              <SelectItem key={assignee.userId} value={assignee.userId}>
+                                <div className="flex items-center gap-2.5 py-0.5">
+                                  <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                                    {getInitials(assignee.displayName)}
+                                  </span>
+                                  <div className="flex flex-col gap-0.5 text-left">
+                                    <span>{assignee.displayName}</span>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {assignee.role} · {assignee.department.name}
+                                    </span>
+                                  </div>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Covers this task when the assignee is on leave.
+                    </p>
                   </div>
                 </div>
 

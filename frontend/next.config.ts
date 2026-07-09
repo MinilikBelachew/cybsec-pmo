@@ -39,11 +39,17 @@ const nextConfig: NextConfig = {
       "https://graph.microsoft.com",
     ];
 
+    const avatarImgOrigins = (process.env.NEXT_PUBLIC_AVATAR_IMG_ORIGINS ??
+      "https://ui-avatars.com")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+
     const cspDirectives = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
-      `img-src 'self' blob: data: ${backendOrigin} https://login.microsoftonline.com`,
+      `img-src 'self' blob: data: ${backendOrigin} https://login.microsoftonline.com ${avatarImgOrigins.join(" ")}`,
       "font-src 'self'",
       `object-src 'self' blob: ${backendOrigin}`,
       "base-uri 'self'",

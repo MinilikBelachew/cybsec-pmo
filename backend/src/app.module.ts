@@ -37,6 +37,11 @@ import { CurrenciesModule } from './currencies/currencies.module';
 import { SearchModule } from './search/search.module';
 import { MppImportModule } from './mpp-import/mpp-import.module';
 import mppImportConfig from './mpp-import/config/mpp-import.config';
+import { KekaModule } from './keka/keka.module';
+import { ResourcesModule } from './resources/resources.module';
+import { TimesheetsModule } from './timesheets/timesheets.module';
+import { ReportsModule } from './reports/reports.module';
+import kekaConfig from './keka/config/keka.config';
 
 @Module({
   imports: [
@@ -54,6 +59,7 @@ import mppImportConfig from './mpp-import/config/mpp-import.config';
         securityAlertsConfig,
         breakGlassConfig,
         mppImportConfig,
+        kekaConfig,
       ],
       envFilePath: ['.env'],
     }),
@@ -107,6 +113,7 @@ import mppImportConfig from './mpp-import/config/mpp-import.config';
     MailModule,
     MailerModule,
     HomeModule,
+    KekaModule.register(),
     ProjectsModule,
     TasksModule,
     FilesModule,
@@ -118,6 +125,9 @@ import mppImportConfig from './mpp-import/config/mpp-import.config';
     CurrenciesModule,
     SearchModule,
     MppImportModule,
+    ResourcesModule,
+    TimesheetsModule,
+    ReportsModule,
     ScheduleModule.forRoot(),
   ],
 })

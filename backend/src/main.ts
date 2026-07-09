@@ -2,6 +2,7 @@ import 'dotenv/config';
 import cookieParser from 'cookie-parser';
 import {
   ClassSerializerInterceptor,
+  RequestMethod,
   ValidationPipe,
   VersioningType,
 } from '@nestjs/common';
@@ -37,7 +38,11 @@ async function bootstrap() {
   app.setGlobalPrefix(
     configService.getOrThrow('app.apiPrefix', { infer: true }),
     {
-      exclude: ['/'],
+      exclude: [
+        '/',
+        { path: 'keka-mock', method: RequestMethod.ALL },
+        { path: 'keka-mock/(.*)', method: RequestMethod.ALL },
+      ],
     },
   );
   app.enableVersioning({

@@ -16,6 +16,7 @@ export const createTaskSchema = z
     description: z.string().optional(),
     priority: z.enum(["Low", "Medium", "High", "Critical"]),
     ownerId: z.preprocess(emptyToNull, z.string().uuid().nullable().optional()),
+    backupOwnerId: z.preprocess(emptyToNull, z.string().uuid().nullable().optional()),
     startDate: requiredTaskDate,
     endDate: requiredTaskDate,
     effortHours: z.preprocess(
@@ -47,6 +48,7 @@ export function toCreateTaskPayload(values: CreateTaskFormValues) {
     description: values.description || null,
     priority: values.priority,
     ownerId: values.ownerId || null,
+    backupOwnerId: values.backupOwnerId || null,
     startDate: values.startDate.toISOString().slice(0, 10),
     endDate: values.endDate.toISOString().slice(0, 10),
     effortHours: values.effortHours ?? null,

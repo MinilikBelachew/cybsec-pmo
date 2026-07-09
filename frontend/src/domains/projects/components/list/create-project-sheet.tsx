@@ -15,10 +15,13 @@ import {
   useAddProjectTeamMembersMutation,
   useGetMilestonesQuery,
   useCreateMilestoneMutation,
+  useLazyGetAllocationDateIssuesQuery,
+  useAlignProjectAllocationDatesMutation,
   createProjectFormSchema,
   editProjectFormSchema,
   toCreateProjectPayload,
   ProjectTeamSection,
+  ProjectLeaveImpactSection,
   type CreateProjectFormValues,
   type PendingTeamMember,
   type Project,
@@ -30,7 +33,9 @@ import {
   getProjectStatusLabel,
   getSelectableProjectStatuses,
 } from "@/domains/projects/utils/project-status";
-import type { ProjectStatus } from "@/domains/projects/types/projects.types";
+import type { ProjectStatus, AllocationDateIssuesResponse } from "@/domains/projects/types/projects.types";
+import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
+import { formatDateValue } from "@/domains/projects/utils/allocation-date.utils";
 import {
   Select,
   SelectContent,
@@ -112,7 +117,9 @@ function toAllocationPayload(members: PendingTeamMember[]) {
   return members.map((member) => ({
     employeeId: member.employeeId,
     role: member.role,
-    hours: member.hoursPerWeek,
+    ...(member.allocationMode === "percent"
+      ? { percent: member.percentPerWeek }
+      : { hours: member.hoursPerWeek }),
     startDate: member.startDate,
     endDate: member.endDate,
   }));
@@ -179,11 +186,21 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
   const [milestoneDrafts, setMilestoneDrafts] = useState<DraftProjectMilestone[]>([]);
   const [milestoneError, setMilestoneError] = useState<string | null>(null);
+  const [allocationSaveDialog, setAllocationSaveDialog] = useState<{
+    open: boolean;
+    values: CreateProjectFormValues | null;
+    milestoneDrafts: DraftProjectMilestone[];
+    issues: AllocationDateIssuesResponse | null;
+  }>({ open: false, values: null, milestoneDrafts: [], issues: null });
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
   const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
   const [addProjectTeamMembers, { isLoading: isSavingTeam }] = useAddProjectTeamMembersMutation();
   const [createMilestone, { isLoading: isSavingMilestones }] = useCreateMilestoneMutation();
-  const isSubmitting = isCreating || isUpdating || isSavingTeam || isSavingMilestones;
+  const [fetchAllocationDateIssues] = useLazyGetAllocationDateIssuesQuery();
+  const [alignProjectAllocationDates, { isLoading: isAligningAllocations }] =
+    useAlignProjectAllocationDatesMutation();
+  const isSubmitting =
+    isCreating || isUpdating || isSavingTeam || isSavingMilestones || isAligningAllocations;
 
   const { data: existingMilestones = [] } = useGetMilestonesQuery(project?.id ?? "", {
     skip: !isEditMode || !project?.id || !open,
@@ -324,6 +341,43 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       return;
     }
 
+    if (isEditMode && project?.id && values.startDate && values.endDate) {
+      const newStart = formatDateValue(values.startDate);
+      const newEnd = formatDateValue(values.endDate);
+      const oldStart = project.startDate.slice(0, 10);
+      const oldEnd = project.endDate.slice(0, 10);
+      const datesChanged = newStart !== oldStart || newEnd !== oldEnd;
+
+      if (datesChanged && newStart && newEnd) {
+        try {
+          const issues = await fetchAllocationDateIssues({
+            projectId: project.id,
+            params: { projectStartDate: newStart, projectEndDate: newEnd },
+          }).unwrap();
+
+          if (issues.alignPreview.length > 0) {
+            setAllocationSaveDialog({
+              open: true,
+              values,
+              milestoneDrafts: currentMilestoneDrafts,
+              issues,
+            });
+            return;
+          }
+        } catch {
+          toast.error("Could not check team allocation dates.");
+          return;
+        }
+      }
+    }
+
+    await completeProjectSave(values, currentMilestoneDrafts);
+  };
+
+  const completeProjectSave = async (
+    values: CreateProjectFormValues,
+    currentMilestoneDrafts: DraftProjectMilestone[],
+  ) => {
     try {
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
@@ -411,6 +465,45 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     }
   };
 
+  const handleAllocationSaveDialogCancel = () => {
+    setAllocationSaveDialog({
+      open: false,
+      values: null,
+      milestoneDrafts: [],
+      issues: null,
+    });
+  };
+
+  const handleAllocationSaveWithoutAlign = async () => {
+    const { values, milestoneDrafts: drafts } = allocationSaveDialog;
+    if (!values) return;
+    handleAllocationSaveDialogCancel();
+    await completeProjectSave(values, drafts);
+  };
+
+  const handleAllocationSaveWithAlign = async () => {
+    const { values, milestoneDrafts: drafts, issues } = allocationSaveDialog;
+    if (!values || !project?.id || !values.startDate || !values.endDate) return;
+
+    const newStart = formatDateValue(values.startDate);
+    const newEnd = formatDateValue(values.endDate);
+    if (!newStart || !newEnd) return;
+
+    try {
+      if (issues?.canAlign) {
+        const alignResult = await alignProjectAllocationDates({
+          projectId: project.id,
+          body: { projectStartDate: newStart, projectEndDate: newEnd },
+        }).unwrap();
+        alignResult.warnings.forEach((warning) => toast(warning, { icon: "⚠️" }));
+      }
+      handleAllocationSaveDialogCancel();
+      await completeProjectSave(values, drafts);
+    } catch {
+      toast.error("Failed to align allocations before saving.");
+    }
+  };
+
   const onSubmit = handleSubmit(onValidSubmit, onFormError);
 
   const watchedName = watch("name");
@@ -453,6 +546,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     "disabled:cursor-default disabled:opacity-90 disabled:bg-slate-100/80 dark:disabled:bg-white/[0.04]";
 
   return (
+    <>
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <SheetContent side="right" className={CREATE_PROJECT_SHEET_CLASS} showCloseButton>
         <form onSubmit={onSubmit} className="flex h-full flex-col">
@@ -773,6 +867,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
               canEdit={canEditTeam}
             />
 
+            {project?.id && <ProjectLeaveImpactSection projectId={project.id} />}
+
             {showFinancialFields && (
             <div className="grid grid-cols-2 gap-4">
               {/* Budget */}
@@ -969,5 +1065,21 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
         </form>
       </SheetContent>
     </Sheet>
+
+    <AllocationAlignDialog
+      isOpen={allocationSaveDialog.open}
+      onCancel={handleAllocationSaveDialogCancel}
+      onSaveWithoutAlign={() => void handleAllocationSaveWithoutAlign()}
+      onConfirmAlign={() => void handleAllocationSaveWithAlign()}
+      isAligning={isAligningAllocations}
+      projectLabel={project?.name ?? "this project"}
+      preview={allocationSaveDialog.issues?.alignPreview ?? []}
+      issueMessages={
+        allocationSaveDialog.issues?.issues
+          .filter((issue) => issue.kinds.includes("outside_project_window"))
+          .flatMap((issue) => issue.messages) ?? []
+      }
+    />
+    </>
   );
 }

@@ -53,8 +53,21 @@ import {
   ProjectTaskAssigneeDto,
   TaskAssigneeAvailabilityDto,
   TeamCandidateDto,
+  UpdateProjectTeamMemberResultDto,
 } from './dto/project-allocation.dto';
 import { CreateProjectTeamDto } from './dto/create-allocation.dto';
+import { UpdateAllocationDto } from './dto/update-allocation.dto';
+import {
+  AllocationDateIssuesResponseDto,
+  AlignProjectAllocationsResultDto,
+  QueryAllocationDateIssuesDto,
+} from './dto/allocation-date-issues.dto';
+import { LeaveBackupService } from '../resources/leave-backup.service';
+import {
+  LeaveImpactListResponseDto,
+  SetAllocationBackupDto,
+  ApplyLeaveBackupDto,
+} from '../resources/dto/leave-impact.dto';
 import { QueryProjectAuditDto } from '../audit/dto/query-project-audit.dto';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import {
@@ -77,6 +90,7 @@ export class ProjectsController {
     private readonly projectsService: ProjectsService,
     private readonly projectTeamService: ProjectTeamService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly leaveBackupService: LeaveBackupService,
   ) {}
 
   @CheckAbility('read', 'Project')
@@ -101,18 +115,32 @@ export class ProjectsController {
     @Request() request: RequestWithAbility,
   ): Promise<ProjectDto> {
     const { allocations, milestones, ...projectDto } = dto;
+
+    if (allocations?.length) {
+      await this.projectTeamService.validateNewProjectAllocations(
+        projectDto,
+        allocations,
+        request.user!.id,
+      );
+    }
+
     const project = await this.projectsService.create(
       { ...projectDto, milestones },
       request.user!.id,
     );
 
     if (allocations?.length) {
-      await this.projectTeamService.addMembers(
-        project.id,
-        allocations,
-        request.user!.id,
-        request.caslUser!,
-      );
+      try {
+        await this.projectTeamService.addMembers(
+          project.id,
+          allocations,
+          request.user!.id,
+          request.caslUser!,
+        );
+      } catch (error) {
+        await this.projectsService.deleteProjectByIdForRollback(project.id);
+        throw error;
+      }
     }
 
     return project;
@@ -315,6 +343,43 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
+  @Get(':id/team/allocation-date-issues')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiOkResponse({ type: AllocationDateIssuesResponseDto })
+  getAllocationDateIssues(
+    @Param('id') id: string,
+    @Query() query: QueryAllocationDateIssuesDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<AllocationDateIssuesResponseDto> {
+    return this.projectTeamService.getAllocationDateIssues(
+      id,
+      request.caslUser!,
+      query.projectStartDate,
+      query.projectEndDate,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
+  @Post(':id/team/align-allocation-dates')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiOkResponse({ type: AlignProjectAllocationsResultDto })
+  alignAllocationDates(
+    @Param('id') id: string,
+    @Body() body: QueryAllocationDateIssuesDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<AlignProjectAllocationsResultDto> {
+    return this.projectTeamService.alignAllocationsToProjectDates(
+      id,
+      request.caslUser!,
+      body.projectStartDate,
+      body.projectEndDate,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
   @CheckModulePermission('projects', 'edit')
   @Post(':id/team')
   @HttpCode(HttpStatus.CREATED)
@@ -329,6 +394,80 @@ export class ProjectsController {
       id,
       dto.allocations,
       request.user!.id,
+      request.caslUser!,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
+  @Patch(':id/team/:allocationId')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'allocationId', type: String, required: true })
+  @ApiOkResponse({ type: UpdateProjectTeamMemberResultDto })
+  updateProjectTeamMember(
+    @Param('id') id: string,
+    @Param('allocationId') allocationId: string,
+    @Body() dto: UpdateAllocationDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<UpdateProjectTeamMemberResultDto> {
+    return this.projectTeamService.updateMember(
+      id,
+      allocationId,
+      dto,
+      request.user!.id,
+      request.caslUser!,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
+  @Get(':id/leave-impacts')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiOkResponse({ type: LeaveImpactListResponseDto })
+  findProjectLeaveImpacts(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<LeaveImpactListResponseDto> {
+    return this.leaveBackupService.listImpacts(
+      { projectId: id },
+      request.caslUser!,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
+  @Post(':id/leave-impacts/apply-backup')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  applyLeaveBackup(
+    @Param('id') id: string,
+    @Body() dto: ApplyLeaveBackupDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.leaveBackupService.applyTaskBackup(
+      id,
+      dto.taskId,
+      request.caslUser!,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'edit')
+  @Patch(':id/team/:allocationId/backup')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'allocationId', type: String, required: true })
+  setAllocationBackup(
+    @Param('id') id: string,
+    @Param('allocationId') allocationId: string,
+    @Body() dto: SetAllocationBackupDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.leaveBackupService.setAllocationBackup(
+      id,
+      allocationId,
+      dto.backupEmployeeId ?? null,
       request.caslUser!,
     );
   }

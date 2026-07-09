@@ -147,6 +147,11 @@ export class ProjectsService {
     return toApiProject(project as ProjectWithRelations, { ability: null });
   }
 
+  /** Internal rollback helper when bundle team assignment fails after project insert. */
+  async deleteProjectByIdForRollback(projectId: string): Promise<void> {
+    await this.prisma.project.delete({ where: { id: projectId } });
+  }
+
   async findManyWithPagination(
     query: QueryProjectDto,
     caslUser: CaslUserContext,

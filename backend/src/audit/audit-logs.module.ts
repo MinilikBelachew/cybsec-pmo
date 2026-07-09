@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditLogsController } from './audit-logs.controller';
+import { AuditIntegrationsController } from './audit-integrations.controller';
 import { AuditLogsService } from './audit-logs.service';
 import { AuditLogsInterceptor } from './audit-logs.interceptor';
 import { AuditExportService } from './audit-export.service';
@@ -9,7 +10,7 @@ import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [PrismaModule, SettingsModule],
-  controllers: [AuditLogsController],
+  controllers: [AuditLogsController, AuditIntegrationsController],
   providers: [
     AuditLogsService,
     AuditExportService,

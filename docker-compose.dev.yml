@@ -35,7 +35,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     command: >
-      sh -c "/opt/wait-for-it.sh postgres:5432 -- npx prisma migrate deploy && npx prisma db seed && npm run start:dev"
+      sh -c "/opt/wait-for-it.sh postgres:5432 -- npm run migration:run && npx prisma db seed && npm run start:dev"
     ports:
       - "6001:6001"
     volumes:
@@ -55,6 +55,8 @@ services:
       - MPXJ_SERVICE_URL=http://mpxj-service:8080
       - MPP_IMPORT_STORAGE_DIR=/tmp/mpp-imports
       - MPP_IMPORT_MAX_FILE_SIZE_BYTES=52428800
+      - KEKA_MOCK_ENABLED=true
+      - KEKA_SYNC_ENABLED=true
     depends_on:
       - postgres
       - redis

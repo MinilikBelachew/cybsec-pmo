@@ -21,6 +21,12 @@ import {
   type GetTeamCandidatesParams,
   type CreateProjectTeamPayload,
   type CreateProjectTeamResult,
+  type UpdateProjectTeamPayload,
+  type UpdateProjectTeamMemberResult,
+  type AllocationDateIssuesResponse,
+  type AlignProjectAllocationsResult,
+  type QueryAllocationDateIssuesParams,
+  type LeaveImpactListResponse,
   type GetTaskAssigneeAvailabilityParams,
   type TaskAssigneeAvailability,
   type ProjectPortfolioStats,
@@ -282,6 +288,45 @@ export const projectsApi = api.injectEndpoints({
           : [{ type: "ProjectTeam", id: projectId }],
     }),
 
+    getAllocationDateIssues: builder.query<
+      AllocationDateIssuesResponse,
+      { projectId: string; params?: QueryAllocationDateIssuesParams }
+    >({
+      query: ({ projectId, params }) => {
+        const queryParams = new URLSearchParams();
+        if (params?.projectStartDate) {
+          queryParams.append("projectStartDate", params.projectStartDate);
+        }
+        if (params?.projectEndDate) {
+          queryParams.append("projectEndDate", params.projectEndDate);
+        }
+        const qs = queryParams.toString();
+        return `/projects/${projectId}/team/allocation-date-issues${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: (_result, _error, { projectId }) => [
+        { type: "ProjectTeam", id: `allocation-dates-${projectId}` },
+      ],
+    }),
+
+    alignProjectAllocationDates: builder.mutation<
+      AlignProjectAllocationsResult,
+      { projectId: string; body?: QueryAllocationDateIssuesParams }
+    >({
+      query: ({ projectId, body }) => ({
+        url: `/projects/${projectId}/team/align-allocation-dates`,
+        method: "POST",
+        body: body ?? {},
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "ProjectTeam", id: projectId },
+        { type: "ProjectTeam", id: `allocation-dates-${projectId}` },
+        { type: "ProjectTeam", id: `assignees-${projectId}` },
+        { type: "ProjectTeam", id: "CANDIDATES" },
+        { type: "Projects", id: projectId },
+        { type: "TeamDirectory", id: "LIST" },
+      ],
+    }),
+
     getProjectTaskAssignees: builder.query<ProjectTaskAssignee[], string>({
       query: (projectId) => `/projects/${projectId}/team/assignees`,
       providesTags: (result, error, projectId) =>
@@ -318,7 +363,27 @@ export const projectsApi = api.injectEndpoints({
       invalidatesTags: (result, error, { projectId }) => [
         { type: "ProjectTeam", id: projectId },
         { type: "ProjectTeam", id: `assignees-${projectId}` },
+        { type: "ProjectTeam", id: "CANDIDATES" },
         { type: "Projects", id: projectId },
+      ],
+    }),
+
+    updateProjectTeamMember: builder.mutation<
+      UpdateProjectTeamMemberResult,
+      { projectId: string; allocationId: string; body: UpdateProjectTeamPayload }
+    >({
+      query: ({ projectId, allocationId, body }) => ({
+        url: `/projects/${projectId}/team/${allocationId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "ProjectTeam", id: projectId },
+        { type: "ProjectTeam", id: `allocation-dates-${projectId}` },
+        { type: "ProjectTeam", id: `assignees-${projectId}` },
+        { type: "ProjectTeam", id: "CANDIDATES" },
+        { type: "Projects", id: projectId },
+        { type: "TeamDirectory", id: "LIST" },
       ],
     }),
 
@@ -334,6 +399,45 @@ export const projectsApi = api.injectEndpoints({
         if (excludeTaskId) queryParams.append("excludeTaskId", excludeTaskId);
         return `/projects/${projectId}/team/task-availability?${queryParams.toString()}`;
       },
+    }),
+
+    getProjectLeaveImpacts: builder.query<LeaveImpactListResponse, string>({
+      query: (projectId) => `/projects/${projectId}/leave-impacts`,
+      providesTags: (_result, _error, projectId) => [
+        { type: "ProjectTeam", id: `leave-impacts-${projectId}` },
+      ],
+    }),
+
+    setAllocationBackup: builder.mutation<
+      { id: string; backupEmployeeId: string | null },
+      { projectId: string; allocationId: string; backupEmployeeId: string | null }
+    >({
+      query: ({ projectId, allocationId, backupEmployeeId }) => ({
+        url: `/projects/${projectId}/team/${allocationId}/backup`,
+        method: "PATCH",
+        body: { backupEmployeeId },
+      }),
+      invalidatesTags: (_result, _error, { projectId }) => [
+        { type: "ProjectTeam", id: projectId },
+        { type: "ProjectTeam", id: `leave-impacts-${projectId}` },
+        { type: "Tasks", id: projectId },
+      ],
+    }),
+
+    applyLeaveBackup: builder.mutation<
+      { taskId: string; ownerId: string | null; ownerName: string | null; backupSource: string | null },
+      { projectId: string; taskId: string }
+    >({
+      query: ({ projectId, taskId }) => ({
+        url: `/projects/${projectId}/leave-impacts/apply-backup`,
+        method: "POST",
+        body: { taskId },
+      }),
+      invalidatesTags: (_result, _error, { projectId }) => [
+        { type: "ProjectTeam", id: projectId },
+        { type: "ProjectTeam", id: `leave-impacts-${projectId}` },
+        { type: "Tasks", id: projectId },
+      ],
     }),
 
     getProjectAuditEvents: builder.query<
@@ -390,6 +494,13 @@ export const {
   useGetProjectTaskAssigneesQuery,
   useAddProjectTeamMembersMutation,
   useRemoveProjectTeamMemberMutation,
+  useUpdateProjectTeamMemberMutation,
+  useGetAllocationDateIssuesQuery,
+  useLazyGetAllocationDateIssuesQuery,
+  useAlignProjectAllocationDatesMutation,
+  useGetProjectLeaveImpactsQuery,
+  useSetAllocationBackupMutation,
+  useApplyLeaveBackupMutation,
   useGetTaskAssigneeAvailabilityQuery,
   useGetProjectAuditEventsQuery,
 } = projectsApi;

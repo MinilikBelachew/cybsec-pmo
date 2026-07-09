@@ -16,3 +16,18 @@ export const AUDIT_SETTINGS_LIMITS = {
 } as const;
 
 export const AUDIT_ARCHIVE_BATCH_SIZE = 500;
+
+export const DEFAULT_ALLOCATION_POLICIES = {
+  allocationThresholdMode: 'warn',
+  designationMismatchMode: 'warn',
+  departmentStaffingMode: 'off',
+  designationRules: [] as const,
+  departmentStaffingRules: { rule: 'same_department_only' as const },
+} as const;
+
+export const POLICY_MODE_VALUES = ['off', 'warn', 'block'] as const;
+export const THRESHOLD_MODE_VALUES = ['warn', 'block', 'approve'] as const;
+export const DEPARTMENT_STAFFING_RULE_VALUES = [
+  'same_department_only',
+  'allow_list',
+] as const;

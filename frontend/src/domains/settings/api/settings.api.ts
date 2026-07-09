@@ -1,5 +1,10 @@
 import { api } from "@/core/api/api";
-import type { AuditSettings, UpdateAuditSettingsPayload } from "../types/settings.types";
+import type {
+  AuditSettings,
+  UpdateAuditSettingsPayload,
+  AllocationPolicies,
+  UpdateAllocationPoliciesPayload,
+} from "../types/settings.types";
 
 export const settingsApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -27,6 +32,23 @@ export const settingsApi = api.injectEndpoints({
       }),
       invalidatesTags: ["Settings", "Audit"],
     }),
+
+    getAllocationPolicies: builder.query<AllocationPolicies, void>({
+      query: () => ({ url: "/settings/allocation-policies" }),
+      providesTags: ["Settings"],
+    }),
+
+    updateAllocationPolicies: builder.mutation<
+      AllocationPolicies,
+      UpdateAllocationPoliciesPayload
+    >({
+      query: (body) => ({
+        url: "/settings/allocation-policies",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["Settings", "TeamDirectory", "ProjectTeam"],
+    }),
   }),
 });
 
@@ -34,4 +56,6 @@ export const {
   useGetAuditSettingsQuery,
   useUpdateAuditSettingsMutation,
   useRunAuditArchiveMutation,
+  useGetAllocationPoliciesQuery,
+  useUpdateAllocationPoliciesMutation,
 } = settingsApi;

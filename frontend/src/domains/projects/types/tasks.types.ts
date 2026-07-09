@@ -14,6 +14,19 @@ export interface TaskUserSummary {
   email: string;
 }
 
+export interface TaskScheduleImpact {
+  hasLeaveConflict: boolean;
+  overlapDays: number;
+  estimatedDelayDays: number;
+  projectedTaskEnd: string | null;
+  downstreamTaskCount: number;
+  leaveFrom: string | null;
+  leaveTo: string | null;
+  leaveType: string | null;
+  isCritical: boolean;
+  hasBackup: boolean;
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;
@@ -62,6 +75,9 @@ export interface Task {
   status: TaskStatus;
   phaseId: string | null;
   isOnCriticalPath?: boolean;
+  backupOwnerId?: string | null;
+  backupOwner?: TaskUserSummary;
+  scheduleImpact?: TaskScheduleImpact | null;
   createdAt: string;
   updatedAt: string;
   project?: { id: string; name: string };

@@ -110,6 +110,7 @@ export class AuthController {
     @Query('returnTo') returnTo: string | undefined,
     @Res() res: ExpressResponse,
   ): Promise<void> {
+    clearAuthCookies(res);
     const { authorizationUrl } =
       await this.entraOauthService.createAuthorizationRequest(returnTo);
     res.redirect(authorizationUrl);
