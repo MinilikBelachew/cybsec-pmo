@@ -66,6 +66,9 @@ interface Task {
   rawStartDate?: string | null;
   rawEndDate?: string | null;
   owner?: { id: string; displayName: string; email: string };
+  parentTaskId?: string | null;
+  depth?: number;
+  children?: Task[];
 }
 
 interface ColumnDef {
@@ -183,48 +186,7 @@ function isOverdue(dueDate: string) {
   return d.getTime() < Date.now();
 }
 
-const BOARD_EXTRAS: Record<string, Partial<Task>> = {
-  t1: {
-    tags: ["Backend", "Setup"],
-    subtasksDone: 1,
-    subtasksTotal: 3,
-    progress: 30,
-    description: "Initialize repo, CI/CD pipeline, and folder structure.",
-    emoji: "🏗️",
-  },
-  t2: {
-    tags: ["API", "Design"],
-    subtasksDone: 0,
-    subtasksTotal: 2,
-    progress: 0,
-    description: "Define REST contracts and OpenAPI spec.",
-    emoji: "📐",
-  },
-  t3: {
-    tags: ["Auth", "Security"],
-    subtasksDone: 3,
-    subtasksTotal: 5,
-    progress: 60,
-    description: "JWT + refresh token flow with EntraID SSO.",
-    emoji: "🔐",
-  },
-  t4: {
-    tags: ["UI", "Design"],
-    subtasksDone: 2,
-    subtasksTotal: 4,
-    progress: 50,
-    description: "Tailwind tokens, component library, dark mode.",
-    emoji: "🎨",
-  },
-  t5: {
-    tags: ["Meeting"],
-    subtasksDone: 1,
-    subtasksTotal: 1,
-    progress: 100,
-    description: "Kickoff with all stakeholders.",
-    emoji: "🚀",
-  },
-};
+const BOARD_EXTRAS: Record<string, Partial<Task>> = {};
 
 export type BoardQuickCreatePayload = {
   title: string;
@@ -276,7 +238,24 @@ export function BoardView({
   const [addingInColumn, setAddingInColumn] = useState<Status | null>(null);
 
   const tasks = useMemo(
-    () => externalTasks.map((t) => ({ ...t, ...(BOARD_EXTRAS[t.id] ?? {}) })),
+    () =>
+      externalTasks.map((t) => {
+        const children = t.children ?? [];
+        const subtasksTotal = children.length || t.subtasksTotal || 0;
+        const subtasksDone =
+          children.length > 0
+            ? children.filter((c) => c.done || c.status === "Done" || c.status === "Approved")
+                .length
+            : t.subtasksDone;
+        return {
+          ...t,
+          ...(BOARD_EXTRAS[t.id] ?? {}),
+          hasSubtasks: children.length > 0 || t.hasSubtasks,
+          subtasksTotal,
+          subtasksDone,
+          children,
+        };
+      }),
     [externalTasks],
   );
 
@@ -758,6 +737,7 @@ function BoardCard({
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(task.name);
   const [isSavingName, setIsSavingName] = useState(false);
+  const [subsExpanded, setSubsExpanded] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -927,19 +907,53 @@ function BoardCard({
           </div>
         )}
 
-        {/* Subtasks */}
+        {/* Subtasks — ClickUp-style count + expandable nest */}
         {hasSubs && (
-          <div className="flex items-center gap-1.5">
-            <CheckSquare className="size-3 text-muted-foreground shrink-0" />
-            <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary/60 transition-all duration-300"
-                style={{ width: `${((task.subtasksDone ?? 0) / (task.subtasksTotal ?? 1)) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-muted-foreground">
-              {task.subtasksDone}/{task.subtasksTotal}
-            </span>
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSubsExpanded((v) => !v);
+              }}
+              className="flex w-full items-center gap-1.5 text-left"
+            >
+              <CheckSquare className="size-3 text-muted-foreground shrink-0" />
+              <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary/60 transition-all duration-300"
+                  style={{
+                    width: `${((task.subtasksDone ?? 0) / (task.subtasksTotal ?? 1)) * 100}%`,
+                  }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                {task.subtasksDone}/{task.subtasksTotal}
+              </span>
+            </button>
+            {subsExpanded && (task.children?.length ?? 0) > 0 && (
+              <div className="space-y-1 rounded-lg border border-border/60 bg-muted/20 p-1.5">
+                {task.children!.map((child) => (
+                  <button
+                    key={child.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTaskClick?.(child.id);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-background transition-colors",
+                      child.done && "opacity-60",
+                    )}
+                  >
+                    <span className="text-muted-foreground">↳</span>
+                    <span className={cn("truncate flex-1 font-medium", child.done && "line-through")}>
+                      {child.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

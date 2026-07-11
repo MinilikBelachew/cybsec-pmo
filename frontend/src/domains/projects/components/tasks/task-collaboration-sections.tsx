@@ -29,6 +29,7 @@ import {
   useAddTaskAttachmentMutation,
   useDeleteTaskAttachmentMutation,
   useCreateTaskMutation,
+  useDeleteTaskMutation,
 } from "@/domains/projects";
 import { useAppAbility } from "@/domains/auth";
 import { useUploadFileMutation } from "@/domains/projects/api/files.api";
@@ -81,6 +82,8 @@ interface TaskCollaborationSectionsProps {
   className?: string;
   layout?: "stacked" | "tabs";
   showAttachments?: boolean;
+  /** When false, hides the Subtasks tab (used for child tasks — one level only). */
+  showSubTasks?: boolean;
   defaultTab?: TabId;
   subTaskMode?: "immediate" | "draft";
   draftSubTasks?: DraftSubTask[];
@@ -118,6 +121,7 @@ export function TaskCollaborationSections({
   className,
   layout = "stacked",
   showAttachments = true,
+  showSubTasks = true,
   defaultTab = "subtasks",
   subTaskMode = "immediate",
   draftSubTasks = [],
@@ -133,12 +137,16 @@ export function TaskCollaborationSections({
 }: TaskCollaborationSectionsProps) {
   const ability = useAppAbility();
   const canCreateSubTask = ability?.can("create", "Task") ?? false;
+  const canDeleteSubTask = ability?.can("update", "Task") ?? false;
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
+  const [activeTab, setActiveTab] = useState<TabId>(
+    !showSubTasks && defaultTab === "subtasks" ? "comments" : defaultTab,
+  );
   const [commentText, setCommentText] = useState("");
   const [isInternal, setIsInternal] = useState(true);
   const [showSubTaskForm, setShowSubTaskForm] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
+  const [deletingSubTaskId, setDeletingSubTaskId] = useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string | null; storageKey?: string | null; file?: File } | null>(null);
 
   const { data: task } = useGetTaskByIdQuery(taskId);
@@ -149,6 +157,7 @@ export function TaskCollaborationSections({
   const [deleteAttachment, { isLoading: isDeletingAttachment }] =
     useDeleteTaskAttachmentMutation();
   const [createTask, { isLoading: isCreatingSubTask }] = useCreateTaskMutation();
+  const [deleteTask] = useDeleteTaskMutation();
 
   const comments = task?.comments ?? [];
   const attachments = task?.attachments ?? [];
@@ -164,7 +173,9 @@ export function TaskCollaborationSections({
     subTasks.length > 0 ? Math.round((completedSubTasks / subTasks.length) * 100) : 0;
 
   const tabs: { id: TabId; label: string; count?: number }[] = [
-    { id: "subtasks", label: "Subtasks", count: totalSubTaskCount },
+    ...(showSubTasks
+      ? [{ id: "subtasks" as const, label: "Subtasks", count: totalSubTaskCount }]
+      : []),
     { id: "comments", label: "Comments", count: totalCommentCount },
     { id: "attachments", label: "Files", count: totalAttachmentCount },
   ];
@@ -289,6 +300,10 @@ export function TaskCollaborationSections({
       return;
     }
     try {
+      const parentEffort =
+        typeof task.effortHours === "number" && task.effortHours > 0
+          ? Math.max(1, Math.floor(task.effortHours))
+          : 1;
       await createTask({
         projectId,
         parentTaskId: taskId,
@@ -298,13 +313,43 @@ export function TaskCollaborationSections({
         status: "To_Do",
         startDate: task.startDate.slice(0, 10),
         endDate: task.endDate.slice(0, 10),
+        effortHours: parentEffort,
       }).unwrap();
       setSubTaskTitle("");
       setShowSubTaskForm(false);
       toast.success("Sub-task created");
     } catch (err: unknown) {
-      const apiError = err as { data?: { message?: string } };
-      toast.error(apiError?.data?.message ?? "Failed to create sub-task");
+      const apiError = err as {
+        data?: { message?: string; errors?: Record<string, string> };
+      };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to create sub-task",
+      );
+    }
+  }
+
+  async function handleDeleteSubTask(subTaskId: string, title: string) {
+    if (!canDeleteSubTask) return;
+    if (!window.confirm(`Delete sub-task "${title}"? This cannot be undone.`)) {
+      return;
+    }
+    setDeletingSubTaskId(subTaskId);
+    try {
+      await deleteTask(subTaskId).unwrap();
+      toast.success("Sub-task deleted");
+    } catch (err: unknown) {
+      const apiError = err as {
+        data?: { message?: string; errors?: Record<string, string> };
+      };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to delete sub-task",
+      );
+    } finally {
+      setDeletingSubTaskId(null);
     }
   }
 
@@ -379,28 +424,50 @@ export function TaskCollaborationSections({
         )}
         {subTasks.map((sub) => {
           const isDone = sub.status === "Done" || sub.status === "Approved";
+          const isDeleting = deletingSubTaskId === sub.id;
           return (
-            <button
+            <div
               key={sub.id}
-              type="button"
-              onClick={() => onOpenSubTask?.(sub.id)}
               className={cn(
                 "flex w-full gap-3 rounded-xl border border-border bg-background p-3 text-left transition hover:border-primary/30 hover:bg-primary/5",
                 isDone && "opacity-70"
               )}
             >
-              {isDone ? (
-                <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-              ) : (
-                <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <button
+                type="button"
+                onClick={() => onOpenSubTask?.(sub.id)}
+                className="flex min-w-0 flex-1 gap-3 text-left"
+              >
+                {isDone ? (
+                  <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                ) : (
+                  <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className={cn("text-sm font-medium", isDone && "line-through")}>{sub.title}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {STATUS_LABEL[sub.status] ?? sub.status}
+                    {" · "}
+                    Open to edit
+                  </p>
+                </div>
+              </button>
+              {canDeleteSubTask && (
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => void handleDeleteSubTask(sub.id, sub.title)}
+                  className="shrink-0 self-center p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors disabled:opacity-50"
+                  title="Delete sub-task"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                </button>
               )}
-              <div className="min-w-0 flex-1">
-                <p className={cn("text-sm font-medium", isDone && "line-through")}>{sub.title}</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {STATUS_LABEL[sub.status] ?? sub.status}
-                </p>
-              </div>
-            </button>
+            </div>
           );
         })}
         {draftSubTasks.map((sub) => (
@@ -685,7 +752,7 @@ export function TaskCollaborationSections({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
-          {activeTab === "subtasks" && subTasksSection}
+          {activeTab === "subtasks" && showSubTasks && subTasksSection}
           {activeTab === "comments" && commentsSection}
           {activeTab === "attachments" && showAttachments && attachmentsSection}
         </div>
@@ -710,8 +777,12 @@ export function TaskCollaborationSections({
       {commentsSection}
       <Separator />
       {showAttachments && attachmentsSection}
-      <Separator />
-      {subTasksSection}
+      {showSubTasks && (
+        <>
+          <Separator />
+          {subTasksSection}
+        </>
+      )}
     </div>
     
     <FilePreviewModal

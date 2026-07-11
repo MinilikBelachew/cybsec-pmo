@@ -342,18 +342,33 @@ export class ProjectTeamService {
   ): Promise<ProjectTaskAssigneeDto[]> {
     await this.assertProjectInScope(projectId, caslUser, 'read');
 
-    const allocations = await this.prisma.allocation.findMany({
-      where: { projectId, status: 'Active' },
-      include: {
-        employee: {
-          include: {
-            department: { select: { id: true, code: true, name: true } },
-            user: { select: { id: true, displayName: true, email: true } },
+    const [allocations, project] = await Promise.all([
+      this.prisma.allocation.findMany({
+        where: { projectId, status: 'Active' },
+        include: {
+          employee: {
+            include: {
+              department: { select: { id: true, code: true, name: true } },
+              user: { select: { id: true, displayName: true, email: true } },
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: {
+          primaryPmId: true,
+          secondaryPmId: true,
+          primaryPm: {
+            select: { id: true, displayName: true, email: true },
+          },
+          secondaryPm: {
+            select: { id: true, displayName: true, email: true },
+          },
+        },
+      }),
+    ]);
 
     const assignees: ProjectTaskAssigneeDto[] = [];
     const seenUserIds = new Set<string>();
@@ -379,6 +394,47 @@ export class ProjectTeamService {
         designation: allocation.employee.designation,
         role: allocation.role,
         department: allocation.employee.department,
+      });
+    }
+
+    // DEF-P1-026 — primary/secondary PM must be assignable even without a team allocation.
+    const pmEntries: Array<{
+      user: { id: string; displayName: string; email: string };
+      role: string;
+    }> = [];
+    if (project?.primaryPm) {
+      pmEntries.push({ user: project.primaryPm, role: 'Primary PM' });
+    }
+    if (project?.secondaryPm) {
+      pmEntries.push({ user: project.secondaryPm, role: 'Secondary PM' });
+    }
+
+    for (const { user, role } of pmEntries) {
+      if (seenUserIds.has(user.id)) {
+        continue;
+      }
+
+      const employee = await this.prisma.employee.findFirst({
+        where: { userId: user.id, isActive: true },
+        include: {
+          department: { select: { id: true, code: true, name: true } },
+        },
+      });
+
+      seenUserIds.add(user.id);
+      assignees.push({
+        userId: user.id,
+        displayName: user.displayName,
+        email: user.email,
+        employeeId: employee?.id ?? user.id,
+        name: employee?.name ?? user.displayName,
+        designation: employee?.designation ?? role,
+        role,
+        department: employee?.department ?? {
+          id: user.id,
+          code: 'PM',
+          name: 'Project Management',
+        },
       });
     }
 

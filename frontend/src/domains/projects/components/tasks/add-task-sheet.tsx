@@ -31,11 +31,15 @@ import {
   useGetProjectTaskAssigneesQuery,
   useGetPhasesQuery,
   useCreatePhaseMutation,
+  useGetTaskByIdQuery,
   createTaskSchema,
   toCreateTaskPayload,
   type CreateTaskFormValues,
   useGetProjectByIdQuery,
 } from "@/domains/projects";
+import {
+  taskDatesOutsideParentErrors,
+} from "../../schemas/task/task-date-fields";
 import {
   Sheet,
   SheetContent,
@@ -59,11 +63,32 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Calendar } from "@/shared/ui/calendar";
 import { cn } from "@/shared/utils/cn";
+import { toDateString } from "@/shared/utils/date";
 import { ADD_TASK_SHEET_CLASS, TASK_SHEET_COLUMN_CLASS, TASK_SHEET_FOOTER_PADDING, TASK_SHEET_MAIN_PADDING } from "./task-sheet.constants";
 import { TaskAssigneeAvailabilityAlert } from "./task-assignee-availability-alert";
 import { defaultTaskDateRange } from "../../schemas/task/task-date-fields";
 import { PhaseForm } from "../roadmap/phase-form";
 import { type PhaseFormValues } from "../../schemas/phase/phase.schema";
+
+/** Compare calendar days without UTC off-by-one. */
+function toDayKey(value?: string | Date | null): string {
+  if (!value) return "";
+  if (value instanceof Date) return toDateString(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : toDateString(parsed);
+}
+
+function formatDayLabel(ymd: string): string {
+  if (!ymd) return "";
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 type WorkspaceStatus = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type SideTab = "subtasks" | "comments" | "attachments";
@@ -230,6 +255,9 @@ export function AddTaskSheet({
     useGetProjectTaskAssigneesQuery(projectId, { skip: !projectId });
   const { data: phases = [], isLoading: loadingPhases } = useGetPhasesQuery(projectId);
   const { data: project } = useGetProjectByIdQuery(projectId, { skip: !projectId });
+  const { data: parentTask } = useGetTaskByIdQuery(parentTaskId ?? "", {
+    skip: !parentTaskId,
+  });
   const defaultDates = defaultTaskDateRange();
 
   const {
@@ -239,6 +267,8 @@ export function AddTaskSheet({
     reset,
     watch,
     setValue,
+    clearErrors,
+    setError,
     formState: { errors },
   } = useForm<CreateTaskFormValues>({
     resolver: zodResolver(createTaskSchema) as import("react-hook-form").Resolver<CreateTaskFormValues>,
@@ -273,21 +303,104 @@ export function AddTaskSheet({
   );
   const selectedPhase = phases.find((p) => p.id === watchedPhaseId);
 
-  // Compute disabled-date bounds from project and selected phase
-  const projectStart = project?.startDate ? new Date(project.startDate) : undefined;
-  const projectEnd = project?.endDate ? new Date(project.endDate) : undefined;
-  const phaseStart = selectedPhase?.startDate ? new Date(selectedPhase.startDate) : undefined;
-  const phaseEnd = selectedPhase?.endDate ? new Date(selectedPhase.endDate) : undefined;
-
-  // The effective min/max is the intersection of project range and phase range
-  const effectiveMin = phaseStart ?? projectStart;
-  const effectiveMax = phaseEnd ?? projectEnd;
+  const phaseStartYmd = toDayKey(selectedPhase?.startDate);
+  const phaseEndYmd = toDayKey(selectedPhase?.endDate);
+  const projectStartYmd = toDayKey(project?.startDate);
+  const projectEndYmd = toDayKey(project?.endDate);
+  const parentStartYmd = toDayKey(parentTask?.startDate);
+  const parentEndYmd = toDayKey(parentTask?.endDate);
+  const minCandidates = [phaseStartYmd, parentStartYmd, projectStartYmd].filter(Boolean);
+  const maxCandidates = [phaseEndYmd, parentEndYmd, projectEndYmd].filter(Boolean);
+  // Restrictive intersection: latest min, earliest max
+  const effectiveMinYmd = minCandidates.length
+    ? [...minCandidates].sort().at(-1)!
+    : "";
+  const effectiveMaxYmd = maxCandidates.length
+    ? [...maxCandidates].sort()[0]!
+    : "";
+  const effectiveMin = effectiveMinYmd
+    ? new Date(
+        Number(effectiveMinYmd.slice(0, 4)),
+        Number(effectiveMinYmd.slice(5, 7)) - 1,
+        Number(effectiveMinYmd.slice(8, 10)),
+      )
+    : undefined;
+  const effectiveMax = effectiveMaxYmd
+    ? new Date(
+        Number(effectiveMaxYmd.slice(0, 4)),
+        Number(effectiveMaxYmd.slice(5, 7)) - 1,
+        Number(effectiveMaxYmd.slice(8, 10)),
+      )
+    : undefined;
 
   function isDateDisabled(date: Date) {
-    if (effectiveMin && date < effectiveMin) return true;
-    if (effectiveMax && date > effectiveMax) return true;
+    const day = toDateString(date);
+    if (effectiveMinYmd && day < effectiveMinYmd) return true;
+    if (effectiveMaxYmd && day > effectiveMaxYmd) return true;
     return false;
   }
+
+  function phaseDateErrors(
+    start?: Date,
+    end?: Date,
+  ): { startDate?: string; endDate?: string } {
+    const next: { startDate?: string; endDate?: string } = {};
+    if (!phaseStartYmd && !phaseEndYmd) return next;
+
+    if (start) {
+      const startKey = toDayKey(start);
+      if (phaseStartYmd && startKey < phaseStartYmd) {
+        next.startDate = `Start date must be on or after phase start (${formatDayLabel(phaseStartYmd)})`;
+      } else if (phaseEndYmd && startKey > phaseEndYmd) {
+        next.startDate = `Start date must be on or before phase end (${formatDayLabel(phaseEndYmd)})`;
+      }
+    }
+
+    if (end) {
+      const endKey = toDayKey(end);
+      if (phaseEndYmd && endKey > phaseEndYmd) {
+        next.endDate = `End date must be on or before phase end (${formatDayLabel(phaseEndYmd)})`;
+      } else if (phaseStartYmd && endKey < phaseStartYmd) {
+        next.endDate = `End date must be on or after phase start (${formatDayLabel(phaseStartYmd)})`;
+      }
+    }
+
+    return next;
+  }
+
+  function applyPhaseDateErrors(start?: Date, end?: Date): boolean {
+    const phaseErrors = phaseDateErrors(start, end);
+    const parentErrors = parentTaskId
+      ? taskDatesOutsideParentErrors({
+          start,
+          end,
+          parentStart: parentTask?.startDate,
+          parentEnd: parentTask?.endDate,
+        })
+      : {};
+    const next = {
+      startDate: parentErrors.startDate ?? phaseErrors.startDate,
+      endDate: parentErrors.endDate ?? phaseErrors.endDate,
+    };
+    if (next.startDate) {
+      setError("startDate", { type: "validate", message: next.startDate });
+    } else {
+      clearErrors("startDate");
+    }
+    if (next.endDate) {
+      setError("endDate", { type: "validate", message: next.endDate });
+    } else {
+      clearErrors("endDate");
+    }
+    return Boolean(next.startDate || next.endDate);
+  }
+
+  // Re-check both task dates when phase (or its window) changes — DEF-P1-009.
+  useEffect(() => {
+    if (!watchedPhaseId || (!phaseStartYmd && !phaseEndYmd)) return;
+    applyPhaseDateErrors(watchedStartDate, watchedEndDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when phase bounds change
+  }, [watchedPhaseId, phaseStartYmd, phaseEndYmd]);
 
   const handleCreatePhase = async (values: PhaseFormValues) => {
     setIsSavingPhase(true);
@@ -303,9 +416,39 @@ export function AddTaskSheet({
           orderIndex: 0,
         },
       }).unwrap();
-      setValue("phaseId", newPhase.id);
+      setValue("phaseId", newPhase.id, { shouldValidate: true, shouldDirty: true });
+      clearErrors("phaseId");
       setShowCreatePhase(false);
       toast.success(`Phase "${newPhase.name}" created and selected`);
+      // Bounds come from the new phase — validate current task dates against them.
+      const startKey = toDayKey(watchedStartDate);
+      const endKey = toDayKey(watchedEndDate);
+      const pStart = toDayKey(newPhase.startDate);
+      const pEnd = toDayKey(newPhase.endDate);
+      if (watchedStartDate && pStart && startKey < pStart) {
+        setError("startDate", {
+          type: "validate",
+          message: `Start date must be on or after phase start (${formatDayLabel(pStart)})`,
+        });
+      }
+      if (watchedStartDate && pEnd && startKey > pEnd) {
+        setError("startDate", {
+          type: "validate",
+          message: `Start date must be on or before phase end (${formatDayLabel(pEnd)})`,
+        });
+      }
+      if (watchedEndDate && pEnd && endKey > pEnd) {
+        setError("endDate", {
+          type: "validate",
+          message: `End date must be on or before phase end (${formatDayLabel(pEnd)})`,
+        });
+      }
+      if (watchedEndDate && pStart && endKey < pStart) {
+        setError("endDate", {
+          type: "validate",
+          message: `End date must be on or after phase start (${formatDayLabel(pStart)})`,
+        });
+      }
     } catch (err: unknown) {
       const apiError = err as { data?: { message?: string } };
       toast.error(apiError?.data?.message ?? "Failed to create phase");
@@ -383,6 +526,10 @@ export function AddTaskSheet({
   }
 
   const onSubmit = handleSubmit(async (values) => {
+    if (applyPhaseDateErrors(values.startDate, values.endDate)) {
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const result = await createTaskBundle({
@@ -413,12 +560,24 @@ export function AddTaskSheet({
       onCreated?.();
       handleClose();
     } catch (err: unknown) {
-      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
+      const apiError = err as {
+        data?: { errors?: Record<string, string>; message?: string };
+      };
       const fieldErrors = apiError?.data?.errors;
-      if (fieldErrors) {
-        toast.error(Object.values(fieldErrors)[0] ?? "Failed to create task.");
+      const humanMessage = apiError?.data?.message;
+      if (humanMessage) {
+        toast.error(humanMessage);
+      } else if (fieldErrors) {
+        const code = Object.values(fieldErrors)[0];
+        toast.error(
+          code === "taskStartDateOutsidePhase"
+            ? "Task start date must be within the selected phase dates"
+            : code === "taskEndDateOutsidePhase"
+              ? "Task end date must be within the selected phase dates"
+              : (code ?? "Failed to create task."),
+        );
       } else {
-        toast.error(apiError?.data?.message ?? "Failed to create task. Please try again.");
+        toast.error("Failed to create task. Please try again.");
       }
     } finally {
       setIsSubmitting(false);
@@ -598,7 +757,10 @@ export function AddTaskSheet({
                         render={({ field }) => (
                           <Select
                             value={field.value ?? ""}
-                            onValueChange={field.onChange}
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              clearErrors("phaseId");
+                            }}
                             disabled={loadingPhases}
                           >
                             <SelectTrigger className="w-full">
@@ -695,7 +857,10 @@ export function AddTaskSheet({
                               <Calendar
                                 mode="single"
                                 selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={(date) => field.onChange(date ?? undefined)}
+                                onSelect={(date) => {
+                                  field.onChange(date ?? undefined);
+                                  applyPhaseDateErrors(date ?? undefined, watchedEndDate);
+                                }}
                                 disabled={isDateDisabled}
                                 startMonth={effectiveMin}
                                 endMonth={effectiveMax}
@@ -726,7 +891,10 @@ export function AddTaskSheet({
                               <Calendar
                                 mode="single"
                                 selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={(date) => field.onChange(date ?? undefined)}
+                                onSelect={(date) => {
+                                  field.onChange(date ?? undefined);
+                                  applyPhaseDateErrors(watchedStartDate, date ?? undefined);
+                                }}
                                 disabled={(date) => {
                                   if (watchedStartDate && date < new Date(watchedStartDate)) return true;
                                   return isDateDisabled(date);
@@ -744,16 +912,17 @@ export function AddTaskSheet({
 
                 <div className="space-y-1.5">
                   <Label htmlFor="effortHours" className="text-xs text-muted-foreground">
-                    Effort (hours)
+                    Effort (hours) *
                   </Label>
                   <Input
                     id="effortHours"
                     type="number"
                     min={1}
                     step={1}
-                    placeholder="Optional"
+                    placeholder="Required"
                     {...register("effortHours")}
                   />
+                  <FieldError message={errors.effortHours?.message} />
                 </div>
               </div>
             </div>

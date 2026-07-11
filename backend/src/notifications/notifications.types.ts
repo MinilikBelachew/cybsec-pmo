@@ -9,6 +9,8 @@ export type NotifyInput = {
   sourceObjectType?: string;
   sourceObjectId?: string;
   actorId?: string;
+  /** When true, actor can also receive the notification (e.g. self-assign). */
+  includeActorAsRecipient?: boolean;
 };
 
 export type NotificationEmailJobPayload = {

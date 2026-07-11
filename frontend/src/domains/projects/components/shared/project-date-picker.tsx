@@ -10,6 +10,14 @@ function toDate(value?: string | Date | null): Date | undefined {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? undefined : value;
   }
+  // YYYY-MM-DD must be local calendar day — `new Date("YYYY-MM-DD")` is UTC and shifts.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]);
+    const day = Number(dateOnly[3]);
+    return new Date(year, month - 1, day);
+  }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }

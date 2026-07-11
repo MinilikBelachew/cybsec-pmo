@@ -15,6 +15,7 @@ import {
   useAddProjectTeamMembersMutation,
   useGetMilestonesQuery,
   useCreateMilestoneMutation,
+  useUpdateMilestoneMutation,
   useLazyGetAllocationDateIssuesQuery,
   useAlignProjectAllocationDatesMutation,
   createProjectFormSchema,
@@ -65,6 +66,9 @@ import { BudgetValueInput } from "../shared/budget-value-input";
 import {
   ProjectFormMilestonesSection,
   toDraftMilestonePayload,
+  toPersistedMilestonePayload,
+  toMilestoneApiDate,
+  existingMilestonesToDrafts,
   isMilestoneDateOutOfRange,
   type DraftProjectMilestone,
   type ProjectFormMilestonesSectionHandle,
@@ -125,10 +129,15 @@ function toAllocationPayload(members: PendingTeamMember[]) {
   }));
 }
 
-function toMilestoneApiPayload(draft: ReturnType<typeof toDraftMilestonePayload>[number]) {
+function toMilestoneApiPayload(draft: {
+  title: string;
+  targetDate: string;
+  weight?: number | null;
+  status: string;
+}) {
   return {
     title: draft.title,
-    targetDate: new Date(draft.targetDate).toISOString(),
+    targetDate: toMilestoneApiDate(draft.targetDate),
     weight: draft.weight ?? undefined,
     status: draft.status,
   };
@@ -144,23 +153,13 @@ function validateMilestoneDraftDates(
 ): string | null {
   for (const draft of drafts) {
     if (!draft.targetDate) continue;
-    const target = new Date(draft.targetDate);
-    if (Number.isNaN(target.getTime())) {
-      return `Milestone "${draft.title}" has an invalid target date.`;
-    }
-    if (projectEndDate) {
-      const end = new Date(projectEndDate);
-      end.setHours(23, 59, 59, 999);
-      if (target > end) {
-        return `Milestone "${draft.title}" cannot be after the project end date.`;
-      }
-    }
-    if (projectStartDate) {
-      const start = new Date(projectStartDate);
-      start.setHours(0, 0, 0, 0);
-      if (target < start) {
-        return `Milestone "${draft.title}" cannot be before the project start date.`;
-      }
+    const dateError = isMilestoneDateOutOfRange(
+      draft.targetDate,
+      projectStartDate,
+      projectEndDate,
+    );
+    if (dateError) {
+      return `Milestone "${draft.title}": ${dateError}`;
     }
   }
   return null;
@@ -183,6 +182,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const milestonesReadOnly = isViewOnly || !canEditMilestones;
   const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
   const milestoneSectionRef = useRef<ProjectFormMilestonesSectionHandle>(null);
+  const milestonesSeededForProjectRef = useRef<string | null>(null);
   const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
   const [milestoneDrafts, setMilestoneDrafts] = useState<DraftProjectMilestone[]>([]);
   const [milestoneError, setMilestoneError] = useState<string | null>(null);
@@ -195,14 +195,19 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
   const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
   const [addProjectTeamMembers, { isLoading: isSavingTeam }] = useAddProjectTeamMembersMutation();
-  const [createMilestone, { isLoading: isSavingMilestones }] = useCreateMilestoneMutation();
+  const [createMilestone, { isLoading: isCreatingMilestones }] = useCreateMilestoneMutation();
+  const [updateMilestone, { isLoading: isUpdatingMilestones }] = useUpdateMilestoneMutation();
   const [fetchAllocationDateIssues] = useLazyGetAllocationDateIssuesQuery();
   const [alignProjectAllocationDates, { isLoading: isAligningAllocations }] =
     useAlignProjectAllocationDatesMutation();
+  const isSavingMilestones = isCreatingMilestones || isUpdatingMilestones;
   const isSubmitting =
     isCreating || isUpdating || isSavingTeam || isSavingMilestones || isAligningAllocations;
 
-  const { data: existingMilestones = [] } = useGetMilestonesQuery(project?.id ?? "", {
+  const {
+    data: existingMilestones = [],
+    isSuccess: milestonesLoaded,
+  } = useGetMilestonesQuery(project?.id ?? "", {
     skip: !isEditMode || !project?.id || !open,
   });
 
@@ -248,12 +253,14 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       setPendingTeamMembers([]);
       setMilestoneDrafts([]);
       setMilestoneError(null);
+      milestonesSeededForProjectRef.current = null;
       return;
     }
     setMilestoneError(null);
     if (project) {
       reset(projectToFormValues(project));
     } else {
+      setMilestoneDrafts([]);
       reset({
         name: "",
         objective: "",
@@ -272,6 +279,14 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       });
     }
   }, [open, project, reset]);
+
+  // Seed editable drafts once per open Edit Project session.
+  useEffect(() => {
+    if (!open || !isEditMode || !milestonesLoaded || !project?.id) return;
+    if (milestonesSeededForProjectRef.current === project.id) return;
+    milestonesSeededForProjectRef.current = project.id;
+    setMilestoneDrafts(existingMilestonesToDrafts(existingMilestones));
+  }, [open, isEditMode, milestonesLoaded, project?.id, existingMilestones]);
 
   const onFormError = () => {
     setTimeout(() => {
@@ -413,6 +428,20 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
           }
           toast.success(
             `${newMilestones.length} milestone${newMilestones.length === 1 ? "" : "s"} added.`,
+          );
+        }
+
+        const persistedMilestones = toPersistedMilestonePayload(currentMilestoneDrafts);
+        if (targetProjectId && persistedMilestones.length > 0) {
+          for (const milestone of persistedMilestones) {
+            await updateMilestone({
+              projectId: targetProjectId,
+              milestoneId: milestone.id,
+              body: toMilestoneApiPayload(milestone),
+            }).unwrap();
+          }
+          toast.success(
+            `${persistedMilestones.length} milestone${persistedMilestones.length === 1 ? "" : "s"} updated.`,
           );
         }
       } else {
@@ -817,6 +846,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                         void trigger("endDate");
                       }}
                       minDate={isEditMode ? startOfToday() : startOfToday()}
+                      invalid={Boolean(errors.startDate)}
                       disabled={isViewOnly}
                     />
                   )}
@@ -840,6 +870,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                       value={field.value}
                       onChange={(date) => {
                         field.onChange(date);
+                        void trigger("startDate");
                         void trigger("endDate");
                       }}
                       minDate={endDateMin}
@@ -1037,7 +1068,6 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
 
           <ProjectFormMilestonesSection
             ref={milestoneSectionRef}
-            existingMilestones={isEditMode ? existingMilestones : []}
             drafts={milestoneDrafts}
             onDraftsChange={(newDrafts) => {
               setMilestoneDrafts(newDrafts);

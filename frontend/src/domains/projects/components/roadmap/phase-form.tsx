@@ -16,16 +16,25 @@ import { Calendar } from "@/shared/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { CalendarIcon } from "lucide-react";
 import { toDateString, formatDateLabel } from "@/shared/utils/date";
+import { EntityAttachmentsSection } from "../documents/entity-attachments-section";
+import type { WorkspaceDocument } from "../../types/project-documents.types";
 
 interface PhaseFormProps {
   initialValues: PhaseFormValues;
-  onSubmit: (values: PhaseFormValues) => Promise<void>;
+  onSubmit: (values: PhaseFormValues, draftFiles: File[]) => Promise<void>;
   onCancel: () => void;
   isSaving: boolean;
   existingPhases?: ProjectPhase[];
   phaseId?: string;
   projectStartDate?: string;
   projectEndDate?: string;
+  documents?: WorkspaceDocument[];
+  isDocumentsLoading?: boolean;
+  onDeleteDocument?: (documentId: string) => void;
+  onImmediateUpload?: (files: File[]) => Promise<void>;
+  isUploadingDocument?: boolean;
+  isDeletingDocument?: boolean;
+  canAttach?: boolean;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -42,7 +51,17 @@ export function PhaseForm({
   phaseId,
   projectStartDate,
   projectEndDate,
+  documents = [],
+  isDocumentsLoading = false,
+  onDeleteDocument,
+  onImmediateUpload,
+  isUploadingDocument = false,
+  isDeletingDocument = false,
+  canAttach = true,
 }: PhaseFormProps) {
+  const [draftFiles, setDraftFiles] = React.useState<File[]>([]);
+
+  // Parallel phases are allowed (DEF-P1-046): only enforce end≥start and project bounds.
   const schema = useMemo(() => {
     return phaseSchema
       .refine(
@@ -57,31 +76,6 @@ export function PhaseForm({
         {
           message: "End date must be on or after start date",
           path: ["endDate"],
-        }
-      )
-      .refine(
-        (data) => {
-          if (!data.startDate || !data.endDate) return true;
-          const start = new Date(data.startDate);
-          const end = new Date(data.endDate);
-
-          // Check if it overlaps with any other phase's date range
-          const overlappingPhase = existingPhases.find((p) => {
-            // If editing, skip checking against the phase itself
-            if (phaseId && p.id === phaseId) return false;
-            if (!p.startDate || !p.endDate) return false;
-
-            const pStart = new Date(p.startDate);
-            const pEnd = new Date(p.endDate);
-
-            return start <= pEnd && end >= pStart;
-          });
-
-          return !overlappingPhase;
-        },
-        {
-          message: "Phase dates overlap with an existing phase in this project",
-          path: ["startDate"],
         }
       )
       .refine(
@@ -116,7 +110,7 @@ export function PhaseForm({
           path: ["endDate"],
         }
       );
-  }, [existingPhases, phaseId, projectStartDate, projectEndDate]);
+  }, [projectStartDate, projectEndDate]);
 
   const {
     register,
@@ -146,7 +140,10 @@ export function PhaseForm({
   );
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col justify-between overflow-hidden">
+    <form
+      onSubmit={handleSubmit((values) => onSubmit(values, draftFiles))}
+      className="flex-1 flex flex-col justify-between overflow-hidden"
+    >
       <ScrollArea className="flex-1">
         <div className="space-y-4 px-4 py-4">
           <div className="flex items-center justify-between">
@@ -182,7 +179,7 @@ export function PhaseForm({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Start Date</Label>
+                <Label className="text-xs font-semibold">Start Date *</Label>
                 <Controller
                   control={control}
                   name="startDate"
@@ -224,16 +221,7 @@ export function PhaseForm({
                               end.setHours(0, 0, 0, 0);
                               if (d > end) return true;
                             }
-                            // Disable dates within existing phase ranges
-                            return existingPhases.some((p) => {
-                              if (phaseId && p.id === phaseId) return false;
-                              if (!p.startDate || !p.endDate) return false;
-                              const pStart = new Date(p.startDate);
-                              const pEnd = new Date(p.endDate);
-                              pStart.setHours(0, 0, 0, 0);
-                              pEnd.setHours(0, 0, 0, 0);
-                              return d >= pStart && d <= pEnd;
-                            });
+                            return false;
                           }}
                         />
                       </PopoverContent>
@@ -243,7 +231,7 @@ export function PhaseForm({
                 <FieldError message={errors.startDate?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">End Date</Label>
+                <Label className="text-xs font-semibold">End Date *</Label>
                 <Controller
                   control={control}
                   name="endDate"
@@ -289,16 +277,7 @@ export function PhaseForm({
                               end.setHours(0, 0, 0, 0);
                               if (d > end) return true;
                             }
-                            // Disable dates within existing phase ranges
-                            return existingPhases.some((p) => {
-                              if (phaseId && p.id === phaseId) return false;
-                              if (!p.startDate || !p.endDate) return false;
-                              const pStart = new Date(p.startDate);
-                              const pEnd = new Date(p.endDate);
-                              pStart.setHours(0, 0, 0, 0);
-                              pEnd.setHours(0, 0, 0, 0);
-                              return d >= pStart && d <= pEnd;
-                            });
+                            return false;
                           }}
                         />
                       </PopoverContent>
@@ -336,6 +315,26 @@ export function PhaseForm({
               <FieldError message={errors.status?.message} />
             </div>
           </div>
+
+          <Separator />
+
+          <EntityAttachmentsSection
+            title="Phase files"
+            documents={documents}
+            draftFiles={draftFiles}
+            onDraftFilesChange={setDraftFiles}
+            onImmediateUpload={onImmediateUpload}
+            onDeleteDocument={onDeleteDocument}
+            isLoading={isDocumentsLoading}
+            isUploading={isUploadingDocument}
+            isDeleting={isDeletingDocument}
+            canEdit={canAttach}
+            emptyHint={
+              onImmediateUpload
+                ? "Upload phase documents. Files save immediately."
+                : "Attach phase documents (optional). Draft files save when you create the phase."
+            }
+          />
         </div>
       </ScrollArea>
 

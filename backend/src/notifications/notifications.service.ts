@@ -30,7 +30,8 @@ export class NotificationsService {
   async notify(input: NotifyInput): Promise<void> {
     try {
       const recipients = [...new Set(input.recipientUserIds.filter(Boolean))].filter(
-        (userId) => userId !== input.actorId,
+        (userId) =>
+          input.includeActorAsRecipient || userId !== input.actorId,
       );
 
       if (recipients.length === 0) {

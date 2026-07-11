@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { toDateString } from "@/shared/utils/date";
 import {
   requiredTaskDate,
   taskEndDateAfterStartDate,
@@ -21,7 +22,10 @@ export const createTaskSchema = z
     endDate: requiredTaskDate,
     effortHours: z.preprocess(
       (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
-      z.number().int().positive().optional()
+      z
+        .number({ message: "Effort hours is required" })
+        .int("Effort must be a whole number")
+        .positive("Effort must be greater than 0")
     ),
     status: z.enum([
       "To_Do",
@@ -49,9 +53,10 @@ export function toCreateTaskPayload(values: CreateTaskFormValues) {
     priority: values.priority,
     ownerId: values.ownerId || null,
     backupOwnerId: values.backupOwnerId || null,
-    startDate: values.startDate.toISOString().slice(0, 10),
-    endDate: values.endDate.toISOString().slice(0, 10),
-    effortHours: values.effortHours ?? null,
+    // Local calendar day — toISOString() shifts the day in UTC+ timezones.
+    startDate: toDateString(values.startDate),
+    endDate: toDateString(values.endDate),
+    effortHours: values.effortHours,
     status: values.status,
   };
 }

@@ -9,12 +9,14 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { ResourcesModule } from '../resources/resources.module';
 import { AuditLogsModule } from '../audit/audit-logs.module';
+import { WorkspaceDocumentsModule } from '../workspace-documents/workspace-documents.module';
 
 @Module({
   imports: [
     PrismaModule,
     FilesModule,
     NotificationsModule,
+    WorkspaceDocumentsModule,
     forwardRef(() => ProjectsModule),
     forwardRef(() => ResourcesModule),
     AuditLogsModule,

@@ -60,7 +60,10 @@ export function ProgressReviewInbox({
   useEffect(() => {
     if (total === 0) {
       setVisibleLimit(INITIAL_VISIBLE_COUNT);
+      return;
     }
+    // Auto-expand when there is work to review so PMs see Progress Approvals immediately.
+    setExpanded(true);
   }, [total]);
 
   if (total === 0 && !isLoading) {
@@ -160,6 +163,14 @@ export function ProgressReviewInbox({
                       {update.hoursSpent}h ·{" "}
                       {new Date(update.createdAt).toLocaleString()}
                     </p>
+                    {update.task?.effortHours != null &&
+                      Number(update.task.effortHours) > 0 &&
+                      update.hoursSpent > Number(update.task.effortHours) && (
+                        <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                          This submission alone ({update.hoursSpent}h) exceeds planned effort (
+                          {Number(update.task.effortHours)}h).
+                        </p>
+                      )}
                     {update.comment && (
                       <p className="text-xs text-foreground/80 line-clamp-2">{update.comment}</p>
                     )}

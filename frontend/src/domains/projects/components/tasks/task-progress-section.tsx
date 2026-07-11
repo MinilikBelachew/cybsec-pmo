@@ -61,7 +61,7 @@ export function TaskProgressSection({
   const [evidenceFiles, setEvidenceFiles] = useState<
     Pick<ProgressEvidenceFile, "storageKey" | "filename">[]
   >([]);
-  const [reviewReason, setReviewReason] = useState("");
+  const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
   const [isUploading, setIsUploading] = useState(false);
 
   const { data: updates = [], isLoading } = useGetTaskProgressUpdatesQuery(task.id, {
@@ -73,29 +73,64 @@ export function TaskProgressSection({
   const [uploadFile] = useUploadFileMutation();
 
   const canApprove = ability?.can("approve", "Task") ?? false;
-  const isOwner = user?.id === task.ownerId;
+  const isOwner =
+    user?.id === task.ownerId ||
+    (task.ownerId == null && user?.id != null && user.id === task.parentTask?.ownerId);
   const approvedPercent = task.progressApproved ?? 0;
   const remainingPercent = Math.max(0, 100 - approvedPercent);
   const hasPartialApproval = approvedPercent > 0 && approvedPercent < 100;
-  const canSubmit =
-    isOwner &&
-    (task.status === "In_Progress" || task.status === "Rework") &&
-    !updates.some((row) => row.status === "Pending") &&
-    approvedPercent < 100;
-
-  const pendingUpdate = useMemo(
-    () => updates.find((row) => row.status === "Pending"),
+  const pendingUpdates = useMemo(
+    () => updates.filter((row) => row.status === "Pending"),
     [updates],
   );
+  const highestPendingPercent = useMemo(
+    () =>
+      pendingUpdates.reduce((max, row) => Math.max(max, row.progressPercent), 0),
+    [pendingUpdates],
+  );
+  const progressFloor = Math.max(approvedPercent, highestPendingPercent);
+  const canSubmit =
+    isOwner &&
+    (task.status === "In_Progress" ||
+      task.status === "Rework" ||
+      task.status === "Submitted_for_Review") &&
+    progressFloor < 100;
 
-  const canReviewPendingUpdate =
-    canApprove && pendingUpdate != null && pendingUpdate.engineerId !== user?.id;
+  const pendingUpdate = pendingUpdates[0] ?? null;
+
+  const canReviewPendingUpdates =
+    canApprove &&
+    pendingUpdates.some((row) => row.engineerId !== user?.id);
+
+  const plannedEffortHours = useMemo(() => {
+    const raw = task.effortHours;
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [task.effortHours]);
+
+  const loggedHours = useMemo(() => {
+    const fromUpdates = updates
+      .filter((row) => row.status === "Pending" || row.status === "Approved")
+      .reduce((sum, row) => sum + Number(row.hoursSpent || 0), 0);
+    if (typeof task.actualHoursLogged === "number") {
+      return Math.max(task.actualHoursLogged, fromUpdates);
+    }
+    return fromUpdates;
+  }, [updates, task.actualHoursLogged]);
+
+  const effortVarianceHours =
+    plannedEffortHours != null
+      ? Math.round((loggedHours - plannedEffortHours) * 100) / 100
+      : null;
+  const isOverEffort =
+    plannedEffortHours != null && loggedHours > plannedEffortHours;
 
   useEffect(() => {
     if (!focusProgressReview) return;
 
     const target =
-      canReviewPendingUpdate && pendingUpdate ? reviewBlockRef.current : sectionRef.current;
+      canReviewPendingUpdates && pendingUpdate ? reviewBlockRef.current : sectionRef.current;
     if (!target) return;
 
     target.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -106,15 +141,15 @@ export function TaskProgressSection({
     }, 3000);
 
     return () => window.clearTimeout(timer);
-  }, [focusProgressReview, pendingUpdate?.id, canReviewPendingUpdate]);
+  }, [focusProgressReview, pendingUpdate?.id, canReviewPendingUpdates]);
 
   useEffect(() => {
     setProgressPercent("");
     setHoursSpent("");
     setComment("");
     setEvidenceFiles([]);
-    setReviewReason("");
-  }, [task.id, task.progressApproved, task.status, pendingUpdate?.id]);
+    setReviewReasons({});
+  }, [task.id, task.progressApproved, task.status]);
 
   async function handleEvidenceSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -164,9 +199,13 @@ export function TaskProgressSection({
       toast.error("Enter a valid progress percentage (0–100).");
       return;
     }
-    if (percent <= approvedPercent) {
+    if (progressFloor >= 100) {
+      toast.error("Progress is already at 100%. No further submissions are allowed.");
+      return;
+    }
+    if (percent <= progressFloor) {
       toast.error(
-        `Enter cumulative progress above the approved total (${approvedPercent}%).`,
+        `Enter total progress above the current highest (${progressFloor}%). Max is 100%.`,
       );
       return;
     }
@@ -184,10 +223,11 @@ export function TaskProgressSection({
         evidenceFiles: evidenceFiles.length > 0 ? evidenceFiles : undefined,
       }).unwrap();
       toast.success(
-        hasPartialApproval
+        hasPartialApproval || pendingUpdates.length > 0
           ? "Next progress update submitted for PM review"
           : "Progress submitted for PM review",
       );
+      setProgressPercent("");
       setComment("");
       setHoursSpent("");
       setEvidenceFiles([]);
@@ -197,9 +237,12 @@ export function TaskProgressSection({
     }
   }
 
-  async function handleReview(decision: "approve" | "reject" | "rework") {
-    if (!pendingUpdate) return;
-    if ((decision === "reject" || decision === "rework") && !reviewReason.trim()) {
+  async function handleReview(
+    decision: "approve" | "reject" | "rework",
+    updateId: string,
+  ) {
+    const reason = (reviewReasons[updateId] ?? "").trim();
+    if ((decision === "reject" || decision === "rework") && !reason) {
       toast.error("Please provide a reason.");
       return;
     }
@@ -207,9 +250,9 @@ export function TaskProgressSection({
     try {
       await reviewProgress({
         taskId: task.id,
-        updateId: pendingUpdate.id,
+        updateId,
         decision,
-        reviewReason: reviewReason.trim() || undefined,
+        reviewReason: reason || undefined,
       }).unwrap();
       toast.success(
         decision === "approve"
@@ -218,7 +261,11 @@ export function TaskProgressSection({
             ? "Progress rejected"
             : "Rework requested",
       );
-      setReviewReason("");
+      setReviewReasons((prev) => {
+        const next = { ...prev };
+        delete next[updateId];
+        return next;
+      });
       onUpdated?.();
     } catch (err: unknown) {
       toast.error(formatTaskApiError(err, "Failed to review progress"));
@@ -270,39 +317,87 @@ export function TaskProgressSection({
             {task.progressPending}% submitted — awaiting PM review (not counted in KPI yet).
           </p>
         )}
-        {hasPartialApproval && task.status === "In_Progress" && isOwner && !pendingUpdate && (
+        {hasPartialApproval &&
+          (task.status === "In_Progress" || task.status === "Submitted_for_Review") &&
+          isOwner && (
           <p className="text-[10px] text-muted-foreground">
             Continue the remaining work, then submit your next cumulative total (e.g. 100%).
+            {pendingUpdates.length > 0
+              ? ` ${pendingUpdates.length} update(s) still awaiting PM review.`
+              : ""}
           </p>
         )}
       </div>
+
+      {plannedEffortHours != null && (
+        <div
+          className={cn(
+            "rounded-lg border px-3 py-2 text-[11px]",
+            isOverEffort
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100"
+              : "border-border/60 bg-background text-muted-foreground",
+          )}
+        >
+          <p className="font-medium text-foreground">Effort tracking</p>
+          <p className="mt-0.5">
+            Planned <span className="font-medium text-foreground">{plannedEffortHours}h</span>
+            {" · "}
+            Logged <span className="font-medium text-foreground">{loggedHours}h</span>
+            {effortVarianceHours != null && (
+              <>
+                {" · "}
+                Variance{" "}
+                <span
+                  className={cn(
+                    "font-semibold",
+                    isOverEffort ? "text-amber-800 dark:text-amber-200" : "text-foreground",
+                  )}
+                >
+                  {effortVarianceHours > 0 ? "+" : ""}
+                  {effortVarianceHours}h
+                </span>
+              </>
+            )}
+          </p>
+          {isOverEffort && (
+            <p className="mt-1 font-medium">
+              Over planned effort by {effortVarianceHours}h — review before approving.
+            </p>
+          )}
+        </div>
+      )}
 
       {canSubmit && (
         <div className="space-y-3 rounded-lg border border-dashed border-primary/30 bg-primary/5 p-3">
           <div>
             <p className="text-xs font-semibold text-primary">
-              {hasPartialApproval ? "Submit next progress update" : "Submit progress update"}
+              {hasPartialApproval || pendingUpdates.length > 0
+                ? "Submit next progress update"
+                : "Submit progress update"}
             </p>
-            {hasPartialApproval && (
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Approved so far: {approvedPercent}%. Enter the new cumulative total (must be
-                greater than {approvedPercent}%).
-              </p>
-            )}
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Enter the <span className="font-medium text-foreground">total</span> progress so
+              far (max 100%), not an amount to add. Example: 25% → 50% → 75% → 100%.
+              {progressFloor > 0
+                ? ` Next value must be above ${progressFloor}%.`
+                : ""}
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">
-                Cumulative progress %
+                Total progress % (max 100)
               </Label>
               <Input
                 type="number"
-                min={approvedPercent + 1}
+                min={progressFloor + 1}
                 max={100}
                 value={progressPercent}
                 onChange={(e) => setProgressPercent(e.target.value)}
                 placeholder={
-                  hasPartialApproval ? `e.g. 100 (${approvedPercent}% approved)` : "e.g. 60"
+                  progressFloor > 0
+                    ? `e.g. ${Math.min(100, progressFloor + 25)}`
+                    : "e.g. 25"
                 }
               />
             </div>
@@ -388,6 +483,13 @@ export function TaskProgressSection({
         </div>
       )}
 
+      {isOwner && progressFloor >= 100 && approvedPercent < 100 && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-100">
+          A 100% update is already pending PM review. You cannot submit another progress
+          percentage until that review is complete.
+        </p>
+      )}
+
       {approvedPercent >= 100 && task.status === "Approved" && (
         <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-900 dark:text-emerald-100">
           All progress is approved (100%). The PM can mark this task Done when delivery is
@@ -395,57 +497,73 @@ export function TaskProgressSection({
         </p>
       )}
 
-      {canReviewPendingUpdate && pendingUpdate && (
-        <div
-          ref={reviewBlockRef}
-          className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 transition-shadow"
-        >
-          <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">
-            Pending review from {pendingUpdate.engineer.displayName}
-          </p>
-          <ProgressUpdateRow update={pendingUpdate} compact />
-          <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground">
-              Reason (required for reject / rework)
-            </Label>
-            <textarea
-              rows={2}
-              value={reviewReason}
-              onChange={(e) => setReviewReason(e.target.value)}
-              placeholder="Explain your decision…"
-              className="flex min-h-[56px] w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              disabled={isReviewing}
-              onClick={() => void handleReview("approve")}
+      {canReviewPendingUpdates &&
+        pendingUpdates
+          .filter((row) => row.engineerId !== user?.id)
+          .map((update, index) => (
+            <div
+              key={update.id}
+              ref={index === 0 ? reviewBlockRef : undefined}
+              className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 transition-shadow"
             >
-              <CheckCircle2 className="size-3.5" /> Approve
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={isReviewing}
-              onClick={() => void handleReview("rework")}
-            >
-              <RotateCcw className="size-3.5" /> Request rework
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              disabled={isReviewing}
-              onClick={() => void handleReview("reject")}
-            >
-              <XCircle className="size-3.5" /> Reject
-            </Button>
-          </div>
-        </div>
-      )}
+              <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                Pending review from {update.engineer.displayName}
+                {pendingUpdates.length > 1 ? ` (${index + 1} of ${pendingUpdates.length})` : ""}
+              </p>
+              <ProgressUpdateRow update={update} compact />
+              {plannedEffortHours != null && loggedHours > plannedEffortHours && (
+                <p className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                  Task is over effort: planned {plannedEffortHours}h, logged {loggedHours}h (
+                  +{effortVarianceHours}h). This update: {update.hoursSpent}h.
+                </p>
+              )}
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">
+                  Reason (required for reject / rework)
+                </Label>
+                <textarea
+                  rows={2}
+                  value={reviewReasons[update.id] ?? ""}
+                  onChange={(e) =>
+                    setReviewReasons((prev) => ({
+                      ...prev,
+                      [update.id]: e.target.value,
+                    }))
+                  }
+                  placeholder="Explain your decision…"
+                  className="flex min-h-[56px] w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isReviewing}
+                  onClick={() => void handleReview("approve", update.id)}
+                >
+                  <CheckCircle2 className="size-3.5" /> Approve
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isReviewing}
+                  onClick={() => void handleReview("rework", update.id)}
+                >
+                  <RotateCcw className="size-3.5" /> Request rework
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={isReviewing}
+                  onClick={() => void handleReview("reject", update.id)}
+                >
+                  <XCircle className="size-3.5" /> Reject
+                </Button>
+              </div>
+            </div>
+          ))}
 
       <div className="space-y-2">
         <p className="text-xs font-semibold">Submission history</p>

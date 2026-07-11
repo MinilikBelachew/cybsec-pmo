@@ -13,6 +13,13 @@ import {
   useDeleteMilestoneMutation,
   useGetProjectByIdQuery,
 } from "../../api/projects.api";
+import { useUploadFileMutation } from "../../api/files.api";
+import {
+  useCreateProjectDocumentMutation,
+  useDeleteProjectDocumentMutation,
+  useGetProjectDocumentsQuery,
+} from "../../api/project-documents.api";
+import type { WorkspaceDocumentCategory } from "../../types/project-documents.types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/shared/ui/sheet";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
@@ -30,6 +37,7 @@ import {
   Circle,
   HelpCircle,
   FolderGit2,
+  Paperclip,
 } from "lucide-react";
 import { PhaseStatus } from "../../types/projects.types";
 import { PhaseForm } from "./phase-form";
@@ -78,14 +86,118 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
   const [createMilestone, { isLoading: isCreatingMilestone }] = useCreateMilestoneMutation();
   const [updateMilestone, { isLoading: isUpdatingMilestone }] = useUpdateMilestoneMutation();
   const [deleteMilestone, { isLoading: isDeletingMilestone }] = useDeleteMilestoneMutation();
-
-  const isPhaseSaving = isCreatingPhase || isUpdatingPhase;
-  const isMilestoneSaving = isCreatingMilestone || isUpdatingMilestone;
+  const [uploadFile, { isLoading: isUploadingFile }] = useUploadFileMutation();
+  const [createDocument, { isLoading: isCreatingDocument }] = useCreateProjectDocumentMutation();
+  const [deleteDocument, { isLoading: isDeletingDocument }] = useDeleteProjectDocumentMutation();
 
   const [activeForm, setActiveForm] = useState<{
     type: "add-phase" | "edit-phase" | "add-milestone" | "edit-milestone" | null;
     id?: string;
   }>({ type: null });
+
+  const editingPhaseId =
+    activeForm.type === "edit-phase" && activeForm.id ? activeForm.id : undefined;
+  const editingMilestoneId =
+    activeForm.type === "edit-milestone" && activeForm.id ? activeForm.id : undefined;
+
+  const { data: phaseDocuments = [], isLoading: isPhaseDocsLoading } = useGetProjectDocumentsQuery(
+    { projectId, category: "Phase", phaseId: editingPhaseId },
+    { skip: !editingPhaseId },
+  );
+  const { data: milestoneDocuments = [], isLoading: isMilestoneDocsLoading } =
+    useGetProjectDocumentsQuery(
+      { projectId, category: "Milestone", milestoneId: editingMilestoneId },
+      { skip: !editingMilestoneId },
+    );
+  const { data: allProjectDocuments = [] } = useGetProjectDocumentsQuery(
+    { projectId },
+    { skip: !isOpen },
+  );
+
+  const phaseDocCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const doc of allProjectDocuments) {
+      if (doc.phaseId) counts[doc.phaseId] = (counts[doc.phaseId] ?? 0) + 1;
+    }
+    return counts;
+  }, [allProjectDocuments]);
+
+  const milestoneDocCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const doc of allProjectDocuments) {
+      if (doc.milestoneId) counts[doc.milestoneId] = (counts[doc.milestoneId] ?? 0) + 1;
+    }
+    return counts;
+  }, [allProjectDocuments]);
+
+  const isPhaseSaving = isCreatingPhase || isUpdatingPhase;
+  const isMilestoneSaving = isCreatingMilestone || isUpdatingMilestone;
+  const isUploadingDocument = isUploadingFile || isCreatingDocument;
+
+  async function uploadEntityDocuments(params: {
+    entityId: string;
+    category: Extract<WorkspaceDocumentCategory, "Phase" | "Milestone">;
+    files: File[];
+  }) {
+    if (!params.entityId) {
+      throw new Error("Missing entity id for document upload");
+    }
+    for (const file of params.files) {
+      const uploaded = await uploadFile(file).unwrap();
+      await createDocument({
+        projectId,
+        storageKey: uploaded.storageKey || uploaded.file.path,
+        filename: uploaded.filename || file.name,
+        mimeType: uploaded.mimeType || file.type,
+        sizeBytes: uploaded.sizeBytes || file.size,
+        category: params.category,
+        phaseId: params.category === "Phase" ? params.entityId : undefined,
+        milestoneId: params.category === "Milestone" ? params.entityId : undefined,
+      }).unwrap();
+    }
+  }
+
+  async function handleImmediatePhaseUpload(files: File[]) {
+    if (!editingPhaseId) return;
+    try {
+      await uploadEntityDocuments({
+        entityId: editingPhaseId,
+        category: "Phase",
+        files,
+      });
+      toast.success(files.length === 1 ? "File attached to phase" : `${files.length} files attached`);
+    } catch (err) {
+      console.error(err);
+      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to attach file to phase",
+      );
+    }
+  }
+
+  async function handleImmediateMilestoneUpload(files: File[]) {
+    if (!editingMilestoneId) return;
+    try {
+      await uploadEntityDocuments({
+        entityId: editingMilestoneId,
+        category: "Milestone",
+        files,
+      });
+      toast.success(
+        files.length === 1 ? "File attached to milestone" : `${files.length} files attached`,
+      );
+    } catch (err) {
+      console.error(err);
+      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to attach file to milestone",
+      );
+    }
+  }
 
   const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
 
@@ -191,7 +303,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
   }, [activeMilestone, activeForm]);
 
   // Save Handlers
-  const handleSavePhase = async (values: PhaseFormValues) => {
+  const handleSavePhase = async (values: PhaseFormValues, draftFiles: File[] = []) => {
     // Sort other phases to find the rank index of the current phase
     const otherPhases = phases.filter(
       (p) => (activeForm.type === "add-phase" ? true : p.id !== activeForm.id)
@@ -239,12 +351,35 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
     };
 
     try {
+      let phaseId = activeForm.id;
       if (activeForm.type === "add-phase") {
-        await createPhase({ projectId, body: payload }).unwrap();
+        const created = await createPhase({ projectId, body: payload }).unwrap();
+        phaseId = created?.id;
+        if (!phaseId) {
+          throw new Error("Phase created without id");
+        }
         toast.success("Phase created successfully");
       } else if (activeForm.type === "edit-phase" && activeForm.id) {
         await updatePhase({ projectId, phaseId: activeForm.id, body: payload }).unwrap();
         toast.success("Phase updated successfully");
+      }
+
+      if (phaseId && draftFiles.length > 0) {
+        try {
+          await uploadEntityDocuments({
+            entityId: phaseId,
+            category: "Phase",
+            files: draftFiles,
+          });
+          toast.success(
+            draftFiles.length === 1
+              ? "Phase file attached"
+              : `${draftFiles.length} phase files attached`,
+          );
+        } catch (uploadErr) {
+          console.error(uploadErr);
+          toast.error("Phase saved, but attaching files failed. Re-open the phase to retry.");
+        }
       }
       setActiveForm({ type: null });
     } catch (err) {
@@ -253,7 +388,10 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
     }
   };
 
-  const handleSaveMilestone = async (values: MilestoneFormValues) => {
+  const handleSaveMilestone = async (
+    values: MilestoneFormValues,
+    draftFiles: File[] = [],
+  ) => {
     const payload = {
       title: values.title,
       targetDate: new Date(values.targetDate).toISOString(),
@@ -263,17 +401,49 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
     };
 
     try {
+      let milestoneId = activeForm.id;
       if (activeForm.type === "add-milestone") {
-        await createMilestone({ projectId, body: payload }).unwrap();
+        const created = await createMilestone({ projectId, body: payload }).unwrap();
+        milestoneId = created?.id;
+        if (!milestoneId) {
+          throw new Error("Milestone created without id");
+        }
         toast.success("Milestone created successfully");
       } else if (activeForm.type === "edit-milestone" && activeForm.id) {
         await updateMilestone({ projectId, milestoneId: activeForm.id, body: payload }).unwrap();
         toast.success("Milestone updated successfully");
       }
+
+      if (milestoneId && draftFiles.length > 0) {
+        try {
+          await uploadEntityDocuments({
+            entityId: milestoneId,
+            category: "Milestone",
+            files: draftFiles,
+          });
+          toast.success(
+            draftFiles.length === 1
+              ? "Milestone file attached"
+              : `${draftFiles.length} milestone files attached`,
+          );
+        } catch (uploadErr) {
+          console.error(uploadErr);
+          toast.error("Milestone saved, but attaching files failed. Re-open to retry.");
+        }
+      }
       setActiveForm({ type: null });
     } catch (err) {
       console.error("Failed to save milestone", err);
       toast.error("Failed to save milestone");
+    }
+  };
+
+  const handleDeleteEntityDocument = async (documentId: string) => {
+    try {
+      await deleteDocument({ projectId, documentId }).unwrap();
+      toast.success("Attachment removed");
+    } catch {
+      toast.error("Failed to remove attachment");
     }
   };
 
@@ -298,7 +468,12 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
       setDeleteConfirm({ isOpen: false, type: null, id: "" });
     } catch (err) {
       console.error(`Failed to delete ${type}`, err);
-      toast.error(`Failed to delete ${type}`);
+      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+      const message =
+        apiError?.data?.message ||
+        (apiError?.data?.errors ? Object.values(apiError.data.errors)[0] : undefined) ||
+        `Failed to delete ${type}`;
+      toast.error(message);
     }
   };
 
@@ -318,7 +493,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
   const deleteTitle = deleteConfirm.type === "phase" ? "Delete Phase" : "Delete Milestone";
   const deleteDescription =
     deleteConfirm.type === "phase"
-      ? "Are you sure you want to delete this phase? Associated tasks and milestones will be unassigned."
+      ? "Are you sure you want to delete this phase? Phases that still have tasks assigned cannot be deleted."
       : "Are you sure you want to delete this milestone?";
 
   return (
@@ -339,6 +514,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
             {activeForm.type ? (
               activeForm.type.includes("phase") ? (
                 <PhaseForm
+                  key={`phase-${activeForm.type}-${activeForm.id ?? "new"}`}
                   initialValues={initialPhaseValues}
                   onSubmit={handleSavePhase}
                   onCancel={() => setActiveForm({ type: null })}
@@ -347,9 +523,19 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                   phaseId={activeForm.id}
                   projectStartDate={project?.startDate}
                   projectEndDate={project?.endDate}
+                  documents={phaseDocuments}
+                  isDocumentsLoading={isPhaseDocsLoading}
+                  onDeleteDocument={handleDeleteEntityDocument}
+                  onImmediateUpload={
+                    editingPhaseId ? handleImmediatePhaseUpload : undefined
+                  }
+                  isUploadingDocument={isUploadingDocument}
+                  isDeletingDocument={isDeletingDocument}
+                  canAttach={canEditPhases || canCreatePhases}
                 />
               ) : (
                 <MilestoneForm
+                  key={`milestone-${activeForm.type}-${activeForm.id ?? "new"}`}
                   initialValues={initialMilestoneValues}
                   phases={phases}
                   onSubmit={handleSaveMilestone}
@@ -357,6 +543,15 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                   isSaving={isMilestoneSaving}
                   projectStartDate={project?.startDate}
                   projectEndDate={project?.endDate}
+                  documents={milestoneDocuments}
+                  isDocumentsLoading={isMilestoneDocsLoading}
+                  onDeleteDocument={handleDeleteEntityDocument}
+                  onImmediateUpload={
+                    editingMilestoneId ? handleImmediateMilestoneUpload : undefined
+                  }
+                  isUploadingDocument={isUploadingDocument}
+                  isDeletingDocument={isDeletingDocument}
+                  canAttach={canEditMilestones}
                 />
               )
             ) : (
@@ -434,6 +629,16 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                       <Badge className={`text-[9px] px-1.5 py-0 h-4 border ${getStatusColor(phase.status)}`}>
                                         {phase.status.replace("_", " ")}
                                       </Badge>
+                                      {(phaseDocCounts[phase.id] ?? 0) > 0 && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-4 gap-0.5 px-1.5 text-[9px]"
+                                          title="Phase attachments"
+                                        >
+                                          <Paperclip className="size-2.5" />
+                                          {phaseDocCounts[phase.id]}
+                                        </Badge>
+                                      )}
                                     </div>
                                     {dateStr && (
                                       <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -519,8 +724,14 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                                             <Circle className="size-3.5 text-muted-foreground/60 shrink-0" />
                                           )}
                                           <div className="min-w-0">
-                                            <span className="text-xs font-medium text-foreground truncate block">
+                                            <span className="text-xs font-medium text-foreground truncate flex items-center gap-1.5">
                                               {m.title}
+                                              {(milestoneDocCounts[m.id] ?? 0) > 0 && (
+                                                <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                                                  <Paperclip className="size-2.5" />
+                                                  {milestoneDocCounts[m.id]}
+                                                </span>
+                                              )}
                                             </span>
                                             <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
                                               <Calendar className="size-2.5" />

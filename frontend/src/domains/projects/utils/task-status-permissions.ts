@@ -105,6 +105,16 @@ export function formatTaskApiError(
 
   if (STATUS_ERROR_CODES[msg]) return STATUS_ERROR_CODES[msg];
 
+  const DATE_ERROR_CODES: Record<string, string> = {
+    taskStartDateOutsideParent:
+      "Sub-task start date must stay within the parent task date range",
+    taskEndDateOutsideParent:
+      "Sub-task end date must stay within the parent task date range",
+    taskStartDateOutsidePhase: "Task start date must stay within the phase date range",
+    taskEndDateOutsidePhase: "Task end date must stay within the phase date range",
+  };
+  if (DATE_ERROR_CODES[msg]) return DATE_ERROR_CODES[msg];
+
   const illegalMatch = msg.match(/^Illegal status transition from (.+) to (.+)$/);
   if (illegalMatch) {
     return `Tasks can't move directly from ${illegalMatch[1]} to ${illegalMatch[2]}. Follow the workflow steps for this task.`;

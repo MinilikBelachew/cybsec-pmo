@@ -22,6 +22,7 @@ import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constant
 import { ProjectTeamService } from '../projects/project-team.service';
 import { LeaveBackupService } from '../resources/leave-backup.service';
 import { TaskDependenciesService } from './task-dependencies.service';
+import { WorkspaceDocumentsService } from '../workspace-documents/workspace-documents.service';
 import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
 
@@ -38,7 +39,9 @@ const TASK_INCLUDE = {
     },
   },
   backupOwner: { select: { id: true, displayName: true, email: true } },
-  parentTask: { select: { id: true, title: true } },
+  parentTask: {
+    select: { id: true, title: true, startDate: true, endDate: true, ownerId: true },
+  },
   phase: { select: { id: true, name: true } },
   subTasks: {
     select: {
@@ -47,6 +50,7 @@ const TASK_INCLUDE = {
       status: true,
       priority: true,
       owner: { select: { id: true, displayName: true, email: true } },
+      startDate: true,
       endDate: true,
     },
     orderBy: { createdAt: 'asc' as const },
@@ -57,7 +61,8 @@ const TASK_INCLUDE = {
     },
     orderBy: { createdAt: 'asc' as const },
   },
-  attachments: {
+  workspaceDocuments: {
+    where: { category: 'Task' },
     include: {
       uploader: { select: { id: true, displayName: true, email: true } },
     },
@@ -84,6 +89,7 @@ export class TasksService {
     private readonly projectTeamService: ProjectTeamService,
     private readonly leaveBackupService: LeaveBackupService,
     private readonly taskDependenciesService: TaskDependenciesService,
+    private readonly workspaceDocumentsService: WorkspaceDocumentsService,
   ) {}
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
@@ -118,24 +124,6 @@ export class TasksService {
     return user.role?.code;
   }
 
-  private mapAttachment(attachment: {
-    id: string;
-    taskId: string;
-    uploadedBy: string;
-    s3Key: string;
-    filename: string;
-    mimeType: string | null;
-    sizeBytes: bigint | null;
-    createdAt: Date;
-    uploader: { id: string; displayName: string; email: string };
-  }) {
-    return {
-      ...attachment,
-      sizeBytes: attachment.sizeBytes != null ? Number(attachment.sizeBytes) : null,
-      url: null,
-    };
-  }
-
   private filterCommentsForRole<T extends { isInternal: boolean }>(
     comments: T[],
     roleCode?: string | null,
@@ -150,11 +138,13 @@ export class TasksService {
     task: Awaited<ReturnType<typeof this.prisma.task.findUnique>> & object,
     roleCode?: string | null,
   ) {
-    const { comments, attachments, ...rest } = task as any;
+    const { comments, workspaceDocuments, ...rest } = task as any;
     return {
       ...rest,
       comments: this.filterCommentsForRole(comments ?? [], roleCode),
-      attachments: (attachments ?? []).map((a: any) => this.mapAttachment(a)),
+      attachments: (workspaceDocuments ?? []).map((a: any) =>
+        this.workspaceDocumentsService.mapAsTaskAttachment(a),
+      ),
     };
   }
 
@@ -172,6 +162,41 @@ export class TasksService {
     });
 
     return { ...task, scheduleImpact };
+  }
+
+  private async attachEffortVariance<T extends { id: string; effortHours?: unknown }>(
+    task: T,
+  ): Promise<
+    T & {
+      actualHoursLogged: number;
+      effortVarianceHours: number | null;
+      isOverEffort: boolean;
+    }
+  > {
+    const aggregate = await this.prisma.taskProgressUpdate.aggregate({
+      where: {
+        taskId: task.id,
+        status: { in: ['Pending', 'Approved'] },
+      },
+      _sum: { hoursSpent: true },
+    });
+
+    const actualHoursLogged = Number(aggregate._sum.hoursSpent ?? 0);
+    const planned =
+      task.effortHours != null && Number.isFinite(Number(task.effortHours))
+        ? Number(task.effortHours)
+        : null;
+    const effortVarianceHours =
+      planned != null ? Math.round((actualHoursLogged - planned) * 100) / 100 : null;
+    const isOverEffort =
+      planned != null && planned > 0 && actualHoursLogged > planned;
+
+    return {
+      ...task,
+      actualHoursLogged,
+      effortVarianceHours,
+      isOverEffort,
+    };
   }
 
   private formatDateParam(value?: Date | null): string | undefined {
@@ -303,10 +328,20 @@ export class TasksService {
       });
 
       if (!teamAllocation) {
-        throw new UnprocessableEntityException({
-          status: HttpStatus.UNPROCESSABLE_ENTITY,
-          errors: { ownerId: 'assigneeMustBeOnProjectTeam' },
+        // DEF-P1-026 — project PMs may own tasks without a team allocation row.
+        const project = await this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { primaryPmId: true, secondaryPmId: true },
         });
+        const isProjectPm =
+          project?.primaryPmId === ownerId ||
+          project?.secondaryPmId === ownerId;
+        if (!isProjectPm) {
+          throw new UnprocessableEntityException({
+            status: HttpStatus.UNPROCESSABLE_ENTITY,
+            errors: { ownerId: 'assigneeMustBeOnProjectTeam' },
+          });
+        }
       }
     }
 
@@ -347,8 +382,145 @@ export class TasksService {
     }
   }
 
+  
+  private toTaskDayKey(value: Date | string): string {
+    if (typeof value === 'string') return value.slice(0, 10);
+    // Prisma @db.Date values are UTC midnight — use UTC parts, not local.
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  private async assertTaskDatesWithinPhase(
+    projectId: string,
+    phaseId: string | null | undefined,
+    startDate?: Date | string | null,
+    endDate?: Date | string | null,
+  ) {
+    if (!phaseId) return;
+
+    const phase = await this.prisma.projectPhase.findFirst({
+      where: { id: phaseId, projectId },
+      select: { startDate: true, endDate: true },
+    });
+    if (!phase) return;
+
+    const phaseStart = phase.startDate ? this.toTaskDayKey(phase.startDate) : null;
+    const phaseEnd = phase.endDate ? this.toTaskDayKey(phase.endDate) : null;
+
+    if (startDate) {
+      const start = this.toTaskDayKey(startDate);
+      if (phaseStart && start < phaseStart) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { startDate: 'taskStartDateOutsidePhase' },
+          message:
+            'Task start date must be on or after the phase start date',
+        });
+      }
+      if (phaseEnd && start > phaseEnd) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { startDate: 'taskStartDateOutsidePhase' },
+          message: 'Task start date must be on or before the phase end date',
+        });
+      }
+    }
+
+    if (endDate) {
+      const end = this.toTaskDayKey(endDate);
+      if (phaseEnd && end > phaseEnd) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { endDate: 'taskEndDateOutsidePhase' },
+          message: 'Task end date must be on or before the phase end date',
+        });
+      }
+      if (phaseStart && end < phaseStart) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { endDate: 'taskEndDateOutsidePhase' },
+          message: 'Task end date must be on or after the phase start date',
+        });
+      }
+    }
+  }
+
+  /** DEF-P1-013 — sub-task dates must stay within the parent task range. */
+  private async assertTaskDatesWithinParent(
+    parentTaskId: string | null | undefined,
+    startDate?: Date | string | null,
+    endDate?: Date | string | null,
+  ) {
+    if (!parentTaskId) return;
+
+    const parent = await this.prisma.task.findUnique({
+      where: { id: parentTaskId },
+      select: { startDate: true, endDate: true, title: true },
+    });
+    if (!parent) return;
+
+    const parentStart = parent.startDate
+      ? this.toTaskDayKey(parent.startDate)
+      : null;
+    const parentEnd = parent.endDate ? this.toTaskDayKey(parent.endDate) : null;
+    if (!parentStart && !parentEnd) return;
+
+    if (startDate) {
+      const start = this.toTaskDayKey(startDate);
+      if (parentStart && start < parentStart) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { startDate: 'taskStartDateOutsideParent' },
+          message:
+            'Sub-task start date must be on or after the parent task start date',
+        });
+      }
+      if (parentEnd && start > parentEnd) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { startDate: 'taskStartDateOutsideParent' },
+          message:
+            'Sub-task start date must be on or before the parent task end date',
+        });
+      }
+    }
+
+    if (endDate) {
+      const end = this.toTaskDayKey(endDate);
+      if (parentEnd && end > parentEnd) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { endDate: 'taskEndDateOutsideParent' },
+          message:
+            'Sub-task end date must be on or before the parent task end date',
+        });
+      }
+      if (parentStart && end < parentStart) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { endDate: 'taskEndDateOutsideParent' },
+          message:
+            'Sub-task end date must be on or after the parent task start date',
+        });
+      }
+    }
+  }
+
   async create(dto: CreateTaskDto, actorId: string, viewerRoleCode?: string) {
     await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId, dto.phaseId);
+    await this.assertTaskDatesWithinPhase(
+      dto.projectId,
+      dto.phaseId,
+      dto.startDate,
+      dto.endDate,
+    );
+    await this.assertTaskDatesWithinParent(
+      dto.parentTaskId,
+      dto.startDate,
+      dto.endDate,
+    );
 
     const task = await this.prisma.task.create({
       data: {
@@ -386,6 +558,17 @@ export class TasksService {
     viewerRoleCode?: string,
   ) {
     await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId, dto.phaseId);
+    await this.assertTaskDatesWithinPhase(
+      dto.projectId,
+      dto.phaseId,
+      dto.startDate,
+      dto.endDate,
+    );
+    await this.assertTaskDatesWithinParent(
+      dto.parentTaskId,
+      dto.startDate,
+      dto.endDate,
+    );
 
     const comments = dto.comments ?? [];
     for (const comment of comments) {
@@ -434,6 +617,7 @@ export class TasksService {
             status: TaskStatus.To_Do,
             startDate: dto.startDate ?? null,
             endDate: dto.endDate ?? null,
+            effortHours: dto.effortHours ?? 1,
           },
         });
       }
@@ -450,16 +634,17 @@ export class TasksService {
       }
 
       for (const uploaded of uploadedFiles) {
-        await tx.taskAttachment.create({
-          data: {
-            taskId: created.id,
-            uploadedBy: actorId,
-            s3Key: uploaded.storageKey,
+        await this.workspaceDocumentsService.createForTask(
+          { id: created.id, projectId: dto.projectId },
+          {
+            storageKey: uploaded.storageKey,
             filename: uploaded.filename,
-            mimeType: uploaded.mimeType ?? null,
-            sizeBytes: uploaded.sizeBytes != null ? BigInt(uploaded.sizeBytes) : null,
+            mimeType: uploaded.mimeType,
+            sizeBytes: uploaded.sizeBytes,
           },
-        });
+          actorId,
+          tx,
+        );
       }
 
       return tx.task.findUnique({
@@ -540,6 +725,39 @@ export class TasksService {
       await this.validateReferences(projectId, ownerId, parentTaskId, phaseId);
     }
 
+    const resolvedPhaseId =
+      dto.phaseId !== undefined ? dto.phaseId : existing.phaseId;
+    const resolvedStartDate =
+      dto.startDate !== undefined ? dto.startDate : existing.startDate;
+    const resolvedEndDate =
+      dto.endDate !== undefined ? dto.endDate : existing.endDate;
+
+    if (
+      dto.phaseId !== undefined ||
+      dto.startDate !== undefined ||
+      dto.endDate !== undefined
+    ) {
+      await this.assertTaskDatesWithinPhase(
+        projectId,
+        resolvedPhaseId,
+        resolvedStartDate,
+        resolvedEndDate,
+      );
+    }
+
+    if (
+      parentTaskId &&
+      (dto.startDate !== undefined ||
+        dto.endDate !== undefined ||
+        dto.parentTaskId !== undefined)
+    ) {
+      await this.assertTaskDatesWithinParent(
+        parentTaskId,
+        resolvedStartDate,
+        resolvedEndDate,
+      );
+    }
+
     if (dto.status) {
       const nextStatus = this.mapStatusToPrisma(dto.status);
       this.validateStatusTransitionByRole(
@@ -558,13 +776,6 @@ export class TasksService {
 
     const impactedSuccessorIds = new Set<string>();
 
-    const resolvedPhaseId =
-      dto.phaseId !== undefined ? dto.phaseId : existing.phaseId;
-    const resolvedStartDate =
-      dto.startDate !== undefined ? dto.startDate : existing.startDate;
-    const resolvedEndDate =
-      dto.endDate !== undefined ? dto.endDate : existing.endDate;
-
     const task = await this.prisma.$transaction(async (tx) => {
       await tx.task.update({
         where: { id },
@@ -582,6 +793,12 @@ export class TasksService {
       });
 
       for (const sub of subTasks) {
+        const parentEffort =
+          existing.effortHours != null
+            ? Number(existing.effortHours)
+            : dto.effortHours != null
+              ? Number(dto.effortHours)
+              : 1;
         await tx.task.create({
           data: {
             projectId: existing.projectId,
@@ -593,6 +810,9 @@ export class TasksService {
             status: TaskStatus.To_Do,
             startDate: resolvedStartDate,
             endDate: resolvedEndDate,
+            effortHours: Number.isFinite(parentEffort) && parentEffort > 0
+              ? Math.floor(parentEffort)
+              : 1,
           },
         });
       }
@@ -609,22 +829,27 @@ export class TasksService {
       }
 
       if (removeAttachmentIds.length) {
-        await tx.taskAttachment.deleteMany({
-          where: { id: { in: removeAttachmentIds }, taskId: id },
+        await tx.workspaceDocument.deleteMany({
+          where: {
+            id: { in: removeAttachmentIds },
+            taskId: id,
+            category: 'Task',
+          },
         });
       }
 
       for (const uploaded of uploadedFiles) {
-        await tx.taskAttachment.create({
-          data: {
-            taskId: id,
-            uploadedBy: actorId,
-            s3Key: uploaded.storageKey,
+        await this.workspaceDocumentsService.createForTask(
+          { id, projectId: existing.projectId },
+          {
+            storageKey: uploaded.storageKey,
             filename: uploaded.filename,
-            mimeType: uploaded.mimeType ?? null,
-            sizeBytes: uploaded.sizeBytes != null ? BigInt(uploaded.sizeBytes) : null,
+            mimeType: uploaded.mimeType,
+            sizeBytes: uploaded.sizeBytes,
           },
-        });
+          actorId,
+          tx,
+        );
       }
 
       if (removeDependencyIds.length) {
@@ -888,7 +1113,9 @@ export class TasksService {
       });
     }
 
-    return this.attachScheduleImpact(this.formatTask(task, viewerRoleCode));
+    return this.attachEffortVariance(
+      await this.attachScheduleImpact(this.formatTask(task, viewerRoleCode)),
+    );
   }
 
   async update(
@@ -920,6 +1147,37 @@ export class TasksService {
 
     if (dto.projectId || dto.ownerId || dto.parentTaskId || dto.phaseId !== undefined) {
       await this.validateReferences(projectId, ownerId, parentTaskId, phaseId);
+    }
+
+    const resolvedStartDate =
+      dto.startDate !== undefined ? dto.startDate : existing.startDate;
+    const resolvedEndDate =
+      dto.endDate !== undefined ? dto.endDate : existing.endDate;
+
+    if (
+      dto.phaseId !== undefined ||
+      dto.startDate !== undefined ||
+      dto.endDate !== undefined
+    ) {
+      await this.assertTaskDatesWithinPhase(
+        projectId,
+        phaseId,
+        resolvedStartDate,
+        resolvedEndDate,
+      );
+    }
+
+    if (
+      parentTaskId &&
+      (dto.startDate !== undefined ||
+        dto.endDate !== undefined ||
+        dto.parentTaskId !== undefined)
+    ) {
+      await this.assertTaskDatesWithinParent(
+        parentTaskId,
+        resolvedStartDate,
+        resolvedEndDate,
+      );
     }
 
     if (dto.status) {
@@ -1011,7 +1269,9 @@ export class TasksService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.taskComment.deleteMany({ where: { taskId: id } });
-      await tx.taskAttachment.deleteMany({ where: { taskId: id } });
+      await tx.workspaceDocument.deleteMany({
+        where: { taskId: id, category: 'Task' },
+      });
       await tx.task.delete({ where: { id } });
     });
   }
@@ -1075,16 +1335,7 @@ export class TasksService {
     viewerRoleCode?: string,
   ) {
     await this.findById(taskId, caslUser, ability, viewerRoleCode);
-
-    const attachments = await this.prisma.taskAttachment.findMany({
-      where: { taskId },
-      include: {
-        uploader: { select: { id: true, displayName: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return attachments.map((a) => this.mapAttachment(a));
+    return this.workspaceDocumentsService.listForTask(taskId);
   }
 
   async addAttachment(
@@ -1095,23 +1346,18 @@ export class TasksService {
     ability: AppAbility,
     viewerRoleCode?: string,
   ) {
-    await this.findById(taskId, caslUser, ability, viewerRoleCode);
+    const task = await this.findById(taskId, caslUser, ability, viewerRoleCode);
 
-    const attachment = await this.prisma.taskAttachment.create({
-      data: {
-        taskId,
-        uploadedBy: uploaderId,
-        s3Key: dto.storageKey,
+    return this.workspaceDocumentsService.createForTask(
+      { id: task.id, projectId: task.projectId },
+      {
+        storageKey: dto.storageKey,
         filename: dto.filename,
-        mimeType: dto.mimeType ?? null,
-        sizeBytes: dto.sizeBytes != null ? BigInt(dto.sizeBytes) : null,
+        mimeType: dto.mimeType,
+        sizeBytes: dto.sizeBytes,
       },
-      include: {
-        uploader: { select: { id: true, displayName: true, email: true } },
-      },
-    });
-
-    return this.mapAttachment(attachment);
+      uploaderId,
+    );
   }
 
   async removeAttachment(
@@ -1122,19 +1368,7 @@ export class TasksService {
     viewerRoleCode?: string,
   ) {
     await this.findById(taskId, caslUser, ability, viewerRoleCode);
-
-    const attachment = await this.prisma.taskAttachment.findFirst({
-      where: { id: attachmentId, taskId },
-    });
-
-    if (!attachment) {
-      throw new NotFoundException({
-        status: HttpStatus.NOT_FOUND,
-        errors: { attachment: 'attachmentNotFound' },
-      });
-    }
-
-    await this.prisma.taskAttachment.delete({ where: { id: attachmentId } });
+    await this.workspaceDocumentsService.removeForTask(taskId, attachmentId);
   }
 
   private buildTaskPayload(task: {
@@ -1177,6 +1411,8 @@ export class TasksService {
       sourceObjectType: 'Task',
       sourceObjectId: task.id,
       actorId,
+      // DEF-P1-026 follow-up: PM self-assign should still notify.
+      includeActorAsRecipient: true,
     });
   }
 

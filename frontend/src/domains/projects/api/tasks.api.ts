@@ -266,9 +266,12 @@ export const tasksApi = api.injectEndpoints({
         url: `/tasks/${id}`,
         method: "DELETE",
       }),
-      invalidatesTags: [
+      invalidatesTags: (_result, _error, id) => [
+        { type: "Tasks", id },
         { type: "Tasks", id: "LIST" },
         { type: "Tasks", id: "STATS" },
+        // Parent task detail (sub-task list) and any open task sheets
+        { type: "Tasks" },
       ],
     }),
 

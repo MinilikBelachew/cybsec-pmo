@@ -177,7 +177,7 @@ test.describe("Project Management (Foundation Phase)", () => {
     if (dbClient) {
       // Clean up PM Bob and any test projects and tasks created during testing
       await dbClient.query("DELETE FROM task_comments WHERE task_id IN (SELECT id FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'Project %'))");
-      await dbClient.query("DELETE FROM task_attachments WHERE task_id IN (SELECT id FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'Project %'))");
+      await dbClient.query("DELETE FROM workspace_documents WHERE task_id IN (SELECT id FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'Project %'))");
       await dbClient.query("DELETE FROM task_dependencies WHERE predecessor_id IN (SELECT id FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'Project %')) OR successor_id IN (SELECT id FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'Project %'))");
       await dbClient.query("DELETE FROM task_progress_updates WHERE task_id IN (SELECT id FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'Project %'))");
       await dbClient.query("DELETE FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'Project %')");

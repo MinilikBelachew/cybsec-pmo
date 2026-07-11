@@ -158,6 +158,9 @@ export function DayCalendarView({
                           t.done && "line-through text-muted-foreground font-normal"
                         )}
                       >
+                        {(t.depth ?? (t.parentTaskId ? 1 : 0)) > 0 && (
+                          <span className="opacity-70 mr-1 text-xs font-normal">↳</span>
+                        )}
                         {t.name}
                       </span>
                       <span

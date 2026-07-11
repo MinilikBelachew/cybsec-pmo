@@ -20,7 +20,9 @@ export class FileAccessAuthService {
     caslUser: CaslUserContext,
     ability: AppAbility,
   ): Promise<void> {
-    if (!ability.can('read', 'Task')) {
+    const canReadTask = ability.can('read', 'Task');
+    const canReadProject = ability.can('read', 'Project');
+    if (!canReadTask && !canReadProject) {
       throw new ForbiddenException({
         status: HttpStatus.FORBIDDEN,
         errors: { file: 'fileAccessDenied' },
@@ -35,12 +37,16 @@ export class FileAccessAuthService {
       });
     }
 
-    const attachment = await this.prisma.taskAttachment.findFirst({
+    const document = await this.prisma.workspaceDocument.findFirst({
       where: { s3Key: normalizedKey },
-      select: { taskId: true },
+      select: { projectId: true, taskId: true },
     });
-    if (attachment) {
-      await this.assertTaskReadable(attachment.taskId, caslUser);
+    if (document) {
+      if (document.taskId) {
+        await this.assertTaskReadable(document.taskId, caslUser);
+      } else {
+        await this.assertProjectReadable(document.projectId, caslUser);
+      }
       return;
     }
 
@@ -85,6 +91,28 @@ export class FileAccessAuthService {
     });
 
     if (!task) {
+      throw new ForbiddenException({
+        status: HttpStatus.FORBIDDEN,
+        errors: { file: 'fileAccessDenied' },
+      });
+    }
+  }
+
+  private async assertProjectReadable(
+    projectId: string,
+    caslUser: CaslUserContext,
+  ): Promise<void> {
+    const project = await this.prisma.project.findFirst({
+      where: {
+        AND: [
+          { id: projectId },
+          this.recordScopeWhere.projectWhere(caslUser, 'read'),
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (!project) {
       throw new ForbiddenException({
         status: HttpStatus.FORBIDDEN,
         errors: { file: 'fileAccessDenied' },
