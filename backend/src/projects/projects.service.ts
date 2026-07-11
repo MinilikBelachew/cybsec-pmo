@@ -828,11 +828,18 @@ export class ProjectsService {
 
     await this.assertProjectInScope(existing.projectId, caslUser, 'approve');
 
+    const assignedTaskCount = await this.prisma.task.count({
+      where: { phaseId },
+    });
+    if (assignedTaskCount > 0) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { phase: 'phaseHasAssignedTasks' },
+        message: `Cannot delete this phase while ${assignedTaskCount} task(s) are assigned to it. Unassign or move those tasks first.`,
+      });
+    }
+
     await this.prisma.$transaction([
-      this.prisma.task.updateMany({
-        where: { phaseId },
-        data: { phaseId: null },
-      }),
       this.prisma.projectMilestone.updateMany({
         where: { phaseId },
         data: { phaseId: null },

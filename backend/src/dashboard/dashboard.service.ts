@@ -599,7 +599,10 @@ export class DashboardService {
       ) {
         actionKey = 'addedTeamMember';
         module = 'people';
-      } else if (log.objectType === 'TaskAttachment') {
+      } else if (
+        log.objectType === 'TaskAttachment' ||
+        log.objectType === 'WorkspaceDocument'
+      ) {
         actionKey = 'uploadedDocument';
         module = 'doc';
       } else if (log.objectType === 'RolePermission' || log.objectType === 'Role') {

@@ -79,7 +79,11 @@ const RECORD_SCOPE_REGISTRY: Record<RecordScopeCode, ScopeClauseBuilders> = {
         allocations: { some: { employee: { userId: user.id } } },
       },
     ],
-    task: (user) => [{ ownerId: user.id }],
+    // Own tasks + children of own parents (sub-tasks often have no owner until assigned).
+    task: (user) => [
+      { ownerId: user.id },
+      { parentTask: { ownerId: user.id } },
+    ],
   },
   team: {
     project: (user) => [
@@ -96,6 +100,7 @@ const RECORD_SCOPE_REGISTRY: Record<RecordScopeCode, ScopeClauseBuilders> = {
     ],
     task: (user) => [
       { ownerId: user.id },
+      { parentTask: { ownerId: user.id } },
       { project: { primaryPmId: user.id } },
       { project: { secondaryPmId: user.id } },
       {

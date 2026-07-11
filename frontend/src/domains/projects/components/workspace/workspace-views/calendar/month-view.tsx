@@ -159,6 +159,9 @@ export function MonthCalendarView({
                           )}
                           title={t.name}
                         >
+                          {(t.depth ?? (t.parentTaskId ? 1 : 0)) > 0 && (
+                            <span className="opacity-70 mr-0.5">↳</span>
+                          )}
                           {t.name}
                         </span>
                       </div>
@@ -301,6 +304,9 @@ export function MonthCalendarView({
                                   className={cn("truncate flex-1 text-left", t.done && "line-through opacity-70")}
                                   title={t.name}
                                 >
+                                  {(t.depth ?? (t.parentTaskId ? 1 : 0)) > 0 && (
+                                    <span className="opacity-70 mr-0.5">↳</span>
+                                  )}
                                   {t.name}
                                 </span>
                               </div>

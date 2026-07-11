@@ -100,11 +100,11 @@ export class CreateTaskDto {
   @Validate(TaskEndDateAfterStartDateConstraint)
   endDate: Date;
 
-  @ApiPropertyOptional({ example: 40 })
-  @IsOptional()
+  @ApiProperty({ example: 40 })
   @IsInt()
   @IsPositive()
-  effortHours?: number;
+  @IsNotEmpty()
+  effortHours: number;
 
   @ApiPropertyOptional({ enum: TaskStatusEnum, default: TaskStatusEnum.To_Do })
   @IsOptional()

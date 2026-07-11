@@ -13,6 +13,7 @@ import {
   useGetMilestonesQuery,
   useDeleteTaskMutation,
   useCreateTaskMutation,
+  useCreateTaskBundleMutation,
   useGetProjectTaskAssigneesQuery,
   useGetTaskDependenciesQuery,
   useApplyLeaveBackupMutation,
@@ -60,6 +61,8 @@ import {
   Minimize2,
   ScrollText,
   Users2,
+  FolderOpen,
+  Milestone,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -72,6 +75,7 @@ import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
 import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
+import { MilestoneView, type MilestoneViewRef } from "./workspace-views/milestone-view";
 import { ProjectAuditView } from "./workspace-views/project-audit-view";
 import { TeamView } from "./workspace-views/team-view";
 import { getPriorityColors } from "./workspace-views/task-cell-pickers";
@@ -84,13 +88,24 @@ import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
+import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
 import { useRole } from "@/shared/providers/role-provider";
 
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
-type View = "list" | "board" | "calendar" | "gantt" | "table" | "phases" | "team" | "audit";
+type View =
+  | "list"
+  | "board"
+  | "calendar"
+  | "gantt"
+  | "table"
+  | "phases"
+  | "milestones"
+  | "team"
+  | "docs"
+  | "audit";
 
 interface Task {
   id: string;
@@ -139,7 +154,9 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "gantt", label: "Gantt", icon: ChartGantt },
   { id: "table", label: "Table", icon: Table2 },
   { id: "phases", label: "Phases", icon: Flag },
+  { id: "milestones", label: "Milestones", icon: Milestone },
   { id: "team", label: "Team", icon: Users2 },
+  { id: "docs", label: "Documents", icon: FolderOpen },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -239,7 +256,7 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam } =
+  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam } =
     useModulePermissions();
   const canManageProjectTeam = canEditProjects && canEditTeam;
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
@@ -248,6 +265,7 @@ export function ProjectWorkspace() {
   const canAssignTask = canManageTasks;
   const canReviewProgress = ability?.can("approve", "Task") ?? false;
   const phaseViewRef = useRef<PhaseViewRef>(null);
+  const milestoneViewRef = useRef<MilestoneViewRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -302,6 +320,7 @@ export function ProjectWorkspace() {
   const [applyLeaveBackup] = useApplyLeaveBackupMutation();
   const applyBackupHandled = useRef<string | null>(null);
   const [createTask] = useCreateTaskMutation();
+  const [createTaskBundle] = useCreateTaskBundleMutation();
   const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
 
   const [deleteTaskConfirm, setDeleteTaskConfirm] = useState<{
@@ -436,6 +455,7 @@ export function ProjectWorkspace() {
       | "comments"
       | "subtasks",
   ) => {
+    // Hybrid: open the clicked task (parent or sub-task). Sub-task sheets hide the Subtasks tab.
     if (typeof optionsOrTab === "string") {
       setTaskDetailDefaultTab(optionsOrTab);
       setFocusProgressReview(false);
@@ -490,7 +510,9 @@ export function ProjectWorkspace() {
   };
 
   const toggleTask = async (taskId: string) => {
-    const target = tasks.find((t) => t.id === taskId);
+    const target =
+      tasks.find((t) => t.id === taskId) ??
+      tasks.flatMap((t) => t.children ?? []).find((c) => c.id === taskId);
     if (!target) return;
     const newStatus = target.status === "Done" || target.status === "Approved" ? "To_Do" : "Done";
     const isOwner = user?.id === target.assigneeId;
@@ -533,24 +555,52 @@ export function ProjectWorkspace() {
       toast.error("Task not found");
       return;
     }
+    if (!original.phaseId || !original.startDate || !original.endDate) {
+      toast.error("Task must have a phase and dates before it can be duplicated");
+      return;
+    }
+    const effortHours =
+      typeof original.effortHours === "number" && original.effortHours > 0
+        ? Math.floor(original.effortHours)
+        : 1;
+
     try {
-      await createTask({
-        projectId: original.projectId,
-        parentTaskId: original.parentTaskId,
-        phaseId: original.phaseId,
-        title: `${original.title} (Copy)`,
-        description: original.description || undefined,
-        priority: original.priority,
-        ownerId: original.ownerId || undefined,
-        startDate: original.startDate,
-        endDate: original.endDate,
-        effortHours: original.effortHours || undefined,
-        status: original.status,
+      // DEF-P1-048 — copy nested sub-tasks with the parent (bundle creates them atomically).
+      // Creating a sub-task copy must not nest further (bundle ignores subTasks when parentTaskId is set).
+      const subTasks =
+        original.parentTaskId
+          ? []
+          : (original.subTasks ?? []).map((sub) => ({
+              title: sub.title,
+              description: null as string | null,
+            }));
+
+      await createTaskBundle({
+        payload: {
+          projectId: original.projectId,
+          parentTaskId: original.parentTaskId,
+          phaseId: original.phaseId,
+          title: `${original.title} (Copy)`,
+          description: original.description || undefined,
+          priority: original.priority,
+          ownerId: original.ownerId || undefined,
+          startDate: original.startDate.slice(0, 10),
+          endDate: original.endDate.slice(0, 10),
+          effortHours,
+          status: original.status,
+          subTasks,
+        },
+        files: [],
       }).unwrap();
-      toast.success("Task duplicated successfully");
+
+      toast.success(
+        subTasks.length > 0
+          ? `Task duplicated with ${subTasks.length} sub-task${subTasks.length === 1 ? "" : "s"}`
+          : "Task duplicated successfully",
+      );
     } catch (err) {
       console.error("Failed to duplicate task:", err);
-      toast.error("Failed to duplicate task");
+      toast.error(formatTaskApiError(err, "Failed to duplicate task"));
     }
   };
 
@@ -649,7 +699,7 @@ export function ProjectWorkspace() {
       toast.success("Dates updated");
     } catch (err) {
       console.error("Failed to update task dates:", err);
-      toast.error("Failed to update dates");
+      toast.error(formatTaskApiError(err, "Failed to update dates"));
       throw err;
     }
   };
@@ -865,7 +915,7 @@ export function ProjectWorkspace() {
           )}
         </button>
       </div>
-      {activeView !== "audit" && activeView !== "team" && (
+      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && (
       <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Search & Filters */}
         <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
@@ -898,7 +948,7 @@ export function ProjectWorkspace() {
 
         {/* Action buttons */}
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-          {activeView !== "phases" && (
+          {activeView !== "phases" && activeView !== "milestones" && (
             <>
               {canCreateTask && (
                 <Button
@@ -951,6 +1001,18 @@ export function ProjectWorkspace() {
               Add Phase
             </Button>
             ) : null
+          ) : activeView === "milestones" ? (
+            canEditMilestones ? (
+            <Button
+              onClick={() => {
+                milestoneViewRef.current?.openAddMilestone();
+              }}
+              className="h-9 text-xs rounded-xl"
+            >
+              <Plus className="mr-1.5 size-4" />
+              Add Milestone
+            </Button>
+            ) : null
           ) : canCreateTask ? (
             <Button
               onClick={() => {
@@ -996,6 +1058,7 @@ export function ProjectWorkspace() {
             currentUserId={user?.id}
             canApproveTask={canReviewProgress}
             onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
+            dependencies={taskDependencies}
           />
         )}
 
@@ -1086,6 +1149,10 @@ export function ProjectWorkspace() {
           />
         )}
 
+        {activeView === "milestones" && (
+          <MilestoneView ref={milestoneViewRef} projectId={id} />
+        )}
+
         {activeView === "team" && (
           <TeamView
             projectId={id}
@@ -1093,6 +1160,13 @@ export function ProjectWorkspace() {
             startDate={project.startDate}
             endDate={project.endDate}
             canEdit={canManageProjectTeam}
+          />
+        )}
+
+        {activeView === "docs" && (
+          <ProjectDocumentsPanel
+            projectId={id}
+            canUpload={canEditProjects}
           />
         )}
 
@@ -1135,7 +1209,8 @@ export function ProjectWorkspace() {
           setTaskDetailDefaultTab(undefined);
           setFocusProgressReview(false);
         }}
-        onOpenSubTask={(subId) => setSelectedTaskId(subId)}
+        onOpenSubTask={(subId) => openTaskDetail(subId, "comments")}
+        onOpenParentTask={(parentId) => openTaskDetail(parentId, "subtasks")}
         onUpdated={() => refetchTasks()}
         initialTab={taskDetailDefaultTab}
         focusProgressReview={focusProgressReview}

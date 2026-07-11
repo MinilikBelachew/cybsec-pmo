@@ -165,7 +165,7 @@ test.describe("Dependencies", () => {
   test.afterAll(async () => {
     if (dbClient) {
       await dbClient.query("DELETE FROM task_comments WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
-      await dbClient.query("DELETE FROM task_attachments WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
+      await dbClient.query("DELETE FROM workspace_documents WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
       await dbClient.query("DELETE FROM task_dependencies WHERE predecessor_id IN ($1, $2, $3) OR successor_id IN ($1, $2, $3)", [taskAId, taskBId, taskCId]);
       await dbClient.query("DELETE FROM tasks WHERE project_id = $1", [projectId]);
       await dbClient.query("DELETE FROM project_phases WHERE project_id = $1", [projectId]);

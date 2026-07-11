@@ -9,6 +9,13 @@ export * from "./schemas/milestone/milestone.schema";
 export * from "./api/projects.api";
 export * from "./api/tasks.api";
 export * from "./api/files.api";
+export * from "./api/project-documents.api";
+export type {
+  WorkspaceDocument,
+  WorkspaceDocumentCategory,
+  CreateWorkspaceDocumentPayload,
+  GetWorkspaceDocumentsParams,
+} from "./types/project-documents.types";
 export * from "./components/tasks/task-progress-section";
 export * from "./utils/task-status-permissions";
 export * from "./utils/project-status";

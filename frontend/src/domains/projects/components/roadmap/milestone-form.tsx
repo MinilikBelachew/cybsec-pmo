@@ -15,15 +15,24 @@ import { Calendar } from "@/shared/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { CalendarIcon } from "lucide-react";
 import { toDateString, formatDateLabel } from "@/shared/utils/date";
+import { EntityAttachmentsSection } from "../documents/entity-attachments-section";
+import type { WorkspaceDocument } from "../../types/project-documents.types";
 
 interface MilestoneFormProps {
   initialValues: MilestoneFormValues;
   phases: ProjectPhase[];
-  onSubmit: (values: MilestoneFormValues) => Promise<void>;
+  onSubmit: (values: MilestoneFormValues, draftFiles: File[]) => Promise<void>;
   onCancel: () => void;
   isSaving: boolean;
   projectStartDate?: string;
   projectEndDate?: string;
+  documents?: WorkspaceDocument[];
+  isDocumentsLoading?: boolean;
+  onDeleteDocument?: (documentId: string) => void;
+  onImmediateUpload?: (files: File[]) => Promise<void>;
+  isUploadingDocument?: boolean;
+  isDeletingDocument?: boolean;
+  canAttach?: boolean;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -39,7 +48,16 @@ export function MilestoneForm({
   isSaving,
   projectStartDate,
   projectEndDate,
+  documents = [],
+  isDocumentsLoading = false,
+  onDeleteDocument,
+  onImmediateUpload,
+  isUploadingDocument = false,
+  isDeletingDocument = false,
+  canAttach = true,
 }: MilestoneFormProps) {
+  const [draftFiles, setDraftFiles] = React.useState<File[]>([]);
+
   const schema = useMemo(() => {
     return milestoneSchema
       .refine(
@@ -87,7 +105,10 @@ export function MilestoneForm({
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col justify-between overflow-hidden">
+    <form
+      onSubmit={handleSubmit((values) => onSubmit(values, draftFiles))}
+      className="flex-1 flex flex-col justify-between overflow-hidden"
+    >
       <ScrollArea className="flex-1">
         <div className="space-y-4 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -226,6 +247,26 @@ export function MilestoneForm({
               />
               <FieldError message={errors.phaseId?.message} />
             </div>
+
+            <Separator />
+
+            <EntityAttachmentsSection
+              title="Milestone files"
+              documents={documents}
+              draftFiles={draftFiles}
+              onDraftFilesChange={setDraftFiles}
+              onImmediateUpload={onImmediateUpload}
+              onDeleteDocument={onDeleteDocument}
+              isLoading={isDocumentsLoading}
+              isUploading={isUploadingDocument}
+              isDeleting={isDeletingDocument}
+              canEdit={canAttach}
+              emptyHint={
+                onImmediateUpload
+                  ? "Upload milestone documents. Files save immediately."
+                  : "Attach milestone documents (optional). Draft files save when you create the milestone."
+              }
+            />
           </div>
         </div>
       </ScrollArea>

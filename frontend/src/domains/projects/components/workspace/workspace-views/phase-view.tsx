@@ -14,6 +14,13 @@ import {
   useGetProjectByIdQuery,
 } from "../../../api/projects.api";
 import { useGetTasksQuery } from "../../../api/tasks.api";
+import { useUploadFileMutation } from "../../../api/files.api";
+import {
+  useCreateProjectDocumentMutation,
+  useDeleteProjectDocumentMutation,
+  useGetProjectDocumentsQuery,
+} from "../../../api/project-documents.api";
+import type { WorkspaceDocumentCategory } from "../../../types/project-documents.types";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -78,6 +85,9 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
   const [createMilestone, { isLoading: isCreatingMilestone }] = useCreateMilestoneMutation();
   const [updateMilestone, { isLoading: isUpdatingMilestone }] = useUpdateMilestoneMutation();
   const [deleteMilestone, { isLoading: isDeletingMilestone }] = useDeleteMilestoneMutation();
+  const [uploadFile, { isLoading: isUploadingFile }] = useUploadFileMutation();
+  const [createDocument, { isLoading: isCreatingDocument }] = useCreateProjectDocumentMutation();
+  const [deleteDocument, { isLoading: isDeletingDocument }] = useDeleteProjectDocumentMutation();
 
   const [activeForm, setActiveForm] = useState<{
     type: "add-phase" | "edit-phase" | "add-milestone" | "edit-milestone" | null;
@@ -94,6 +104,97 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
     type: null,
     id: "",
   });
+
+  const editingPhaseId =
+    activeForm.type === "edit-phase" && activeForm.id ? activeForm.id : undefined;
+  const editingMilestoneId =
+    activeForm.type === "edit-milestone" && activeForm.id ? activeForm.id : undefined;
+
+  const { data: phaseDocuments = [], isLoading: isPhaseDocsLoading } = useGetProjectDocumentsQuery(
+    { projectId, category: "Phase", phaseId: editingPhaseId },
+    { skip: !editingPhaseId },
+  );
+  const { data: milestoneDocuments = [], isLoading: isMilestoneDocsLoading } =
+    useGetProjectDocumentsQuery(
+      { projectId, category: "Milestone", milestoneId: editingMilestoneId },
+      { skip: !editingMilestoneId },
+    );
+
+  const isUploadingDocument = isUploadingFile || isCreatingDocument;
+
+  async function uploadEntityDocuments(params: {
+    entityId: string;
+    category: Extract<WorkspaceDocumentCategory, "Phase" | "Milestone">;
+    files: File[];
+  }) {
+    if (!params.entityId) {
+      throw new Error("Missing entity id for document upload");
+    }
+    for (const file of params.files) {
+      const uploaded = await uploadFile(file).unwrap();
+      await createDocument({
+        projectId,
+        storageKey: uploaded.storageKey || uploaded.file.path,
+        filename: uploaded.filename || file.name,
+        mimeType: uploaded.mimeType || file.type,
+        sizeBytes: uploaded.sizeBytes || file.size,
+        category: params.category,
+        phaseId: params.category === "Phase" ? params.entityId : undefined,
+        milestoneId: params.category === "Milestone" ? params.entityId : undefined,
+      }).unwrap();
+    }
+  }
+
+  async function handleImmediatePhaseUpload(files: File[]) {
+    if (!editingPhaseId) return;
+    try {
+      await uploadEntityDocuments({
+        entityId: editingPhaseId,
+        category: "Phase",
+        files,
+      });
+      toast.success(files.length === 1 ? "File attached to phase" : `${files.length} files attached`);
+    } catch (err) {
+      console.error(err);
+      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to attach file to phase",
+      );
+    }
+  }
+
+  async function handleImmediateMilestoneUpload(files: File[]) {
+    if (!editingMilestoneId) return;
+    try {
+      await uploadEntityDocuments({
+        entityId: editingMilestoneId,
+        category: "Milestone",
+        files,
+      });
+      toast.success(
+        files.length === 1 ? "File attached to milestone" : `${files.length} files attached`,
+      );
+    } catch (err) {
+      console.error(err);
+      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to attach file to milestone",
+      );
+    }
+  }
+
+  async function handleDeleteEntityDocument(documentId: string) {
+    try {
+      await deleteDocument({ projectId, documentId }).unwrap();
+      toast.success("Attachment removed");
+    } catch {
+      toast.error("Failed to remove attachment");
+    }
+  }
 
   const activePhase = useMemo(() => {
     if (activeForm.type === "edit-phase" && activeForm.id) {
@@ -147,7 +248,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
     };
   }, [activeMilestone, activeForm]);
 
-  const handleSavePhase = async (values: PhaseFormValues) => {
+  const handleSavePhase = async (values: PhaseFormValues, draftFiles: File[] = []) => {
     const otherPhases = phases.filter(
       (p) => (activeForm.type === "add-phase" ? true : p.id !== activeForm.id)
     );
@@ -194,12 +295,35 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
     };
 
     try {
+      let phaseId = activeForm.id;
       if (activeForm.type === "add-phase") {
-        await createPhase({ projectId, body: payload }).unwrap();
+        const created = await createPhase({ projectId, body: payload }).unwrap();
+        phaseId = created?.id;
+        if (!phaseId) {
+          throw new Error("Phase created without id");
+        }
         toast.success("Phase created successfully");
       } else if (activeForm.type === "edit-phase" && activeForm.id) {
         await updatePhase({ projectId, phaseId: activeForm.id, body: payload }).unwrap();
         toast.success("Phase updated successfully");
+      }
+
+      if (phaseId && draftFiles.length > 0) {
+        try {
+          await uploadEntityDocuments({
+            entityId: phaseId,
+            category: "Phase",
+            files: draftFiles,
+          });
+          toast.success(
+            draftFiles.length === 1
+              ? "Phase file attached"
+              : `${draftFiles.length} phase files attached`,
+          );
+        } catch (uploadErr) {
+          console.error(uploadErr);
+          toast.error("Phase saved, but attaching files failed. Re-open the phase to retry.");
+        }
       }
       setActiveForm({ type: null });
     } catch (err) {
@@ -208,7 +332,10 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
     }
   };
 
-  const handleSaveMilestone = async (values: MilestoneFormValues) => {
+  const handleSaveMilestone = async (
+    values: MilestoneFormValues,
+    draftFiles: File[] = [],
+  ) => {
     const payload = {
       title: values.title,
       targetDate: new Date(values.targetDate).toISOString(),
@@ -218,12 +345,35 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
     };
 
     try {
+      let milestoneId = activeForm.id;
       if (activeForm.type === "add-milestone") {
-        await createMilestone({ projectId, body: payload }).unwrap();
+        const created = await createMilestone({ projectId, body: payload }).unwrap();
+        milestoneId = created?.id;
+        if (!milestoneId) {
+          throw new Error("Milestone created without id");
+        }
         toast.success("Milestone created successfully");
       } else if (activeForm.type === "edit-milestone" && activeForm.id) {
         await updateMilestone({ projectId, milestoneId: activeForm.id, body: payload }).unwrap();
         toast.success("Milestone updated successfully");
+      }
+
+      if (milestoneId && draftFiles.length > 0) {
+        try {
+          await uploadEntityDocuments({
+            entityId: milestoneId,
+            category: "Milestone",
+            files: draftFiles,
+          });
+          toast.success(
+            draftFiles.length === 1
+              ? "Milestone file attached"
+              : `${draftFiles.length} milestone files attached`,
+          );
+        } catch (uploadErr) {
+          console.error(uploadErr);
+          toast.error("Milestone saved, but attaching files failed. Re-open to retry.");
+        }
       }
       setActiveForm({ type: null });
     } catch (err) {
@@ -253,7 +403,12 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
       setDeleteConfirm({ isOpen: false, type: null, id: "" });
     } catch (err) {
       console.error(`Failed to delete ${type}`, err);
-      toast.error(`Failed to delete ${type}`);
+      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+      const message =
+        apiError?.data?.message ||
+        (apiError?.data?.errors ? Object.values(apiError.data.errors)[0] : undefined) ||
+        `Failed to delete ${type}`;
+      toast.error(message);
     }
   };
 
@@ -382,7 +537,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
           title={deleteConfirm.type === "phase" ? "Delete Phase" : "Delete Milestone"}
           description={
             deleteConfirm.type === "phase"
-              ? "Are you sure you want to delete this phase? Associated tasks and milestones will be unassigned."
+              ? "Are you sure you want to delete this phase? Phases that still have tasks assigned cannot be deleted."
               : "Are you sure you want to delete this milestone?"
           }
           isDeleting={isDeletingPhase || isDeletingMilestone}
@@ -402,6 +557,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                 </DialogPrimitive.Title>
               </div>
               <PhaseForm
+                key={`phase-${activeForm.type}-${activeForm.id ?? "new"}`}
                 initialValues={initialPhaseValues}
                 onSubmit={handleSavePhase}
                 onCancel={() => setActiveForm({ type: null })}
@@ -410,6 +566,13 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                 phaseId={activeForm.type === "edit-phase" ? activeForm.id : undefined}
                 projectStartDate={project?.startDate}
                 projectEndDate={project?.endDate}
+                documents={phaseDocuments}
+                isDocumentsLoading={isPhaseDocsLoading}
+                onDeleteDocument={handleDeleteEntityDocument}
+                onImmediateUpload={editingPhaseId ? handleImmediatePhaseUpload : undefined}
+                isUploadingDocument={isUploadingDocument}
+                isDeletingDocument={isDeletingDocument}
+                canAttach={canEditPhases || canCreatePhases}
               />
             </DialogPrimitive.Popup>
           </DialogPrimitive.Portal>
@@ -429,6 +592,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                 </DialogPrimitive.Title>
               </div>
               <MilestoneForm
+                key={`milestone-${activeForm.type}-${activeForm.id ?? "new"}`}
                 initialValues={initialMilestoneValues}
                 phases={phases}
                 onSubmit={handleSaveMilestone}
@@ -436,6 +600,15 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                 isSaving={isCreatingMilestone || isUpdatingMilestone}
                 projectStartDate={project?.startDate}
                 projectEndDate={project?.endDate}
+                documents={milestoneDocuments}
+                isDocumentsLoading={isMilestoneDocsLoading}
+                onDeleteDocument={handleDeleteEntityDocument}
+                onImmediateUpload={
+                  editingMilestoneId ? handleImmediateMilestoneUpload : undefined
+                }
+                isUploadingDocument={isUploadingDocument}
+                isDeletingDocument={isDeletingDocument}
+                canAttach={canEditMilestones}
               />
             </DialogPrimitive.Popup>
           </DialogPrimitive.Portal>
@@ -716,7 +889,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
         title={deleteConfirm.type === "phase" ? "Delete Phase" : "Delete Milestone"}
         description={
           deleteConfirm.type === "phase"
-            ? "Are you sure you want to delete this phase? Associated tasks and milestones will be unassigned."
+            ? "Are you sure you want to delete this phase? Phases that still have tasks assigned cannot be deleted."
             : "Are you sure you want to delete this milestone?"
         }
         isDeleting={isDeletingPhase || isDeletingMilestone}
@@ -736,6 +909,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
               </DialogPrimitive.Title>
             </div>
             <PhaseForm
+              key={`phase-${activeForm.type}-${activeForm.id ?? "new"}`}
               initialValues={initialPhaseValues}
               onSubmit={handleSavePhase}
               onCancel={() => setActiveForm({ type: null })}
@@ -744,6 +918,13 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
               phaseId={activeForm.type === "edit-phase" ? activeForm.id : undefined}
               projectStartDate={project?.startDate}
               projectEndDate={project?.endDate}
+              documents={phaseDocuments}
+              isDocumentsLoading={isPhaseDocsLoading}
+              onDeleteDocument={handleDeleteEntityDocument}
+              onImmediateUpload={editingPhaseId ? handleImmediatePhaseUpload : undefined}
+              isUploadingDocument={isUploadingDocument}
+              isDeletingDocument={isDeletingDocument}
+              canAttach={canEditPhases || canCreatePhases}
             />
           </DialogPrimitive.Popup>
         </DialogPrimitive.Portal>
@@ -763,6 +944,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
               </DialogPrimitive.Title>
             </div>
             <MilestoneForm
+              key={`milestone-${activeForm.type}-${activeForm.id ?? "new"}`}
               initialValues={initialMilestoneValues}
               phases={phases}
               onSubmit={handleSaveMilestone}
@@ -770,6 +952,15 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
               isSaving={isCreatingMilestone || isUpdatingMilestone}
               projectStartDate={project?.startDate}
               projectEndDate={project?.endDate}
+              documents={milestoneDocuments}
+              isDocumentsLoading={isMilestoneDocsLoading}
+              onDeleteDocument={handleDeleteEntityDocument}
+              onImmediateUpload={
+                editingMilestoneId ? handleImmediateMilestoneUpload : undefined
+              }
+              isUploadingDocument={isUploadingDocument}
+              isDeletingDocument={isDeletingDocument}
+              canAttach={canEditMilestones}
             />
           </DialogPrimitive.Popup>
         </DialogPrimitive.Portal>

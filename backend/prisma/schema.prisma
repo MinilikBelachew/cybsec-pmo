@@ -133,7 +133,6 @@ model User {
   ownedTasks                Task[]               @relation("TaskOwner")
   backupOwnedTasks          Task[]               @relation("TaskBackupOwner")
   taskComments              TaskComment[]
-  uploadedAttachments       TaskAttachment[]
   engineerProgressUpdates   TaskProgressUpdate[] @relation("ProgressEngineer")
   reviewedProgressUpdates   TaskProgressUpdate[] @relation("ProgressReviewer")
   employees                 Employee?
@@ -465,6 +464,7 @@ model ProjectPhase {
   project    Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   milestones ProjectMilestone[]
   tasks      Task[]
+  workspaceDocuments WorkspaceDocument[]
 
   @@index([projectId], map: "idx_phases_project")
   @@map("project_phases")
@@ -483,6 +483,7 @@ model ProjectMilestone {
   project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
   invoices  Invoice[]
+  workspaceDocuments WorkspaceDocument[]
 
   @@index([projectId], map: "idx_milestones_project")
   @@index([phaseId], map: "idx_milestones_phase")
@@ -524,7 +525,7 @@ model Task {
   backupOwner User?   @relation("TaskBackupOwner", fields: [backupOwnerId], references: [id])
 
   comments          TaskComment[]
-  attachments       TaskAttachment[]
+  workspaceDocuments WorkspaceDocument[]
   dependenciesAsPre TaskDependency[] @relation("DependencyPredecessor")
   dependenciesAsSuc TaskDependency[] @relation("DependencySuccessor")
   progressUpdates   TaskProgressUpdate[]
@@ -552,23 +553,6 @@ model TaskComment {
 
   @@index([taskId], map: "idx_task_comments_task")
   @@map("task_comments")
-}
-
-model TaskAttachment {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId     String   @map("task_id") @db.Uuid
-  uploadedBy String   @map("uploaded_by") @db.Uuid
-  s3Key      String   @map("s3_key") @db.VarChar(512)
-  filename   String   @db.VarChar(255)
-  mimeType   String?  @map("mime_type") @db.VarChar(100)
-  sizeBytes  BigInt?  @map("size_bytes")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  uploader User @relation(fields: [uploadedBy], references: [id])
-
-  @@index([taskId], map: "idx_task_attachments_task")
-  @@map("task_attachments")
 }
 
 model TaskDependency {
@@ -1515,6 +1499,11 @@ model WorkspaceDocument {
   projectId    String   @map("project_id") @db.Uuid
   logicalDocId String   @map("logical_doc_id") @db.Uuid
   version      Int      @default(1)
+  /// Project | Phase | Milestone | SignOff | Technical | Task
+  category     String   @default("Project") @db.VarChar(30)
+  phaseId      String?  @map("phase_id") @db.Uuid
+  milestoneId  String?  @map("milestone_id") @db.Uuid
+  taskId       String?  @map("task_id") @db.Uuid
   filename     String   @db.VarChar(255)
   s3Key        String   @map("s3_key") @db.VarChar(512)
   mimeType     String?  @map("mime_type") @db.VarChar(100)
@@ -1524,13 +1513,20 @@ model WorkspaceDocument {
   uploadedBy   String   @map("uploaded_by") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  uploader User    @relation(fields: [uploadedBy], references: [id])
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase     ProjectPhase?     @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  milestone ProjectMilestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  task      Task?             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader  User              @relation(fields: [uploadedBy], references: [id])
 
   @@unique([logicalDocId, version], map: "uq_doc_version")
   @@index([projectId], map: "idx_docs_project")
   @@index([logicalDocId], map: "idx_docs_logical")
   @@index([isInternal], map: "idx_docs_internal")
+  @@index([category], map: "idx_docs_category")
+  @@index([phaseId], map: "idx_docs_phase")
+  @@index([milestoneId], map: "idx_docs_milestone")
+  @@index([taskId], map: "idx_docs_task")
   @@map("workspace_documents")
 }
 

@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
+import { Prisma } from '@prisma/client';
 import { AuditLogsService } from './audit-logs.service';
 import { PrismaService } from '../database/prisma.service';
 import { resolveStatusChangeAction } from './status-change-audit.util';
@@ -78,67 +79,80 @@ export class AuditLogsInterceptor implements NestInterceptor {
             next: (response) => {
               observer.next(response);
 
-              let finalObjectId = auditTarget.resourceId;
-              let newValue = bodyPayload;
+              try {
+                let finalObjectId = auditTarget.resourceId;
+                let newValue = bodyPayload;
 
-              if (response && typeof response === 'object') {
-                if (response.id && UUID_REGEX.test(response.id)) {
-                  finalObjectId = response.id;
+                if (response && typeof response === 'object') {
+                  if (response.id && UUID_REGEX.test(response.id)) {
+                    finalObjectId = response.id;
+                  }
+                  if (
+                    method === 'POST' ||
+                    method === 'PATCH' ||
+                    method === 'PUT'
+                  ) {
+                    newValue = this.maskSensitiveFields(response);
+                  }
                 }
-                if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
-                  newValue = this.maskSensitiveFields(response);
-                }
-              }
 
-              let auditAction = auditTarget.action;
-              const statusChange = resolveStatusChangeAction(
-                auditTarget.objectType,
-                oldValue,
-                newValue,
-              );
-              if (statusChange) {
-                auditAction = statusChange.action;
-                newValue = statusChange.newValue;
-              }
-
-              if (isBreakGlass) {
-                newValue =
-                  newValue && typeof newValue === 'object'
-                    ? { ...newValue, breakGlassAction: true }
-                    : { breakGlassAction: true };
-              }
-
-              this.auditLogsService
-                .create({
-                  action: auditAction,
-                  objectType: auditTarget.objectType,
-                  objectId: finalObjectId,
-                  oldValue: oldValue ? JSON.parse(JSON.stringify(oldValue)) : null,
-                  newValue: newValue ? JSON.parse(JSON.stringify(newValue)) : null,
-                  ipAddress,
-                  isExternal,
-                  breakGlassAction: isBreakGlass,
-                  source: 'WebAPI',
-                  user: actorId ? { connect: { id: actorId } } : undefined,
-                })
-                .catch((err) => {
-                  this.logger.error('Failed to save audit log to DB:', err);
-                });
-
-              console.log(
-                JSON.stringify({
-                  timestamp: new Date().toISOString(),
-                  level: 'AUDIT',
-                  actorId,
-                  action: auditAction,
-                  objectType: auditTarget.objectType,
-                  objectId: finalObjectId,
+                let auditAction = auditTarget.action;
+                const statusChange = resolveStatusChangeAction(
+                  auditTarget.objectType,
                   oldValue,
                   newValue,
-                  ipAddress,
-                  isExternal,
-                }),
-              );
+                );
+                if (statusChange) {
+                  auditAction = statusChange.action;
+                  newValue = statusChange.newValue;
+                }
+
+                if (isBreakGlass) {
+                  newValue =
+                    newValue && typeof newValue === 'object'
+                      ? { ...newValue, breakGlassAction: true }
+                      : { breakGlassAction: true };
+                }
+
+                const safeOldValue = this.toJsonSafe(oldValue);
+                const safeNewValue = this.toJsonSafe(newValue);
+
+                this.auditLogsService
+                  .create({
+                    action: auditAction,
+                    objectType: auditTarget.objectType,
+                    objectId: finalObjectId,
+                    oldValue: safeOldValue ?? Prisma.DbNull,
+                    newValue: safeNewValue ?? Prisma.DbNull,
+                    ipAddress,
+                    isExternal,
+                    breakGlassAction: isBreakGlass,
+                    source: 'WebAPI',
+                    user: actorId ? { connect: { id: actorId } } : undefined,
+                  })
+                  .catch((err) => {
+                    this.logger.error('Failed to save audit log to DB:', err);
+                  });
+
+                console.log(
+                  JSON.stringify({
+                    timestamp: new Date().toISOString(),
+                    level: 'AUDIT',
+                    actorId,
+                    action: auditAction,
+                    objectType: auditTarget.objectType,
+                    objectId: finalObjectId,
+                    oldValue: safeOldValue,
+                    newValue: safeNewValue,
+                    ipAddress,
+                    isExternal,
+                  }),
+                );
+              } catch (err) {
+                // Never let audit serialization crash the request / process
+                // (e.g. Prisma BigInt sizeBytes on TaskAttachment delete).
+                this.logger.error('Failed to write audit log:', err);
+              }
             },
             error: (err) => {
               observer.error(err);
@@ -242,11 +256,12 @@ export class AuditLogsInterceptor implements NestInterceptor {
     const subEntityByRoot: Record<string, Record<string, string>> = {
       tasks: {
         comments: 'TaskComment',
-        attachments: 'TaskAttachment',
+        attachments: 'WorkspaceDocument',
         'progress-updates': 'TaskProgressUpdate',
       },
       projects: {
         milestones: 'ProjectMilestone',
+        documents: 'WorkspaceDocument',
       },
     };
 
@@ -258,6 +273,11 @@ export class AuditLogsInterceptor implements NestInterceptor {
     let action: string;
     if (sub === 'progress-updates' && hasReview && method === 'PATCH') {
       action = 'REVIEW_PROGRESS';
+    } else if (sub === 'attachments' && method === 'POST') {
+      // Preserve legacy audit action for task files after WorkspaceDocument migration.
+      action = 'CREATE_TASK_ATTACHMENT';
+    } else if (sub === 'attachments' && method === 'DELETE') {
+      action = 'DELETE_TASK_ATTACHMENT';
     } else if (method === 'POST') {
       action = `CREATE_${this.toActionToken(objectType)}`;
     } else if (method === 'PATCH' || method === 'PUT') {
@@ -349,7 +369,8 @@ export class AuditLogsInterceptor implements NestInterceptor {
     const map: Record<string, string> = {
       Task: 'task',
       TaskComment: 'taskComment',
-      TaskAttachment: 'taskAttachment',
+      TaskAttachment: 'workspaceDocument',
+      WorkspaceDocument: 'workspaceDocument',
       TaskDependency: 'taskDependency',
       TaskProgressUpdate: 'taskProgressUpdate',
       Project: 'project',
@@ -361,6 +382,9 @@ export class AuditLogsInterceptor implements NestInterceptor {
   }
 
   private maskSensitiveFields(obj: any): any {
+    if (typeof obj === 'bigint') {
+      return this.serializeBigInt(obj);
+    }
     if (!obj || typeof obj !== 'object') {
       return obj;
     }
@@ -371,10 +395,27 @@ export class AuditLogsInterceptor implements NestInterceptor {
     for (const key of Object.keys(masked)) {
       if (SENSITIVE_KEYS.includes(key)) {
         masked[key] = '***';
+      } else if (typeof masked[key] === 'bigint') {
+        masked[key] = this.serializeBigInt(masked[key]);
       } else if (typeof masked[key] === 'object') {
         masked[key] = this.maskSensitiveFields(masked[key]);
       }
     }
     return masked;
+  }
+
+  /** Prisma BigInt (e.g. sizeBytes) is not JSON-serializable by default. */
+  private serializeBigInt(value: bigint): number | string {
+    const asNumber = Number(value);
+    return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
+  }
+
+  private toJsonSafe(value: unknown): Prisma.InputJsonValue | undefined {
+    if (value == null) return undefined;
+    return JSON.parse(
+      JSON.stringify(this.maskSensitiveFields(value), (_key, v) =>
+        typeof v === 'bigint' ? this.serializeBigInt(v) : v,
+      ),
+    ) as Prisma.InputJsonValue;
   }
 }

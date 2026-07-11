@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, MessageSquare, Plus, MoreHorizontal, User, Calendar } from "lucide-react";
+import React, { useState } from "react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import {
   DropdownMenu,
@@ -30,6 +30,12 @@ interface Task {
   owner?: { id: string; displayName: string; email: string };
   rawStartDate?: string | null;
   rawEndDate?: string | null;
+  parentTaskId?: string | null;
+  depth?: number;
+  children?: Task[];
+  /** DEF-P1-047 — nested under predecessor in the tree */
+  treeKind?: "subtask" | "dependency";
+  depType?: string;
 }
 
 function formatDueDate(dateStr?: string | null) {
@@ -44,6 +50,7 @@ function formatDueDate(dateStr?: string | null) {
 }
 
 import { type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
+import type { TaskDependency } from "../../../types/tasks.types";
 import { EmployeeTooltip } from "../../shared/employee-tooltip";
 import {
   TaskAssigneePicker,
@@ -77,6 +84,8 @@ interface ListViewProps {
   currentUserId?: string;
   canApproveTask?: boolean;
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
+  /** Project dependency links — used to nest dependents under predecessors (DEF-P1-047). */
+  dependencies?: TaskDependency[];
 }
 
 const PRIORITY_LABEL: Record<Priority, string> = {
@@ -132,9 +141,88 @@ export function ListView({
   currentUserId,
   canApproveTask = false,
   onUpdateTaskPriority,
+  dependencies = [],
 }: ListViewProps) {
   const [groupByPhase, setGroupByPhase] = React.useState(false);
   const [openPhases, setOpenPhases] = React.useState<Record<string, boolean>>({});
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
+
+  const taskById = React.useMemo(() => {
+    const map = new Map<string, Task>();
+    for (const t of tasks) {
+      map.set(t.id, t);
+      for (const c of t.children ?? []) map.set(c.id, c);
+    }
+    return map;
+  }, [tasks]);
+
+  /** DEF-P1-047 — successors that depend on this task (this task is the predecessor). */
+  const dependentsByPredecessor = React.useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const dep of dependencies) {
+      const related = taskById.get(dep.successorId);
+      const row: Task = related
+        ? {
+            ...related,
+            depth: 1,
+            children: undefined,
+            hasSubtasks: false,
+            treeKind: "dependency",
+            depType: dep.depType,
+            parentTaskId: related.parentTaskId ?? null,
+          }
+        : {
+            id: dep.successor.id,
+            name: dep.successor.title,
+            assigneeInitials: dep.successor.owner?.displayName
+              ? dep.successor.owner.displayName
+                  .split(" ")
+                  .map((w) => w[0])
+                  .join("")
+                  .toUpperCase()
+              : "UA",
+            assigneeColor: "bg-slate-500",
+            dueDate: dep.successor.endDate
+              ? new Date(dep.successor.endDate).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })
+              : "No due date",
+            priority: "medium",
+            status: "To_Do",
+            comments: 0,
+            done: false,
+            rawStartDate: dep.successor.startDate,
+            rawEndDate: dep.successor.endDate,
+            owner: dep.successor.owner
+              ? {
+                  id: dep.successor.owner.id,
+                  displayName: dep.successor.owner.displayName,
+                  email: dep.successor.owner.email,
+                }
+              : undefined,
+            depth: 1,
+            treeKind: "dependency",
+            depType: dep.depType,
+          };
+      const list = map.get(dep.predecessorId) ?? [];
+      if (!list.some((t) => t.id === row.id)) list.push(row);
+      map.set(dep.predecessorId, list);
+    }
+    return map;
+  }, [dependencies, taskById]);
+
+  function nestedRowsFor(task: Task): Task[] {
+    const subs = (task.children ?? []).map((c) => ({
+      ...c,
+      treeKind: "subtask" as const,
+      depth: 1,
+    }));
+    const deps = dependentsByPredecessor.get(task.id) ?? [];
+    // Prefer sub-tasks first, then dependency-linked tasks (skip ones already listed as sub-tasks).
+    const subIds = new Set(subs.map((s) => s.id));
+    return [...subs, ...deps.filter((d) => !subIds.has(d.id))];
+  }
 
   const togglePhaseGroup = (name: string) => {
     setOpenPhases((prev) => ({
@@ -142,6 +230,38 @@ export function ListView({
       [name]: prev[name] === false ? true : false,
     }));
   };
+
+  const toggleParentExpand = (taskId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  // Expand parents that have sub-tasks or dependents so the tree is visible by default.
+  React.useEffect(() => {
+    const withNest = tasks.filter(
+      (t) =>
+        (t.children?.length ?? 0) > 0 ||
+        t.hasSubtasks ||
+        (dependentsByPredecessor.get(t.id)?.length ?? 0) > 0,
+    );
+    if (withNest.length === 0) return;
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const t of withNest) {
+        if (!next.has(t.id)) {
+          next.add(t.id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks, dependentsByPredecessor]);
 
   const phaseGroups = React.useMemo(() => {
     const map: Record<string, { id: string | null; name: string; color: string; tasks: typeof tasks }> = {};
@@ -244,7 +364,7 @@ export function ListView({
     </div>
   );
 
-  const renderTaskRow = (task: Task) => {
+  const renderTaskRow = (task: Task, depth = 0) => {
     const fullAssignee = task.owner?.id
       ? assignees.find((a) => a.userId === task.owner?.id)
       : null;
@@ -265,18 +385,46 @@ export function ListView({
         }
       : null;
 
+    const nested = depth === 0 ? nestedRowsFor(task) : [];
+    const hasChildren = nested.length > 0 || Boolean(task.children?.length || task.hasSubtasks);
+    const isExpanded = expandedParents.has(task.id);
+    const indentPx = depth * 20;
+    const isDependencyRow = task.treeKind === "dependency";
+
     return (
+      <React.Fragment key={`${task.treeKind ?? "task"}-${task.id}-${depth}`}>
       <div
-        key={task.id}
         className={cn(
           "flex items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
-          task.done && "opacity-60"
+          task.done && "opacity-60",
+          depth > 0 && "bg-muted/10",
+          isDependencyRow && "bg-violet-50/40 dark:bg-violet-950/20"
         )}
       >
-        <div className="w-4 shrink-0 flex items-center justify-center">
-          {task.hasSubtasks && (
-            <ChevronRight className="size-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-          )}
+        <div
+          className="w-4 shrink-0 flex items-center justify-center"
+          style={{ marginLeft: indentPx }}
+        >
+          {hasChildren && depth === 0 ? (
+            <button
+              type="button"
+              onClick={(e) => toggleParentExpand(task.id, e)}
+              className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              aria-label={isExpanded ? "Collapse nested tasks" : "Expand nested tasks"}
+            >
+              {isExpanded ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+            </button>
+          ) : depth > 0 ? (
+            isDependencyRow ? (
+              <GitBranch className="size-3 text-violet-500" />
+            ) : (
+              <span className="size-1.5 rounded-full bg-muted-foreground/40" />
+            )
+          ) : null}
         </div>
         <button
           onClick={() => toggleTask(task.id)}
@@ -293,12 +441,23 @@ export function ListView({
         </button>
         <button
           type="button"
-          onClick={() => onTaskClick?.(task.id)}
+          onClick={() => onTaskClick?.(task.id, depth > 0 ? "comments" : undefined)}
           className={cn(
             "flex-1 text-sm min-w-0 truncate text-left hover:text-primary transition-colors",
-            task.done ? "line-through text-muted-foreground" : "text-foreground"
+            task.done ? "line-through text-muted-foreground" : "text-foreground",
+            depth > 0 && "font-normal"
           )}
         >
+          {depth > 0 && (
+            <span
+              className={cn(
+                "mr-1.5 text-[10px] font-semibold uppercase tracking-wide",
+                isDependencyRow ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground",
+              )}
+            >
+              {isDependencyRow ? `Dep${task.depType ? ` ${task.depType}` : ""}` : "Sub"}
+            </span>
+          )}
           {task.name}
         </button>
         <div className="shrink-0 w-28 flex items-center justify-center">
@@ -433,11 +592,23 @@ export function ListView({
                 className="cursor-pointer gap-2"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onTaskClick?.(task.id);
+                  onTaskClick?.(task.id, depth > 0 ? "comments" : undefined);
                 }}
               >
                 Edit task
               </DropdownMenuItem>
+              {depth > 0 && task.parentTaskId && (
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTaskClick?.(task.parentTaskId!, "subtasks");
+                }}
+              >
+                Open parent task
+              </DropdownMenuItem>
+              )}
+              {depth === 0 && (
               <DropdownMenuItem
                 className="cursor-pointer gap-2"
                 onClick={(e) => {
@@ -447,6 +618,7 @@ export function ListView({
               >
                 Duplicate
               </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600"
                 onClick={(e) => {
@@ -460,6 +632,9 @@ export function ListView({
           </DropdownMenu>
         </div>
       </div>
+      {hasChildren && isExpanded &&
+        nested.map((child) => renderTaskRow(child, depth + 1))}
+      </React.Fragment>
     );
   };
 

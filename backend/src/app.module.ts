@@ -16,6 +16,7 @@ import { MailModule } from './mail/mail.module';
 import { HomeModule } from './home/home.module';
 import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
+import { WorkspaceDocumentsModule } from './workspace-documents/workspace-documents.module';
 import { AllConfigType } from './config/config.type';
 import { SessionModule } from './session/session.module';
 import { MailerModule } from './mailer/mailer.module';
@@ -116,6 +117,7 @@ import kekaConfig from './keka/config/keka.config';
     KekaModule.register(),
     ProjectsModule,
     TasksModule,
+    WorkspaceDocumentsModule,
     FilesModule,
     AuditLogsModule,
     RolesModule,
