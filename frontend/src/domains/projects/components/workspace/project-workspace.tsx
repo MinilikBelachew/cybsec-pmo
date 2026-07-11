@@ -74,7 +74,7 @@ import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
-import { exportTasksToXLSX, convertTasksToCSV, exportTasksToPDF } from "../../utils/import-export";
+import { exportTasksToXLSX, convertTasksToCSV, exportTasksToPDF, exportTasksToWord, exportTasksToMPP } from "../../utils/import-export";
 import { ExportTasksDialog } from "../tasks/export-tasks-dialog";
 import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
@@ -323,7 +323,7 @@ export function ProjectWorkspace() {
       });
   }, [milestones]);
 
-  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv" | "pdf") => {
+  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mpp") => {
     const exportToast = toast.loading(`Preparing tasks export (${format.toUpperCase()})...`);
     try {
       const exportParams: GetTasksParams = {
@@ -360,9 +360,15 @@ export function ProjectWorkspace() {
         const csvContent = convertTasksToCSV(tasksToExport, phases, assignees, selectedFields);
         blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
         filename = `${project?.name || "project"}_tasks.csv`;
-      } else {
+      } else if (format === "pdf") {
         blob = exportTasksToPDF(tasksToExport, phases, assignees, selectedFields);
         filename = `${project?.name || "project"}_tasks.pdf`;
+      } else if (format === "doc") {
+        blob = exportTasksToWord(tasksToExport, phases, assignees, selectedFields);
+        filename = `${project?.name || "project"}_tasks.doc`;
+      } else {
+        blob = exportTasksToMPP(tasksToExport, phases, assignees, project?.name || "Project");
+        filename = `${project?.name || "project"}_tasks.mpp`;
       }
 
       const url = URL.createObjectURL(blob);

@@ -1478,3 +1478,557 @@ export function exportProjectsToPDF(
   return doc.output("blob");
 }
 
+export function exportProjectsToWord(
+  projects: any[],
+  departments: Department[],
+  customers: Customer[],
+  managers: ProjectManager[],
+  selectedFields?: string[],
+  tasks?: any[],
+  selectedTaskFields?: string[]
+): Blob {
+  const allHeaders = [
+    "Name",
+    "Objective",
+    "Department",
+    "Customer",
+    "Engagement Type",
+    "Billing Model",
+    "Priority",
+    "Start Date",
+    "End Date",
+    "Value",
+    "Currency",
+    "Primary PM",
+    "Secondary PM",
+    "Status",
+  ];
+  const headers = selectedFields || allHeaders;
+
+  let html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <title>Project Portfolio Report</title>
+      <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+      <style>
+        @page Section1 {
+          size: 11in 8.5in;
+          margin: 0.5in 0.5in 0.5in 0.5in;
+          mso-page-orientation: landscape;
+        }
+        div.Section1 {
+          page: Section1;
+        }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #333333; line-height: 1.4; }
+        h1 { font-size: 20pt; color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 5px; margin-bottom: 20px; }
+        h2 { font-size: 14pt; color: #2563eb; margin-top: 30px; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 3px; }
+        h3 { font-size: 11pt; color: #4b5563; margin-top: 20px; }
+        table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 15px; margin-bottom: 15px; }
+        th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; word-break: break-word; word-wrap: break-word; }
+        th { background-color: #f8fafc; font-weight: bold; color: #0f172a; font-size: 9pt; }
+        td { font-size: 9pt; }
+        .meta { font-size: 9pt; color: #64748b; margin-bottom: 30px; }
+      </style>
+    </head>
+    <body>
+      <div class="Section1">
+        <h1>Project Portfolio Report</h1>
+        <p class="meta">Exported on: ${new Date().toLocaleDateString()}</p>
+        
+        <h2>Projects Overview</h2>
+        <table>
+          <thead>
+            <tr>
+              ${headers.map(h => `<th>${h}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+  `;
+
+  projects.forEach((p) => {
+    const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
+    const custName = p.customer?.displayName || customers.find((c) => c.id === p.customerId)?.displayName || "";
+    const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
+    const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
+
+    const allData: Record<string, any> = {
+      "Name": p.name || "",
+      "Objective": p.objective || "",
+      "Department": deptName,
+      "Customer": custName,
+      "Engagement Type": p.engagementType || "",
+      "Billing Model": p.billingModel || "",
+      "Priority": p.priority || "",
+      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
+      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
+      "Value": p.value != null ? p.value : "",
+      "Currency": p.currency || "",
+      "Primary PM": primaryPmName,
+      "Secondary PM": secondaryPmName,
+      "Status": p.status || "",
+    };
+
+    html += `
+      <tr>
+        ${headers.map(field => `<td>${allData[field] !== undefined ? allData[field] : ""}</td>`).join("")}
+      </tr>
+    `;
+  });
+
+  html += `
+        </tbody>
+      </table>
+  `;
+
+  if (tasks && tasks.length > 0) {
+    const tasksByProject: Record<string, any[]> = {};
+    tasks.forEach((t) => {
+      const projName = t.projectName || "Tasks";
+      if (!tasksByProject[projName]) {
+        tasksByProject[projName] = [];
+      }
+      tasksByProject[projName].push(t);
+    });
+
+    const allTaskHeaders = [
+      "Title",
+      "Description",
+      "Priority",
+      "Status",
+      "Assignee",
+      "Phase",
+      "Start Date",
+      "End Date",
+      "Effort Hours",
+    ];
+    const taskHeaders = selectedTaskFields || allTaskHeaders;
+
+    html += `<h2>Project Tasks Breakdown</h2>`;
+
+    Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
+      html += `
+        <h3>${projName} Tasks</h3>
+        <table>
+          <thead>
+            <tr>
+              ${taskHeaders.map(h => `<th>${h}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      projTasks.forEach((t) => {
+        const assigneeName = t.owner?.displayName || t.assigneeName || "";
+        const phaseName = t.phase?.name || t.phaseName || "";
+
+        const allTaskData: Record<string, any> = {
+          "Title": t.title || "",
+          "Description": t.description || "",
+          "Priority": t.priority || "",
+          "Status": t.status || "",
+          "Assignee": assigneeName,
+          "Phase": phaseName,
+          "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+          "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+          "Effort Hours": t.effortHours != null ? t.effortHours : 0,
+        };
+
+        html += `
+          <tr>
+            ${taskHeaders.map(field => `<td>${allTaskData[field] !== undefined ? allTaskData[field] : ""}</td>`).join("")}
+          </tr>
+        `;
+      });
+
+      html += `
+          </tbody>
+        </table>
+      `;
+    });
+  }
+
+  html += `
+      </div>
+    </body>
+    </html>
+  `;
+
+  return new Blob([html], { type: "application/msword;charset=utf-8" });
+}
+
+export function exportTasksToWord(
+  tasks: Task[],
+  phases: ProjectPhase[],
+  assignees: ProjectTaskAssignee[],
+  selectedFields?: string[]
+): Blob {
+  const allHeaders = [
+    "Title",
+    "Description",
+    "Priority",
+    "Status",
+    "Assignee",
+    "Phase",
+    "Start Date",
+    "End Date",
+    "Effort Hours",
+  ];
+  const headers = selectedFields || allHeaders;
+
+  let html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <title>Project Tasks Report</title>
+      <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+      <style>
+        @page Section1 {
+          size: 11in 8.5in;
+          margin: 0.5in 0.5in 0.5in 0.5in;
+          mso-page-orientation: landscape;
+        }
+        div.Section1 {
+          page: Section1;
+        }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #333333; line-height: 1.4; }
+        h1 { font-size: 20pt; color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 5px; margin-bottom: 20px; }
+        table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 15px; margin-bottom: 15px; }
+        th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; word-break: break-word; word-wrap: break-word; }
+        th { background-color: #f8fafc; font-weight: bold; color: #0f172a; font-size: 9pt; }
+        td { font-size: 9pt; }
+        .meta { font-size: 9pt; color: #64748b; margin-bottom: 30px; }
+      </style>
+    </head>
+    <body>
+      <div class="Section1">
+        <h1>Project Tasks Report</h1>
+        <p class="meta">Exported on: ${new Date().toLocaleDateString()}</p>
+        
+        <table>
+          <thead>
+            <tr>
+              ${headers.map(h => `<th>${h}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+  `;
+
+  tasks.forEach((t) => {
+    const assigneeName =
+      t.owner?.displayName ||
+      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
+      "";
+    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
+
+    const allData: Record<string, any> = {
+      "Title": t.title || "",
+      "Description": t.description || "",
+      "Priority": t.priority || "",
+      "Status": t.status || "",
+      "Assignee": assigneeName,
+      "Phase": phaseName,
+      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+      "Effort Hours": t.effortHours != null ? t.effortHours : 0,
+    };
+
+    html += `
+      <tr>
+        ${headers.map(field => `<td>${allData[field] !== undefined ? allData[field] : ""}</td>`).join("")}
+      </tr>
+    `;
+  });
+
+  html += `
+          </tbody>
+        </table>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return new Blob([html], { type: "application/msword;charset=utf-8" });
+}
+
+export function exportTasksToMPP(
+  tasks: any[],
+  phases: any[],
+  assignees: any[],
+  projectName = "Portfolio Export"
+): Blob {
+  let uid = 1;
+  
+  const mapPriority = (p: string) => {
+    const lower = String(p || "").toLowerCase();
+    if (lower === "critical") return 1000;
+    if (lower === "high") return 700;
+    if (lower === "low") return 300;
+    return 500;
+  };
+
+  const mapPercent = (s: string) => {
+    const lower = String(s || "").toLowerCase();
+    if (lower === "done" || lower === "approved") return 100;
+    if (lower === "in_progress") return 50;
+    return 0;
+  };
+
+  const phaseList = [...phases];
+  const phaseMap = new Map(phaseList.map(p => [p.id || p.name, p]));
+  
+  const tasksByPhase: Record<string, any[]> = {};
+  
+  const topLevelTasks = tasks.filter(t => !t.parentTaskId);
+  const subTasksByParent = tasks.filter(t => t.parentTaskId).reduce((acc, t) => {
+    if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
+    acc[t.parentTaskId].push(t);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  topLevelTasks.forEach((t) => {
+    const phaseKey = t.phaseId || t.phaseName || "No Phase";
+    if (!tasksByPhase[phaseKey]) {
+      tasksByPhase[phaseKey] = [];
+    }
+    tasksByPhase[phaseKey].push(t);
+  });
+
+  let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Name>${projectName}</Name>
+  <Title>${projectName}</Title>
+  <Tasks>
+  `;
+
+  xml += `
+    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <Name>${projectName}</Name>
+      <Type>0</Type>
+      <OutlineLevel>1</OutlineLevel>
+      <Active>1</Active>
+      <Manual>1</Manual>
+    </Task>
+  `;
+  uid++;
+
+  Object.entries(tasksByPhase).forEach(([phaseKey, phaseTasks]) => {
+    const phaseObj = phaseMap.get(phaseKey);
+    const phaseName = phaseObj?.name || phaseKey;
+
+    xml += `
+      <Task>
+        <UID>${uid}</UID>
+        <ID>${uid}</ID>
+        <Name>${phaseName}</Name>
+        <Type>0</Type>
+        <OutlineLevel>2</OutlineLevel>
+        <Active>1</Active>
+        <Manual>1</Manual>
+      </Task>
+    `;
+    uid++;
+
+    phaseTasks.forEach((t) => {
+      const taskStart = t.startDate ? t.startDate.split("T")[0] + "T08:00:00" : "";
+      const taskEnd = t.endDate ? t.endDate.split("T")[0] + "T17:00:00" : "";
+      const percent = mapPercent(t.status);
+      const priority = mapPriority(t.priority);
+
+      xml += `
+        <Task>
+          <UID>${uid}</UID>
+          <ID>${uid}</ID>
+          <Name>${t.title || ""}</Name>
+          <Type>0</Type>
+          <OutlineLevel>3</OutlineLevel>
+          ${taskStart ? `<Start>${taskStart}</Start>` : ""}
+          ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
+          <PercentComplete>${percent}</PercentComplete>
+          <Priority>${priority}</Priority>
+          <Notes>${t.description || ""}</Notes>
+          <Active>1</Active>
+          <Manual>1</Manual>
+        </Task>
+      `;
+      uid++;
+
+      const subTasks = subTasksByParent[t.id] || t.subTasks || [];
+      subTasks.forEach((st: any) => {
+        const subStart = st.startDate ? st.startDate.split("T")[0] + "T08:00:00" : taskStart;
+        const subEnd = st.endDate ? st.endDate.split("T")[0] + "T17:00:00" : taskEnd;
+        const subPercent = mapPercent(st.status);
+        const subPriority = mapPriority(st.priority);
+
+        xml += `
+          <Task>
+            <UID>${uid}</UID>
+            <ID>${uid}</ID>
+            <Name>${st.title || ""}</Name>
+            <Type>0</Type>
+            <OutlineLevel>4</OutlineLevel>
+            ${subStart ? `<Start>${subStart}</Start>` : ""}
+            ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
+            <PercentComplete>${subPercent}</PercentComplete>
+            <Priority>${subPriority}</Priority>
+            <Notes>${st.description || ""}</Notes>
+            <Active>1</Active>
+            <Manual>1</Manual>
+          </Task>
+        `;
+        uid++;
+      });
+    });
+  });
+
+  xml += `
+  </Tasks>
+</Project>
+  `;
+
+  return new Blob([xml], { type: "application/xml;charset=utf-8" });
+}
+
+export function exportProjectsToMPP(
+  projects: any[],
+  departments: Department[],
+  customers: Customer[],
+  managers: ProjectManager[],
+  tasks?: any[]
+): Blob {
+  let uid = 1;
+  
+  const mapPriority = (p: string) => {
+    const lower = String(p || "").toLowerCase();
+    if (lower === "critical") return 1000;
+    if (lower === "high") return 700;
+    if (lower === "low") return 300;
+    return 500;
+  };
+
+  const mapPercent = (s: string) => {
+    const lower = String(s || "").toLowerCase();
+    if (lower === "done" || lower === "approved" || lower === "closed") return 100;
+    if (lower === "in_progress") return 50;
+    return 0;
+  };
+
+  let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Name>Portfolio Export</Name>
+  <Title>Portfolio Export</Title>
+  <Tasks>
+  `;
+
+  projects.forEach((proj) => {
+    const projStart = proj.startDate ? proj.startDate.split("T")[0] + "T08:00:00" : "";
+    const projEnd = proj.endDate ? proj.endDate.split("T")[0] + "T17:00:00" : "";
+    
+    xml += `
+      <Task>
+        <UID>${uid}</UID>
+        <ID>${uid}</ID>
+        <Name>${proj.name || ""}</Name>
+        <Type>0</Type>
+        <OutlineLevel>1</OutlineLevel>
+        ${projStart ? `<Start>${projStart}</Start>` : ""}
+        ${projEnd ? `<Finish>${projEnd}</Finish>` : ""}
+        <PercentComplete>${mapPercent(proj.status)}</PercentComplete>
+        <Notes>${proj.objective || ""}</Notes>
+        <Active>1</Active>
+        <Manual>1</Manual>
+      </Task>
+    `;
+    uid++;
+
+    const projTasks = tasks ? tasks.filter(t => t.projectId === proj.id || t.projectName === proj.name) : [];
+    
+    const tasksByPhase: Record<string, any[]> = {};
+    const topLevelTasks = projTasks.filter(t => !t.parentTaskId);
+    const subTasksByParent = projTasks.filter(t => t.parentTaskId).reduce((acc, t) => {
+      if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
+      acc[t.parentTaskId].push(t);
+      return acc;
+    }, {} as Record<string, any[]>);
+
+    topLevelTasks.forEach((t) => {
+      const phaseKey = t.phase?.name || t.phaseName || "No Phase";
+      if (!tasksByPhase[phaseKey]) {
+        tasksByPhase[phaseKey] = [];
+      }
+      tasksByPhase[phaseKey].push(t);
+    });
+
+    Object.entries(tasksByPhase).forEach(([phaseName, phaseTasks]) => {
+      xml += `
+        <Task>
+          <UID>${uid}</UID>
+          <ID>${uid}</ID>
+          <Name>${phaseName}</Name>
+          <Type>0</Type>
+          <OutlineLevel>2</OutlineLevel>
+          <Active>1</Active>
+          <Manual>1</Manual>
+        </Task>
+      `;
+      uid++;
+
+      phaseTasks.forEach((t) => {
+        const taskStart = t.startDate ? t.startDate.split("T")[0] + "T08:00:00" : projStart;
+        const taskEnd = t.endDate ? t.endDate.split("T")[0] + "T17:00:00" : projEnd;
+
+        xml += `
+          <Task>
+            <UID>${uid}</UID>
+            <ID>${uid}</ID>
+            <Name>${t.title || ""}</Name>
+            <Type>0</Type>
+            <OutlineLevel>3</OutlineLevel>
+            ${taskStart ? `<Start>${taskStart}</Start>` : ""}
+            ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
+            <PercentComplete>${mapPercent(t.status)}</PercentComplete>
+            <Priority>${mapPriority(t.priority)}</Priority>
+            <Notes>${t.description || ""}</Notes>
+            <Active>1</Active>
+            <Manual>1</Manual>
+          </Task>
+        `;
+        uid++;
+
+        const subTasks = subTasksByParent[t.id] || t.subTasks || [];
+        subTasks.forEach((st: any) => {
+          const subStart = st.startDate ? st.startDate.split("T")[0] + "T08:00:00" : taskStart;
+          const subEnd = st.endDate ? st.endDate.split("T")[0] + "T17:00:00" : taskEnd;
+
+          xml += `
+            <Task>
+              <UID>${uid}</UID>
+              <ID>${uid}</ID>
+              <Name>${st.title || ""}</Name>
+              <Type>0</Type>
+              <OutlineLevel>4</OutlineLevel>
+              ${subStart ? `<Start>${subStart}</Start>` : ""}
+              ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
+              <PercentComplete>${mapPercent(st.status)}</PercentComplete>
+              <Priority>${mapPriority(st.priority)}</Priority>
+              <Notes>${st.description || ""}</Notes>
+              <Active>1</Active>
+              <Manual>1</Manual>
+            </Task>
+          `;
+          uid++;
+        });
+      });
+    });
+  });
+
+  xml += `
+  </Tasks>
+</Project>
+  `;
+
+  return new Blob([xml], { type: "application/xml;charset=utf-8" });
+}
+

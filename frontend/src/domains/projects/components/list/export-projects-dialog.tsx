@@ -14,12 +14,18 @@ import {
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/shared/ui/dropdown-menu";
 export interface ExportProjectsDialogProps {
   open: boolean;
   onClose: () => void;
   onExport: (
     selectedFields: string[],
-    format: "xlsx" | "csv" | "pdf",
+    format: "xlsx" | "csv" | "pdf" | "doc" | "mpp",
     selectedTaskFields?: string[]
   ) => Promise<void>;
   isExporting?: boolean;
@@ -68,7 +74,7 @@ export function ExportProjectsDialog({
   const [selectedTaskFields, setSelectedTaskFields] = useState<string[]>(
     TASK_FIELDS.map((f) => f.id)
   );
-  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf">("xlsx");
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf" | "doc" | "mpp">("xlsx");
 
   const [activePanel, setActivePanel] = useState<"projects" | "tasks" | null>("projects");
   const isProjectsExpanded = activePanel === "projects";
@@ -377,38 +383,54 @@ export function ExportProjectsDialog({
               * Blank columns will be created if no data exists.
             </span>
             <div className="flex items-center gap-3">
-              <div className="flex items-center bg-background border border-border rounded-lg p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setExportFormat("xlsx")}
-                  className={cn(
-                    "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-colors cursor-pointer",
-                    exportFormat === "xlsx" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-2 rounded-lg border-border/60 bg-muted/45 px-3 font-semibold text-xs text-foreground cursor-pointer hover:bg-muted/65"
+                    />
+                  }
                 >
-                  Excel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExportFormat("csv")}
-                  className={cn(
-                    "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-colors cursor-pointer",
-                    exportFormat === "csv" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  CSV
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExportFormat("pdf")}
-                  className={cn(
-                    "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-colors cursor-pointer",
-                    exportFormat === "pdf" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  PDF
-                </button>
-              </div>
+                  <span className="text-muted-foreground font-normal">Format:</span>
+                  <span>
+                    {exportFormat === "xlsx" ? "Excel (.xlsx)" :
+                     exportFormat === "csv" ? "CSV (.csv)" :
+                     exportFormat === "pdf" ? "PDF (.pdf)" :
+                     exportFormat === "doc" ? "Word (.doc)" :
+                     "Microsoft Project (.mpp)"}
+                  </span>
+                  <ChevronDown className="size-3.5 opacity-60" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56 p-2 shadow-lg border border-border bg-background rounded-xl">
+                  <div className="space-y-1">
+                    {[
+                      { value: "xlsx", label: "Excel (.xlsx)", desc: "Spreadsheet representation" },
+                      { value: "csv", label: "CSV (.csv)", desc: "Plain text table" },
+                      { value: "pdf", label: "PDF (.pdf)", desc: "Print-ready document" },
+                      { value: "doc", label: "Word (.doc)", desc: "Landscape layout report" },
+                      { value: "mpp", label: "Microsoft Project (.mpp)", desc: "MS Project outline format" },
+                    ].map((opt) => (
+                      <DropdownMenuItem
+                        key={opt.value}
+                        onClick={() => setExportFormat(opt.value as any)}
+                        className={cn(
+                          "flex w-full items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors cursor-pointer select-none focus:outline-none focus:bg-muted/50 focus:border-border/60",
+                          exportFormat === opt.value
+                            ? "border-primary/30 bg-primary/5 font-bold"
+                            : "border-transparent hover:border-border/60 hover:bg-muted/50",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold text-foreground">{opt.label}</span>
+                          <span className="block text-[10px] text-muted-foreground leading-relaxed">{opt.desc}</span>
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 type="button"
                 variant="outline"
