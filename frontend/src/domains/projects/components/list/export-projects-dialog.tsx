@@ -19,7 +19,7 @@ export interface ExportProjectsDialogProps {
   onClose: () => void;
   onExport: (
     selectedFields: string[],
-    format: "xlsx",
+    format: "xlsx" | "csv" | "pdf",
     selectedTaskFields?: string[]
   ) => Promise<void>;
   isExporting?: boolean;
@@ -68,6 +68,7 @@ export function ExportProjectsDialog({
   const [selectedTaskFields, setSelectedTaskFields] = useState<string[]>(
     TASK_FIELDS.map((f) => f.id)
   );
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf">("xlsx");
 
   const [activePanel, setActivePanel] = useState<"projects" | "tasks" | null>("projects");
   const isProjectsExpanded = activePanel === "projects";
@@ -125,7 +126,7 @@ export function ExportProjectsDialog({
 
   const handleExportClick = async () => {
     if (selectedFields.length === 0) return;
-    await onExport(selectedFields, "xlsx", selectedTaskFields);
+    await onExport(selectedFields, exportFormat, selectedTaskFields);
     onClose();
   };
 
@@ -145,7 +146,7 @@ export function ExportProjectsDialog({
                   Export Portfolio Data
                 </DialogPrimitive.Title>
                 <DialogPrimitive.Description className="text-[10px] text-muted-foreground">
-                  Select fields to export. Tasks will be exported to separate worksheets.
+                  Select fields and format to export.
                 </DialogPrimitive.Description>
               </div>
             </div>
@@ -376,6 +377,38 @@ export function ExportProjectsDialog({
               * Blank columns will be created if no data exists.
             </span>
             <div className="flex items-center gap-3">
+              <div className="flex items-center bg-background border border-border rounded-lg p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setExportFormat("xlsx")}
+                  className={cn(
+                    "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-colors cursor-pointer",
+                    exportFormat === "xlsx" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportFormat("csv")}
+                  className={cn(
+                    "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-colors cursor-pointer",
+                    exportFormat === "csv" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportFormat("pdf")}
+                  className={cn(
+                    "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-colors cursor-pointer",
+                    exportFormat === "pdf" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  PDF
+                </button>
+              </div>
               <Button
                 type="button"
                 variant="outline"

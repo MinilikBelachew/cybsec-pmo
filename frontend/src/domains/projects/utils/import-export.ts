@@ -1,6 +1,8 @@
 import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectTaskAssignee } from "../types/projects.types";
 import { Task } from "../types/tasks.types";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 function findProjectTaskAssignee(
   assigneeName: string,
@@ -1254,5 +1256,184 @@ export function processRawTaskCSVRows(
       duplicateTitles,
     );
   });
+}
+
+export function exportTasksToPDF(
+  tasks: Task[],
+  phases: ProjectPhase[],
+  assignees: ProjectTaskAssignee[],
+  selectedFields?: string[]
+): Blob {
+  const doc = new jsPDF({ orientation: "landscape" });
+
+  const allHeaders = [
+    "Title",
+    "Description",
+    "Priority",
+    "Status",
+    "Assignee",
+    "Phase",
+    "Start Date",
+    "End Date",
+    "Effort Hours",
+  ];
+  const headers = selectedFields || allHeaders;
+
+  const data = tasks.map((t) => {
+    const assigneeName =
+      t.owner?.displayName ||
+      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
+      "";
+    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
+
+    const allData: Record<string, any> = {
+      "Title": t.title || "",
+      "Description": t.description || "",
+      "Priority": t.priority || "",
+      "Status": t.status || "",
+      "Assignee": assigneeName,
+      "Phase": phaseName,
+      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+      "Effort Hours": t.effortHours != null ? t.effortHours : 0,
+    };
+
+    return headers.map((field) => String(allData[field] || ""));
+  });
+
+  autoTable(doc, {
+    head: [headers],
+    body: data,
+    styles: { fontSize: 8 },
+    theme: "striped",
+  });
+
+  return doc.output("blob");
+}
+
+export function exportProjectsToPDF(
+  projects: any[],
+  departments: Department[],
+  customers: Customer[],
+  managers: ProjectManager[],
+  selectedFields?: string[],
+  tasks?: any[],
+  selectedTaskFields?: string[]
+): Blob {
+  const doc = new jsPDF({ orientation: "landscape" });
+
+  const allHeaders = [
+    "Name",
+    "Objective",
+    "Department",
+    "Customer",
+    "Engagement Type",
+    "Billing Model",
+    "Priority",
+    "Start Date",
+    "End Date",
+    "Value",
+    "Currency",
+    "Primary PM",
+    "Secondary PM",
+    "Status",
+  ];
+  const headers = selectedFields || allHeaders;
+
+  const data = projects.map((p) => {
+    const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
+    const custName = p.customer?.displayName || customers.find((c) => c.id === p.customerId)?.displayName || "";
+    const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
+    const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
+
+    const allData: Record<string, any> = {
+      "Name": p.name || "",
+      "Objective": p.objective || "",
+      "Department": deptName,
+      "Customer": custName,
+      "Engagement Type": p.engagementType || "",
+      "Billing Model": p.billingModel || "",
+      "Priority": p.priority || "",
+      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
+      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
+      "Value": p.value || 0,
+      "Currency": p.currency || "",
+      "Primary PM": primaryPmName,
+      "Secondary PM": secondaryPmName,
+      "Status": p.status || "",
+    };
+
+    return headers.map((field) => String(allData[field] || ""));
+  });
+
+  doc.setFontSize(14);
+  doc.text("Projects", 14, 15);
+
+  autoTable(doc, {
+    head: [headers],
+    body: data,
+    startY: 20,
+    styles: { fontSize: 8 },
+    theme: "striped",
+  });
+
+  if (tasks && tasks.length > 0) {
+    const tasksByProject: Record<string, any[]> = {};
+    tasks.forEach((t) => {
+      const projName = t.projectName || "Tasks";
+      if (!tasksByProject[projName]) {
+        tasksByProject[projName] = [];
+      }
+      tasksByProject[projName].push(t);
+    });
+
+    const allTaskHeaders = [
+      "Title",
+      "Description",
+      "Priority",
+      "Status",
+      "Assignee",
+      "Phase",
+      "Start Date",
+      "End Date",
+      "Effort Hours",
+    ];
+    const taskHeaders = selectedTaskFields || allTaskHeaders;
+
+    Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
+      const tasksData = projTasks.map((t) => {
+        const assigneeName = t.owner?.displayName || t.assigneeName || "";
+        const phaseName = t.phase?.name || t.phaseName || "";
+
+        const allTaskData: Record<string, any> = {
+          "Title": t.title || "",
+          "Description": t.description || "",
+          "Priority": t.priority || "",
+          "Status": t.status || "",
+          "Assignee": assigneeName,
+          "Phase": phaseName,
+          "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
+          "End Date": t.endDate ? t.endDate.split("T")[0] : "",
+          "Effort Hours": t.effortHours != null ? t.effortHours : 0,
+        };
+
+        return taskHeaders.map((field) => String(allTaskData[field] || ""));
+      });
+
+      doc.addPage();
+      doc.setFontSize(14);
+      doc.text(`${projName} Tasks`, 14, 15);
+
+      autoTable(doc, {
+        head: [taskHeaders],
+        body: tasksData,
+        startY: 20,
+        styles: { fontSize: 8 },
+        theme: "striped",
+      });
+    });
+  }
+
+  return doc.output("blob");
 }
 
