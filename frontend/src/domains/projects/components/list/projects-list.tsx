@@ -435,8 +435,8 @@ export function ProjectsList() {
   const hasActiveFilters =
     Boolean(debouncedSearch.trim()) || statusFilter !== "all" || priorityFilter !== "all";
 
-  const existingProjectNames = useMemo(() => {
-    return data?.data?.map((p) => p.name) || [];
+  const existingProjects = useMemo(() => {
+    return data?.data?.map((p) => ({ id: p.id, name: p.name })) || [];
   }, [data]);
 
   const handleDeleteProject = async () => {
@@ -767,7 +767,7 @@ export function ProjectsList() {
         open={showImport}
         onClose={() => setShowImport(false)}
         refetch={refetch}
-        existingProjectNames={existingProjectNames}
+        existingProjects={existingProjects}
       />
       <ImportMppDialog
         open={showMppImport}

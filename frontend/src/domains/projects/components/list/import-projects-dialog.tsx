@@ -8,10 +8,12 @@ import {
   useGetCustomersQuery,
   useGetProjectManagersQuery,
   useCreateProjectMutation,
+  useUpdateProjectMutation,
+  useLazyGetPhasesQuery,
   useCreatePhaseMutation,
   useCreateMilestoneMutation,
 } from "../../api/projects.api";
-import { useCreateTaskMutation } from "../../api/tasks.api";
+import { useCreateTaskMutation, useUpdateTaskMutation, useLazyGetTasksQuery } from "../../api/tasks.api";
 import {
   processRawCSVRows,
   ParsedProjectRow,
@@ -44,14 +46,14 @@ interface ImportProjectsDialogProps {
   open: boolean;
   onClose: () => void;
   refetch: () => void;
-  existingProjectNames: string[];
+  existingProjects: { id: string; name: string }[];
 }
 
 export function ImportProjectsDialog({
   open,
   onClose,
   refetch,
-  existingProjectNames,
+  existingProjects,
 }: ImportProjectsDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedProjectRow[]>([]);
@@ -74,9 +76,13 @@ export function ImportProjectsDialog({
   const { data: managers = [] } = useGetProjectManagersQuery();
 
   const [createProject] = useCreateProjectMutation();
+  const [updateProject] = useUpdateProjectMutation();
+  const [triggerGetPhases] = useLazyGetPhasesQuery();
   const [createPhase] = useCreatePhaseMutation();
   const [createMilestone] = useCreateMilestoneMutation();
   const [createTask] = useCreateTaskMutation();
+  const [updateTask] = useUpdateTaskMutation();
+  const [triggerGetTasks] = useLazyGetTasksQuery();
 
   const hasExtraData = (projName: string) =>
     (parsedPhases[projName]?.length || 0) > 0 ||
@@ -161,10 +167,13 @@ export function ImportProjectsDialog({
           return;
         }
 
-        const processed = processRawCSVRows(projectsData, departments, customers, managers);
+        const processed = processRawCSVRows(projectsData, departments, customers, managers, existingProjects);
 
-        const existingSet = new Set(existingProjectNames.map((n) => n.trim().toLowerCase()));
+        const existingSet = new Set(existingProjects.map((p) => p.name.trim().toLowerCase()));
         const finalProcessed = processed.map((row) => {
+          // For update mode, the row already has resolvedProjectId — skip duplicate error
+          if (row.importMode === "update") return row;
+          // For create mode, flag if name already exists
           const lowerName = row.name.trim().toLowerCase();
           if (lowerName && existingSet.has(lowerName)) {
             return { ...row, errors: [...row.errors, `Project "${row.name}" already exists.`] };
@@ -189,7 +198,22 @@ export function ImportProjectsDialog({
           const taskSheetName = `${projName} Tasks`;
           if (sheetNames.includes(taskSheetName)) {
             const raw = parseXLSXSheet(buffer, taskSheetName, true);
-            if (raw.length > 1) tempTasks[projName] = processRawTaskCSVRows(raw, [], []);
+            if (raw.length > 1) {
+              let existingTasks: { id: string; title: string }[] = [];
+              if (projRow.importMode === "update" && projRow.resolvedProjectId) {
+                try {
+                  const result = await triggerGetTasks({
+                    projectId: projRow.resolvedProjectId,
+                    limit: 1000,
+                    topLevelOnly: false,
+                  }).unwrap();
+                  existingTasks = result.data.map((t) => ({ id: t.id, title: t.title }));
+                } catch (err) {
+                  console.error("Failed to fetch existing tasks for preview:", err);
+                }
+              }
+              tempTasks[projName] = processRawTaskCSVRows(raw, [], [], existingTasks);
+            }
           }
 
           const msSheetName = `${projName} Milestones`;
@@ -298,8 +322,9 @@ export function ImportProjectsDialog({
         }
 
         const lowerName = (updated.name || "").trim().toLowerCase();
-        const existingSet = new Set(existingProjectNames.map((n) => n.trim().toLowerCase()));
-        if (lowerName && existingSet.has(lowerName)) {
+        const existingSet = new Set(existingProjects.map((p) => p.name.trim().toLowerCase()));
+        // Only flag duplicate for create mode rows
+        if (updated.importMode !== "update" && lowerName && existingSet.has(lowerName)) {
           rowErrors.push(`Project "${updated.name}" already exists.`);
         }
 
@@ -386,38 +411,81 @@ export function ImportProjectsDialog({
     }
 
     setIsImporting(true);
-    let successProjects = 0;
+    let successCreated = 0;
+    let successUpdated = 0;
     let failProjects = 0;
     let successPhases = 0;
-    let successTasks = 0;
+    let successTasksCreated = 0;
+    let successTasksUpdated = 0;
     let successMilestones = 0;
 
     for (let i = 0; i < validRows.length; i++) {
       const projRow = validRows[i];
-      setImportStatusText(`Creating project: ${projRow.name}`);
+      const isUpdate = projRow.importMode === "update" && projRow.resolvedProjectId;
+      setImportStatusText(`${isUpdate ? "Updating" : "Creating"} project: ${projRow.name}`);
       setImportProgress(Math.round((i / validRows.length) * 100));
 
       try {
-        const projectResult = await createProject({
-          name: projRow.name,
-          objective: projRow.objective,
-          departmentId: projRow.resolvedDepartmentId!,
-          customerId: projRow.resolvedCustomerId!,
-          engagementType: projRow.engagementType as any,
-          billingModel: projRow.billingModel as any,
-          priority: projRow.priority as any,
-          startDate: new Date(projRow.startDate).toISOString(),
-          endDate: new Date(projRow.endDate).toISOString(),
-          value: projRow.value,
-          currency: projRow.currency as any,
-          primaryPmId: projRow.resolvedPrimaryPmId!,
-          secondaryPmId: projRow.resolvedSecondaryPmId || undefined,
-          status: "Draft",
-        }).unwrap();
+        let projectId: string;
 
-        successProjects++;
-        const projectId = projectResult.id;
+        if (isUpdate) {
+          // Update existing project
+          await updateProject({
+            id: projRow.resolvedProjectId!,
+            body: {
+              name: projRow.name,
+              objective: projRow.objective,
+              departmentId: projRow.resolvedDepartmentId!,
+              customerId: projRow.resolvedCustomerId!,
+              engagementType: projRow.engagementType as any,
+              billingModel: projRow.billingModel as any,
+              priority: projRow.priority as any,
+              startDate: new Date(projRow.startDate).toISOString(),
+              endDate: new Date(projRow.endDate).toISOString(),
+              value: projRow.value,
+              currency: projRow.currency as any,
+              primaryPmId: projRow.resolvedPrimaryPmId!,
+              secondaryPmId: projRow.resolvedSecondaryPmId || undefined,
+              status: projRow.status as any,
+            },
+          }).unwrap();
+          projectId = projRow.resolvedProjectId!;
+          successUpdated++;
+        } else {
+          // Create new project
+          const projectResult = await createProject({
+            name: projRow.name,
+            objective: projRow.objective,
+            departmentId: projRow.resolvedDepartmentId!,
+            customerId: projRow.resolvedCustomerId!,
+            engagementType: projRow.engagementType as any,
+            billingModel: projRow.billingModel as any,
+            priority: projRow.priority as any,
+            startDate: new Date(projRow.startDate).toISOString(),
+            endDate: new Date(projRow.endDate).toISOString(),
+            value: projRow.value,
+            currency: projRow.currency as any,
+            primaryPmId: projRow.resolvedPrimaryPmId!,
+            secondaryPmId: projRow.resolvedSecondaryPmId || undefined,
+            status: "Draft",
+          }).unwrap();
+          projectId = projectResult.id;
+          successCreated++;
+        }
+
         const phaseNameToId: Record<string, string> = {};
+
+        // Fetch existing phases for update mode
+        if (isUpdate) {
+          try {
+            const existingPhases = await triggerGetPhases(projectId).unwrap();
+            for (const phase of existingPhases) {
+              phaseNameToId[phase.name.toLowerCase().trim()] = phase.id;
+            }
+          } catch (err) {
+            console.error("Failed to fetch existing phases:", err);
+          }
+        }
 
         // Create Phases
         const projectPhases = parsedPhases[projRow.name] || [];
@@ -430,7 +498,7 @@ export function ImportProjectsDialog({
                 projectId,
                 body: {
                   name: phaseRow.name,
-                  description: phaseRow.description || null,
+                  description: phaseRow.description || undefined,
                   orderIndex: phaseRow.orderIndex,
                   status: phaseRow.status as any,
                   startDate: phaseRow.startDate
@@ -449,32 +517,102 @@ export function ImportProjectsDialog({
           }
         }
 
-        // Create Tasks
         const projectTasks = parsedTasks[projRow.name] || [];
+
+        // If tasks exist but we have no phases resolved, auto-create a "General Phase"
+        if (projectTasks.length > 0 && Object.keys(phaseNameToId).length === 0) {
+          try {
+            setImportStatusText(`Creating default phase for: ${projRow.name}`);
+            const defaultPhaseRes = await createPhase({
+              projectId,
+              body: {
+                name: "General Phase",
+                description: "Default phase for imported tasks",
+                orderIndex: 0,
+                status: "Active" as any,
+                startDate: new Date(projRow.startDate).toISOString(),
+                endDate: new Date(projRow.endDate).toISOString(),
+              },
+            }).unwrap();
+            phaseNameToId["general phase"] = defaultPhaseRes.id;
+            successPhases++;
+          } catch (err) {
+            console.error(`Failed to create default phase for "${projRow.name}":`, err);
+          }
+        }
+
+        // Resolve existing tasks for matching if this project already exists
+        let existingProjectTasks: { id: string; title: string }[] = [];
+        if (isUpdate) {
+          try {
+            const result = await triggerGetTasks({ projectId, limit: 1000, topLevelOnly: false }).unwrap();
+            existingProjectTasks = result.data.map((t) => ({ id: t.id, title: t.title }));
+          } catch (err) {
+            console.error("Failed to fetch existing tasks:", err);
+          }
+        }
+
+        const existingTaskMap = new Map<string, string>();
+        for (const t of existingProjectTasks) {
+          existingTaskMap.set(t.title.trim().toLowerCase(), t.id);
+        }
+
+        // Create/Update Tasks
         if (projectTasks.length > 0) {
-          setImportStatusText(`Creating tasks for: ${projRow.name}`);
+          setImportStatusText(`Importing tasks for: ${projRow.name}`);
           for (const taskRow of projectTasks) {
             if (taskRow.errors.length > 0) continue;
             try {
-              const resolvedPhaseId = taskRow.phaseName
-                ? phaseNameToId[taskRow.phaseName.toLowerCase().trim()] || null
-                : null;
+              let resolvedPhaseId = taskRow.phaseName
+                ? phaseNameToId[taskRow.phaseName.toLowerCase().trim()]
+                : undefined;
 
-              await createTask({
-                projectId,
-                title: taskRow.title,
-                description: taskRow.description || null,
-                priority: taskRow.priority,
-                status: taskRow.status,
-                ownerId: null,
-                phaseId: resolvedPhaseId,
-                startDate: taskRow.startDate ? new Date(taskRow.startDate).toISOString() : null,
-                endDate: taskRow.endDate ? new Date(taskRow.endDate).toISOString() : null,
-                effortHours: taskRow.effortHours || null,
-              }).unwrap();
-              successTasks++;
+              // Fallback to first available phase ID if none is resolved (since phaseId is required)
+              if (!resolvedPhaseId) {
+                const phaseIds = Object.values(phaseNameToId);
+                if (phaseIds.length > 0) {
+                  resolvedPhaseId = phaseIds[0];
+                }
+              }
+
+              const lowerTitle = taskRow.title.trim().toLowerCase();
+              const resolvedTaskId = lowerTitle ? existingTaskMap.get(lowerTitle) : undefined;
+
+              if (resolvedTaskId) {
+                // Update existing task
+                await updateTask({
+                  id: resolvedTaskId,
+                  body: {
+                    title: taskRow.title,
+                    description: taskRow.description || undefined,
+                    priority: taskRow.priority,
+                    status: taskRow.status,
+                    ownerId: undefined,
+                    phaseId: resolvedPhaseId,
+                    startDate: taskRow.startDate ? new Date(taskRow.startDate).toISOString() : undefined,
+                    endDate: taskRow.endDate ? new Date(taskRow.endDate).toISOString() : undefined,
+                    effortHours: taskRow.effortHours || undefined,
+                  },
+                }).unwrap();
+                successTasksUpdated++;
+              } else {
+                // Create new task
+                await createTask({
+                  projectId,
+                  title: taskRow.title,
+                  description: taskRow.description || undefined,
+                  priority: taskRow.priority,
+                  status: taskRow.status,
+                  ownerId: undefined,
+                  phaseId: resolvedPhaseId,
+                  startDate: taskRow.startDate ? new Date(taskRow.startDate).toISOString() : undefined,
+                  endDate: taskRow.endDate ? new Date(taskRow.endDate).toISOString() : undefined,
+                  effortHours: taskRow.effortHours || undefined,
+                }).unwrap();
+                successTasksCreated++;
+              }
             } catch (err) {
-              console.error(`Failed to create task "${taskRow.title}" for "${projRow.name}":`, err);
+              console.error(`Failed to import task "${taskRow.title}" for "${projRow.name}":`, err);
             }
           }
         }
@@ -486,9 +624,17 @@ export function ImportProjectsDialog({
           for (const msRow of projectMilestones) {
             if (msRow.errors.length > 0) continue;
             try {
-              const resolvedPhaseId = msRow.phaseName
-                ? phaseNameToId[msRow.phaseName.toLowerCase().trim()] || null
-                : null;
+              let resolvedPhaseId = msRow.phaseName
+                ? phaseNameToId[msRow.phaseName.toLowerCase().trim()]
+                : undefined;
+
+              // Fallback to first available phase ID if none is resolved (milestones can optionally have a phase, but if it exists we map it)
+              if (!resolvedPhaseId && msRow.phaseName) {
+                const phaseIds = Object.values(phaseNameToId);
+                if (phaseIds.length > 0) {
+                  resolvedPhaseId = phaseIds[0];
+                }
+              }
 
               await createMilestone({
                 projectId,
@@ -515,12 +661,21 @@ export function ImportProjectsDialog({
     setImportProgress(100);
     setImportStatusText("Done");
 
-    if (successProjects > 0) {
+    const totalSuccess = successCreated + successUpdated;
+    if (totalSuccess > 0) {
+      const parts = [];
+      if (successCreated > 0) parts.push(`${successCreated} created`);
+      if (successUpdated > 0) parts.push(`${successUpdated} updated`);
+      const taskParts = [];
+      if (successTasksCreated > 0) taskParts.push(`${successTasksCreated} created`);
+      if (successTasksUpdated > 0) taskParts.push(`${successTasksUpdated} updated`);
+      const taskSummary = taskParts.length > 0 ? taskParts.join(", ") : "0";
+
       toast.success(
         `Import complete:\n` +
-          `• ${successProjects} Projects\n` +
+          `• Projects: ${parts.join(", ")}\n` +
           `• ${successPhases} Phases\n` +
-          `• ${successTasks} Tasks\n` +
+          `• Tasks: ${taskSummary}\n` +
           `• ${successMilestones} Milestones`
       );
       refetch();

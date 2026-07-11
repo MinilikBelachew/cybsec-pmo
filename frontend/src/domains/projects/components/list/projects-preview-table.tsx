@@ -102,14 +102,26 @@ export function ProjectsPreviewTable({
                     {/* Details */}
                     <td className="p-3">
                       <div className="flex flex-col gap-1 w-56">
-                        <div className="font-bold text-foreground truncate">
-                          {row.name || <span className="italic text-rose-400">Missing Name</span>}
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-foreground truncate">
+                            {row.name || <span className="italic text-rose-400">Missing Name</span>}
+                          </span>
+                          {row.importMode === "update" ? (
+                            <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                              UPDATE
+                            </span>
+                          ) : (
+                            <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                              NEW
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
                           {row.objective || "No objective"}
                         </div>
                       </div>
                     </td>
+
 
                     {/* Department Dropdown */}
                     <td className="p-3">

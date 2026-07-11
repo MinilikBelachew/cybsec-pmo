@@ -378,6 +378,7 @@ export const {
   useUpdateProjectMutation,
   useDeleteProjectMutation,
   useGetPhasesQuery,
+  useLazyGetPhasesQuery,
   useCreatePhaseMutation,
   useUpdatePhaseMutation,
   useDeletePhaseMutation,

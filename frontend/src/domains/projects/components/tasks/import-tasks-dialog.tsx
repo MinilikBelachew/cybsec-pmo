@@ -7,7 +7,7 @@ import {
   useGetPhasesQuery,
   useGetProjectTaskAssigneesQuery,
 } from "../../api/projects.api";
-import { useCreateTaskMutation } from "../../api/tasks.api";
+import { useCreateTaskMutation, useUpdateTaskMutation, useLazyGetTasksQuery } from "../../api/tasks.api";
 import { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import {
   parseXLSXSheet,
@@ -159,6 +159,8 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, { skip: !projectId });
 
   const [createTask] = useCreateTaskMutation();
+  const [updateTask] = useUpdateTaskMutation();
+  const [triggerGetTasks] = useLazyGetTasksQuery();
 
   const downloadSampleXLSX = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -191,7 +193,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     setFile(selectedFile);
     setValidationError(null);
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const buffer = event.target?.result as ArrayBuffer;
         const taskData = parseXLSXSheet(buffer, "Tasks");
@@ -217,7 +219,16 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           return;
         }
 
-        const processed = processRawTaskCSVRows(taskData, phases, assignees);
+        // Fetch existing tasks for update-matching
+        let existingTasks: { id: string; title: string }[] = [];
+        try {
+          const result = await triggerGetTasks({ projectId, limit: 1000, topLevelOnly: false }).unwrap();
+          existingTasks = result.data.map((t) => ({ id: t.id, title: t.title }));
+        } catch {
+          // Non-fatal — missing existing tasks means all rows will be treated as creates
+        }
+
+        const processed = processRawTaskCSVRows(taskData, phases, assignees, existingTasks);
         setParsedRows(processed);
         toast.success(`Loaded ${processed.length} rows from XLSX`);
       } catch (err) {
@@ -275,25 +286,46 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     }
 
     setIsImporting(true);
-    let successCount = 0;
+    let successCreated = 0;
+    let successUpdated = 0;
     let failCount = 0;
 
     for (let i = 0; i < validRows.length; i++) {
       const row = validRows[i];
       try {
-        await createTask({
-          projectId,
-          title: row.title,
-          description: row.description || null,
-          priority: row.priority,
-          status: row.status,
-          ownerId: row.resolvedAssigneeId || null,
-          phaseId: row.resolvedPhaseId || null,
-          startDate: row.startDate ? new Date(row.startDate).toISOString() : null,
-          endDate: row.endDate ? new Date(row.endDate).toISOString() : null,
-          effortHours: row.effortHours || null,
-        }).unwrap();
-        successCount++;
+        if (row.importMode === "update" && row.resolvedTaskId) {
+          // Update existing task
+          await updateTask({
+            id: row.resolvedTaskId,
+            body: {
+              title: row.title,
+              description: row.description || undefined,
+              priority: row.priority,
+              status: row.status,
+              ownerId: row.resolvedAssigneeId || undefined,
+              phaseId: row.resolvedPhaseId || phases[0]?.id,
+              startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
+              endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
+              effortHours: row.effortHours || undefined,
+            },
+          }).unwrap();
+          successUpdated++;
+        } else {
+          // Create new task
+          await createTask({
+            projectId,
+            title: row.title,
+            description: row.description || undefined,
+            priority: row.priority,
+            status: row.status,
+            ownerId: row.resolvedAssigneeId || undefined,
+            phaseId: row.resolvedPhaseId || phases[0]?.id,
+            startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
+            endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
+            effortHours: row.effortHours || undefined,
+          }).unwrap();
+          successCreated++;
+        }
       } catch (err) {
         console.error(`Failed to import task: ${row.title}`, err);
         failCount++;
@@ -301,12 +333,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
       setImportProgress(Math.round(((i + 1) / validRows.length) * 100));
     }
 
-    if (successCount > 0) {
-      toast.success(`Successfully imported ${successCount} tasks.`);
+    const parts: string[] = [];
+    if (successCreated > 0) parts.push(`${successCreated} created`);
+    if (successUpdated > 0) parts.push(`${successUpdated} updated`);
+    if (parts.length > 0) {
+      toast.success(`Tasks imported: ${parts.join(" · ")}`);
       refetch();
     }
     if (failCount > 0) {
-      toast.error(`Failed to import ${failCount} tasks.`);
+      toast.error(`Failed to import ${failCount} task${failCount === 1 ? "" : "s"}.`);
     }
 
     setIsImporting(false);
@@ -505,6 +540,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                                         {row.isMilestone && (
                                           <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-[8px] font-extrabold px-1 rounded uppercase tracking-wider shrink-0">
                                             Milestone
+                                          </span>
+                                        )}
+                                        {row.importMode === "update" ? (
+                                          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                                            UPDATE
+                                          </span>
+                                        ) : (
+                                          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                                            NEW
                                           </span>
                                         )}
                                         <span className="truncate">{row.title || <span className="italic text-rose-400">Missing Title</span>}</span>

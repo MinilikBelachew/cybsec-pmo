@@ -602,6 +602,11 @@ export interface ParsedProjectRow {
   secondaryPmName: string;
   status: string;
 
+  // Import mode: 'create' for new, 'update' for updating an existing project
+  importMode: "create" | "update";
+  // The existing project ID when importMode === 'update'
+  resolvedProjectId?: string;
+
   // Validation & Resolution details
   resolvedDepartmentId?: string;
   resolvedCustomerId?: string;
@@ -619,7 +624,8 @@ export function processRawCSVRows(
   csvData: string[][],
   departments: Department[],
   customers: Customer[],
-  managers: ProjectManager[]
+  managers: ProjectManager[],
+  existingProjects?: { id: string; name: string }[]
 ): ParsedProjectRow[] {
   if (csvData.length <= 1) return [];
 
@@ -877,6 +883,22 @@ export function processRawCSVRows(
       errors.push(`Status "${status}" is invalid. Please select one.`);
     }
 
+    // Resolve existing project for update mode
+    let resolvedProjectId: string | undefined;
+    let importMode: "create" | "update" = "create";
+    if (existingProjects && name) {
+      const match = existingProjects.find(
+        (p) => p.name.trim().toLowerCase() === name.trim().toLowerCase()
+      );
+      if (match) {
+        resolvedProjectId = match.id;
+        importMode = "update";
+        // For updates, "already exists" is allowed — remove it from errors
+        const alreadyExistsIdx = errors.findIndex((e) => e.includes("already exists"));
+        if (alreadyExistsIdx !== -1) errors.splice(alreadyExistsIdx, 1);
+      }
+    }
+
     return {
       name,
       objective,
@@ -892,6 +914,8 @@ export function processRawCSVRows(
       primaryPmName,
       secondaryPmName,
       status: normalizedStatus,
+      importMode,
+      resolvedProjectId,
       resolvedDepartmentId,
       resolvedCustomerId,
       resolvedPrimaryPmId,
@@ -1019,6 +1043,10 @@ export interface ParsedTaskRow {
 
   resolvedAssigneeId?: string | null;
   resolvedPhaseId?: string | null;
+
+  /** Resolved at parse-time based on title matching against existing tasks */
+  importMode: "create" | "update";
+  resolvedTaskId?: string;
 
   errors: string[];
   warnings: string[];
@@ -1186,8 +1214,15 @@ export function revalidateParsedTaskRow(
 export function processRawTaskCSVRows(
   csvData: string[][],
   phases: ProjectPhase[],
-  assignees: ProjectTaskAssignee[]
+  assignees: ProjectTaskAssignee[],
+  existingTasks?: { id: string; title: string }[]
 ): ParsedTaskRow[] {
+  const existingTaskMap = new Map<string, string>();
+  if (existingTasks) {
+    for (const t of existingTasks) {
+      existingTaskMap.set(t.title.trim().toLowerCase(), t.id);
+    }
+  }
   if (csvData.length <= 1) return [];
 
   const headers = csvData[0].map((h) => h.toLowerCase());
@@ -1237,6 +1272,10 @@ export function processRawTaskCSVRows(
       effortHours = isNaN(parsedEffort) ? NaN : parsedEffort;
     }
 
+    const lowerTitle = title.trim().toLowerCase();
+    const resolvedTaskId = lowerTitle ? existingTaskMap.get(lowerTitle) : undefined;
+    const importMode: "create" | "update" = resolvedTaskId ? "update" : "create";
+
     return revalidateParsedTaskRow(
       {
         title,
@@ -1248,6 +1287,8 @@ export function processRawTaskCSVRows(
         startDate,
         endDate,
         effortHours,
+        importMode,
+        resolvedTaskId,
         errors: [],
         warnings: [],
       },
