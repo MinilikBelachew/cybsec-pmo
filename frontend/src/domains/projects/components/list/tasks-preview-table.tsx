@@ -60,7 +60,18 @@ export function TasksPreviewTable({ tasksList, projName, handleSubRowChange }: T
 
             {/* Title & Description */}
             <td className="p-3">
-              <div className="font-bold truncate">{tRow.title}</div>
+              <div className="font-bold truncate flex items-center gap-1.5">
+                {tRow.importMode === "update" ? (
+                  <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                    UPDATE
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                    NEW
+                  </span>
+                )}
+                <span className="truncate">{tRow.title}</span>
+              </div>
               <div className="text-[10px] text-muted-foreground line-clamp-1">
                 {tRow.description || "No description"}
               </div>

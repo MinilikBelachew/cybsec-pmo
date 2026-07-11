@@ -7,7 +7,7 @@ import {
   useGetPhasesQuery,
   useGetProjectTaskAssigneesQuery,
 } from "../../api/projects.api";
-import { useCreateTaskMutation } from "../../api/tasks.api";
+import { useCreateTaskMutation, useUpdateTaskMutation, useLazyGetTasksQuery } from "../../api/tasks.api";
 import { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import {
   parseXLSXSheet,
@@ -150,6 +150,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   const [parsedRows, setParsedRows] = useState<ParsedTaskRow[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -158,6 +159,8 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, { skip: !projectId });
 
   const [createTask] = useCreateTaskMutation();
+  const [updateTask] = useUpdateTaskMutation();
+  const [triggerGetTasks] = useLazyGetTasksQuery();
 
   const downloadSampleXLSX = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -188,30 +191,50 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
       return;
     }
     setFile(selectedFile);
+    setValidationError(null);
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const buffer = event.target?.result as ArrayBuffer;
         const taskData = parseXLSXSheet(buffer, "Tasks");
         if (taskData.length <= 1) {
-          toast.error("The XLSX file is empty or only contains headers.");
+          setValidationError("The XLSX file is empty or only contains headers.");
+          setParsedRows([]);
           return;
         }
 
         const importKind = detectTaskCsvImportKind(taskData);
         if (importKind === "projects") {
-          toast.error(
-            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample XLSX.",
+          setValidationError(
+            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample XLSX."
           );
+          setParsedRows([]);
+          return;
+        }
+        if (importKind === "unknown") {
+          setValidationError(
+            "The uploaded file does not match the expected Tasks format. Please make sure the sheet has headers like 'Title', 'Description', 'Priority', 'Status', etc."
+          );
+          setParsedRows([]);
           return;
         }
 
-        const processed = processRawTaskCSVRows(taskData, phases, assignees);
+        // Fetch existing tasks for update-matching
+        let existingTasks: { id: string; title: string }[] = [];
+        try {
+          const result = await triggerGetTasks({ projectId, limit: 1000, topLevelOnly: false }).unwrap();
+          existingTasks = result.data.map((t) => ({ id: t.id, title: t.title }));
+        } catch {
+          // Non-fatal — missing existing tasks means all rows will be treated as creates
+        }
+
+        const processed = processRawTaskCSVRows(taskData, phases, assignees, existingTasks);
         setParsedRows(processed);
         toast.success(`Loaded ${processed.length} rows from XLSX`);
       } catch (err) {
         console.error(err);
-        toast.error("Failed to parse XLSX file.");
+        setValidationError("Failed to parse XLSX file. Please ensure it is not password-protected or corrupted.");
+        setParsedRows([]);
       }
     };
     reader.readAsArrayBuffer(selectedFile);
@@ -222,6 +245,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     setParsedRows([]);
     setImportProgress(0);
     setIsImporting(false);
+    setValidationError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -262,25 +286,46 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     }
 
     setIsImporting(true);
-    let successCount = 0;
+    let successCreated = 0;
+    let successUpdated = 0;
     let failCount = 0;
 
     for (let i = 0; i < validRows.length; i++) {
       const row = validRows[i];
       try {
-        await createTask({
-          projectId,
-          title: row.title,
-          description: row.description || null,
-          priority: row.priority,
-          status: row.status,
-          ownerId: row.resolvedAssigneeId || null,
-          phaseId: row.resolvedPhaseId || null,
-          startDate: row.startDate ? new Date(row.startDate).toISOString() : null,
-          endDate: row.endDate ? new Date(row.endDate).toISOString() : null,
-          effortHours: row.effortHours || null,
-        }).unwrap();
-        successCount++;
+        if (row.importMode === "update" && row.resolvedTaskId) {
+          // Update existing task
+          await updateTask({
+            id: row.resolvedTaskId,
+            body: {
+              title: row.title,
+              description: row.description || undefined,
+              priority: row.priority,
+              status: row.status,
+              ownerId: row.resolvedAssigneeId || undefined,
+              phaseId: row.resolvedPhaseId || phases[0]?.id,
+              startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
+              endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
+              effortHours: row.effortHours || undefined,
+            },
+          }).unwrap();
+          successUpdated++;
+        } else {
+          // Create new task
+          await createTask({
+            projectId,
+            title: row.title,
+            description: row.description || undefined,
+            priority: row.priority,
+            status: row.status,
+            ownerId: row.resolvedAssigneeId || undefined,
+            phaseId: row.resolvedPhaseId || phases[0]?.id,
+            startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
+            endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
+            effortHours: row.effortHours || undefined,
+          }).unwrap();
+          successCreated++;
+        }
       } catch (err) {
         console.error(`Failed to import task: ${row.title}`, err);
         failCount++;
@@ -288,12 +333,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
       setImportProgress(Math.round(((i + 1) / validRows.length) * 100));
     }
 
-    if (successCount > 0) {
-      toast.success(`Successfully imported ${successCount} tasks.`);
+    const parts: string[] = [];
+    if (successCreated > 0) parts.push(`${successCreated} created`);
+    if (successUpdated > 0) parts.push(`${successUpdated} updated`);
+    if (parts.length > 0) {
+      toast.success(`Tasks imported: ${parts.join(" · ")}`);
       refetch();
     }
     if (failCount > 0) {
-      toast.error(`Failed to import ${failCount} tasks.`);
+      toast.error(`Failed to import ${failCount} task${failCount === 1 ? "" : "s"}.`);
     }
 
     setIsImporting(false);
@@ -375,7 +423,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                         {file.name}
                       </p>
                       <p className="text-[10px] text-muted-foreground font-medium">
-                        {(file.size / 1024).toFixed(1)} KB · {parsedRows.length} rows loaded
+                        {(file.size / 1024).toFixed(1)} KB{!validationError && ` · ${parsedRows.length} rows loaded`}
                       </p>
                     </div>
                   </div>
@@ -386,7 +434,20 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   )}
                 </div>
 
-                {isImporting ? (
+                {validationError ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4 border border-rose-500/20 bg-rose-500/5 rounded-2xl min-h-[300px]">
+                    <AlertTriangle className="size-12 text-rose-500" />
+                    <div className="text-center space-y-1 max-w-md">
+                      <p className="text-sm font-bold text-rose-500">Invalid Tasks File</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {validationError}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="xs" onClick={handleReset} className="mt-2 border-rose-500/20 text-rose-600 hover:bg-rose-500/10 cursor-pointer">
+                      Select Another File
+                    </Button>
+                  </div>
+                ) : isImporting ? (
                   /* Loading Progress UI */
                   <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4">
                     <Loader2 className="size-8 text-primary animate-spin" />
@@ -479,6 +540,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                                         {row.isMilestone && (
                                           <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-[8px] font-extrabold px-1 rounded uppercase tracking-wider shrink-0">
                                             Milestone
+                                          </span>
+                                        )}
+                                        {row.importMode === "update" ? (
+                                          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                                            UPDATE
+                                          </span>
+                                        ) : (
+                                          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                                            NEW
                                           </span>
                                         )}
                                         <span className="truncate">{row.title || <span className="italic text-rose-400">Missing Title</span>}</span>
@@ -615,7 +685,10 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           {/* Footer Actions */}
           <div className="border-t border-border px-6 py-4 flex items-center justify-between bg-muted/15">
             <div className="text-xs text-muted-foreground font-semibold">
-              {file && !isImporting && (
+              {validationError && (
+                <span className="text-rose-500">File cannot be imported due to validation errors.</span>
+              )}
+              {file && !validationError && !isImporting && (
                 <span>
                   {`${validRows.length} of ${parsedRows.length} tasks ready to import.`}
                   {hasErrors && (
@@ -639,7 +712,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
               {file && !isImporting && (
                 <Button
                   onClick={handleImport}
-                  disabled={validRows.length === 0}
+                  disabled={validRows.length === 0 || !!validationError}
                   size="sm"
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >

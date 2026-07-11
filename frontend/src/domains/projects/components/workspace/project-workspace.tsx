@@ -82,7 +82,7 @@ import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
-import { exportTasksToXLSX, convertTasksToCSV } from "../../utils/import-export";
+import { exportTasksToXLSX, convertTasksToCSV, exportTasksToPDF, exportTasksToWord, exportTasksToMPP } from "../../utils/import-export";
 import { ExportTasksDialog } from "../tasks/export-tasks-dialog";
 import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
@@ -364,7 +364,7 @@ export function ProjectWorkspace() {
       });
   }, [milestones]);
 
-  const handleExportData = async (selectedFields: string[], format: "xlsx") => {
+  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mpp") => {
     const exportToast = toast.loading(`Preparing tasks export (${format.toUpperCase()})...`);
     try {
       const exportParams: GetTasksParams = {
@@ -390,9 +390,27 @@ export function ProjectWorkspace() {
         return;
       }
 
-      const xlsxBuffer = exportTasksToXLSX(tasksToExport, phases, assignees, selectedFields);
-      const blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const filename = `${project?.name || "project"}_tasks.xlsx`;
+      let blob: Blob;
+      let filename: string;
+
+      if (format === "xlsx") {
+        const xlsxBuffer = exportTasksToXLSX(tasksToExport, phases, assignees, selectedFields);
+        blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        filename = `${project?.name || "project"}_tasks.xlsx`;
+      } else if (format === "csv") {
+        const csvContent = convertTasksToCSV(tasksToExport, phases, assignees, selectedFields);
+        blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        filename = `${project?.name || "project"}_tasks.csv`;
+      } else if (format === "pdf") {
+        blob = exportTasksToPDF(tasksToExport, phases, assignees, selectedFields);
+        filename = `${project?.name || "project"}_tasks.pdf`;
+      } else if (format === "doc") {
+        blob = exportTasksToWord(tasksToExport, phases, assignees, selectedFields);
+        filename = `${project?.name || "project"}_tasks.doc`;
+      } else {
+        blob = exportTasksToMPP(tasksToExport, phases, assignees, project?.name || "Project");
+        filename = `${project?.name || "project"}_tasks.xml`;
+      }
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -403,7 +421,7 @@ export function ProjectWorkspace() {
       link.click();
       document.body.removeChild(link);
       toast.dismiss(exportToast);
-      toast.success(`Tasks exported successfully to Excel.`);
+      toast.success(`Tasks exported successfully to ${format.toUpperCase()}.`);
     } catch (err) {
       console.error(err);
       toast.dismiss(exportToast);

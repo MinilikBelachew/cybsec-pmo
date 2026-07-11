@@ -17,7 +17,7 @@ import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { createProjectListColumns } from "./project-list-columns";
-import { exportProjectsToXLSX, convertToCSV } from "../../utils/import-export";
+import { exportProjectsToXLSX, convertToCSV, exportProjectsToPDF, exportProjectsToWord, exportProjectsToMPP } from "../../utils/import-export";
 import { ExportProjectsDialog } from "./export-projects-dialog";
 import {
   DEFAULT_PROJECT_DEPT_COLOR,
@@ -435,8 +435,8 @@ export function ProjectsList() {
   const hasActiveFilters =
     Boolean(debouncedSearch.trim()) || statusFilter !== "all" || priorityFilter !== "all";
 
-  const existingProjectNames = useMemo(() => {
-    return data?.data?.map((p) => p.name) || [];
+  const existingProjects = useMemo(() => {
+    return data?.data?.map((p) => ({ id: p.id, name: p.name })) || [];
   }, [data]);
 
   const handleDeleteProject = async () => {
@@ -451,7 +451,7 @@ export function ProjectsList() {
     }
   };
 
-  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv", selectedTaskFields?: string[]) => {
+  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mpp", selectedTaskFields?: string[]) => {
     const exportParams: GetProjectsParams = {};
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) exportParams.search = trimmedSearch;
@@ -470,7 +470,7 @@ export function ProjectsList() {
       let blob: Blob;
       let filename: string;
 
-      if (format === "xlsx") {
+      if (format === "xlsx" || format === "pdf" || format === "doc" || format === "mpp") {
         toast.loading("Fetching tasks for projects...", { id: exportToast });
         const tasksPromises = projectsToExport.map((proj) =>
           triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
@@ -484,9 +484,20 @@ export function ProjectsList() {
           }));
         });
 
-        const xlsxBuffer = exportProjectsToXLSX(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
-        blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-        filename = `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`;
+        if (format === "xlsx") {
+          const xlsxBuffer = exportProjectsToXLSX(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
+          blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`;
+        } else if (format === "pdf") {
+          blob = exportProjectsToPDF(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.pdf`;
+        } else if (format === "doc") {
+          blob = exportProjectsToWord(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
+        } else {
+          blob = exportProjectsToMPP(projectsToExport, departments, customers, managers, allTasks);
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
+        }
       } else {
         const csvContent = convertToCSV(projectsToExport, departments, customers, managers, selectedFields);
         blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -762,7 +773,7 @@ export function ProjectsList() {
         open={showImport}
         onClose={() => setShowImport(false)}
         refetch={refetch}
-        existingProjectNames={existingProjectNames}
+        existingProjects={existingProjects}
       />
       <ImportMppDialog
         open={showMppImport}

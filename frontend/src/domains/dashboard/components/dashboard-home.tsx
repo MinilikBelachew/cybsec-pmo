@@ -13,6 +13,7 @@ import {
   EyeOff,
   Clock,
   Compass,
+  Download,
 } from "lucide-react";
 import {
   useGetDashboardStatsQuery,
@@ -26,6 +27,30 @@ import {
   resolveDashboardLayout,
   type DashboardTab,
 } from "../utils/dashboard-role-config";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
+import { Button } from "@/shared/ui/button";
+import { toast } from "react-hot-toast";
+import { ExportProjectsDialog } from "@/domains/projects/components/list/export-projects-dialog";
+import { ExportTasksDialog } from "@/domains/projects/components/tasks/export-tasks-dialog";
+import {
+  useGetDepartmentsQuery,
+  useGetCustomersQuery,
+  useGetProjectManagersQuery,
+  useLazyExportProjectsQuery,
+} from "@/domains/projects/api/projects.api";
+import { useLazyExportTasksQuery } from "@/domains/projects/api/tasks.api";
+import {
+  exportProjectsToXLSX,
+  convertToCSV,
+  exportProjectsToPDF,
+  exportProjectsToWord,
+  exportProjectsToMPP,
+  exportTasksToXLSX,
+  convertTasksToCSV,
+  exportTasksToPDF,
+  exportTasksToWord,
+  exportTasksToMPP,
+} from "@/domains/projects/utils/import-export";
 
 import { KpiRow } from "./dashboard-kpi-row";
 import { BurnRateChart } from "./dashboard-burn-rate";
@@ -92,6 +117,171 @@ export function DashboardHome() {
     { skip: !layout.canLoadAuditFeed },
   );
 
+  const { canExportProjects, canViewTasks } = useModulePermissions();
+  const canExportTasks = canViewTasks;
+
+  const [showExportProjects, setShowExportProjects] = useState(false);
+  const [showExportTasks, setShowExportTasks] = useState(false);
+
+  const { data: departments = [] } = useGetDepartmentsQuery(undefined, { skip: !canExportProjects });
+  const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !canExportProjects });
+  const { data: managers = [] } = useGetProjectManagersQuery(undefined, { skip: !canExportProjects });
+
+  const [triggerExportProjects, { isLoading: isExportingProjects }] = useLazyExportProjectsQuery();
+  const [triggerExportTasks, { isLoading: isExportingTasks }] = useLazyExportTasksQuery();
+
+  const handleExportProjects = async (
+    selectedFields: string[],
+    format: "xlsx" | "csv" | "pdf" | "doc" | "mpp",
+    selectedTaskFields?: string[]
+  ) => {
+    const exportToast = toast.loading(`Preparing portfolio export (${format.toUpperCase()})...`);
+    try {
+      const projectsToExport = await triggerExportProjects({}).unwrap();
+      if (!projectsToExport || projectsToExport.length === 0) {
+        toast.dismiss(exportToast);
+        toast.error("No projects to export.");
+        return;
+      }
+
+      let blob: Blob;
+      let filename: string;
+
+      if (format === "xlsx" || format === "pdf" || format === "doc" || format === "mpp") {
+        toast.loading("Fetching tasks for projects...", { id: exportToast });
+        const tasksPromises = projectsToExport.map((proj) =>
+          triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
+        );
+        const tasksResults = await Promise.all(tasksPromises);
+        const allTasks = tasksResults.flatMap((tasks, index) => {
+          const proj = projectsToExport[index];
+          return tasks.map((t) => ({
+            ...t,
+            projectName: proj.name,
+          }));
+        });
+
+        if (format === "xlsx") {
+          const xlsxBuffer = exportProjectsToXLSX(
+            projectsToExport,
+            departments,
+            customers,
+            managers,
+            selectedFields,
+            allTasks,
+            selectedTaskFields
+          );
+          blob = new Blob([xlsxBuffer], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          });
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`;
+        } else if (format === "pdf") {
+          blob = exportProjectsToPDF(
+            projectsToExport,
+            departments,
+            customers,
+            managers,
+            selectedFields,
+            allTasks,
+            selectedTaskFields
+          );
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.pdf`;
+        } else if (format === "doc") {
+          blob = exportProjectsToWord(
+            projectsToExport,
+            departments,
+            customers,
+            managers,
+            selectedFields,
+            allTasks,
+            selectedTaskFields
+          );
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
+        } else {
+          blob = exportProjectsToMPP(projectsToExport, departments, customers, managers, allTasks);
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
+        }
+      } else {
+        const csvContent = convertToCSV(projectsToExport, departments, customers, managers, selectedFields);
+        blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        filename = `projects_export_${new Date().toISOString().split("T")[0]}.csv`;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.dismiss(exportToast);
+      toast.success(`Portfolio exported successfully to ${format.toUpperCase()}.`);
+    } catch (err) {
+      console.error(err);
+      toast.dismiss(exportToast);
+      toast.error("Failed to export projects.");
+    }
+  };
+
+  const handleExportTasks = async (
+    selectedFields: string[],
+    format: "xlsx" | "csv" | "pdf" | "doc" | "mpp"
+  ) => {
+    const exportToast = toast.loading(`Preparing tasks export (${format.toUpperCase()})...`);
+    try {
+      const tasksToExport = await triggerExportTasks({
+        ownerId: user?.id,
+        topLevelOnly: false,
+      }).unwrap();
+
+      if (!tasksToExport || tasksToExport.length === 0) {
+        toast.dismiss(exportToast);
+        toast.error("No tasks to export.");
+        return;
+      }
+
+      let blob: Blob;
+      let filename: string;
+
+      if (format === "xlsx") {
+        const xlsxBuffer = exportTasksToXLSX(tasksToExport, [], [], selectedFields);
+        blob = new Blob([xlsxBuffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        filename = `my_tasks_${new Date().toISOString().split("T")[0]}.xlsx`;
+      } else if (format === "csv") {
+        const csvContent = convertTasksToCSV(tasksToExport, [], [], selectedFields);
+        blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        filename = `my_tasks_${new Date().toISOString().split("T")[0]}.csv`;
+      } else if (format === "pdf") {
+        blob = exportTasksToPDF(tasksToExport, [], [], selectedFields);
+        filename = `my_tasks_${new Date().toISOString().split("T")[0]}.pdf`;
+      } else if (format === "doc") {
+        blob = exportTasksToWord(tasksToExport, [], [], selectedFields);
+        filename = `my_tasks_${new Date().toISOString().split("T")[0]}.doc`;
+      } else {
+        blob = exportTasksToMPP(tasksToExport, [], [], "My Tasks");
+        filename = `my_tasks_${new Date().toISOString().split("T")[0]}.mpp`;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.dismiss(exportToast);
+      toast.success(`Tasks exported successfully to ${format.toUpperCase()}.`);
+    } catch (err) {
+      console.error(err);
+      toast.dismiss(exportToast);
+      toast.error("Failed to export tasks.");
+    }
+  };
+
   const handleReload = () => {
     if (layout.canLoadStats) void refetchStats();
     if (layout.canLoadProjectHealth) void refetchHealth();
@@ -123,6 +313,25 @@ export function DashboardHome() {
           <span className="font-semibold text-foreground">Dashboard</span>
         </div>
         <div className="flex items-center gap-3">
+          {canExportProjects && (
+            <button
+              type="button"
+              onClick={() => setShowExportProjects(true)}
+              className="flex cursor-pointer items-center gap-1 font-semibold text-[#ff6000] hover:underline"
+            >
+              <Download className="size-3" /> Export Portfolio
+            </button>
+          )}
+          {!canExportProjects && canExportTasks && (
+            <button
+              type="button"
+              onClick={() => setShowExportTasks(true)}
+              className="flex cursor-pointer items-center gap-1 font-semibold text-[#ff6000] hover:underline"
+            >
+              <Download className="size-3" /> Export My Tasks
+            </button>
+          )}
+          {(canExportProjects || canExportTasks) && <span className="text-muted-foreground/30">|</span>}
           <span className="flex items-center gap-1">
             <Clock className="size-3" /> Updated just now
           </span>
@@ -159,25 +368,28 @@ export function DashboardHome() {
           </p>
         </div>
 
-        {layout.tabs.length > 1 && (
-          <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border/50 bg-muted/60 p-1">
-            {layout.tabs.map((tabItem) => (
-              <button
-                key={tabItem}
-                type="button"
-                onClick={() => setTab(tabItem)}
-                className={cn(
-                  "cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150",
-                  tab === tabItem
-                    ? "border border-border/60 bg-card text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {TAB_LABELS[tabItem]}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+
+          {layout.tabs.length > 1 && (
+            <div className="flex items-center gap-0.5 rounded-xl border border-border/50 bg-muted/60 p-1">
+              {layout.tabs.map((tabItem) => (
+                <button
+                  key={tabItem}
+                  type="button"
+                  onClick={() => setTab(tabItem)}
+                  className={cn(
+                    "cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150",
+                    tab === tabItem
+                      ? "border border-border/60 bg-card text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {TAB_LABELS[tabItem]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {tab === "portfolio" && layout.tabs.includes("portfolio") && (
@@ -278,6 +490,22 @@ export function DashboardHome() {
           <KpiRow variant="people" stats={stats} resources={resources} />
           {layout.canLoadResources && <ResourceUtilization data={resources} />}
         </div>
+      )}
+      {showExportProjects && (
+        <ExportProjectsDialog
+          open={showExportProjects}
+          onClose={() => setShowExportProjects(false)}
+          onExport={handleExportProjects}
+          isExporting={isExportingProjects || isExportingTasks}
+        />
+      )}
+      {showExportTasks && (
+        <ExportTasksDialog
+          open={showExportTasks}
+          onClose={() => setShowExportTasks(false)}
+          onExport={handleExportTasks}
+          isExporting={isExportingTasks}
+        />
       )}
     </div>
   );

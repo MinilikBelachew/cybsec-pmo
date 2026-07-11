@@ -525,6 +525,7 @@ export const tasksApi = api.injectEndpoints({
 
 export const {
   useGetTasksQuery,
+  useLazyGetTasksQuery,
   useGetActiveTaskStatsQuery,
   useLazyExportTasksQuery,
   useExportTasksQuery,

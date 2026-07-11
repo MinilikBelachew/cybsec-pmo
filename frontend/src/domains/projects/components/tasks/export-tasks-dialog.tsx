@@ -4,19 +4,26 @@ import React, { useState, useMemo } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Button } from "@/shared/ui/button";
-import { 
-  X, 
-  Download, 
-  Search, 
-  FileSpreadsheet, 
-  Loader2
+import {
+  X,
+  Download,
+  Search,
+  FileSpreadsheet,
+  Loader2,
+  ChevronDown
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/shared/ui/dropdown-menu";
 export interface ExportTasksDialogProps {
   open: boolean;
   onClose: () => void;
-  onExport: (selectedFields: string[], format: "xlsx") => Promise<void>;
+  onExport: (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mpp") => Promise<void>;
   isExporting?: boolean;
 }
 
@@ -42,6 +49,7 @@ export function ExportTasksDialog({
   const [selectedFields, setSelectedFields] = useState<string[]>(
     TASK_FIELDS.map((f) => f.id)
   );
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf" | "doc" | "mpp">("xlsx");
 
   const filteredFields = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -70,7 +78,7 @@ export function ExportTasksDialog({
 
   const handleExportClick = async () => {
     if (selectedFields.length === 0) return;
-    await onExport(selectedFields, "xlsx");
+    await onExport(selectedFields, exportFormat);
     onClose();
   };
 
@@ -90,7 +98,7 @@ export function ExportTasksDialog({
                   Export Project Tasks
                 </DialogPrimitive.Title>
                 <DialogPrimitive.Description className="text-[10px] text-muted-foreground">
-                  Select fields to export. Tasks will be exported to an Excel spreadsheet.
+                  Select fields and format to export.
                 </DialogPrimitive.Description>
               </div>
             </div>
@@ -193,9 +201,56 @@ export function ExportTasksDialog({
 
           {/* Footer */}
           <div className="border-t border-border px-6 py-4 flex items-center justify-between bg-muted/10">
-            <span className="text-[10px] text-muted-foreground font-medium">
-              * Blank columns will be created if no data exists.
-            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-2 rounded-lg border-border/60 bg-muted/45 px-3 font-semibold text-xs text-foreground cursor-pointer hover:bg-muted/65"
+                  />
+                }
+              >
+                <span className="text-muted-foreground font-normal">Format:</span>
+                <span>
+                  {([
+                    { value: "xlsx", label: "Excel (.xlsx)" },
+                    { value: "csv", label: "CSV (.csv)" },
+                    { value: "pdf", label: "PDF (.pdf)" },
+                    { value: "doc", label: "Word (.doc)" },
+                    { value: "mpp", label: "Microsoft Project (.xml)" },
+                  ].find(o => o.value === exportFormat)?.label ?? exportFormat.toUpperCase())}
+                </span>
+                <ChevronDown className="size-3.5 opacity-60" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 p-2 shadow-lg border border-border bg-background rounded-xl">
+                <div className="space-y-1">
+                  {[
+                    { value: "xlsx", label: "Excel (.xlsx)", desc: "Spreadsheet representation" },
+                    { value: "csv", label: "CSV (.csv)", desc: "Plain text table" },
+                    { value: "pdf", label: "PDF (.pdf)", desc: "Print-ready document" },
+                    { value: "doc", label: "Word (.doc)", desc: "Landscape layout report" },
+                    { value: "mpp", label: "Microsoft Project (.xml)", desc: "Open in MS Project via File > Open" },
+                  ].map((opt) => (
+                    <DropdownMenuItem
+                      key={opt.value}
+                      onClick={() => setExportFormat(opt.value as any)}
+                      className={cn(
+                        "flex w-full items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors cursor-pointer select-none focus:outline-none focus:bg-muted/50 focus:border-border/60",
+                        exportFormat === opt.value
+                          ? "border-primary/30 bg-primary/5 font-bold"
+                          : "border-transparent hover:border-border/60 hover:bg-muted/50",
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-foreground">{opt.label}</span>
+                        <span className="block text-[10px] text-muted-foreground leading-relaxed">{opt.desc}</span>
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="flex items-center gap-3">
               <Button
                 type="button"
