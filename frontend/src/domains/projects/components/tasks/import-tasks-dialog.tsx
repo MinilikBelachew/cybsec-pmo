@@ -150,6 +150,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   const [parsedRows, setParsedRows] = useState<ParsedTaskRow[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -188,21 +189,31 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
       return;
     }
     setFile(selectedFile);
+    setValidationError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const buffer = event.target?.result as ArrayBuffer;
         const taskData = parseXLSXSheet(buffer, "Tasks");
         if (taskData.length <= 1) {
-          toast.error("The XLSX file is empty or only contains headers.");
+          setValidationError("The XLSX file is empty or only contains headers.");
+          setParsedRows([]);
           return;
         }
 
         const importKind = detectTaskCsvImportKind(taskData);
         if (importKind === "projects") {
-          toast.error(
-            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample XLSX.",
+          setValidationError(
+            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample XLSX."
           );
+          setParsedRows([]);
+          return;
+        }
+        if (importKind === "unknown") {
+          setValidationError(
+            "The uploaded file does not match the expected Tasks format. Please make sure the sheet has headers like 'Title', 'Description', 'Priority', 'Status', etc."
+          );
+          setParsedRows([]);
           return;
         }
 
@@ -211,7 +222,8 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
         toast.success(`Loaded ${processed.length} rows from XLSX`);
       } catch (err) {
         console.error(err);
-        toast.error("Failed to parse XLSX file.");
+        setValidationError("Failed to parse XLSX file. Please ensure it is not password-protected or corrupted.");
+        setParsedRows([]);
       }
     };
     reader.readAsArrayBuffer(selectedFile);
@@ -222,6 +234,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     setParsedRows([]);
     setImportProgress(0);
     setIsImporting(false);
+    setValidationError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -375,7 +388,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                         {file.name}
                       </p>
                       <p className="text-[10px] text-muted-foreground font-medium">
-                        {(file.size / 1024).toFixed(1)} KB · {parsedRows.length} rows loaded
+                        {(file.size / 1024).toFixed(1)} KB{!validationError && ` · ${parsedRows.length} rows loaded`}
                       </p>
                     </div>
                   </div>
@@ -386,7 +399,20 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   )}
                 </div>
 
-                {isImporting ? (
+                {validationError ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4 border border-rose-500/20 bg-rose-500/5 rounded-2xl min-h-[300px]">
+                    <AlertTriangle className="size-12 text-rose-500" />
+                    <div className="text-center space-y-1 max-w-md">
+                      <p className="text-sm font-bold text-rose-500">Invalid Tasks File</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {validationError}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="xs" onClick={handleReset} className="mt-2 border-rose-500/20 text-rose-600 hover:bg-rose-500/10 cursor-pointer">
+                      Select Another File
+                    </Button>
+                  </div>
+                ) : isImporting ? (
                   /* Loading Progress UI */
                   <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4">
                     <Loader2 className="size-8 text-primary animate-spin" />
@@ -615,7 +641,10 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           {/* Footer Actions */}
           <div className="border-t border-border px-6 py-4 flex items-center justify-between bg-muted/15">
             <div className="text-xs text-muted-foreground font-semibold">
-              {file && !isImporting && (
+              {validationError && (
+                <span className="text-rose-500">File cannot be imported due to validation errors.</span>
+              )}
+              {file && !validationError && !isImporting && (
                 <span>
                   {`${validRows.length} of ${parsedRows.length} tasks ready to import.`}
                   {hasErrors && (
@@ -639,7 +668,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
               {file && !isImporting && (
                 <Button
                   onClick={handleImport}
-                  disabled={validRows.length === 0}
+                  disabled={validRows.length === 0 || !!validationError}
                   size="sm"
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >

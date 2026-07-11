@@ -24,6 +24,7 @@ import {
   ParsedPhaseRow,
   ParsedTaskRow,
   ParsedMilestoneRow,
+  detectTaskCsvImportKind,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import {
@@ -33,6 +34,7 @@ import {
   X,
   PlayCircle,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 
 import { ProjectsPreviewTable } from "./projects-preview-table";
@@ -63,6 +65,7 @@ export function ImportProjectsDialog({
 
   const [openAccordion, setOpenAccordion] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<Record<string, "phases" | "tasks" | "milestones">>({});
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -126,6 +129,7 @@ export function ImportProjectsDialog({
     }
 
     setFile(selectedFile);
+    setValidationError(null);
     const reader = new FileReader();
 
     reader.onload = async (event) => {
@@ -136,8 +140,24 @@ export function ImportProjectsDialog({
         const projectsData = parseXLSXSheet(buffer, "Projects");
 
         if (projectsData.length <= 1) {
-          toast.error("The XLSX file must contain a 'Projects' sheet with at least one project row.");
-          handleReset();
+          setValidationError("The XLSX file must contain a 'Projects' sheet with at least one project row.");
+          setParsedRows([]);
+          return;
+        }
+
+        const importKind = detectTaskCsvImportKind(projectsData);
+        if (importKind === "tasks") {
+          setValidationError(
+            "This file looks like a Tasks export. Please upload it in the Project workspace under Import Tasks."
+          );
+          setParsedRows([]);
+          return;
+        }
+        if (importKind === "unknown") {
+          setValidationError(
+            "The uploaded file does not match the expected Projects format. Please make sure the sheet has headers like 'Name', 'Objective', 'Department', 'Customer', etc."
+          );
+          setParsedRows([]);
           return;
         }
 
@@ -195,7 +215,8 @@ export function ImportProjectsDialog({
         toast.success(`Loaded ${finalProcessed.length} projects from XLSX`);
       } catch (err) {
         console.error(err);
-        toast.error("Failed to parse XLSX file.");
+        setValidationError("Failed to parse XLSX file. Please ensure it is not password-protected or corrupted.");
+        setParsedRows([]);
       }
     };
 
@@ -213,6 +234,7 @@ export function ImportProjectsDialog({
     setImportProgress(0);
     setImportStatusText("");
     setIsImporting(false);
+    setValidationError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -586,10 +608,7 @@ export function ImportProjectsDialog({
                         {file.name}
                       </p>
                       <p className="text-[10px] text-muted-foreground font-medium">
-                        {(file.size / 1024).toFixed(1)} KB · {parsedRows.length} projects ·{" "}
-                        {Object.keys(parsedPhases).length} phase sheets ·{" "}
-                        {Object.keys(parsedTasks).length} task sheets ·{" "}
-                        {Object.keys(parsedMilestones).length} milestone sheets
+                        {(file.size / 1024).toFixed(1)} KB{!validationError && ` · ${parsedRows.length} projects · ${Object.keys(parsedPhases).length} phase sheets · ${Object.keys(parsedTasks).length} task sheets · ${Object.keys(parsedMilestones).length} milestone sheets`}
                       </p>
                     </div>
                   </div>
@@ -600,7 +619,20 @@ export function ImportProjectsDialog({
                   )}
                 </div>
 
-                {isImporting ? (
+                {validationError ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4 border border-rose-500/20 bg-rose-500/5 rounded-2xl min-h-[300px]">
+                    <AlertTriangle className="size-12 text-rose-500 animate-bounce" />
+                    <div className="text-center space-y-1 max-w-md">
+                      <p className="text-sm font-bold text-rose-500">Invalid Projects File</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {validationError}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="xs" onClick={handleReset} className="mt-2 border-rose-500/20 text-rose-600 hover:bg-rose-500/10 cursor-pointer">
+                      Select Another File
+                    </Button>
+                  </div>
+                ) : isImporting ? (
                   /* Progress */
                   <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4">
                     <Loader2 className="size-8 text-primary animate-spin" />
@@ -681,8 +713,11 @@ export function ImportProjectsDialog({
             )}
           </div>
           <div className="border-t border-border px-6 py-4 flex items-center justify-between bg-muted/15">
-            <div className="text-xs text-muted-foreground font-semibold font-mono">
-              {file && !isImporting && (
+            <div className="text-xs text-muted-foreground font-semibold">
+              {validationError && (
+                <span className="text-rose-500 font-medium">File cannot be imported due to validation errors.</span>
+              )}
+              {file && !validationError && !isImporting && (
                 <span>
                   {validRows.length} of {parsedRows.length} projects ready to import.
                   {hasActiveErrors && (
@@ -706,7 +741,7 @@ export function ImportProjectsDialog({
               {file && !isImporting && (
                 <Button
                   onClick={handleImport}
-                  disabled={validRows.length === 0 || hasActiveErrors}
+                  disabled={validRows.length === 0 || hasActiveErrors || !!validationError}
                   size="sm"
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >
