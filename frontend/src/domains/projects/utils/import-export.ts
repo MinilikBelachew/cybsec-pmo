@@ -1758,7 +1758,15 @@ export function exportTasksToMPP(
   projectName = "Portfolio Export"
 ): Blob {
   let uid = 1;
-  
+
+  const escXml = (str: string) =>
+    String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+
   const mapPriority = (p: string) => {
     const lower = String(p || "").toLowerCase();
     if (lower === "critical") return 1000;
@@ -1776,9 +1784,9 @@ export function exportTasksToMPP(
 
   const phaseList = [...phases];
   const phaseMap = new Map(phaseList.map(p => [p.id || p.name, p]));
-  
+
   const tasksByPhase: Record<string, any[]> = {};
-  
+
   const topLevelTasks = tasks.filter(t => !t.parentTaskId);
   const subTasksByParent = tasks.filter(t => t.parentTaskId).reduce((acc, t) => {
     if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
@@ -1788,105 +1796,113 @@ export function exportTasksToMPP(
 
   topLevelTasks.forEach((t) => {
     const phaseKey = t.phaseId || t.phaseName || "No Phase";
-    if (!tasksByPhase[phaseKey]) {
-      tasksByPhase[phaseKey] = [];
-    }
+    if (!tasksByPhase[phaseKey]) tasksByPhase[phaseKey] = [];
     tasksByPhase[phaseKey].push(t);
   });
 
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
-  <Name>${projectName}</Name>
-  <Title>${projectName}</Title>
+  <Name>${escXml(projectName)}</Name>
+  <Title>${escXml(projectName)}</Title>
   <Tasks>
-  `;
+`;
 
-  xml += `
-    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <Name>${projectName}</Name>
-      <Type>0</Type>
-      <OutlineLevel>1</OutlineLevel>
-      <Active>1</Active>
-      <Manual>1</Manual>
+  // Root summary task (UID 0 is the project root in MS Project XML)
+  xml += `    <Task>
+      <UID>0</UID>
+      <ID>0</ID>
+      <IsNull>0</IsNull>
+      <WBS>0</WBS>
+      <OutlineNumber>0</OutlineNumber>
+      <OutlineLevel>0</OutlineLevel>
+      <Type>1</Type>
+      <IsSubproject>0</IsSubproject>
+      <Name>${escXml(projectName)}</Name>
+      <Summary>1</Summary>
     </Task>
-  `;
-  uid++;
+`;
 
+  let phaseIndex = 0;
   Object.entries(tasksByPhase).forEach(([phaseKey, phaseTasks]) => {
+    phaseIndex++;
     const phaseObj = phaseMap.get(phaseKey);
     const phaseName = phaseObj?.name || phaseKey;
 
-    xml += `
-      <Task>
-        <UID>${uid}</UID>
-        <ID>${uid}</ID>
-        <Name>${phaseName}</Name>
-        <Type>0</Type>
-        <OutlineLevel>2</OutlineLevel>
-        <Active>1</Active>
-        <Manual>1</Manual>
-      </Task>
-    `;
+    xml += `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${phaseIndex}</WBS>
+      <OutlineNumber>${phaseIndex}</OutlineNumber>
+      <OutlineLevel>1</OutlineLevel>
+      <Type>0</Type>
+      <Name>${escXml(phaseName)}</Name>
+      <Summary>1</Summary>
+    </Task>
+`;
     uid++;
 
+    let taskIndex = 0;
     phaseTasks.forEach((t) => {
+      taskIndex++;
       const taskStart = t.startDate ? t.startDate.split("T")[0] + "T08:00:00" : "";
       const taskEnd = t.endDate ? t.endDate.split("T")[0] + "T17:00:00" : "";
       const percent = mapPercent(t.status);
       const priority = mapPriority(t.priority);
+      const subTasks = subTasksByParent[t.id] || t.subTasks || [];
+      const isSummary = subTasks.length > 0 ? 1 : 0;
 
-      xml += `
-        <Task>
-          <UID>${uid}</UID>
-          <ID>${uid}</ID>
-          <Name>${t.title || ""}</Name>
-          <Type>0</Type>
-          <OutlineLevel>3</OutlineLevel>
-          ${taskStart ? `<Start>${taskStart}</Start>` : ""}
-          ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
-          <PercentComplete>${percent}</PercentComplete>
-          <Priority>${priority}</Priority>
-          <Notes>${t.description || ""}</Notes>
-          <Active>1</Active>
-          <Manual>1</Manual>
-        </Task>
-      `;
+      xml += `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${phaseIndex}.${taskIndex}</WBS>
+      <OutlineNumber>${phaseIndex}.${taskIndex}</OutlineNumber>
+      <OutlineLevel>2</OutlineLevel>
+      <Type>0</Type>
+      <Name>${escXml(t.title || "")}</Name>
+      <Summary>${isSummary}</Summary>
+      ${taskStart ? `<Start>${taskStart}</Start>` : ""}
+      ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
+      <PercentComplete>${percent}</PercentComplete>
+      <Priority>${priority}</Priority>
+      <Notes>${escXml(t.description || "")}</Notes>
+    </Task>
+`;
       uid++;
 
-      const subTasks = subTasksByParent[t.id] || t.subTasks || [];
+      let subIndex = 0;
       subTasks.forEach((st: any) => {
+        subIndex++;
         const subStart = st.startDate ? st.startDate.split("T")[0] + "T08:00:00" : taskStart;
         const subEnd = st.endDate ? st.endDate.split("T")[0] + "T17:00:00" : taskEnd;
         const subPercent = mapPercent(st.status);
         const subPriority = mapPriority(st.priority);
 
-        xml += `
-          <Task>
-            <UID>${uid}</UID>
-            <ID>${uid}</ID>
-            <Name>${st.title || ""}</Name>
-            <Type>0</Type>
-            <OutlineLevel>4</OutlineLevel>
-            ${subStart ? `<Start>${subStart}</Start>` : ""}
-            ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
-            <PercentComplete>${subPercent}</PercentComplete>
-            <Priority>${subPriority}</Priority>
-            <Notes>${st.description || ""}</Notes>
-            <Active>1</Active>
-            <Manual>1</Manual>
-          </Task>
-        `;
+        xml += `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${phaseIndex}.${taskIndex}.${subIndex}</WBS>
+      <OutlineNumber>${phaseIndex}.${taskIndex}.${subIndex}</OutlineNumber>
+      <OutlineLevel>3</OutlineLevel>
+      <Type>0</Type>
+      <Name>${escXml(st.title || "")}</Name>
+      <Summary>0</Summary>
+      ${subStart ? `<Start>${subStart}</Start>` : ""}
+      ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
+      <PercentComplete>${subPercent}</PercentComplete>
+      <Priority>${subPriority}</Priority>
+      <Notes>${escXml(st.description || "")}</Notes>
+    </Task>
+`;
         uid++;
       });
     });
   });
 
-  xml += `
-  </Tasks>
-</Project>
-  `;
+  xml += `  </Tasks>
+</Project>`;
 
   return new Blob([xml], { type: "application/xml;charset=utf-8" });
 }
@@ -1899,7 +1915,15 @@ export function exportProjectsToMPP(
   tasks?: any[]
 ): Blob {
   let uid = 1;
-  
+
+  const escXml = (str: string) =>
+    String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+
   const mapPriority = (p: string) => {
     const lower = String(p || "").toLowerCase();
     if (lower === "critical") return 1000;
@@ -1920,114 +1944,140 @@ export function exportProjectsToMPP(
   <Name>Portfolio Export</Name>
   <Title>Portfolio Export</Title>
   <Tasks>
-  `;
+    <Task>
+      <UID>0</UID>
+      <ID>0</ID>
+      <IsNull>0</IsNull>
+      <WBS>0</WBS>
+      <OutlineNumber>0</OutlineNumber>
+      <OutlineLevel>0</OutlineLevel>
+      <Type>1</Type>
+      <IsSubproject>0</IsSubproject>
+      <Name>Portfolio Export</Name>
+      <Summary>1</Summary>
+    </Task>
+`;
 
+  let projIndex = 0;
   projects.forEach((proj) => {
+    projIndex++;
     const projStart = proj.startDate ? proj.startDate.split("T")[0] + "T08:00:00" : "";
     const projEnd = proj.endDate ? proj.endDate.split("T")[0] + "T17:00:00" : "";
-    
-    xml += `
-      <Task>
-        <UID>${uid}</UID>
-        <ID>${uid}</ID>
-        <Name>${proj.name || ""}</Name>
-        <Type>0</Type>
-        <OutlineLevel>1</OutlineLevel>
-        ${projStart ? `<Start>${projStart}</Start>` : ""}
-        ${projEnd ? `<Finish>${projEnd}</Finish>` : ""}
-        <PercentComplete>${mapPercent(proj.status)}</PercentComplete>
-        <Notes>${proj.objective || ""}</Notes>
-        <Active>1</Active>
-        <Manual>1</Manual>
-      </Task>
-    `;
+
+    xml += `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${projIndex}</WBS>
+      <OutlineNumber>${projIndex}</OutlineNumber>
+      <OutlineLevel>1</OutlineLevel>
+      <Type>0</Type>
+      <Name>${escXml(proj.name || "")}</Name>
+      <Summary>1</Summary>
+      ${projStart ? `<Start>${projStart}</Start>` : ""}
+      ${projEnd ? `<Finish>${projEnd}</Finish>` : ""}
+      <PercentComplete>${mapPercent(proj.status)}</PercentComplete>
+      <Notes>${escXml(proj.objective || "")}</Notes>
+    </Task>
+`;
     uid++;
 
-    const projTasks = tasks ? tasks.filter(t => t.projectId === proj.id || t.projectName === proj.name) : [];
-    
+    const projTasks = tasks
+      ? tasks.filter(t => t.projectId === proj.id || t.projectName === proj.name)
+      : [];
+
     const tasksByPhase: Record<string, any[]> = {};
     const topLevelTasks = projTasks.filter(t => !t.parentTaskId);
-    const subTasksByParent = projTasks.filter(t => t.parentTaskId).reduce((acc, t) => {
-      if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
-      acc[t.parentTaskId].push(t);
-      return acc;
-    }, {} as Record<string, any[]>);
+    const subTasksByParent = projTasks
+      .filter(t => t.parentTaskId)
+      .reduce((acc, t) => {
+        if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
+        acc[t.parentTaskId].push(t);
+        return acc;
+      }, {} as Record<string, any[]>);
 
     topLevelTasks.forEach((t) => {
       const phaseKey = t.phase?.name || t.phaseName || "No Phase";
-      if (!tasksByPhase[phaseKey]) {
-        tasksByPhase[phaseKey] = [];
-      }
+      if (!tasksByPhase[phaseKey]) tasksByPhase[phaseKey] = [];
       tasksByPhase[phaseKey].push(t);
     });
 
+    let phaseIndex = 0;
     Object.entries(tasksByPhase).forEach(([phaseName, phaseTasks]) => {
-      xml += `
-        <Task>
-          <UID>${uid}</UID>
-          <ID>${uid}</ID>
-          <Name>${phaseName}</Name>
-          <Type>0</Type>
-          <OutlineLevel>2</OutlineLevel>
-          <Active>1</Active>
-          <Manual>1</Manual>
-        </Task>
-      `;
+      phaseIndex++;
+
+      xml += `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${projIndex}.${phaseIndex}</WBS>
+      <OutlineNumber>${projIndex}.${phaseIndex}</OutlineNumber>
+      <OutlineLevel>2</OutlineLevel>
+      <Type>0</Type>
+      <Name>${escXml(phaseName)}</Name>
+      <Summary>1</Summary>
+    </Task>
+`;
       uid++;
 
+      let taskIndex = 0;
       phaseTasks.forEach((t) => {
+        taskIndex++;
         const taskStart = t.startDate ? t.startDate.split("T")[0] + "T08:00:00" : projStart;
         const taskEnd = t.endDate ? t.endDate.split("T")[0] + "T17:00:00" : projEnd;
+        const subTasks = subTasksByParent[t.id] || t.subTasks || [];
+        const isSummary = subTasks.length > 0 ? 1 : 0;
 
-        xml += `
-          <Task>
-            <UID>${uid}</UID>
-            <ID>${uid}</ID>
-            <Name>${t.title || ""}</Name>
-            <Type>0</Type>
-            <OutlineLevel>3</OutlineLevel>
-            ${taskStart ? `<Start>${taskStart}</Start>` : ""}
-            ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
-            <PercentComplete>${mapPercent(t.status)}</PercentComplete>
-            <Priority>${mapPriority(t.priority)}</Priority>
-            <Notes>${t.description || ""}</Notes>
-            <Active>1</Active>
-            <Manual>1</Manual>
-          </Task>
-        `;
+        xml += `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${projIndex}.${phaseIndex}.${taskIndex}</WBS>
+      <OutlineNumber>${projIndex}.${phaseIndex}.${taskIndex}</OutlineNumber>
+      <OutlineLevel>3</OutlineLevel>
+      <Type>0</Type>
+      <Name>${escXml(t.title || "")}</Name>
+      <Summary>${isSummary}</Summary>
+      ${taskStart ? `<Start>${taskStart}</Start>` : ""}
+      ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
+      <PercentComplete>${mapPercent(t.status)}</PercentComplete>
+      <Priority>${mapPriority(t.priority)}</Priority>
+      <Notes>${escXml(t.description || "")}</Notes>
+    </Task>
+`;
         uid++;
 
-        const subTasks = subTasksByParent[t.id] || t.subTasks || [];
+        let subIndex = 0;
         subTasks.forEach((st: any) => {
+          subIndex++;
           const subStart = st.startDate ? st.startDate.split("T")[0] + "T08:00:00" : taskStart;
           const subEnd = st.endDate ? st.endDate.split("T")[0] + "T17:00:00" : taskEnd;
 
-          xml += `
-            <Task>
-              <UID>${uid}</UID>
-              <ID>${uid}</ID>
-              <Name>${st.title || ""}</Name>
-              <Type>0</Type>
-              <OutlineLevel>4</OutlineLevel>
-              ${subStart ? `<Start>${subStart}</Start>` : ""}
-              ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
-              <PercentComplete>${mapPercent(st.status)}</PercentComplete>
-              <Priority>${mapPriority(st.priority)}</Priority>
-              <Notes>${st.description || ""}</Notes>
-              <Active>1</Active>
-              <Manual>1</Manual>
-            </Task>
-          `;
+          xml += `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${projIndex}.${phaseIndex}.${taskIndex}.${subIndex}</WBS>
+      <OutlineNumber>${projIndex}.${phaseIndex}.${taskIndex}.${subIndex}</OutlineNumber>
+      <OutlineLevel>4</OutlineLevel>
+      <Type>0</Type>
+      <Name>${escXml(st.title || "")}</Name>
+      <Summary>0</Summary>
+      ${subStart ? `<Start>${subStart}</Start>` : ""}
+      ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
+      <PercentComplete>${mapPercent(st.status)}</PercentComplete>
+      <Priority>${mapPriority(st.priority)}</Priority>
+      <Notes>${escXml(st.description || "")}</Notes>
+    </Task>
+`;
           uid++;
         });
       });
     });
   });
 
-  xml += `
-  </Tasks>
-</Project>
-  `;
+  xml += `  </Tasks>
+</Project>`;
 
   return new Blob([xml], { type: "application/xml;charset=utf-8" });
 }

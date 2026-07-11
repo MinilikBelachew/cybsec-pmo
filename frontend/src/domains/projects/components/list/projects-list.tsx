@@ -496,7 +496,7 @@ export function ProjectsList() {
           filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
         } else {
           blob = exportProjectsToMPP(projectsToExport, departments, customers, managers, allTasks);
-          filename = `projects_export_${new Date().toISOString().split("T")[0]}.mpp`;
+          filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
         }
       } else {
         const csvContent = convertToCSV(projectsToExport, departments, customers, managers, selectedFields);

@@ -379,10 +379,6 @@ export function ExportProjectsDialog({
 
           {/* Footer */}
           <div className="border-t border-border px-6 py-4 flex items-center justify-between bg-muted/10">
-            <span className="text-[10px] text-muted-foreground font-medium">
-              * Blank columns will be created if no data exists.
-            </span>
-            <div className="flex items-center gap-3">
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
@@ -395,11 +391,13 @@ export function ExportProjectsDialog({
                 >
                   <span className="text-muted-foreground font-normal">Format:</span>
                   <span>
-                    {exportFormat === "xlsx" ? "Excel (.xlsx)" :
-                     exportFormat === "csv" ? "CSV (.csv)" :
-                     exportFormat === "pdf" ? "PDF (.pdf)" :
-                     exportFormat === "doc" ? "Word (.doc)" :
-                     "Microsoft Project (.mpp)"}
+                    {([
+                      { value: "xlsx", label: "Excel (.xlsx)" },
+                      { value: "csv", label: "CSV (.csv)" },
+                      { value: "pdf", label: "PDF (.pdf)" },
+                      { value: "doc", label: "Word (.doc)" },
+                      { value: "mpp", label: "Microsoft Project (.xml)" },
+                    ].find(o => o.value === exportFormat)?.label ?? exportFormat.toUpperCase())}
                   </span>
                   <ChevronDown className="size-3.5 opacity-60" />
                 </DropdownMenuTrigger>
@@ -410,7 +408,7 @@ export function ExportProjectsDialog({
                       { value: "csv", label: "CSV (.csv)", desc: "Plain text table" },
                       { value: "pdf", label: "PDF (.pdf)", desc: "Print-ready document" },
                       { value: "doc", label: "Word (.doc)", desc: "Landscape layout report" },
-                      { value: "mpp", label: "Microsoft Project (.mpp)", desc: "MS Project outline format" },
+                      { value: "mpp", label: "Microsoft Project (.xml)", desc: "Open in MS Project via File > Open" },
                     ].map((opt) => (
                       <DropdownMenuItem
                         key={opt.value}
@@ -431,6 +429,7 @@ export function ExportProjectsDialog({
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <div className="flex items-center gap-3">
               <Button
                 type="button"
                 variant="outline"

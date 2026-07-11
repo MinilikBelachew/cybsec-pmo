@@ -368,7 +368,7 @@ export function ProjectWorkspace() {
         filename = `${project?.name || "project"}_tasks.doc`;
       } else {
         blob = exportTasksToMPP(tasksToExport, phases, assignees, project?.name || "Project");
-        filename = `${project?.name || "project"}_tasks.mpp`;
+        filename = `${project?.name || "project"}_tasks.xml`;
       }
 
       const url = URL.createObjectURL(blob);
