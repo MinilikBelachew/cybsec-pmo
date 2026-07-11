@@ -13,6 +13,7 @@ import {
   resolveKekaLeaveType,
 } from '../keka.mapper';
 import { KekaLeaveRequest } from '../keka.types';
+import { buildKekaDateWindow } from '../utils/keka-date-window';
 
 export type LeaveSyncResult = {
   synced: number;
@@ -30,7 +31,7 @@ export class LeaveSyncService {
   ) {}
 
   async syncLeaveRequests(): Promise<LeaveSyncResult> {
-    const { from, to } = this.buildDateWindow();
+    const { from, to } = buildKekaDateWindow({ pastDays: 30, totalDays: 90 });
     const leaveRequests = await this.kekaClient.getAllPages<KekaLeaveRequest>(
       '/time/leaverequests',
       { from, to },
@@ -109,19 +110,6 @@ export class LeaveSyncService {
     }
 
     return { synced, failed, employeeIds: [...employeeIds] };
-  }
-
-  private buildDateWindow(): { from: string; to: string } {
-    const today = new Date();
-    const from = new Date(today);
-    from.setUTCDate(from.getUTCDate() - 30);
-    const to = new Date(today);
-    to.setUTCDate(to.getUTCDate() + 90);
-
-    return {
-      from: from.toISOString(),
-      to: to.toISOString(),
-    };
   }
 
   private expandLeaveDates(leave: KekaLeaveRequest): Date[] {

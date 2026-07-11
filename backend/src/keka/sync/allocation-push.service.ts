@@ -7,19 +7,21 @@ import {
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from '../keka.constants';
+import { ProjectLinkService } from './project-link.service';
 
-type AllocationPushPayload = {
-  projectName: string;
-  role: string;
-  hours: number | null;
-  percent: number | null;
-  startDate: string;
-  endDate: string | null;
+type KekaAllocationPushPayload = {
+  employeeId: string;
+  allocationPercentage?: number | null;
+  billingRoleId?: string | null;
+  billingRate?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
 };
 
 type KekaAllocationPushResponse = {
   succeeded?: boolean;
-  data?: { id?: string };
+  data?: string | null;
+  message?: string | null;
 };
 
 @Injectable()
@@ -29,6 +31,7 @@ export class AllocationPushService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kekaClient: KekaHttpClient,
+    private readonly projectLinkService: ProjectLinkService,
   ) {}
 
   async pushAllocation(allocationId: string): Promise<string | null> {
@@ -36,7 +39,9 @@ export class AllocationPushService {
       where: { id: allocationId },
       include: {
         employee: { select: { kekaEmployeeId: true, name: true } },
-        project: { select: { name: true } },
+        project: {
+          select: { id: true, name: true, kekaProjectId: true },
+        },
       },
     });
 
@@ -58,24 +63,36 @@ export class AllocationPushService {
       return null;
     }
 
-    const payload: AllocationPushPayload = {
-      projectName: allocation.project.name,
-      role: allocation.role,
-      hours: allocation.hours != null ? Number(allocation.hours) : null,
-      percent: allocation.percent != null ? Number(allocation.percent) : null,
-      startDate: allocation.startDate.toISOString().slice(0, 10),
-      endDate: allocation.endDate
-        ? allocation.endDate.toISOString().slice(0, 10)
-        : null,
+    let payload: KekaAllocationPushPayload | { allocationId: string } = {
+      allocationId,
     };
 
     try {
+      const kekaProjectId =
+        allocation.project.kekaProjectId?.trim() ||
+        (await this.projectLinkService.ensureProjectLinked(
+          allocation.project.id,
+        ));
+
+      payload = {
+        employeeId: kekaEmployeeId,
+        allocationPercentage:
+          allocation.percent != null
+            ? Math.round(Number(allocation.percent))
+            : null,
+        startDate: allocation.startDate.toISOString(),
+        endDate: allocation.endDate
+          ? allocation.endDate.toISOString()
+          : null,
+      };
+
       const response = await this.kekaClient.post<KekaAllocationPushResponse>(
-        `/psa/employees/${encodeURIComponent(kekaEmployeeId)}/allocations`,
+        `/psa/projects/${encodeURIComponent(kekaProjectId)}/allocations`,
         payload,
       );
 
-      const ref = response.data?.id ?? `keka-alloc-${allocationId.slice(0, 8)}`;
+      const ref =
+        response.data?.trim() || `keka-alloc-${allocationId.slice(0, 8)}`;
       const syncedAt = new Date();
 
       await this.prisma.allocation.update({

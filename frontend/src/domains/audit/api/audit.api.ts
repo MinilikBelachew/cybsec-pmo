@@ -138,7 +138,48 @@ export const auditApi = api.injectEndpoints({
       }),
       invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
     }),
+
+    triggerKekaAttendanceSync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/attendance",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    triggerKekaHolidaysSync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/holidays",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    triggerKekaSalarySync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/salary",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    triggerKekaProjectsSync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/projects",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    triggerKekaFullSync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/all",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
   }),
+  overrideExisting: process.env.NODE_ENV === "development",
 });
 
 export const {
@@ -151,6 +192,11 @@ export const {
   useRetryKekaSyncMutation,
   useTriggerKekaEmployeeSyncMutation,
   useTriggerKekaLeaveSyncMutation,
+  useTriggerKekaAttendanceSyncMutation,
+  useTriggerKekaHolidaysSyncMutation,
+  useTriggerKekaSalarySyncMutation,
+  useTriggerKekaProjectsSyncMutation,
+  useTriggerKekaFullSyncMutation,
 } = auditApi;
 
 export function downloadAuditBlob(filename: string, blob: Blob) {

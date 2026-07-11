@@ -13,7 +13,7 @@ export class KekaSyncScheduler {
     private readonly configService: ConfigService<AllConfigType>,
   ) {}
 
-  @Cron(process.env.KEKA_SYNC_CRON ?? '*/15 * * * *')
+  @Cron(process.env.KEKA_SYNC_CRON ?? '0 2 * * *')
   async handleScheduledSync(): Promise<void> {
     const syncEnabled = this.configService.get('keka.syncEnabled', { infer: true });
     if (!syncEnabled) {

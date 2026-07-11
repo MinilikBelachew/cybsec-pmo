@@ -11,19 +11,20 @@ import {
   KEKA_INTEGRATION,
   TIMESHEET_KEKA_MAX_RETRIES,
 } from '../../timesheets/timesheets.constants';
+import { ProjectLinkService } from './project-link.service';
 
-type TimesheetPushPayload = {
-  projectName: string;
-  taskTitle: string;
-  workDate: string;
-  hours: number;
-  notes: string | null;
-  isBillable: boolean;
+type KekaTimeEntryDto = {
+  projectId: string;
+  taskId?: string;
+  numberOfMinutes: number;
+  date: string;
+  comment?: string | null;
 };
 
 type KekaTimeEntryPushResponse = {
   succeeded?: boolean;
-  data?: { id?: string };
+  data?: string | { id?: string } | null;
+  message?: string | null;
 };
 
 export type TimesheetSyncFailureRow = {
@@ -45,6 +46,7 @@ export class TimesheetPushService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kekaClient: KekaHttpClient,
+    private readonly projectLinkService: ProjectLinkService,
   ) {}
 
   async pushTimesheetEntry(
@@ -55,8 +57,12 @@ export class TimesheetPushService {
       where: { id: timesheetId },
       include: {
         employee: { select: { kekaEmployeeId: true, name: true } },
-        project: { select: { name: true } },
-        task: { select: { title: true } },
+        project: {
+          select: { id: true, name: true, kekaProjectId: true },
+        },
+        task: {
+          select: { id: true, title: true, kekaTaskId: true },
+        },
         approvals: {
           where: { id: approvalId },
           select: { kekaSyncRef: true },
@@ -83,23 +89,38 @@ export class TimesheetPushService {
       return null;
     }
 
-    const payload: TimesheetPushPayload = {
-      projectName: timesheet.project.name,
-      taskTitle: timesheet.task.title,
-      workDate: timesheet.workDate.toISOString().slice(0, 10),
-      hours:
-        Number(timesheet.regularHours) + Number(timesheet.overtimeHours),
-      notes: timesheet.notes,
-      isBillable: timesheet.isBillable,
-    };
+    let payload: KekaTimeEntryDto[] | { timesheetId: string } = { timesheetId };
 
     try {
+      const kekaProjectId =
+        timesheet.project.kekaProjectId?.trim() ||
+        (await this.projectLinkService.ensureProjectLinked(timesheet.project.id));
+
+      const kekaTaskId =
+        timesheet.task.kekaTaskId?.trim() ||
+        (await this.projectLinkService.ensureTaskLinked(timesheet.task.id));
+
+      const hours =
+        Number(timesheet.regularHours) + Number(timesheet.overtimeHours);
+      payload = [
+        {
+          projectId: kekaProjectId,
+          ...(kekaTaskId ? { taskId: kekaTaskId } : {}),
+          numberOfMinutes: Math.max(1, Math.round(hours * 60)),
+          date: timesheet.workDate.toISOString(),
+          comment: timesheet.notes,
+        },
+      ];
+
       const response = await this.kekaClient.post<KekaTimeEntryPushResponse>(
         `/psa/employees/${encodeURIComponent(kekaEmployeeId)}/timeentries`,
         payload,
       );
 
-      const ref = response.data?.id ?? `keka-ts-${timesheetId.slice(0, 8)}`;
+      const ref =
+        (typeof response.data === 'string'
+          ? response.data
+          : response.data?.id) ?? `keka-ts-${timesheetId.slice(0, 8)}`;
       const syncedAt = new Date();
 
       await this.prisma.timesheetApproval.update({

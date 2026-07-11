@@ -295,7 +295,7 @@ export class LeaveBackupService {
     };
   }
 
-  async setAllocationBack7up(
+  async setAllocationBackup(
     projectId: string,
     allocationId: string,
     backupEmployeeId: string | null,

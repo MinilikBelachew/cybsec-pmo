@@ -10,6 +10,11 @@ import {
   RotateCcw,
   Users,
   Calendar,
+  Clock3,
+  PartyPopper,
+  Wallet,
+  FolderKanban,
+  Layers,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { DataTable } from "@/shared/components/data-table";
@@ -25,6 +30,11 @@ import {
   useRetryKekaSyncMutation,
   useTriggerKekaEmployeeSyncMutation,
   useTriggerKekaLeaveSyncMutation,
+  useTriggerKekaAttendanceSyncMutation,
+  useTriggerKekaHolidaysSyncMutation,
+  useTriggerKekaSalarySyncMutation,
+  useTriggerKekaProjectsSyncMutation,
+  useTriggerKekaFullSyncMutation,
 } from "../api/audit.api";
 import type {
   FailedSyncRecordEntry,
@@ -34,7 +44,20 @@ import { AUDIT_POLLING_INTERVAL_MS } from "../constants/audit-polling";
 
 type IntegrationSubTab = "logs" | "failures";
 
-const ENTITY_TYPES = ["employee", "leave", "timesheet", "allocation"] as const;
+const ENTITY_TYPES = [
+  "department",
+  "employee",
+  "leave",
+  "attendance",
+  "holiday",
+  "holiday_calendar",
+  "salary",
+  "pay_cycle",
+  "project",
+  "task",
+  "timesheet",
+  "allocation",
+] as const;
 const LOG_STATUSES = ["success", "failed", "pending"] as const;
 
 function formatDateTime(value: string) {
@@ -127,6 +150,24 @@ export function AuditKekaIntegrationPanel() {
   const [syncEmployees, { isLoading: syncingEmployees }] =
     useTriggerKekaEmployeeSyncMutation();
   const [syncLeave, { isLoading: syncingLeave }] = useTriggerKekaLeaveSyncMutation();
+  const [syncAttendance, { isLoading: syncingAttendance }] =
+    useTriggerKekaAttendanceSyncMutation();
+  const [syncHolidays, { isLoading: syncingHolidays }] =
+    useTriggerKekaHolidaysSyncMutation();
+  const [syncSalary, { isLoading: syncingSalary }] =
+    useTriggerKekaSalarySyncMutation();
+  const [syncProjects, { isLoading: syncingProjects }] =
+    useTriggerKekaProjectsSyncMutation();
+  const [syncAll, { isLoading: syncingAll }] = useTriggerKekaFullSyncMutation();
+
+  const syncBusy =
+    syncingEmployees ||
+    syncingLeave ||
+    syncingAttendance ||
+    syncingHolidays ||
+    syncingSalary ||
+    syncingProjects ||
+    syncingAll;
 
   const activeQuery = subTab === "logs" ? logsQuery : failuresQuery;
   const isFetching = activeQuery.isFetching;
@@ -499,10 +540,30 @@ export function AuditKekaIntegrationPanel() {
         {canConfigureIntegrations && (
           <div className="flex flex-wrap gap-2">
             <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={syncBusy}
+              onClick={async () => {
+                try {
+                  await syncAll().unwrap();
+                  toast.success("Full Keka sync job queued.");
+                } catch {
+                  toast.error("Could not queue full sync.");
+                }
+              }}
+            >
+              {syncingAll ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Layers className="size-3.5" />
+              )}
+              Sync all
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               className="gap-1.5"
-              disabled={syncingEmployees || syncingLeave}
+              disabled={syncBusy}
               onClick={async () => {
                 try {
                   await syncEmployees().unwrap();
@@ -523,7 +584,7 @@ export function AuditKekaIntegrationPanel() {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              disabled={syncingEmployees || syncingLeave}
+              disabled={syncBusy}
               onClick={async () => {
                 try {
                   await syncLeave().unwrap();
@@ -539,6 +600,90 @@ export function AuditKekaIntegrationPanel() {
                 <Calendar className="size-3.5" />
               )}
               Sync leave
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={syncBusy}
+              onClick={async () => {
+                try {
+                  await syncAttendance().unwrap();
+                  toast.success("Attendance sync job queued.");
+                } catch {
+                  toast.error("Could not queue attendance sync.");
+                }
+              }}
+            >
+              {syncingAttendance ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Clock3 className="size-3.5" />
+              )}
+              Sync attendance
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={syncBusy}
+              onClick={async () => {
+                try {
+                  await syncHolidays().unwrap();
+                  toast.success("Holiday sync job queued.");
+                } catch {
+                  toast.error("Could not queue holiday sync.");
+                }
+              }}
+            >
+              {syncingHolidays ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <PartyPopper className="size-3.5" />
+              )}
+              Sync holidays
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={syncBusy}
+              onClick={async () => {
+                try {
+                  await syncSalary().unwrap();
+                  toast.success("Salary sync job queued.");
+                } catch {
+                  toast.error("Could not queue salary sync.");
+                }
+              }}
+            >
+              {syncingSalary ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Wallet className="size-3.5" />
+              )}
+              Sync salary
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={syncBusy}
+              onClick={async () => {
+                try {
+                  await syncProjects().unwrap();
+                  toast.success("Project link job queued.");
+                } catch {
+                  toast.error("Could not queue project sync.");
+                }
+              }}
+            >
+              {syncingProjects ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <FolderKanban className="size-3.5" />
+              )}
+              Sync projects
             </Button>
             <Button
               variant="outline"

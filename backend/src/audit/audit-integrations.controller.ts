@@ -99,4 +99,44 @@ export class AuditIntegrationsController {
   syncLeave(): Promise<KekaSyncEnqueueResultDto> {
     return this.kekaSyncService.enqueueLeaveSync();
   }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/attendance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  syncAttendance(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueAttendanceSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/holidays')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  syncHolidays(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueHolidaysSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/salary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  syncSalary(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueSalarySync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/projects')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  syncProjects(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueProjectsSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/all')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  syncAll(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueFullSync();
+  }
 }

@@ -161,12 +161,154 @@ export type KekaLeaveRequest = {
   lastActionTakenOn?: string | null;
 };
 
+/** Attendance — https://developers.keka.com/reference/get_time-attendance-1 */
+export enum KekaAttendanceDayType {
+  WorkingDay = 0,
+  Holiday = 1,
+  WeeklyOff = 2,
+  Leave = 3,
+  Unknown = 4,
+}
+
+export type KekaAttendanceTimeEntry = {
+  timestamp: string;
+  employeeIdentifier?: string;
+  punchStatus?: number;
+  attendanceLogSource?: number;
+  manualClockinType?: number;
+  premiseName?: string | null;
+  locationAddress?: Record<string, string | null> | null;
+};
+
+export type KekaAttendanceSummary = {
+  id?: string | null;
+  employeeNumber?: string | null;
+  employeeIdentifier?: string | null;
+  attendanceDate: string;
+  dayType?: KekaAttendanceDayType | null;
+  shiftStartTime?: string | null;
+  shiftEndTime?: string | null;
+  shiftDuration?: number | null;
+  shiftBreakDuration?: number | null;
+  shiftEffectiveDuration?: number | null;
+  totalGrossHours?: number | null;
+  totalEffectiveHours?: number | null;
+  totalBreakDuration?: number | null;
+  totalEffectiveOvertimeDuration?: number | null;
+  totalGrossOvertimeDuration?: number | null;
+  firstInOfTheDay?: KekaAttendanceTimeEntry | null;
+  lastOutOfTheDay?: KekaAttendanceTimeEntry | null;
+};
+
+/** Holiday calendar — https://developers.keka.com/reference/get_time-holidayscalendar */
+export type KekaHolidayCalendar = {
+  id?: string | null;
+  name?: string | null;
+};
+
+/** Holiday — https://developers.keka.com/reference/get_time-holidayscalendar-calendarid-holidays */
+export type KekaHoliday = {
+  id: string;
+  name?: string | null;
+  date: string;
+  isFloater: boolean;
+};
+
 export type KekaTimeEntryPayload = {
   projectId: string;
   taskId?: string;
   date: string;
   minutes: number;
   notes?: string;
+};
+
+/** PSA project — https://developers.keka.com/reference/get_psa-projects-1 */
+export type KekaPsaProject = {
+  id?: string | null;
+  clientId?: string | null;
+  name?: string | null;
+  code?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  status?: number | null;
+  isBillable?: boolean | null;
+  billingType?: number | null;
+  projectBudget?: number | null;
+  budgetedTime?: number | null;
+  isArchived?: boolean | null;
+};
+
+/** PSA task — https://developers.keka.com/reference/get_psa-projects-projectid-tasks-1 */
+export type KekaPsaTask = {
+  id?: string | null;
+  projectId?: string | null;
+  name?: string | null;
+  description?: string | null;
+  taskType?: number | null;
+  taskBillingType?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  estimatedHours?: number | null;
+};
+
+/** Salary — https://developers.keka.com/reference/get_payroll-salaries */
+export type KekaEmployeeSalaryLookup = {
+  id?: string | null;
+  employeeNumber?: string | null;
+  employeeName?: string | null;
+};
+
+export type KekaSalaryComponent = {
+  id: string;
+  title?: string | null;
+  amount: number;
+  isOutsideCTC: boolean;
+};
+
+export type KekaSalaryVariableComponent = {
+  id: string;
+  title?: string | null;
+  amount: number;
+  payoutDate: string;
+};
+
+export type KekaEmployeeSalary = {
+  id?: string | null;
+  employee?: KekaEmployeeSalaryLookup | null;
+  ctc: number;
+  gross: number;
+  netPay: number;
+  remunerationType?: number | null;
+  effectiveFrom: string;
+  earnings?: KekaSalaryComponent[] | null;
+  contributions?: KekaSalaryComponent[] | null;
+  deductions?: KekaSalaryComponent[] | null;
+  variables?: KekaSalaryVariableComponent[] | null;
+};
+
+/** Pay group — https://developers.keka.com/reference/get_payroll-paygroups-1 */
+export type KekaPayGroup = {
+  id?: number | null;
+  identifier?: string | null;
+  name?: string | null;
+  description?: string | null;
+  legalEntityId?: string | null;
+  legalEntityName?: string | null;
+};
+
+/** Pay cycle — https://developers.keka.com/reference/get_payroll-paygroups-paycycles */
+export enum KekaPayrollRunStatus {
+  Pending = 0,
+  Finalized = 1,
+  Partial = 2,
+}
+
+export type KekaPayCycle = {
+  identifier?: string | null;
+  month?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  runStatus?: KekaPayrollRunStatus | null;
 };
 
 export type KekaSyncJobResult = {

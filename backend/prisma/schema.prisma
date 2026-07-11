@@ -383,6 +383,12 @@ model Project {
   status            ProjectStatus  @default(Draft)
   crmOpportunityId  String?        @map("crm_opportunity_id") @db.Uuid
   templateId        String?        @map("template_id") @db.Uuid
+  /// Linked Keka PSA project id (GET/POST /psa/projects). Required for timesheet + allocation push.
+  kekaProjectId     String?        @unique @map("keka_project_id") @db.VarChar(100)
+  /// Linked Keka PSA client id (project.clientId).
+  kekaClientId      String?        @map("keka_client_id") @db.VarChar(100)
+  kekaProjectCode   String?        @map("keka_project_code") @db.VarChar(100)
+  kekaSyncedAt      DateTime?      @map("keka_synced_at") @db.Timestamptz
   createdBy         String         @map("created_by") @db.Uuid
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -427,6 +433,7 @@ model Project {
   @@index([status], map: "idx_projects_status")
   @@index([departmentId], map: "idx_projects_dept")
   @@index([engagementType], map: "idx_projects_engagement")
+  @@index([kekaClientId], map: "idx_projects_keka_client")
   @@map("projects")
 }
 
@@ -503,6 +510,9 @@ model Task {
   status           TaskStatus    @default(To_Do)
   isOnCriticalPath Boolean       @default(false) @map("is_on_critical_path")
   backupOwnerId    String?       @map("backup_owner_id") @db.Uuid
+  /// Linked Keka PSA task id (GET/POST /psa/projects/{projectId}/tasks). Used for timesheet push.
+  kekaTaskId       String?       @unique @map("keka_task_id") @db.VarChar(100)
+  kekaSyncedAt     DateTime?     @map("keka_synced_at") @db.Timestamptz
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -648,8 +658,10 @@ model Employee {
   allocations          Allocation[] @relation("AllocationEmployee")
   backupForAllocations Allocation[] @relation("AllocationBackup")
   leaveRecords  LeaveRecord[]
+  attendanceRecords AttendanceRecord[]
   timesheets    Timesheet[]
   employeeCosts EmployeeCost[]
+  salaries      EmployeeSalary[]
 
   @@index([kekaEmployeeId], map: "idx_employees_keka_id")
   @@index([employeeNumber], map: "idx_employees_employee_number")
@@ -710,6 +722,140 @@ model LeaveRecord {
   @@index([employeeId], map: "idx_leave_employee")
   @@index([leaveDate], map: "idx_leave_date")
   @@map("leave_records")
+}
+
+/// Inbound from Keka GET /time/attendance (AttendanceSummary). Window ≤ 90 days.
+model AttendanceRecord {
+  id                              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId                      String    @map("employee_id") @db.Uuid
+  kekaAttendanceId                String?   @unique @map("keka_attendance_id") @db.VarChar(100)
+  kekaEmployeeId                  String    @map("keka_employee_id") @db.VarChar(100)
+  employeeNumber                  String?   @map("employee_number") @db.VarChar(50)
+  attendanceDate                  DateTime  @map("attendance_date") @db.Date
+  /// Keka AttendanceDayType: 0–4.
+  dayType                         Int?      @map("day_type")
+  shiftStartTime                  DateTime? @map("shift_start_time") @db.Timestamptz
+  shiftEndTime                    DateTime? @map("shift_end_time") @db.Timestamptz
+  shiftDuration                   Decimal?  @map("shift_duration") @db.Decimal(8, 2)
+  shiftBreakDuration              Decimal?  @map("shift_break_duration") @db.Decimal(8, 2)
+  shiftEffectiveDuration          Decimal?  @map("shift_effective_duration") @db.Decimal(8, 2)
+  totalGrossHours                 Decimal?  @map("total_gross_hours") @db.Decimal(8, 2)
+  totalEffectiveHours             Decimal?  @map("total_effective_hours") @db.Decimal(8, 2)
+  totalBreakDuration              Decimal?  @map("total_break_duration") @db.Decimal(8, 2)
+  totalEffectiveOvertimeDuration  Decimal?  @map("total_effective_overtime_duration") @db.Decimal(8, 2)
+  totalGrossOvertimeDuration      Decimal?  @map("total_gross_overtime_duration") @db.Decimal(8, 2)
+  firstInAt                       DateTime? @map("first_in_at") @db.Timestamptz
+  lastOutAt                       DateTime? @map("last_out_at") @db.Timestamptz
+  firstInPayload                  Json?     @map("first_in_payload")
+  lastOutPayload                  Json?     @map("last_out_payload")
+  syncedAt                        DateTime  @map("synced_at") @db.Timestamptz
+  createdAt                       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, attendanceDate], map: "uq_attendance_employee_date")
+  @@index([employeeId], map: "idx_attendance_employee")
+  @@index([kekaEmployeeId], map: "idx_attendance_keka_employee")
+  @@index([attendanceDate], map: "idx_attendance_date")
+  @@index([dayType], map: "idx_attendance_day_type")
+  @@map("attendance_records")
+}
+
+/// Inbound from Keka GET /time/holidayscalendar (ApiLookup).
+model HolidayCalendar {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kekaCalendarId  String   @unique @map("keka_calendar_id") @db.VarChar(100)
+  name            String   @db.VarChar(255)
+  syncedAt        DateTime @map("synced_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  holidays Holiday[]
+
+  @@index([name], map: "idx_holiday_calendars_name")
+  @@map("holiday_calendars")
+}
+
+/// Inbound from Keka GET /time/holidayscalendar/{calendarId}/holidays.
+model Holiday {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  calendarId         String   @map("calendar_id") @db.Uuid
+  kekaHolidayId      String   @unique @map("keka_holiday_id") @db.VarChar(100)
+  name               String   @db.VarChar(255)
+  holidayDate        DateTime @map("holiday_date") @db.Date
+  isFloater          Boolean  @default(false) @map("is_floater")
+  calendarYear       Int?     @map("calendar_year")
+  syncedAt           DateTime @map("synced_at") @db.Timestamptz
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  calendar HolidayCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@index([calendarId], map: "idx_holidays_calendar")
+  @@index([holidayDate], map: "idx_holidays_date")
+  @@index([calendarYear], map: "idx_holidays_year")
+  @@map("holidays")
+}
+
+/// Inbound from Keka GET /payroll/salaries (APIEmployeeSalary).
+/// ratePerHour is derived locally from CTC/gross + remunerationType + weekly hours.
+model EmployeeSalary {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId       String    @map("employee_id") @db.Uuid
+  kekaSalaryId     String    @unique @map("keka_salary_id") @db.VarChar(100)
+  kekaEmployeeId   String    @map("keka_employee_id") @db.VarChar(100)
+  kekaPayGroupId   String?   @map("keka_pay_group_id") @db.VarChar(100)
+  ctc              Decimal   @db.Decimal(15, 2)
+  gross            Decimal   @db.Decimal(15, 2)
+  netPay           Decimal   @map("net_pay") @db.Decimal(15, 2)
+  /// Keka RemunerationType: 0–4 (Annual / Monthly / … per tenant config).
+  remunerationType Int?      @map("remuneration_type")
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  /// Derived cost rate for PMO EmployeeCost / utilisation (not a raw Keka field).
+  ratePerHour      Decimal?  @map("rate_per_hour") @db.Decimal(12, 4)
+  currency         String    @default("USD") @db.VarChar(10)
+  isCurrent        Boolean   @default(true) @map("is_current")
+  earnings         Json?
+  contributions    Json?
+  deductions       Json?
+  variables        Json?
+  syncedAt         DateTime  @map("synced_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId], map: "idx_employee_salaries_employee")
+  @@index([kekaEmployeeId], map: "idx_employee_salaries_keka_employee")
+  @@index([effectiveFrom], map: "idx_employee_salaries_effective")
+  @@index([isCurrent], map: "idx_employee_salaries_current")
+  @@index([kekaPayGroupId], map: "idx_employee_salaries_pay_group")
+  @@map("employee_salaries")
+}
+
+/// Inbound from Keka GET /payroll/paygroups/paycycles (APIPayCycleView).
+/// Used to align salary/cost periods with payroll run windows.
+model KekaPayCycle {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kekaIdentifier String    @unique @map("keka_identifier") @db.VarChar(100)
+  kekaPayGroupId String?   @map("keka_pay_group_id") @db.VarChar(100)
+  /// Raw month label from Keka (string in APIPayCycleView.month).
+  monthLabel     String?   @map("month_label") @db.VarChar(50)
+  periodYear     Int?      @map("period_year")
+  periodMonth    Int?      @map("period_month")
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  /// Keka PayrollRunStatus: 0 Pending, 1 Finalized, 2 Partial.
+  runStatus      Int?      @map("run_status")
+  syncedAt       DateTime  @map("synced_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([kekaPayGroupId], map: "idx_keka_pay_cycles_pay_group")
+  @@index([periodYear, periodMonth], map: "idx_keka_pay_cycles_period")
+  @@index([runStatus], map: "idx_keka_pay_cycles_run_status")
+  @@map("keka_pay_cycles")
 }
 
 model Timesheet {

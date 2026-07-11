@@ -58,6 +58,38 @@ export class KekaSyncController {
   }
 
   @CheckModulePermission('integrations', 'configure')
+  @Post('sync/attendance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  async syncAttendance(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueAttendanceSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/holidays')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  async syncHolidays(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueHolidaysSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/salary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  async syncSalary(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueSalarySync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/projects')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  async syncProjects(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueProjectsSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
   @Post('sync/all')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: KekaSyncRunResultDto })
