@@ -20,26 +20,33 @@ import {
   FileCode,
   File,
   ExternalLink,
+  Pencil,
 } from "lucide-react";
 import { FilePreviewModal } from "./file-preview-modal";
+import { TaskChecklistSection } from "./task-checklist-section";
 import { SecureFileLink } from "@/shared/components/secure-file-link";
 import {
   useGetTaskByIdQuery,
   useAddTaskCommentMutation,
+  useUpdateTaskCommentMutation,
+  useDeleteTaskCommentMutation,
   useAddTaskAttachmentMutation,
   useDeleteTaskAttachmentMutation,
   useCreateTaskMutation,
+  useDeleteTaskMutation,
+  useGetTaskChecklistQuery,
 } from "@/domains/projects";
-import { useAppAbility } from "@/domains/auth";
+import { useAppAbility, useAuth } from "@/domains/auth";
 import { useUploadFileMutation } from "@/domains/projects/api/files.api";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Separator } from "@/shared/ui/separator";
 import { Badge } from "@/shared/ui/badge";
+import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { cn } from "@/shared/utils/cn";
 
-type TabId = "subtasks" | "comments" | "attachments";
+type TabId = "subtasks" | "checklist" | "comments" | "attachments";
 
 function FileTypeIcon({ filename, className }: { filename: string; className?: string }) {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
@@ -81,6 +88,8 @@ interface TaskCollaborationSectionsProps {
   className?: string;
   layout?: "stacked" | "tabs";
   showAttachments?: boolean;
+  /** When false, hides the Subtasks tab (used for child tasks — one level only). */
+  showSubTasks?: boolean;
   defaultTab?: TabId;
   subTaskMode?: "immediate" | "draft";
   draftSubTasks?: DraftSubTask[];
@@ -118,6 +127,7 @@ export function TaskCollaborationSections({
   className,
   layout = "stacked",
   showAttachments = true,
+  showSubTasks = true,
   defaultTab = "subtasks",
   subTaskMode = "immediate",
   draftSubTasks = [],
@@ -131,24 +141,46 @@ export function TaskCollaborationSections({
   pendingAttachmentDeletes = [],
   onPendingAttachmentDeletesChange,
 }: TaskCollaborationSectionsProps) {
+  const { user } = useAuth();
   const ability = useAppAbility();
   const canCreateSubTask = ability?.can("create", "Task") ?? false;
+  const canDeleteSubTask = ability?.can("update", "Task") ?? false;
+  const canManageComments = ability?.can("update", "Task") ?? false;
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
+  const [activeTab, setActiveTab] = useState<TabId>(
+    !showSubTasks && defaultTab === "subtasks" ? "comments" : defaultTab,
+  );
   const [commentText, setCommentText] = useState("");
   const [isInternal, setIsInternal] = useState(true);
   const [showSubTaskForm, setShowSubTaskForm] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
+  const [deletingSubTaskId, setDeletingSubTaskId] = useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string | null; storageKey?: string | null; file?: File } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<
+    | { type: "subtask"; id: string; title: string }
+    | { type: "attachment"; id: string; title: string }
+    | { type: "comment"; id: string; title: string }
+    | { type: "draft-comment"; id: string; title: string }
+    | { type: "draft-subtask"; id: string; title: string }
+    | { type: "draft-file"; index: number; title: string }
+    | null
+  >(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentBody, setEditingCommentBody] = useState("");
+  const [editingCommentInternal, setEditingCommentInternal] = useState(true);
 
   const { data: task } = useGetTaskByIdQuery(taskId);
+  const { data: checklist } = useGetTaskChecklistQuery(taskId, { skip: !taskId });
 
   const [addComment, { isLoading: isAddingComment }] = useAddTaskCommentMutation();
+  const [updateComment, { isLoading: isUpdatingComment }] = useUpdateTaskCommentMutation();
+  const [deleteComment, { isLoading: isDeletingComment }] = useDeleteTaskCommentMutation();
   const [uploadFile, { isLoading: isUploading }] = useUploadFileMutation();
   const [addAttachment, { isLoading: isLinking }] = useAddTaskAttachmentMutation();
   const [deleteAttachment, { isLoading: isDeletingAttachment }] =
     useDeleteTaskAttachmentMutation();
   const [createTask, { isLoading: isCreatingSubTask }] = useCreateTaskMutation();
+  const [deleteTask] = useDeleteTaskMutation();
 
   const comments = task?.comments ?? [];
   const attachments = task?.attachments ?? [];
@@ -164,7 +196,14 @@ export function TaskCollaborationSections({
     subTasks.length > 0 ? Math.round((completedSubTasks / subTasks.length) * 100) : 0;
 
   const tabs: { id: TabId; label: string; count?: number }[] = [
-    { id: "subtasks", label: "Subtasks", count: totalSubTaskCount },
+    ...(showSubTasks
+      ? [{ id: "subtasks" as const, label: "Subtasks", count: totalSubTaskCount }]
+      : []),
+    {
+      id: "checklist" as const,
+      label: "Checklist",
+      count: checklist?.total ?? 0,
+    },
     { id: "comments", label: "Comments", count: totalCommentCount },
     { id: "attachments", label: "Files", count: totalAttachmentCount },
   ];
@@ -243,19 +282,14 @@ export function TaskCollaborationSections({
     }
   }
 
-  function handleDeleteAttachment(attachmentId: string) {
-    if (attachmentMode === "draft") {
-      onPendingAttachmentDeletesChange?.([...pendingAttachmentDeletes, attachmentId]);
-      return;
-    }
-
-    void handleDeleteAttachmentImmediate(attachmentId);
+  function handleDeleteAttachment(attachmentId: string, filename: string) {
+    setDeleteConfirm({ type: "attachment", id: attachmentId, title: filename });
   }
 
   async function handleDeleteAttachmentImmediate(attachmentId: string) {
     try {
       await deleteAttachment({ taskId, attachmentId }).unwrap();
-      toast.success("Attachment removed");
+      toast.success("File deleted");
     } catch {
       toast.error("Failed to remove attachment");
     }
@@ -289,6 +323,10 @@ export function TaskCollaborationSections({
       return;
     }
     try {
+      const parentEffort =
+        typeof task.effortHours === "number" && task.effortHours > 0
+          ? Math.max(1, Math.floor(task.effortHours))
+          : 1;
       await createTask({
         projectId,
         parentTaskId: taskId,
@@ -298,15 +336,162 @@ export function TaskCollaborationSections({
         status: "To_Do",
         startDate: task.startDate.slice(0, 10),
         endDate: task.endDate.slice(0, 10),
+        effortHours: parentEffort,
       }).unwrap();
       setSubTaskTitle("");
       setShowSubTaskForm(false);
       toast.success("Sub-task created");
     } catch (err: unknown) {
-      const apiError = err as { data?: { message?: string } };
-      toast.error(apiError?.data?.message ?? "Failed to create sub-task");
+      const apiError = err as {
+        data?: { message?: string; errors?: Record<string, string> };
+      };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to create sub-task",
+      );
     }
   }
+
+  function requestDeleteSubTask(subTaskId: string, title: string) {
+    if (!canDeleteSubTask) return;
+    setDeleteConfirm({ type: "subtask", id: subTaskId, title });
+  }
+
+  async function handleDeleteSubTask(subTaskId: string) {
+    if (!canDeleteSubTask) return;
+    setDeletingSubTaskId(subTaskId);
+    try {
+      await deleteTask(subTaskId).unwrap();
+      toast.success("Sub-task deleted");
+    } catch (err: unknown) {
+      const apiError = err as {
+        data?: { message?: string; errors?: Record<string, string> };
+      };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to delete sub-task",
+      );
+    } finally {
+      setDeletingSubTaskId(null);
+    }
+  }
+
+  function canModifyComment(authorId: string) {
+    return canManageComments || user?.id === authorId;
+  }
+
+  function startEditComment(comment: { id: string; body: string; isInternal: boolean }) {
+    setEditingCommentId(comment.id);
+    setEditingCommentBody(comment.body);
+    setEditingCommentInternal(comment.isInternal);
+  }
+
+  function cancelEditComment() {
+    setEditingCommentId(null);
+    setEditingCommentBody("");
+    setEditingCommentInternal(true);
+  }
+
+  async function saveEditComment() {
+    if (!editingCommentId || !editingCommentBody.trim()) return;
+    try {
+      await updateComment({
+        taskId,
+        commentId: editingCommentId,
+        body: editingCommentBody.trim(),
+        isInternal: editingCommentInternal,
+      }).unwrap();
+      toast.success("Comment updated");
+      cancelEditComment();
+    } catch (err: unknown) {
+      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+      toast.error(
+        apiError?.data?.message ??
+          Object.values(apiError?.data?.errors ?? {})[0] ??
+          "Failed to update comment",
+      );
+    }
+  }
+
+  async function confirmDeleteAction() {
+    if (!deleteConfirm) return;
+    const pending = deleteConfirm;
+
+    if (pending.type === "subtask") {
+      await handleDeleteSubTask(pending.id);
+      setDeleteConfirm(null);
+      return;
+    }
+    if (pending.type === "attachment") {
+      if (attachmentMode === "draft") {
+        onPendingAttachmentDeletesChange?.([...pendingAttachmentDeletes, pending.id]);
+        toast.success("File removed");
+        setDeleteConfirm(null);
+        return;
+      }
+      await handleDeleteAttachmentImmediate(pending.id);
+      setDeleteConfirm(null);
+      return;
+    }
+    if (pending.type === "comment") {
+      try {
+        await deleteComment({ taskId, commentId: pending.id }).unwrap();
+        if (editingCommentId === pending.id) cancelEditComment();
+        toast.success("Comment deleted");
+      } catch (err: unknown) {
+        const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
+        toast.error(
+          apiError?.data?.message ??
+            Object.values(apiError?.data?.errors ?? {})[0] ??
+            "Failed to delete comment",
+        );
+      } finally {
+        setDeleteConfirm(null);
+      }
+      return;
+    }
+    if (pending.type === "draft-comment") {
+      onDraftCommentsChange?.(draftComments.filter((c) => c.id !== pending.id));
+      toast.success("Comment deleted");
+      setDeleteConfirm(null);
+      return;
+    }
+    if (pending.type === "draft-subtask") {
+      onDraftSubTasksChange?.(draftSubTasks.filter((d) => d.id !== pending.id));
+      toast.success("Sub-task deleted");
+      setDeleteConfirm(null);
+      return;
+    }
+    if (pending.type === "draft-file") {
+      onDraftFilesChange?.(draftFiles.filter((_, i) => i !== pending.index));
+      toast.success("File removed");
+      setDeleteConfirm(null);
+    }
+  }
+
+  const deleteDialogCopy = (() => {
+    if (!deleteConfirm) {
+      return { title: "Delete", description: "" };
+    }
+    if (deleteConfirm.type === "subtask" || deleteConfirm.type === "draft-subtask") {
+      return {
+        title: "Delete sub-task",
+        description: `Delete sub-task "${deleteConfirm.title}"? This cannot be undone.`,
+      };
+    }
+    if (deleteConfirm.type === "attachment" || deleteConfirm.type === "draft-file") {
+      return {
+        title: "Delete file",
+        description: `Delete file "${deleteConfirm.title}"? This cannot be undone.`,
+      };
+    }
+    return {
+      title: "Delete comment",
+      description: `Delete this comment? This cannot be undone.`,
+    };
+  })();
 
   const subTasksSection = (
     <section className="space-y-3">
@@ -379,28 +564,50 @@ export function TaskCollaborationSections({
         )}
         {subTasks.map((sub) => {
           const isDone = sub.status === "Done" || sub.status === "Approved";
+          const isDeleting = deletingSubTaskId === sub.id;
           return (
-            <button
+            <div
               key={sub.id}
-              type="button"
-              onClick={() => onOpenSubTask?.(sub.id)}
               className={cn(
                 "flex w-full gap-3 rounded-xl border border-border bg-background p-3 text-left transition hover:border-primary/30 hover:bg-primary/5",
                 isDone && "opacity-70"
               )}
             >
-              {isDone ? (
-                <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-              ) : (
-                <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <button
+                type="button"
+                onClick={() => onOpenSubTask?.(sub.id)}
+                className="flex min-w-0 flex-1 gap-3 text-left"
+              >
+                {isDone ? (
+                  <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                ) : (
+                  <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className={cn("text-sm font-medium", isDone && "line-through")}>{sub.title}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {STATUS_LABEL[sub.status] ?? sub.status}
+                    {" · "}
+                    Open to edit
+                  </p>
+                </div>
+              </button>
+              {canDeleteSubTask && (
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => requestDeleteSubTask(sub.id, sub.title)}
+                  className="shrink-0 self-center p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors disabled:opacity-50"
+                  title="Delete sub-task"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                </button>
               )}
-              <div className="min-w-0 flex-1">
-                <p className={cn("text-sm font-medium", isDone && "line-through")}>{sub.title}</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {STATUS_LABEL[sub.status] ?? sub.status}
-                </p>
-              </div>
-            </button>
+            </div>
           );
         })}
         {draftSubTasks.map((sub) => (
@@ -416,7 +623,7 @@ export function TaskCollaborationSections({
             <button
               type="button"
               onClick={() =>
-                onDraftSubTasksChange?.(draftSubTasks.filter((d) => d.id !== sub.id))
+                setDeleteConfirm({ type: "draft-subtask", id: sub.id, title: sub.title })
               }
               className="shrink-0 text-muted-foreground hover:text-destructive"
             >
@@ -481,27 +688,102 @@ export function TaskCollaborationSections({
               : "No comments yet."}
           </p>
         )}
-        {comments.map((comment) => (
-          <div
-            key={comment.id}
-            className="rounded-xl border border-border bg-background p-3"
-          >
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold">{comment.author.displayName}</span>
-              <div className="flex items-center gap-2">
-                {comment.isInternal && (
-                  <span className="flex items-center gap-0.5 text-[10px] text-amber-600">
-                    <Lock className="size-3" /> Internal
+        {comments.map((comment) => {
+          const isEditing = editingCommentId === comment.id;
+          const canModify = canModifyComment(comment.authorId);
+          return (
+            <div
+              key={comment.id}
+              className="rounded-xl border border-border bg-background p-3"
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold">{comment.author.displayName}</span>
+                <div className="flex items-center gap-2">
+                  {comment.isInternal && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-amber-600">
+                      <Lock className="size-3" /> Internal
+                    </span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(comment.createdAt).toLocaleString()}
                   </span>
-                )}
-                <span className="text-[10px] text-muted-foreground">
-                  {new Date(comment.createdAt).toLocaleString()}
-                </span>
+                  {canModify && !isEditing && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => startEditComment(comment)}
+                        className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        title="Edit comment"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDeleteConfirm({
+                            type: "comment",
+                            id: comment.id,
+                            title: comment.body.slice(0, 40),
+                          })
+                        }
+                        className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title="Delete comment"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
+              {isEditing ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={editingCommentBody}
+                    onChange={(e) => setEditingCommentBody(e.target.value)}
+                    rows={3}
+                    className="flex w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={editingCommentInternal}
+                        onCheckedChange={(checked) =>
+                          setEditingCommentInternal(checked === true)
+                        }
+                      />
+                      Internal only
+                    </label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={cancelEditComment}
+                        disabled={isUpdatingComment}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!editingCommentBody.trim() || isUpdatingComment}
+                        onClick={() => void saveEditComment()}
+                      >
+                        {isUpdatingComment ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          "Save"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-foreground/90">{comment.body}</p>
+              )}
             </div>
-            <p className="text-sm text-foreground/90">{comment.body}</p>
-          </div>
-        ))}
+          );
+        })}
         {draftComments.map((comment) => (
           <div
             key={comment.id}
@@ -518,7 +800,11 @@ export function TaskCollaborationSections({
                 <button
                   type="button"
                   onClick={() =>
-                    onDraftCommentsChange?.(draftComments.filter((c) => c.id !== comment.id))
+                    setDeleteConfirm({
+                      type: "draft-comment",
+                      id: comment.id,
+                      title: comment.body.slice(0, 40),
+                    })
                   }
                   className="text-muted-foreground hover:text-destructive"
                 >
@@ -609,7 +895,7 @@ export function TaskCollaborationSections({
               variant="ghost"
               size="icon-sm"
               disabled={isDeletingAttachment}
-              onClick={() => handleDeleteAttachment(att.id)}
+              onClick={() => handleDeleteAttachment(att.id, att.filename)}
               className="text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="size-4" />
@@ -645,7 +931,7 @@ export function TaskCollaborationSections({
               variant="ghost"
               size="icon-sm"
               onClick={() =>
-                onDraftFilesChange?.(draftFiles.filter((_, fileIndex) => fileIndex !== index))
+                setDeleteConfirm({ type: "draft-file", index, title: file.name })
               }
               className="text-muted-foreground hover:text-destructive"
             >
@@ -685,7 +971,8 @@ export function TaskCollaborationSections({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
-          {activeTab === "subtasks" && subTasksSection}
+          {activeTab === "subtasks" && showSubTasks && subTasksSection}
+          {activeTab === "checklist" && <TaskChecklistSection taskId={taskId} />}
           {activeTab === "comments" && commentsSection}
           {activeTab === "attachments" && showAttachments && attachmentsSection}
         </div>
@@ -699,6 +986,16 @@ export function TaskCollaborationSections({
         storageKey={previewTarget?.storageKey}
         file={previewTarget?.file}
       />
+      <DeleteDialog
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => void confirmDeleteAction()}
+        title={deleteDialogCopy.title}
+        description={deleteDialogCopy.description}
+        isDeleting={
+          !!deletingSubTaskId || isDeletingAttachment || isDeletingComment
+        }
+      />
       </>
     );
   }
@@ -709,9 +1006,15 @@ export function TaskCollaborationSections({
       <Separator />
       {commentsSection}
       <Separator />
-      {showAttachments && attachmentsSection}
+      <TaskChecklistSection taskId={taskId} />
       <Separator />
-      {subTasksSection}
+      {showAttachments && attachmentsSection}
+      {showSubTasks && (
+        <>
+          <Separator />
+          {subTasksSection}
+        </>
+      )}
     </div>
     
     <FilePreviewModal
@@ -721,6 +1024,16 @@ export function TaskCollaborationSections({
       url={previewTarget?.url}
       storageKey={previewTarget?.storageKey}
       file={previewTarget?.file}
+    />
+    <DeleteDialog
+      isOpen={!!deleteConfirm}
+      onClose={() => setDeleteConfirm(null)}
+      onConfirm={() => void confirmDeleteAction()}
+      title={deleteDialogCopy.title}
+      description={deleteDialogCopy.description}
+      isDeleting={
+        !!deletingSubTaskId || isDeletingAttachment || isDeletingComment
+      }
     />
     </>
   );
@@ -741,6 +1054,10 @@ export function TaskAttachmentsBlock({
   const [deleteAttachment, { isLoading: isDeletingAttachment }] =
     useDeleteTaskAttachmentMutation();
   const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string | null; storageKey?: string | null; file?: File } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
 
   const attachments = task?.attachments ?? [];
 
@@ -766,10 +1083,13 @@ export function TaskAttachmentsBlock({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function handleDelete(attachmentId: string) {
+  async function confirmDelete() {
+    if (!deleteConfirm) return;
+    const { id } = deleteConfirm;
     try {
-      await deleteAttachment({ taskId, attachmentId }).unwrap();
-      toast.success("Attachment removed");
+      await deleteAttachment({ taskId, attachmentId: id }).unwrap();
+      toast.success("File deleted");
+      setDeleteConfirm(null);
     } catch {
       toast.error("Failed to remove attachment");
     }
@@ -818,7 +1138,9 @@ export function TaskAttachmentsBlock({
               </button>
               <button
                 type="button"
-                onClick={() => handleDelete(att.id)}
+                onClick={() =>
+                  setDeleteConfirm({ id: att.id, title: att.filename })
+                }
                 disabled={isDeletingAttachment}
                 className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
                 title="Delete file"
@@ -862,6 +1184,14 @@ export function TaskAttachmentsBlock({
         url={previewTarget?.url}
         storageKey={previewTarget?.storageKey}
         file={previewTarget?.file}
+      />
+      <DeleteDialog
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => void confirmDelete()}
+        title="Delete file"
+        description={`Delete file "${deleteConfirm?.title ?? ""}"? This cannot be undone.`}
+        isDeleting={isDeletingAttachment}
       />
     </div>
   );

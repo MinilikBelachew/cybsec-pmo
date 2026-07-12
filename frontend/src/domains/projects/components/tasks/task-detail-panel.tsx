@@ -61,6 +61,12 @@ import {
   TASK_SHEET_MAIN_PADDING,
 } from "./task-sheet.constants";
 import { TaskAssigneeAvailabilityAlert } from "./task-assignee-availability-alert";
+import {
+  taskDatesOutsidePhaseErrors,
+  taskDatesOutsideParentErrors,
+  toTaskDayKey,
+} from "../../schemas/task/task-date-fields";
+import { toDateString } from "@/shared/utils/date";
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -68,6 +74,8 @@ interface TaskDetailPanelProps {
   open: boolean;
   onClose: () => void;
   onOpenSubTask?: (taskId: string) => void;
+  /** When a sub-task sheet is opened (e.g. deep link), redirect to its parent. */
+  onOpenParentTask?: (parentTaskId: string) => void;
   onUpdated?: () => void;
   initialTab?: "comments" | "subtasks";
   focusProgressReview?: boolean;
@@ -125,6 +133,7 @@ export function TaskDetailPanel({
   open,
   onClose,
   onOpenSubTask,
+  onOpenParentTask,
   onUpdated,
   initialTab,
   focusProgressReview = false,
@@ -156,6 +165,8 @@ export function TaskDetailPanel({
     reset,
     watch,
     getValues,
+    setError,
+    clearErrors,
     formState: { errors, isDirty },
   } = useForm<UpdateTaskFormValues>({
     resolver: zodResolver(updateTaskSchema) as import("react-hook-form").Resolver<UpdateTaskFormValues>,
@@ -165,6 +176,8 @@ export function TaskDetailPanel({
       priority: "Medium",
       status: "To_Do",
       ownerId: null,
+      backupOwnerId: null,
+      phaseId: "",
       startDate: undefined,
       endDate: undefined,
       effortHours: undefined,
@@ -172,14 +185,98 @@ export function TaskDetailPanel({
   });
 
   const watchedOwnerId = watch("ownerId");
+  const watchedBackupOwnerId = watch("backupOwnerId");
+  const watchedPhaseId = watch("phaseId");
   const watchedStartDate = watch("startDate");
   const watchedEndDate = watch("endDate");
   const watchedEffortHours = watch("effortHours");
   const watchedStatus = watch("status");
   const activeOwner = assignees.find((assignee) => assignee.userId === watchedOwnerId);
+  const activeBackupOwner = assignees.find(
+    (assignee) => assignee.userId === watchedBackupOwnerId,
+  );
+  const backupOwnerCandidates = assignees.filter(
+    (assignee) => assignee.userId !== watchedOwnerId,
+  );
+  const selectedPhase = phases.find((p) => p.id === watchedPhaseId);
+  const phaseStartYmd = toTaskDayKey(selectedPhase?.startDate);
+  const phaseEndYmd = toTaskDayKey(selectedPhase?.endDate);
+  const parentStartYmd = toTaskDayKey(task?.parentTask?.startDate);
+  const parentEndYmd = toTaskDayKey(task?.parentTask?.endDate);
+  const effectiveMinYmd =
+    [phaseStartYmd, parentStartYmd].filter(Boolean).sort().at(-1) ||
+    toTaskDayKey(project?.startDate);
+  const effectiveMaxYmd =
+    [phaseEndYmd, parentEndYmd].filter(Boolean).sort()[0] ||
+    toTaskDayKey(project?.endDate);
+  const effectiveMin = effectiveMinYmd
+    ? new Date(
+        Number(effectiveMinYmd.slice(0, 4)),
+        Number(effectiveMinYmd.slice(5, 7)) - 1,
+        Number(effectiveMinYmd.slice(8, 10)),
+      )
+    : undefined;
+  const effectiveMax = effectiveMaxYmd
+    ? new Date(
+        Number(effectiveMaxYmd.slice(0, 4)),
+        Number(effectiveMaxYmd.slice(5, 7)) - 1,
+        Number(effectiveMaxYmd.slice(8, 10)),
+      )
+    : undefined;
+
+  function isDateDisabled(date: Date) {
+    const day = toDateString(date);
+    if (effectiveMinYmd && day < effectiveMinYmd) return true;
+    if (effectiveMaxYmd && day > effectiveMaxYmd) return true;
+    return false;
+  }
+
+  function applyPhaseDateErrors(start?: Date, end?: Date): boolean {
+    const phaseErrors = taskDatesOutsidePhaseErrors({
+      start,
+      end,
+      phaseStart: selectedPhase?.startDate,
+      phaseEnd: selectedPhase?.endDate,
+    });
+    const parentErrors =
+      task?.parentTaskId
+        ? taskDatesOutsideParentErrors({
+            start,
+            end,
+            parentStart: task.parentTask?.startDate,
+            parentEnd: task.parentTask?.endDate,
+          })
+        : {};
+    const next = {
+      startDate: parentErrors.startDate ?? phaseErrors.startDate,
+      endDate: parentErrors.endDate ?? phaseErrors.endDate,
+    };
+    if (next.startDate) {
+      setError("startDate", { type: "validate", message: next.startDate });
+    } else {
+      clearErrors("startDate");
+    }
+    if (next.endDate) {
+      setError("endDate", { type: "validate", message: next.endDate });
+    } else {
+      clearErrors("endDate");
+    }
+    return Boolean(next.startDate || next.endDate);
+  }
+
+  // DEF-P1-011 — assigning a phase to an existing task must re-check dates.
+  useEffect(() => {
+    if (!open || !watchedPhaseId || (!phaseStartYmd && !phaseEndYmd)) return;
+    applyPhaseDateErrors(watchedStartDate, watchedEndDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when phase bounds change
+  }, [open, watchedPhaseId, phaseStartYmd, phaseEndYmd]);
 
   const canManageTasks = ability?.can("create", "Task") ?? false;
-  const isTaskOwner = user?.id === task?.ownerId;
+  const isTaskOwner =
+    user?.id === task?.ownerId ||
+    (task?.ownerId == null &&
+      user?.id != null &&
+      user.id === task?.parentTask?.ownerId);
   const isEngineerView = !canManageTasks;
   const canEditTaskFields = canManageTasks;
   const canChangeStatus = canManageTasks || isTaskOwner;
@@ -236,6 +333,9 @@ export function TaskDetailPanel({
 
   const onSave = handleSubmit(async (values) => {
     if (!taskId) return;
+    if (applyPhaseDateErrors(values.startDate, values.endDate)) {
+      return;
+    }
     setIsSubmitting(true);
     try {
       const result = await updateTaskBundle({
@@ -339,9 +439,18 @@ export function TaskDetailPanel({
                       {...register("description")}
                     />
                     {task.parentTask && (
-                      <p className="text-xs text-muted-foreground">
-                        Sub-task of <span className="font-medium">{task.parentTask.title}</span>
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          task.parentTaskId && onOpenParentTask?.(task.parentTaskId)
+                        }
+                        className="text-xs text-muted-foreground hover:text-primary transition-colors text-left"
+                      >
+                        Sub-task of{" "}
+                        <span className="font-medium underline underline-offset-2">
+                          {task.parentTask.title}
+                        </span>
+                      </button>
                     )}
                   </div>
 
@@ -492,7 +601,33 @@ export function TaskDetailPanel({
                         render={({ field }) => (
                           <Select
                             value={field.value ?? ""}
-                            onValueChange={field.onChange}
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              clearErrors("phaseId");
+                              const phase = phases.find((p) => p.id === value);
+                              const next = taskDatesOutsidePhaseErrors({
+                                start: watchedStartDate,
+                                end: watchedEndDate,
+                                phaseStart: phase?.startDate,
+                                phaseEnd: phase?.endDate,
+                              });
+                              if (next.startDate) {
+                                setError("startDate", {
+                                  type: "validate",
+                                  message: next.startDate,
+                                });
+                              } else {
+                                clearErrors("startDate");
+                              }
+                              if (next.endDate) {
+                                setError("endDate", {
+                                  type: "validate",
+                                  message: next.endDate,
+                                });
+                              } else {
+                                clearErrors("endDate");
+                              }
+                            }}
                             disabled={loadingPhases || !canEditTaskFields}
                           >
                             <SelectTrigger className="w-full">
@@ -511,6 +646,63 @@ export function TaskDetailPanel({
                         )}
                       />
                       <FieldError message={errors.phaseId?.message} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Backup owner</Label>
+                      <Controller
+                        control={control}
+                        name="backupOwnerId"
+                        render={({ field }) => (
+                          <Select
+                            value={field.value ?? "none"}
+                            onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                            disabled={loadingAssignees || !canEditTaskFields}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="No backup">
+                                {activeBackupOwner ? (
+                                  <span className="flex items-center gap-2">
+                                    <Avatar className="size-5">
+                                      <AvatarFallback className="text-[9px]">
+                                        {initials(activeBackupOwner.displayName)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    {activeBackupOwner.displayName}
+                                  </span>
+                                ) : field.value ? (
+                                  task?.backupOwner?.displayName ?? "Former backup (not on project team)"
+                                ) : (
+                                  "No backup"
+                                )}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent alignItemWithTrigger={false}>
+                              <SelectItem value="none">No backup</SelectItem>
+                              {backupOwnerCandidates.map((assignee) => (
+                                <SelectItem key={assignee.userId} value={assignee.userId}>
+                                  <div className="flex items-center gap-2.5 py-0.5">
+                                    <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                                      {initials(assignee.displayName)}
+                                    </span>
+                                    <div className="flex flex-col gap-0.5 text-left">
+                                      <span>{assignee.displayName}</span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {assignee.role} · {assignee.department.name}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Covers this task when the assignee is on leave.
+                      </p>
                     </div>
                   </div>
 
@@ -536,7 +728,13 @@ export function TaskDetailPanel({
                               <Calendar
                                 mode="single"
                                 selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={(date) => field.onChange(date ?? undefined)}
+                                onSelect={(date) => {
+                                  field.onChange(date ?? undefined);
+                                  applyPhaseDateErrors(date ?? undefined, watchedEndDate);
+                                }}
+                                disabled={isDateDisabled}
+                                startMonth={effectiveMin}
+                                endMonth={effectiveMax}
                               />
                             </PopoverContent>
                           </Popover>
@@ -566,7 +764,18 @@ export function TaskDetailPanel({
                               <Calendar
                                 mode="single"
                                 selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={(date) => field.onChange(date ?? undefined)}
+                                onSelect={(date) => {
+                                  field.onChange(date ?? undefined);
+                                  applyPhaseDateErrors(watchedStartDate, date ?? undefined);
+                                }}
+                                disabled={(date) => {
+                                  if (watchedStartDate && date < new Date(watchedStartDate)) {
+                                    return true;
+                                  }
+                                  return isDateDisabled(date);
+                                }}
+                                startMonth={effectiveMin}
+                                endMonth={effectiveMax}
                               />
                             </PopoverContent>
                           </Popover>
@@ -588,17 +797,18 @@ export function TaskDetailPanel({
 
                   <div className="space-y-1.5">
                     <Label htmlFor="effortHours" className="text-xs text-muted-foreground">
-                      Effort (hours)
+                      Effort (hours) *
                     </Label>
                     <Input
                       id="effortHours"
                       type="number"
                       min={1}
                       step={1}
-                      placeholder="Optional"
+                      placeholder="Required"
                       disabled={!canEditTaskFields}
                       {...register("effortHours")}
                     />
+                    <FieldError message={errors.effortHours?.message} />
                   </div>
 
                   <div className="space-y-4 rounded-xl border border-border/60 bg-muted/15 p-4">
@@ -642,15 +852,16 @@ export function TaskDetailPanel({
                   onOpenSubTask={onOpenSubTask}
                   layout="tabs"
                   showAttachments
+                  showSubTasks={!hasParent}
                   defaultTab={initialTab ?? (hasParent ? "comments" : "subtasks")}
                   className="h-full"
-                  subTaskMode="immediate"
+                  subTaskMode={canManageTasks ? "draft" : "immediate"}
                   draftSubTasks={draftSubTasks}
                   onDraftSubTasksChange={setDraftSubTasks}
-                  commentMode="immediate"
+                  commentMode={canManageTasks ? "draft" : "immediate"}
                   draftComments={draftComments}
                   onDraftCommentsChange={setDraftComments}
-                  attachmentMode="immediate"
+                  attachmentMode={canManageTasks ? "draft" : "immediate"}
                   draftFiles={draftFiles}
                   onDraftFilesChange={setDraftFiles}
                   pendingAttachmentDeletes={pendingAttachmentDeletes}

@@ -163,6 +163,9 @@ export function WeekCalendarView({
                         )}
                         title={t.name}
                       >
+                        {(t.depth ?? (t.parentTaskId ? 1 : 0)) > 0 && (
+                          <span className="opacity-70 mr-0.5">↳</span>
+                        )}
                         {t.name}
                       </span>
                       

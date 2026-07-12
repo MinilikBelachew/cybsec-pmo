@@ -1,5 +1,63 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+export class TeamLeaveRangeDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  type: string;
+
+  @ApiProperty()
+  from: string;
+
+  @ApiProperty()
+  to: string;
+
+  @ApiProperty()
+  days: number;
+
+  @ApiProperty({ enum: ['approved', 'pending', 'rejected'] })
+  status: 'approved' | 'pending' | 'rejected';
+}
+
+export class AllocationPolicySummaryDto {
+  @ApiProperty({ enum: ['warn', 'block', 'approve'] })
+  thresholdMode: 'warn' | 'block' | 'approve';
+
+  @ApiProperty({ enum: ['off', 'warn', 'block'] })
+  designationMismatchMode: 'off' | 'warn' | 'block';
+
+  @ApiProperty({ enum: ['off', 'warn', 'block'] })
+  departmentStaffingMode: 'off' | 'warn' | 'block';
+
+  @ApiProperty({
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        projectRole: { type: 'string' },
+        allowedDesignations: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  })
+  designationRules: Array<{
+    projectRole: string;
+    allowedDesignations: string[];
+  }>;
+
+  @ApiProperty({
+    type: 'object',
+    properties: {
+      rule: { enum: ['same_department_only', 'allow_list'] },
+      byProjectDepartmentCode: { type: 'object', additionalProperties: true },
+    },
+  })
+  departmentStaffingRules: {
+    rule: 'same_department_only' | 'allow_list';
+    byProjectDepartmentCode?: Record<string, string[]>;
+  };
+}
+
 export class ProjectAllocationEmployeeDto {
   @ApiProperty()
   id: string;
@@ -22,6 +80,9 @@ export class ProjectAllocationEmployeeDto {
     code: string;
     name: string;
   };
+
+  @ApiPropertyOptional({ nullable: true })
+  profileImageUrl: string | null;
 }
 
 export class ProjectAllocationDto {
@@ -52,6 +113,18 @@ export class ProjectAllocationDto {
   @ApiProperty()
   status: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  requestedBy: { id: string; name: string } | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  requestedAt: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  approvedBy: { id: string; name: string } | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  kekaSyncedAt: string | null;
+
   @ApiProperty({ type: ProjectAllocationEmployeeDto })
   employee: ProjectAllocationEmployeeDto;
 
@@ -69,6 +142,26 @@ export class ProjectAllocationDto {
 
   @ApiProperty()
   isOverAllocated: boolean;
+
+  @ApiProperty({ type: [TeamLeaveRangeDto] })
+  upcomingLeave: TeamLeaveRangeDto[];
+
+  @ApiPropertyOptional({ nullable: true })
+  backupEmployeeId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  backupEmployeeName: string | null;
+}
+
+export class UpdateProjectTeamMemberResultDto {
+  @ApiProperty({ type: ProjectAllocationDto })
+  updated: ProjectAllocationDto;
+
+  @ApiProperty({ type: [String] })
+  warnings: string[];
+
+  @ApiProperty({ type: AllocationPolicySummaryDto })
+  policy: AllocationPolicySummaryDto;
 }
 
 export class TeamCandidateDto {
@@ -120,6 +213,18 @@ export class TeamCandidateDto {
 
   @ApiProperty()
   isOnProject: boolean;
+
+  @ApiProperty({ type: [TeamLeaveRangeDto] })
+  upcomingLeave: TeamLeaveRangeDto[];
+
+  @ApiProperty({
+    description:
+      'False when department staffing policy would reject this employee for the project department',
+  })
+  departmentStaffingAllowed: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  profileImageUrl: string | null;
 }
 
 export class CreateProjectTeamResultDto {
@@ -128,6 +233,9 @@ export class CreateProjectTeamResultDto {
 
   @ApiProperty({ type: [String] })
   warnings: string[];
+
+  @ApiProperty({ type: AllocationPolicySummaryDto })
+  policy: AllocationPolicySummaryDto;
 }
 
 export class TaskAssigneeAvailabilityDto {

@@ -35,8 +35,16 @@ import { TaskProgressService } from './task-progress.service';
 import { TaskDependenciesService } from './task-dependencies.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { BulkTasksDto } from './dto/bulk-tasks.dto';
 import { QueryTaskDto } from './dto/query-task.dto';
 import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
+import { UpdateTaskCommentDto } from './dto/update-task-comment.dto';
+import {
+  CreateTaskChecklistItemDto,
+  UpdateTaskChecklistItemDto,
+  TaskChecklistItemDto,
+  TaskChecklistProgressDto,
+} from './dto/task-checklist.dto';
 import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
 import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
 import { UpdateTaskBundleDto } from './dto/update-task-bundle.dto';
@@ -97,6 +105,19 @@ export class TasksController {
       dto,
       files ?? [],
       request.user.id,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Post('bulk')
+  @HttpCode(HttpStatus.OK)
+  bulk(@Body() dto: BulkTasksDto, @Request() request: AuthRequest) {
+    return this.tasksService.bulk(
+      dto,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
       this.viewerRole(request),
     );
   }
@@ -304,6 +325,81 @@ export class TasksController {
   }
 
   @CheckAbility('read', 'Task')
+  @Get(':id/checklist-items')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TaskChecklistProgressDto })
+  @ApiParam({ name: 'id', type: String, required: true })
+  getChecklist(@Param('id') id: string, @Request() request: AuthRequest) {
+    return this.tasksService.getChecklist(
+      id,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Post(':id/checklist-items')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ type: TaskChecklistItemDto })
+  @ApiParam({ name: 'id', type: String, required: true })
+  addChecklistItem(
+    @Param('id') id: string,
+    @Body() dto: CreateTaskChecklistItemDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.tasksService.addChecklistItem(
+      id,
+      dto,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Patch(':id/checklist-items/:itemId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TaskChecklistItemDto })
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'itemId', type: String, required: true })
+  updateChecklistItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: UpdateTaskChecklistItemDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.tasksService.updateChecklistItem(
+      id,
+      itemId,
+      dto,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Delete(':id/checklist-items/:itemId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse()
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'itemId', type: String, required: true })
+  removeChecklistItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Request() request: AuthRequest,
+  ) {
+    return this.tasksService.removeChecklistItem(
+      id,
+      itemId,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('read', 'Task')
   @Get(':id/comments')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'id', type: String, required: true })
@@ -328,6 +424,48 @@ export class TasksController {
     return this.tasksService.addComment(
       id,
       dto,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Patch(':id/comments/:commentId')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'commentId', type: String, required: true })
+  updateComment(
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: UpdateTaskCommentDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.tasksService.updateComment(
+      id,
+      commentId,
+      dto,
+      request.user.id,
+      request.caslUser!,
+      request.ability!,
+      this.viewerRole(request),
+    );
+  }
+
+  @CheckAbility('update', 'Task')
+  @Delete(':id/comments/:commentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiParam({ name: 'commentId', type: String, required: true })
+  removeComment(
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Request() request: AuthRequest,
+  ) {
+    return this.tasksService.removeComment(
+      id,
+      commentId,
       request.user.id,
       request.caslUser!,
       request.ability!,

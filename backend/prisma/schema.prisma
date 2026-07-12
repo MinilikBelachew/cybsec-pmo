@@ -53,6 +53,12 @@ enum EngagementType {
   Staff_Augmentation @map("Staff Augmentation")
 }
 
+enum ProjectMethodology {
+  Agile
+  Waterfall
+  Hybrid
+}
+
 enum BillingModel {
   Fixed_Price        @map("Fixed Price")
   Retainer
@@ -71,11 +77,12 @@ enum PartyType {
 // ─────────────────────────────────────────
 
 model Department {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code      String   @unique @db.VarChar(30)
-  name      String   @unique @db.VarChar(100)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code             String   @unique @db.VarChar(30)
+  name             String   @unique @db.VarChar(100)
+  kekaDepartmentId String?  @unique @map("keka_department_id") @db.VarChar(100)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   projects  Project[]
   employees Employee[]
@@ -130,12 +137,13 @@ model User {
   primaryProjects           Project[]            @relation("ProjectPrimaryPM")
   secondaryProjects         Project[]            @relation("ProjectSecondaryPM")
   ownedTasks                Task[]               @relation("TaskOwner")
+  backupOwnedTasks          Task[]               @relation("TaskBackupOwner")
   taskComments              TaskComment[]
-  uploadedAttachments       TaskAttachment[]
   engineerProgressUpdates   TaskProgressUpdate[] @relation("ProgressEngineer")
   reviewedProgressUpdates   TaskProgressUpdate[] @relation("ProgressReviewer")
   employees                 Employee?
-  approvedAllocations       Allocation[]
+  approvedAllocations       Allocation[]         @relation("AllocationApprover")
+  requestedAllocations      Allocation[]         @relation("AllocationRequester")
   timesheetApprovals        TimesheetApproval[]
   approvedBudgets           ProjectBudget[]
   approvedRevisions         BudgetRevision[]
@@ -306,6 +314,11 @@ model AppSetting {
   auditArchiveEnabled           Boolean   @default(true) @map("audit_archive_enabled")
   lastAuditArchiveAt            DateTime? @map("last_audit_archive_at") @db.Timestamptz
   lastAuditArchiveCount         Int       @default(0) @map("last_audit_archive_count")
+  allocationThresholdMode       String    @default("warn") @map("allocation_threshold_mode") @db.VarChar(10)
+  designationMismatchMode       String    @default("warn") @map("designation_mismatch_mode") @db.VarChar(10)
+  departmentStaffingMode        String    @default("off") @map("department_staffing_mode") @db.VarChar(10)
+  designationRules              Json      @default("[]") @map("designation_rules")
+  departmentStaffingRules       Json      @default("{\"rule\":\"same_department_only\"}") @map("department_staffing_rules")
   updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 
@@ -359,9 +372,10 @@ model Project {
   objective         String
   departmentId      String         @map("department_id") @db.Uuid
   customerId        String         @map("customer_id") @db.Uuid
-  engagementType    EngagementType @map("engagement_type")
-  billingModel      BillingModel   @map("billing_model")
-  priority          PriorityLevel  @default(Medium)
+  engagementType    EngagementType     @map("engagement_type")
+  billingModel      BillingModel       @map("billing_model")
+  methodology       ProjectMethodology @default(Agile)
+  priority          PriorityLevel      @default(Medium)
   startDate         DateTime       @map("start_date") @db.Date
   endDate           DateTime       @map("end_date") @db.Date
   baselineStartDate DateTime?      @map("baseline_start_date") @db.Date
@@ -375,6 +389,12 @@ model Project {
   status            ProjectStatus  @default(Draft)
   crmOpportunityId  String?        @map("crm_opportunity_id") @db.Uuid
   templateId        String?        @map("template_id") @db.Uuid
+  /// Linked Keka PSA project id (GET/POST /psa/projects). Required for timesheet + allocation push.
+  kekaProjectId     String?        @unique @map("keka_project_id") @db.VarChar(100)
+  /// Linked Keka PSA client id (project.clientId).
+  kekaClientId      String?        @map("keka_client_id") @db.VarChar(100)
+  kekaProjectCode   String?        @map("keka_project_code") @db.VarChar(100)
+  kekaSyncedAt      DateTime?      @map("keka_synced_at") @db.Timestamptz
   createdBy         String         @map("created_by") @db.Uuid
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -419,6 +439,7 @@ model Project {
   @@index([status], map: "idx_projects_status")
   @@index([departmentId], map: "idx_projects_dept")
   @@index([engagementType], map: "idx_projects_engagement")
+  @@index([kekaClientId], map: "idx_projects_keka_client")
   @@map("projects")
 }
 
@@ -450,6 +471,7 @@ model ProjectPhase {
   project    Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   milestones ProjectMilestone[]
   tasks      Task[]
+  workspaceDocuments WorkspaceDocument[]
 
   @@index([projectId], map: "idx_phases_project")
   @@map("project_phases")
@@ -468,6 +490,7 @@ model ProjectMilestone {
   project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
   invoices  Invoice[]
+  workspaceDocuments WorkspaceDocument[]
 
   @@index([projectId], map: "idx_milestones_project")
   @@index([phaseId], map: "idx_milestones_phase")
@@ -494,6 +517,10 @@ model Task {
   progressPending  Int           @default(0) @map("progress_pending")
   status           TaskStatus    @default(To_Do)
   isOnCriticalPath Boolean       @default(false) @map("is_on_critical_path")
+  backupOwnerId    String?       @map("backup_owner_id") @db.Uuid
+  /// Linked Keka PSA task id (GET/POST /psa/projects/{projectId}/tasks). Used for timesheet push.
+  kekaTaskId       String?       @unique @map("keka_task_id") @db.VarChar(100)
+  kekaSyncedAt     DateTime?     @map("keka_synced_at") @db.Timestamptz
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -502,9 +529,11 @@ model Task {
   subTasks    Task[]  @relation("SubTasks")
   phase       ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
   owner       User?   @relation("TaskOwner", fields: [ownerId], references: [id])
+  backupOwner User?   @relation("TaskBackupOwner", fields: [backupOwnerId], references: [id])
 
   comments          TaskComment[]
-  attachments       TaskAttachment[]
+  checklistItems    TaskChecklistItem[]
+  workspaceDocuments WorkspaceDocument[]
   dependenciesAsPre TaskDependency[] @relation("DependencyPredecessor")
   dependenciesAsSuc TaskDependency[] @relation("DependencySuccessor")
   progressUpdates   TaskProgressUpdate[]
@@ -515,7 +544,23 @@ model Task {
   @@index([parentTaskId], map: "idx_tasks_parent")
   @@index([status], map: "idx_tasks_status")
   @@index([phaseId], map: "idx_tasks_phase")
+  @@index([backupOwnerId], map: "idx_tasks_backup_owner")
   @@map("tasks")
+}
+
+model TaskChecklistItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  title     String   @db.VarChar(255)
+  isDone    Boolean  @default(false) @map("is_done")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId], map: "idx_task_checklist_items_task")
+  @@map("task_checklist_items")
 }
 
 model TaskComment {
@@ -531,23 +576,6 @@ model TaskComment {
 
   @@index([taskId], map: "idx_task_comments_task")
   @@map("task_comments")
-}
-
-model TaskAttachment {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId     String   @map("task_id") @db.Uuid
-  uploadedBy String   @map("uploaded_by") @db.Uuid
-  s3Key      String   @map("s3_key") @db.VarChar(512)
-  filename   String   @db.VarChar(255)
-  mimeType   String?  @map("mime_type") @db.VarChar(100)
-  sizeBytes  BigInt?  @map("size_bytes")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  uploader User @relation(fields: [uploadedBy], references: [id])
-
-  @@index([taskId], map: "idx_task_attachments_task")
-  @@map("task_attachments")
 }
 
 model TaskDependency {
@@ -597,33 +625,56 @@ model TaskProgressUpdate {
 // ─────────────────────────────────────────
 
 model Employee {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  kekaEmployeeId String   @unique @map("keka_employee_id") @db.VarChar(100)
-  userId         String?  @unique @map("user_id") @db.Uuid
-  name           String   @db.VarChar(255)
-  email          String   @db.VarChar(255)
-  departmentId   String   @map("department_id") @db.Uuid
-  designation    String   @db.VarChar(100)
-  managerId      String?  @map("manager_id") @db.Uuid
-  weeklyHours    Decimal  @default(40) @map("weekly_hours") @db.Decimal(5, 2)
-  isActive       Boolean  @default(true) @map("is_active")
-  syncedAt       DateTime @map("synced_at") @db.Timestamptz
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kekaEmployeeId            String    @unique @map("keka_employee_id") @db.VarChar(100)
+  employeeNumber            String?   @map("employee_number") @db.VarChar(50)
+  userId                    String?   @unique @map("user_id") @db.Uuid
+  name                      String    @db.VarChar(255)
+  firstName                 String?   @map("first_name") @db.VarChar(100)
+  lastName                  String?   @map("last_name") @db.VarChar(100)
+  displayName               String?   @map("display_name") @db.VarChar(255)
+  email                     String    @db.VarChar(255)
+  departmentId              String    @map("department_id") @db.Uuid
+  kekaDepartmentGroupId     String?   @map("keka_department_group_id") @db.VarChar(100)
+  designation               String    @db.VarChar(100)
+  jobTitleIdentifier        String?   @map("job_title_identifier") @db.VarChar(100)
+  managerId                 String?   @map("manager_id") @db.Uuid
+  reportsToKekaId           String?   @map("reports_to_keka_id") @db.VarChar(100)
+  weeklyHours               Decimal   @default(40) @map("weekly_hours") @db.Decimal(5, 2)
+  timeType                  Int?      @map("time_type")
+  workerType                Int?      @map("worker_type")
+  shiftPolicyIdentifier     String?   @map("shift_policy_identifier") @db.VarChar(100)
+  weeklyOffPolicyIdentifier String?   @map("weekly_off_policy_identifier") @db.VarChar(100)
+  attendanceNumber          String?   @map("attendance_number") @db.VarChar(100)
+  profileImageFileName      String?   @map("profile_image_file_name") @db.VarChar(255)
+  profileImageThumbs        Json?     @map("profile_image_thumbs")
+  profileImageUrl           String?   @map("profile_image_url") @db.VarChar(500)
+  employmentStatus          Int?      @map("employment_status")
+  joiningDate               DateTime? @map("joining_date") @db.Date
+  exitDate                  DateTime? @map("exit_date") @db.Date
+  isActive                  Boolean   @default(true) @map("is_active")
+  syncedAt                  DateTime  @map("synced_at") @db.Timestamptz
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   user       User?       @relation(fields: [userId], references: [id])
   department Department  @relation(fields: [departmentId], references: [id])
   manager    Employee?   @relation("EmployeeManager", fields: [managerId], references: [id])
   subordinates Employee[] @relation("EmployeeManager")
 
-  allocations   Allocation[]
+  allocations          Allocation[] @relation("AllocationEmployee")
+  backupForAllocations Allocation[] @relation("AllocationBackup")
   leaveRecords  LeaveRecord[]
+  attendanceRecords AttendanceRecord[]
   timesheets    Timesheet[]
   employeeCosts EmployeeCost[]
+  salaries      EmployeeSalary[]
 
   @@index([kekaEmployeeId], map: "idx_employees_keka_id")
+  @@index([employeeNumber], map: "idx_employees_employee_number")
   @@index([departmentId], map: "idx_employees_dept")
   @@index([managerId], map: "idx_employees_manager")
+  @@index([kekaDepartmentGroupId], map: "idx_employees_keka_dept_group")
   @@map("employees")
 }
 
@@ -636,28 +687,41 @@ model Allocation {
   hours      Decimal?  @db.Decimal(7, 2)
   startDate  DateTime  @map("start_date") @db.Date
   endDate    DateTime? @map("end_date") @db.Date
-  status     String    @default("Active") @db.VarChar(20)
-  approvedBy String?   @map("approved_by") @db.Uuid
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  status           String    @default("Active") @db.VarChar(20)
+  approvedBy       String?   @map("approved_by") @db.Uuid
+  requestedBy      String?   @map("requested_by") @db.Uuid
+  requestedAt      DateTime? @map("requested_at") @db.Timestamptz
+  rejectionComment String?   @map("rejection_comment")
+  kekaSyncedAt     DateTime? @map("keka_synced_at") @db.Timestamptz
+  kekaSyncRef      String?   @map("keka_sync_ref") @db.VarChar(100)
+  backupEmployeeId String?   @map("backup_employee_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee       Employee  @relation("AllocationEmployee", fields: [employeeId], references: [id])
+  backupEmployee Employee? @relation("AllocationBackup", fields: [backupEmployeeId], references: [id])
   project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  approver User?    @relation(fields: [approvedBy], references: [id])
+  approver User?    @relation("AllocationApprover", fields: [approvedBy], references: [id])
+  requester User?   @relation("AllocationRequester", fields: [requestedBy], references: [id])
 
   @@index([employeeId], map: "idx_allocations_employee")
   @@index([projectId], map: "idx_allocations_project")
   @@index([status], map: "idx_allocations_status")
+  @@index([requestedBy], map: "idx_allocations_requested_by")
+  @@index([backupEmployeeId], map: "idx_allocations_backup")
   @@map("allocations")
 }
 
 model LeaveRecord {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeId String   @map("employee_id") @db.Uuid
-  leaveDate  DateTime @map("leave_date") @db.Date
-  leaveType  String   @map("leave_type") @db.VarChar(50)
-  isApproved Boolean  @default(false) @map("is_approved")
-  kekaRef    String?  @map("keka_ref") @db.VarChar(100)
-  syncedAt   DateTime @map("synced_at") @db.Timestamptz
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  leaveDate   DateTime @map("leave_date") @db.Date
+  leaveType   String   @map("leave_type") @db.VarChar(50)
+  isApproved  Boolean  @default(false) @map("is_approved")
+  kekaStatus  Int?     @map("keka_status")
+  fromSession Int?     @map("from_session")
+  toSession   Int?     @map("to_session")
+  kekaRef     String?  @map("keka_ref") @db.VarChar(100)
+  syncedAt    DateTime @map("synced_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
@@ -665,6 +729,140 @@ model LeaveRecord {
   @@index([employeeId], map: "idx_leave_employee")
   @@index([leaveDate], map: "idx_leave_date")
   @@map("leave_records")
+}
+
+/// Inbound from Keka GET /time/attendance (AttendanceSummary). Window ≤ 90 days.
+model AttendanceRecord {
+  id                              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId                      String    @map("employee_id") @db.Uuid
+  kekaAttendanceId                String?   @unique @map("keka_attendance_id") @db.VarChar(100)
+  kekaEmployeeId                  String    @map("keka_employee_id") @db.VarChar(100)
+  employeeNumber                  String?   @map("employee_number") @db.VarChar(50)
+  attendanceDate                  DateTime  @map("attendance_date") @db.Date
+  /// Keka AttendanceDayType: 0–4.
+  dayType                         Int?      @map("day_type")
+  shiftStartTime                  DateTime? @map("shift_start_time") @db.Timestamptz
+  shiftEndTime                    DateTime? @map("shift_end_time") @db.Timestamptz
+  shiftDuration                   Decimal?  @map("shift_duration") @db.Decimal(8, 2)
+  shiftBreakDuration              Decimal?  @map("shift_break_duration") @db.Decimal(8, 2)
+  shiftEffectiveDuration          Decimal?  @map("shift_effective_duration") @db.Decimal(8, 2)
+  totalGrossHours                 Decimal?  @map("total_gross_hours") @db.Decimal(8, 2)
+  totalEffectiveHours             Decimal?  @map("total_effective_hours") @db.Decimal(8, 2)
+  totalBreakDuration              Decimal?  @map("total_break_duration") @db.Decimal(8, 2)
+  totalEffectiveOvertimeDuration  Decimal?  @map("total_effective_overtime_duration") @db.Decimal(8, 2)
+  totalGrossOvertimeDuration      Decimal?  @map("total_gross_overtime_duration") @db.Decimal(8, 2)
+  firstInAt                       DateTime? @map("first_in_at") @db.Timestamptz
+  lastOutAt                       DateTime? @map("last_out_at") @db.Timestamptz
+  firstInPayload                  Json?     @map("first_in_payload")
+  lastOutPayload                  Json?     @map("last_out_payload")
+  syncedAt                        DateTime  @map("synced_at") @db.Timestamptz
+  createdAt                       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, attendanceDate], map: "uq_attendance_employee_date")
+  @@index([employeeId], map: "idx_attendance_employee")
+  @@index([kekaEmployeeId], map: "idx_attendance_keka_employee")
+  @@index([attendanceDate], map: "idx_attendance_date")
+  @@index([dayType], map: "idx_attendance_day_type")
+  @@map("attendance_records")
+}
+
+/// Inbound from Keka GET /time/holidayscalendar (ApiLookup).
+model HolidayCalendar {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kekaCalendarId  String   @unique @map("keka_calendar_id") @db.VarChar(100)
+  name            String   @db.VarChar(255)
+  syncedAt        DateTime @map("synced_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  holidays Holiday[]
+
+  @@index([name], map: "idx_holiday_calendars_name")
+  @@map("holiday_calendars")
+}
+
+/// Inbound from Keka GET /time/holidayscalendar/{calendarId}/holidays.
+model Holiday {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  calendarId         String   @map("calendar_id") @db.Uuid
+  kekaHolidayId      String   @unique @map("keka_holiday_id") @db.VarChar(100)
+  name               String   @db.VarChar(255)
+  holidayDate        DateTime @map("holiday_date") @db.Date
+  isFloater          Boolean  @default(false) @map("is_floater")
+  calendarYear       Int?     @map("calendar_year")
+  syncedAt           DateTime @map("synced_at") @db.Timestamptz
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  calendar HolidayCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@index([calendarId], map: "idx_holidays_calendar")
+  @@index([holidayDate], map: "idx_holidays_date")
+  @@index([calendarYear], map: "idx_holidays_year")
+  @@map("holidays")
+}
+
+/// Inbound from Keka GET /payroll/salaries (APIEmployeeSalary).
+/// ratePerHour is derived locally from CTC/gross + remunerationType + weekly hours.
+model EmployeeSalary {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId       String    @map("employee_id") @db.Uuid
+  kekaSalaryId     String    @unique @map("keka_salary_id") @db.VarChar(100)
+  kekaEmployeeId   String    @map("keka_employee_id") @db.VarChar(100)
+  kekaPayGroupId   String?   @map("keka_pay_group_id") @db.VarChar(100)
+  ctc              Decimal   @db.Decimal(15, 2)
+  gross            Decimal   @db.Decimal(15, 2)
+  netPay           Decimal   @map("net_pay") @db.Decimal(15, 2)
+  /// Keka RemunerationType: 0–4 (Annual / Monthly / … per tenant config).
+  remunerationType Int?      @map("remuneration_type")
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  /// Derived cost rate for PMO EmployeeCost / utilisation (not a raw Keka field).
+  ratePerHour      Decimal?  @map("rate_per_hour") @db.Decimal(12, 4)
+  currency         String    @default("USD") @db.VarChar(10)
+  isCurrent        Boolean   @default(true) @map("is_current")
+  earnings         Json?
+  contributions    Json?
+  deductions       Json?
+  variables        Json?
+  syncedAt         DateTime  @map("synced_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId], map: "idx_employee_salaries_employee")
+  @@index([kekaEmployeeId], map: "idx_employee_salaries_keka_employee")
+  @@index([effectiveFrom], map: "idx_employee_salaries_effective")
+  @@index([isCurrent], map: "idx_employee_salaries_current")
+  @@index([kekaPayGroupId], map: "idx_employee_salaries_pay_group")
+  @@map("employee_salaries")
+}
+
+/// Inbound from Keka GET /payroll/paygroups/paycycles (APIPayCycleView).
+/// Used to align salary/cost periods with payroll run windows.
+model KekaPayCycle {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kekaIdentifier String    @unique @map("keka_identifier") @db.VarChar(100)
+  kekaPayGroupId String?   @map("keka_pay_group_id") @db.VarChar(100)
+  /// Raw month label from Keka (string in APIPayCycleView.month).
+  monthLabel     String?   @map("month_label") @db.VarChar(50)
+  periodYear     Int?      @map("period_year")
+  periodMonth    Int?      @map("period_month")
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  /// Keka PayrollRunStatus: 0 Pending, 1 Finalized, 2 Partial.
+  runStatus      Int?      @map("run_status")
+  syncedAt       DateTime  @map("synced_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([kekaPayGroupId], map: "idx_keka_pay_cycles_pay_group")
+  @@index([periodYear, periodMonth], map: "idx_keka_pay_cycles_period")
+  @@index([runStatus], map: "idx_keka_pay_cycles_run_status")
+  @@map("keka_pay_cycles")
 }
 
 model Timesheet {
@@ -1324,6 +1522,11 @@ model WorkspaceDocument {
   projectId    String   @map("project_id") @db.Uuid
   logicalDocId String   @map("logical_doc_id") @db.Uuid
   version      Int      @default(1)
+  /// Project | Phase | Milestone | SignOff | Technical | Task
+  category     String   @default("Project") @db.VarChar(30)
+  phaseId      String?  @map("phase_id") @db.Uuid
+  milestoneId  String?  @map("milestone_id") @db.Uuid
+  taskId       String?  @map("task_id") @db.Uuid
   filename     String   @db.VarChar(255)
   s3Key        String   @map("s3_key") @db.VarChar(512)
   mimeType     String?  @map("mime_type") @db.VarChar(100)
@@ -1333,13 +1536,20 @@ model WorkspaceDocument {
   uploadedBy   String   @map("uploaded_by") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  uploader User    @relation(fields: [uploadedBy], references: [id])
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase     ProjectPhase?     @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  milestone ProjectMilestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  task      Task?             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader  User              @relation(fields: [uploadedBy], references: [id])
 
   @@unique([logicalDocId, version], map: "uq_doc_version")
   @@index([projectId], map: "idx_docs_project")
   @@index([logicalDocId], map: "idx_docs_logical")
   @@index([isInternal], map: "idx_docs_internal")
+  @@index([category], map: "idx_docs_category")
+  @@index([phaseId], map: "idx_docs_phase")
+  @@index([milestoneId], map: "idx_docs_milestone")
+  @@index([taskId], map: "idx_docs_task")
   @@map("workspace_documents")
 }
 
@@ -1440,6 +1650,7 @@ model ProjectTemplate {
   id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String         @db.VarChar(255)
   category           String         @db.VarChar(100)
+  description        String?
   engagementType     EngagementType @map("engagement_type")
   version            Int            @default(1)
   isStale            Boolean        @default(false) @map("is_stale")
@@ -1452,29 +1663,70 @@ model ProjectTemplate {
 
   creator User @relation(fields: [createdBy], references: [id])
 
-  projects          Project[]
-  templateTasks     TemplateTask[]
-  closureChecklists ClosureChecklist[]
+  projects           Project[]
+  templatePhases     TemplatePhase[]
+  templateMilestones TemplateMilestone[]
+  templateTasks      TemplateTask[]
+  closureChecklists  ClosureChecklist[]
 
   @@map("project_templates")
+}
+
+model TemplatePhase {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId        String   @map("template_id") @db.Uuid
+  name              String   @db.VarChar(255)
+  description       String?
+  orderIndex        Int      @default(0) @map("order_index")
+  relativeStartDays Int      @default(0) @map("relative_start_days")
+  durationDays      Int      @default(1) @map("duration_days")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  template   ProjectTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  milestones TemplateMilestone[]
+  tasks      TemplateTask[]
+
+  @@index([templateId], map: "idx_template_phases_template")
+  @@map("template_phases")
+}
+
+model TemplateMilestone {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId         String   @map("template_id") @db.Uuid
+  templatePhaseId    String?  @map("template_phase_id") @db.Uuid
+  title              String   @db.VarChar(255)
+  relativeTargetDays Int      @default(0) @map("relative_target_days")
+  weight             Decimal? @db.Decimal(5, 2)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  template ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  phase    TemplatePhase?  @relation(fields: [templatePhaseId], references: [id], onDelete: SetNull)
+
+  @@index([templateId], map: "idx_template_milestones_template")
+  @@index([templatePhaseId], map: "idx_template_milestones_phase")
+  @@map("template_milestones")
 }
 
 model TemplateTask {
   id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   templateId        String         @map("template_id") @db.Uuid
+  templatePhaseId   String?        @map("template_phase_id") @db.Uuid
   parentId          String?        @map("parent_id") @db.Uuid
   title             String         @db.VarChar(255)
   description       String?
   relativeStartDays Int            @default(0) @map("relative_start_days")
   durationDays      Int            @default(1) @map("duration_days")
   priority          PriorityLevel  @default(Medium)
+  effortHours       Int?           @map("effort_hours")
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
-  template   ProjectTemplate @relation(fields: [templateId], references: [id])
-  parentTask TemplateTask?   @relation("SubTemplateTasks", fields: [parentId], references: [id])
+  template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  phase      TemplatePhase?  @relation(fields: [templatePhaseId], references: [id], onDelete: SetNull)
+  parentTask TemplateTask?   @relation("SubTemplateTasks", fields: [parentId], references: [id], onDelete: SetNull)
   subTasks   TemplateTask[]  @relation("SubTemplateTasks")
 
   @@index([templateId], map: "idx_template_tasks_template")
+  @@index([templatePhaseId], map: "idx_template_tasks_phase")
   @@index([parentId], map: "idx_template_tasks_parent")
   @@map("template_tasks")
 }

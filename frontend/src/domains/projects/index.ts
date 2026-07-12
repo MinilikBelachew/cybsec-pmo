@@ -7,8 +7,17 @@ export * from "./schemas/task/update-task.schema";
 export * from "./schemas/phase/phase.schema";
 export * from "./schemas/milestone/milestone.schema";
 export * from "./api/projects.api";
+export * from "./api/project-templates.api";
+export * from "./api/action-points.api";
 export * from "./api/tasks.api";
 export * from "./api/files.api";
+export * from "./api/project-documents.api";
+export type {
+  WorkspaceDocument,
+  WorkspaceDocumentCategory,
+  CreateWorkspaceDocumentPayload,
+  GetWorkspaceDocumentsParams,
+} from "./types/project-documents.types";
 export * from "./components/tasks/task-progress-section";
 export * from "./utils/task-status-permissions";
 export * from "./utils/project-status";
@@ -22,5 +31,6 @@ export * from "./components/tasks/task-detail-panel";
 export * from "./components/roadmap/phase-form";
 export * from "./components/roadmap/milestone-form";
 export * from "./components/list/project-team-section";
+export * from "./components/list/project-leave-impact-section";
 export * from "./components/roadmap/phase-milestone-panel";
 export * from "./components/shared/employee-tooltip";

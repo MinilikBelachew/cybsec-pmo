@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   ForbiddenException,
   HttpStatus,
   Injectable,
@@ -31,6 +30,7 @@ const PROGRESS_INCLUDE = {
       projectId: true,
       ownerId: true,
       status: true,
+      effortHours: true,
       project: { select: { id: true, name: true, primaryPmId: true, secondaryPmId: true } },
     },
   },
@@ -39,6 +39,7 @@ const PROGRESS_INCLUDE = {
 const SUBMITTABLE_STATUSES: TaskStatus[] = [
   TaskStatus.In_Progress,
   TaskStatus.Rework,
+  TaskStatus.Submitted_for_Review,
 ];
 
 @Injectable()
@@ -59,7 +60,10 @@ export class TaskProgressService {
   ) {
     const task = await this.loadTaskInScope(taskId, caslUser, 'update');
 
-    if (task.ownerId !== actorId) {
+    const canSubmitAsOwner =
+      task.ownerId === actorId ||
+      (task.ownerId == null && task.parentTask?.ownerId === actorId);
+    if (!canSubmitAsOwner) {
       throw new ForbiddenException({
         status: HttpStatus.FORBIDDEN,
         errors: { task: 'onlyTaskOwnerCanSubmitProgress' },
@@ -73,23 +77,31 @@ export class TaskProgressService {
       });
     }
 
-    if (dto.progressPercent <= task.progressApproved) {
+    if (dto.progressPercent > 100) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { progressPercent: 'progressCannotExceed100' },
+      });
+    }
+
+    const highestPending = await this.maxPendingProgressPercent(this.prisma, taskId);
+    const progressFloor = Math.max(task.progressApproved, highestPending);
+
+    if (progressFloor >= 100) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         errors: {
-          progressPercent: `progressMustExceedApprovedTotal (${task.progressApproved}%)`,
+          progressPercent: 'progressAlreadyAt100CannotSubmitMore',
         },
       });
     }
 
-    const pending = await this.prisma.taskProgressUpdate.findFirst({
-      where: { taskId, status: 'Pending' },
-    });
-
-    if (pending) {
-      throw new ConflictException({
-        status: HttpStatus.CONFLICT,
-        errors: { progress: 'pendingProgressUpdateAlreadyExists' },
+    if (dto.progressPercent <= progressFloor) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          progressPercent: `progressMustExceedCurrentTotal (${progressFloor}%)`,
+        },
       });
     }
 
@@ -113,10 +125,12 @@ export class TaskProgressService {
         include: PROGRESS_INCLUDE,
       });
 
+      const latestPendingPercent = await this.maxPendingProgressPercent(tx, taskId);
+
       await tx.task.update({
         where: { id: taskId },
         data: {
-          progressPending: dto.progressPercent,
+          progressPending: latestPendingPercent,
           status: TaskStatus.Submitted_for_Review,
         },
       });
@@ -278,6 +292,8 @@ export class TaskProgressService {
     actorId: string,
     reviewedAt: Date,
   ) {
+    let nextStatus: TaskStatus = TaskStatus.In_Progress;
+
     const result = await this.prisma.$transaction(async (tx) => {
       const reviewed = await tx.taskProgressUpdate.update({
         where: { id: update.id },
@@ -289,23 +305,31 @@ export class TaskProgressService {
         include: PROGRESS_INCLUDE,
       });
 
+      const task = await tx.task.findUniqueOrThrow({
+        where: { id: update.taskId },
+        select: { progressApproved: true },
+      });
+      const progressApproved = Math.max(task.progressApproved, update.progressPercent);
+      const progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
+      nextStatus =
+        progressPending > 0
+          ? TaskStatus.Submitted_for_Review
+          : progressApproved >= 100
+            ? TaskStatus.Approved
+            : TaskStatus.In_Progress;
+
       await tx.task.update({
         where: { id: update.taskId },
         data: {
-          progressApproved: update.progressPercent,
-          progressPending: 0,
-          status:
-            update.progressPercent >= 100
-              ? TaskStatus.Approved
-              : TaskStatus.In_Progress,
+          progressApproved,
+          progressPending,
+          status: nextStatus,
         },
       });
 
       return reviewed;
     });
 
-    const nextStatus =
-      update.progressPercent >= 100 ? TaskStatus.Approved : TaskStatus.In_Progress;
     await this.logTaskStatusChangeIfNeeded(
       update.taskId,
       update.task.status,
@@ -340,6 +364,8 @@ export class TaskProgressService {
     reviewedAt: Date,
     reviewReason: string,
   ) {
+    let nextStatus: TaskStatus = TaskStatus.In_Progress;
+
     const result = await this.prisma.$transaction(async (tx) => {
       const reviewed = await tx.taskProgressUpdate.update({
         where: { id: update.id },
@@ -352,11 +378,17 @@ export class TaskProgressService {
         include: PROGRESS_INCLUDE,
       });
 
+      const progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
+      nextStatus =
+        progressPending > 0
+          ? TaskStatus.Submitted_for_Review
+          : TaskStatus.In_Progress;
+
       await tx.task.update({
         where: { id: update.taskId },
         data: {
-          progressPending: 0,
-          status: TaskStatus.In_Progress,
+          progressPending,
+          status: nextStatus,
         },
       });
 
@@ -366,7 +398,7 @@ export class TaskProgressService {
     await this.logTaskStatusChangeIfNeeded(
       update.taskId,
       update.task.status,
-      TaskStatus.In_Progress,
+      nextStatus,
       actorId,
       { progressUpdateId: update.id, decision: 'reject' },
     );
@@ -391,6 +423,8 @@ export class TaskProgressService {
     reviewedAt: Date,
     reviewReason: string,
   ) {
+    let nextStatus: TaskStatus = TaskStatus.Rework;
+
     const result = await this.prisma.$transaction(async (tx) => {
       const reviewed = await tx.taskProgressUpdate.update({
         where: { id: update.id },
@@ -403,11 +437,17 @@ export class TaskProgressService {
         include: PROGRESS_INCLUDE,
       });
 
+      const progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
+      nextStatus =
+        progressPending > 0
+          ? TaskStatus.Submitted_for_Review
+          : TaskStatus.Rework;
+
       await tx.task.update({
         where: { id: update.taskId },
         data: {
-          progressPending: 0,
-          status: TaskStatus.Rework,
+          progressPending,
+          status: nextStatus,
         },
       });
 
@@ -417,7 +457,7 @@ export class TaskProgressService {
     await this.logTaskStatusChangeIfNeeded(
       update.taskId,
       update.task.status,
-      TaskStatus.Rework,
+      nextStatus,
       actorId,
       { progressUpdateId: update.id, decision: 'rework' },
     );
@@ -461,6 +501,18 @@ export class TaskProgressService {
     }
   }
 
+  private async maxPendingProgressPercent(
+    tx: Prisma.TransactionClient | PrismaService,
+    taskId: string,
+  ): Promise<number> {
+    const latest = await tx.taskProgressUpdate.findFirst({
+      where: { taskId, status: 'Pending' },
+      orderBy: [{ progressPercent: 'desc' }, { createdAt: 'desc' }],
+      select: { progressPercent: true },
+    });
+    return latest?.progressPercent ?? 0;
+  }
+
   private async loadTaskInScope(
     taskId: string,
     caslUser: CaslUserContext,
@@ -477,6 +529,7 @@ export class TaskProgressService {
         status: true,
         title: true,
         progressApproved: true,
+        parentTask: { select: { ownerId: true } },
       },
     });
 
@@ -579,6 +632,8 @@ export class TaskProgressService {
     row: Prisma.TaskProgressUpdateGetPayload<{ include: typeof PROGRESS_INCLUDE }>,
   ) {
     const evidenceFiles = this.parseStoredEvidenceFiles(row);
+    const effortHours =
+      row.task?.effortHours != null ? Number(row.task.effortHours) : null;
 
     return {
       id: row.id,
@@ -602,6 +657,7 @@ export class TaskProgressService {
             id: row.task.id,
             title: row.task.title,
             projectId: row.task.projectId,
+            effortHours: Number.isFinite(effortHours as number) ? effortHours : null,
           }
         : undefined,
     };

@@ -31,6 +31,7 @@ import { PermissionRow } from '../casl/casl.types';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { resolveUserIsExternal } from './utils/user-external.util';
 import { formatIpWithUserAgent } from './utils/request-context.util';
+import { EmployeeUserLinkService } from '../keka/employee-user-link.service';
 
 type CreateSessionOptions = {
   isBreakGlass?: boolean;
@@ -52,6 +53,7 @@ export class AuthService {
     private sessionActivityService: SessionActivityService,
     private permissionsCache: PermissionsCacheService,
     private auditLogsService: AuditLogsService,
+    private employeeUserLinkService: EmployeeUserLinkService,
   ) {}
 
   async validateEntraLogin(
@@ -117,6 +119,11 @@ export class AuthService {
         entraObjectId,
         lastLogin: new Date(),
       });
+
+      await this.employeeUserLinkService.linkUserToEmployeeByEmail(
+        user.id,
+        email.toLowerCase(),
+      );
 
       const refreshTokenHash = crypto
         .createHash('sha256')

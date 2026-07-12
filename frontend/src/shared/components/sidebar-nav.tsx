@@ -34,7 +34,7 @@ export function SidebarNav() {
   // Use simple states initialized to defaults to match server rendering and avoid hydration mismatch
   const [collapsed, setCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(["execution"]);
-  const [pinnedIds, setPinnedIds] = useState<string[]>(["tasks", "log-hours"]);
+  const [pinnedIds, setPinnedIds] = useState<string[]>(["tasks"]);
 
   // On mount, load states from localStorage and set mounted flag
   useEffect(() => {
@@ -368,15 +368,17 @@ export function SidebarNav() {
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-muted/40 whitespace-nowrap">
               <div className="size-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
                 <span className="text-[10px] font-bold text-primary">
-                  {user?.name ? getInitials(user.name) : "U"}
+                  {user?.name ? getInitials(user.name) : "…"}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-semibold text-foreground truncate whitespace-nowrap">{user?.name || "User"}</p>
+                <p className="text-[11px] font-semibold text-foreground truncate whitespace-nowrap">
+                  {user?.name ?? "Loading…"}
+                </p>
                 <p className="text-[9px] text-muted-foreground capitalize truncate whitespace-nowrap">
                   {ROLE_CATALOG.find((r) => r.code === user?.backendRoleCode)?.label ??
                     user?.backendRoleCode?.replace(/_/g, " ") ??
-                    "User"}
+                    (user ? "User" : "…")}
                 </p>
               </div>
             </div>

@@ -17,6 +17,7 @@ import {
   // Calendar,
   // BarChart3,
   // PieChart,
+  // FileText,
   // Globe,
   // Store,
   KeyRound,
@@ -95,6 +96,7 @@ export const sidebarNav: NavSection[] = [
       // },
     ],
   },
+  // Phase 2 — Resource & Time
   // {
   //   id: "resources",
   //   label: "Resource & Time",
@@ -109,18 +111,25 @@ export const sidebarNav: NavSection[] = [
   //       permission: { action: "read", subject: "Team" },
   //     },
   //     {
+  //       id: "staffing-approvals",
+  //       label: "Staffing Approvals",
+  //       icon: CheckCircle,
+  //       href: "/dashboard/team/approvals",
+  //       permission: { action: "approve", subject: "Team" },
+  //     },
+  //     {
   //       id: "log-hours",
   //       label: "Log Hours",
   //       icon: Clock,
   //       href: "/dashboard/timesheets/log",
-  //       permission: { action: "update", subject: "Task" },
+  //       permission: { action: "update", subject: "Timesheet" },
   //     },
   //     {
   //       id: "approvals",
   //       label: "Approval Queue",
   //       icon: CheckCircle,
   //       href: "/dashboard/timesheets/approvals",
-  //       permission: { action: "approve", subject: "Task" },
+  //       permission: { action: "approve", subject: "Timesheet" },
   //     },
   //   ],
   // },
@@ -175,19 +184,27 @@ export const sidebarNav: NavSection[] = [
   //     },
   //   ],
   // },
+  // Phase 2 — Reports
   // {
   //   id: "reports",
   //   label: "Reports",
   //   icon: FileText,
   //   permission: { action: "read", subject: "Report" },
   //   children: [
-  //     { id: "report-library", label: "Report Library", icon: FileText, href: "/dashboard/reports", permission: { action: "read", subject: "Report" } },
-  //     { id: "status-reports", label: "Status Reports", icon: Calendar, href: "/dashboard/reports/status", permission: { action: "read", subject: "Report" } },
-  //     { id: "analytics", label: "Analytics", icon: BarChart3, href: "/dashboard/reports/analytics", permission: { action: "read", subject: "Report" } },
-  //     { id: "project-health", label: "Project Health", icon: CheckSquare, href: "/dashboard/reports/health", permission: { action: "read", subject: "Project" } },
-  //     { id: "financial-summary", label: "Financial Summary", icon: Wallet, href: "/dashboard/reports/financial", permission: { action: "read", subject: "Project" } },
-  //     { id: "utilization", label: "Utilization", icon: PieChart, href: "/dashboard/reports/utilization", permission: { action: "read", subject: "Report" } },
-  //     { id: "scheduled", label: "Scheduled Reports", icon: Clock, href: "/dashboard/reports/scheduled", permission: { action: "read", subject: "Report" } },
+  //     {
+  //       id: "report-library",
+  //       label: "Report Library",
+  //       icon: FileText,
+  //       href: "/dashboard/reports",
+  //       permission: { action: "read", subject: "Report" },
+  //     },
+  //     {
+  //       id: "utilization",
+  //       label: "Utilization",
+  //       icon: PieChart,
+  //       href: "/dashboard/reports/utilization",
+  //       permission: { action: "read", subject: "Report" },
+  //     },
   //   ],
   // },
   // {

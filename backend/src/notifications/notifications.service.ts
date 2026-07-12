@@ -30,7 +30,8 @@ export class NotificationsService {
   async notify(input: NotifyInput): Promise<void> {
     try {
       const recipients = [...new Set(input.recipientUserIds.filter(Boolean))].filter(
-        (userId) => userId !== input.actorId,
+        (userId) =>
+          input.includeActorAsRecipient || userId !== input.actorId,
       );
 
       if (recipients.length === 0) {
@@ -177,6 +178,10 @@ export class NotificationsService {
 
     const mapped = mapNotification(notification);
     this.notificationsGateway.emitToUser(userId, mapped);
+
+    if (input.inAppOnly) {
+      return;
+    }
 
     const emailDelivery = await this.prisma.notificationDelivery.create({
       data: {

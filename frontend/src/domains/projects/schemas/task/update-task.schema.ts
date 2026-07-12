@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { toDateString } from "@/shared/utils/date";
 import type { Task } from "../../types/tasks.types";
 import {
   requiredTaskDate,
@@ -15,12 +16,16 @@ export const updateTaskSchema = z
     description: z.string().optional(),
     priority: z.enum(["Low", "Medium", "High", "Critical"]),
     ownerId: z.preprocess(emptyToNull, z.string().uuid().nullable().optional()),
+    backupOwnerId: z.preprocess(emptyToNull, z.string().uuid().nullable().optional()),
     phaseId: z.string().uuid("Please select a phase"),
     startDate: requiredTaskDate,
     endDate: requiredTaskDate,
     effortHours: z.preprocess(
       (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
-      z.number().int().positive().optional()
+      z
+        .number({ message: "Effort hours is required" })
+        .int("Effort must be a whole number")
+        .positive("Effort must be greater than 0")
     ),
     status: z.enum([
       "To_Do",
@@ -38,6 +43,17 @@ export const updateTaskSchema = z
 
 export type UpdateTaskFormValues = z.infer<typeof updateTaskSchema>;
 
+
+/** Parse API date-only / ISO as local calendar day (avoid UTC shift). */
+function parseTaskDateLocal(value: string | Date): Date {
+  const key =
+    value instanceof Date
+      ? `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`
+      : String(value).slice(0, 10);
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export function taskToFormValues(task: Task): UpdateTaskFormValues {
   if (!task.startDate || !task.endDate) {
     throw new Error("Task is missing required dates");
@@ -48,10 +64,11 @@ export function taskToFormValues(task: Task): UpdateTaskFormValues {
     description: task.description ?? "",
     priority: task.priority,
     ownerId: task.ownerId,
+    backupOwnerId: task.backupOwnerId ?? null,
     phaseId: task.phaseId ?? "",
-    startDate: new Date(task.startDate),
-    endDate: new Date(task.endDate),
-    effortHours: task.effortHours ?? undefined,
+    startDate: parseTaskDateLocal(task.startDate),
+    endDate: parseTaskDateLocal(task.endDate),
+    effortHours: task.effortHours ?? 1,
     status: task.status,
   };
 }
@@ -64,10 +81,11 @@ export function taskToFormValuesOrDefaults(task: Task): UpdateTaskFormValues {
     description: task.description ?? "",
     priority: task.priority,
     ownerId: task.ownerId,
+    backupOwnerId: task.backupOwnerId ?? null,
     phaseId: task.phaseId ?? "",
-    startDate: task.startDate ? new Date(task.startDate) : defaults.startDate,
-    endDate: task.endDate ? new Date(task.endDate) : defaults.endDate,
-    effortHours: task.effortHours ?? undefined,
+    startDate: task.startDate ? parseTaskDateLocal(task.startDate) : defaults.startDate,
+    endDate: task.endDate ? parseTaskDateLocal(task.endDate) : defaults.endDate,
+    effortHours: task.effortHours ?? 1,
     status: task.status,
   };
 }
@@ -78,10 +96,11 @@ export function toUpdateTaskPayload(values: UpdateTaskFormValues) {
     description: values.description || null,
     priority: values.priority,
     ownerId: values.ownerId || null,
+    backupOwnerId: values.backupOwnerId || null,
     phaseId: values.phaseId,
-    startDate: values.startDate.toISOString().slice(0, 10),
-    endDate: values.endDate.toISOString().slice(0, 10),
-    effortHours: values.effortHours ?? null,
+    startDate: toDateString(values.startDate),
+    endDate: toDateString(values.endDate),
+    effortHours: values.effortHours,
     status: values.status,
   };
 }

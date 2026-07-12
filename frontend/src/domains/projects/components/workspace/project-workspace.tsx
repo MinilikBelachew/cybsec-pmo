@@ -9,12 +9,16 @@ import {
   useGetTasksQuery,
   useLazyExportTasksQuery,
   useUpdateTaskMutation,
+  useDeleteTaskMutation,
+  useBulkTasksMutation,
   useGetPhasesQuery,
   useGetMilestonesQuery,
-  useDeleteTaskMutation,
   useCreateTaskMutation,
+  useCreateTaskBundleMutation,
   useGetProjectTaskAssigneesQuery,
   useGetTaskDependenciesQuery,
+  useApplyLeaveBackupMutation,
+  useGetProjectLeaveImpactsQuery,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
 import {
@@ -57,6 +61,10 @@ import {
   Maximize2,
   Minimize2,
   ScrollText,
+  Users2,
+  FolderOpen,
+  Milestone,
+  CheckSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -69,7 +77,9 @@ import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
 import { TableView } from "./workspace-views/table-view";
 import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
+import { MilestoneView, type MilestoneViewRef } from "./workspace-views/milestone-view";
 import { ProjectAuditView } from "./workspace-views/project-audit-view";
+import { TeamView } from "./workspace-views/team-view";
 import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
@@ -80,13 +90,26 @@ import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
+import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
+import { ActionPointsPanel } from "./action-points-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
 import { useRole } from "@/shared/providers/role-provider";
 
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
-type View = "list" | "board" | "calendar" | "gantt" | "table" | "phases" | "audit";
+type View =
+  | "list"
+  | "board"
+  | "calendar"
+  | "gantt"
+  | "table"
+  | "phases"
+  | "milestones"
+  | "team"
+  | "docs"
+  | "actions"
+  | "audit";
 
 interface Task {
   id: string;
@@ -135,6 +158,10 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "gantt", label: "Gantt", icon: ChartGantt },
   { id: "table", label: "Table", icon: Table2 },
   { id: "phases", label: "Phases", icon: Flag },
+  { id: "milestones", label: "Milestones", icon: Milestone },
+  { id: "team", label: "Team", icon: Users2 },
+  { id: "docs", label: "Documents", icon: FolderOpen },
+  { id: "actions", label: "Action points", icon: CheckSquare },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -234,13 +261,16 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases, canImportProjects, canViewProjectAudit } = useModulePermissions();
+  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam } =
+    useModulePermissions();
+  const canManageProjectTeam = canEditProjects && canEditTeam;
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
   const canManageTasks = ability?.can("create", "Task") ?? false;
   const canCreateTask = canManageTasks;
   const canAssignTask = canManageTasks;
   const canReviewProgress = ability?.can("approve", "Task") ?? false;
   const phaseViewRef = useRef<PhaseViewRef>(null);
+  const milestoneViewRef = useRef<MilestoneViewRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -249,6 +279,19 @@ export function ProjectWorkspace() {
   };
 
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
+  const { data: leaveImpacts } = useGetProjectLeaveImpactsQuery(id);
+  const leaveImpactSummary = useMemo(() => {
+    const rows = leaveImpacts?.rows ?? [];
+    if (rows.length === 0) {
+      return null;
+    }
+    const maxSlip = rows.reduce(
+      (max, row) => Math.max(max, row.task.estimatedDelayDays),
+      0,
+    );
+    const criticalWithoutBackup = rows.filter((row) => row.isCritical && !row.hasBackup).length;
+    return { count: rows.length, maxSlip, criticalWithoutBackup };
+  }, [leaveImpacts]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -279,12 +322,17 @@ export function ProjectWorkspace() {
   
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
+  const [bulkTasks, { isLoading: isBulkDeleting }] = useBulkTasksMutation();
+  const [applyLeaveBackup] = useApplyLeaveBackupMutation();
+  const applyBackupHandled = useRef<string | null>(null);
   const [createTask] = useCreateTaskMutation();
+  const [createTaskBundle] = useCreateTaskBundleMutation();
   const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
 
   const [deleteTaskConfirm, setDeleteTaskConfirm] = useState<{
     isOpen: boolean;
     taskId: string | null;
+    taskIds?: string[] | null;
   }>({ isOpen: false, taskId: null });
 
   const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
@@ -432,6 +480,7 @@ export function ProjectWorkspace() {
       | "comments"
       | "subtasks",
   ) => {
+    // Hybrid: open the clicked task (parent or sub-task). Sub-task sheets hide the Subtasks tab.
     if (typeof optionsOrTab === "string") {
       setTaskDetailDefaultTab(optionsOrTab);
       setFocusProgressReview(false);
@@ -444,15 +493,36 @@ export function ProjectWorkspace() {
 
   useEffect(() => {
     const taskIdParam = searchParams.get("taskId");
-    if (!taskIdParam) return;
+    if (!taskIdParam || !id) return;
 
+    const shouldApplyBackup = searchParams.get("applyBackup") === "1";
     const shouldFocusReview = searchParams.get("reviewProgress") === "1";
     const shouldFocusProgress = searchParams.get("progress") === "1";
-    setTaskDetailDefaultTab(undefined);
-    setFocusProgressReview(shouldFocusReview || shouldFocusProgress);
-    setSelectedTaskId(taskIdParam);
-    router.replace(`/dashboard/projects/${id}`);
-  }, [searchParams, id, router]);
+
+    const run = async () => {
+      if (shouldApplyBackup && applyBackupHandled.current !== taskIdParam) {
+        applyBackupHandled.current = taskIdParam;
+        try {
+          const result = await applyLeaveBackup({
+            projectId: id,
+            taskId: taskIdParam,
+          }).unwrap();
+          toast.success(
+            `Task reassigned to ${result.ownerName ?? "backup resource"}.`,
+          );
+        } catch {
+          toast.error("Could not assign backup resource to this task.");
+        }
+      }
+
+      setTaskDetailDefaultTab(undefined);
+      setFocusProgressReview(shouldFocusReview || shouldFocusProgress);
+      setSelectedTaskId(taskIdParam);
+      router.replace(`/dashboard/projects/${id}`);
+    };
+
+    void run();
+  }, [searchParams, id, router, applyLeaveBackup]);
 
   const [ganttZoom, setGanttZoom] = useState(1);
 
@@ -465,7 +535,9 @@ export function ProjectWorkspace() {
   };
 
   const toggleTask = async (taskId: string) => {
-    const target = tasks.find((t) => t.id === taskId);
+    const target =
+      tasks.find((t) => t.id === taskId) ??
+      tasks.flatMap((t) => t.children ?? []).find((c) => c.id === taskId);
     if (!target) return;
     const newStatus = target.status === "Done" || target.status === "Approved" ? "To_Do" : "Done";
     const isOwner = user?.id === target.assigneeId;
@@ -486,10 +558,32 @@ export function ProjectWorkspace() {
   };
 
   const handleDeleteTask = (taskId: string) => {
-    setDeleteTaskConfirm({ isOpen: true, taskId });
+    setDeleteTaskConfirm({ isOpen: true, taskId, taskIds: null });
+  };
+
+  const handleBulkDeleteTasks = (taskIds: string[]) => {
+    setDeleteTaskConfirm({ isOpen: true, taskId: null, taskIds });
   };
 
   const confirmDeleteTask = async () => {
+    const bulkIds = deleteTaskConfirm.taskIds;
+    if (bulkIds && bulkIds.length > 0) {
+      try {
+        await bulkTasks({ taskIds: bulkIds, delete: true }).unwrap();
+        toast.success(
+          bulkIds.length === 1
+            ? "Task deleted successfully"
+            : `${bulkIds.length} tasks deleted successfully`,
+        );
+      } catch (err) {
+        console.error("Failed to bulk delete tasks:", err);
+        toast.error(formatTaskApiError(err, "Failed to delete tasks"));
+      } finally {
+        setDeleteTaskConfirm({ isOpen: false, taskId: null, taskIds: null });
+      }
+      return;
+    }
+
     if (!deleteTaskConfirm.taskId) return;
     try {
       await deleteTask(deleteTaskConfirm.taskId).unwrap();
@@ -498,7 +592,35 @@ export function ProjectWorkspace() {
       console.error("Failed to delete task:", err);
       toast.error("Failed to delete task");
     } finally {
-      setDeleteTaskConfirm({ isOpen: false, taskId: null });
+      setDeleteTaskConfirm({ isOpen: false, taskId: null, taskIds: null });
+    }
+  };
+
+  const handleBulkAssign = async (taskIds: string[], ownerId: string | null) => {
+    try {
+      await bulkTasks({ taskIds, ownerId }).unwrap();
+      toast.success(
+        taskIds.length === 1
+          ? "Task assignee updated"
+          : `${taskIds.length} tasks assigned`,
+      );
+    } catch (err) {
+      console.error("Failed to bulk assign:", err);
+      toast.error(formatTaskApiError(err, "Failed to update assignees"));
+    }
+  };
+
+  const handleBulkStatus = async (taskIds: string[], status: Status) => {
+    try {
+      await bulkTasks({ taskIds, status }).unwrap();
+      toast.success(
+        taskIds.length === 1
+          ? "Task status updated"
+          : `${taskIds.length} tasks updated`,
+      );
+    } catch (err) {
+      console.error("Failed to bulk status:", err);
+      toast.error(formatTaskApiError(err, "Failed to update status"));
     }
   };
 
@@ -508,24 +630,52 @@ export function ProjectWorkspace() {
       toast.error("Task not found");
       return;
     }
+    if (!original.phaseId || !original.startDate || !original.endDate) {
+      toast.error("Task must have a phase and dates before it can be duplicated");
+      return;
+    }
+    const effortHours =
+      typeof original.effortHours === "number" && original.effortHours > 0
+        ? Math.floor(original.effortHours)
+        : 1;
+
     try {
-      await createTask({
-        projectId: original.projectId,
-        parentTaskId: original.parentTaskId,
-        phaseId: original.phaseId,
-        title: `${original.title} (Copy)`,
-        description: original.description || undefined,
-        priority: original.priority,
-        ownerId: original.ownerId || undefined,
-        startDate: original.startDate,
-        endDate: original.endDate,
-        effortHours: original.effortHours || undefined,
-        status: original.status,
+      // DEF-P1-048 — copy nested sub-tasks with the parent (bundle creates them atomically).
+      // Creating a sub-task copy must not nest further (bundle ignores subTasks when parentTaskId is set).
+      const subTasks =
+        original.parentTaskId
+          ? []
+          : (original.subTasks ?? []).map((sub) => ({
+              title: sub.title,
+              description: null as string | null,
+            }));
+
+      await createTaskBundle({
+        payload: {
+          projectId: original.projectId,
+          parentTaskId: original.parentTaskId,
+          phaseId: original.phaseId,
+          title: `${original.title} (Copy)`,
+          description: original.description || undefined,
+          priority: original.priority,
+          ownerId: original.ownerId || undefined,
+          startDate: original.startDate.slice(0, 10),
+          endDate: original.endDate.slice(0, 10),
+          effortHours,
+          status: original.status,
+          subTasks,
+        },
+        files: [],
       }).unwrap();
-      toast.success("Task duplicated successfully");
+
+      toast.success(
+        subTasks.length > 0
+          ? `Task duplicated with ${subTasks.length} sub-task${subTasks.length === 1 ? "" : "s"}`
+          : "Task duplicated successfully",
+      );
     } catch (err) {
       console.error("Failed to duplicate task:", err);
-      toast.error("Failed to duplicate task");
+      toast.error(formatTaskApiError(err, "Failed to duplicate task"));
     }
   };
 
@@ -624,7 +774,7 @@ export function ProjectWorkspace() {
       toast.success("Dates updated");
     } catch (err) {
       console.error("Failed to update task dates:", err);
-      toast.error("Failed to update dates");
+      toast.error(formatTaskApiError(err, "Failed to update dates"));
       throw err;
     }
   };
@@ -709,14 +859,30 @@ export function ProjectWorkspace() {
         />
       )}
       {!isFullscreen && (
+        <div className="px-5 pt-3">
+          {activeView !== "team" && leaveImpactSummary && leaveImpactSummary.count > 0 && (
+            <p className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+              {leaveImpactSummary.count} leave conflict
+              {leaveImpactSummary.count === 1 ? "" : "s"} detected — see the Team tab for details.
+            </p>
+          )}
+        </div>
+      )}
+      {!isFullscreen && (
         <div className="px-5 py-4 bg-slate-500/5 dark:bg-white/[0.02] border-b border-slate-200/60 dark:border-white/[0.08] grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0 bg-transparent">
           {/* Progress Tracker */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-muted-foreground">Project Health</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-                on track
-              </span>
+              {leaveImpactSummary && leaveImpactSummary.maxSlip > 0 ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  ~{leaveImpactSummary.maxSlip}d slip risk
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  on track
+                </span>
+              )}
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs font-semibold">
@@ -730,7 +896,9 @@ export function ProjectWorkspace() {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground">
-                Average approved progress across tasks
+                {leaveImpactSummary
+                  ? `${leaveImpactSummary.count} leave conflict${leaveImpactSummary.count === 1 ? "" : "s"} · projected slip up to ~${leaveImpactSummary.maxSlip} day(s)`
+                  : "Average approved progress across tasks"}
               </p>
             </div>
           </div>
@@ -822,7 +990,7 @@ export function ProjectWorkspace() {
           )}
         </button>
       </div>
-      {activeView !== "audit" && (
+      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && (
       <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Search & Filters */}
         <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
@@ -855,7 +1023,7 @@ export function ProjectWorkspace() {
 
         {/* Action buttons */}
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-          {activeView !== "phases" && (
+          {activeView !== "phases" && activeView !== "milestones" && (
             <>
               {canCreateTask && (
                 <Button
@@ -908,6 +1076,18 @@ export function ProjectWorkspace() {
               Add Phase
             </Button>
             ) : null
+          ) : activeView === "milestones" ? (
+            canEditMilestones ? (
+            <Button
+              onClick={() => {
+                milestoneViewRef.current?.openAddMilestone();
+              }}
+              className="h-9 text-xs rounded-xl"
+            >
+              <Plus className="mr-1.5 size-4" />
+              Add Milestone
+            </Button>
+            ) : null
           ) : canCreateTask ? (
             <Button
               onClick={() => {
@@ -953,6 +1133,11 @@ export function ProjectWorkspace() {
             currentUserId={user?.id}
             canApproveTask={canReviewProgress}
             onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
+            dependencies={taskDependencies}
+            canBulkEdit={canManageTasks}
+            onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
+            onBulkStatus={canManageTasks ? handleBulkStatus : undefined}
+            onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
           />
         )}
 
@@ -1043,6 +1228,36 @@ export function ProjectWorkspace() {
           />
         )}
 
+        {activeView === "milestones" && (
+          <MilestoneView ref={milestoneViewRef} projectId={id} />
+        )}
+
+        {activeView === "team" && (
+          <TeamView
+            projectId={id}
+            departmentId={project.departmentId}
+            startDate={project.startDate}
+            endDate={project.endDate}
+            canEdit={canManageProjectTeam}
+          />
+        )}
+
+        {activeView === "docs" && (
+          <ProjectDocumentsPanel
+            projectId={id}
+            canUpload={canEditProjects}
+          />
+        )}
+
+        {activeView === "actions" && (
+          <ActionPointsPanel
+            projectId={id}
+            canEdit={canEditProjects}
+            projectStartDate={project.startDate}
+            projectEndDate={project.endDate}
+          />
+        )}
+
         {activeView === "audit" && canViewProjectAudit && (
           <ProjectAuditView projectId={id} />
         )}
@@ -1082,7 +1297,8 @@ export function ProjectWorkspace() {
           setTaskDetailDefaultTab(undefined);
           setFocusProgressReview(false);
         }}
-        onOpenSubTask={(subId) => setSelectedTaskId(subId)}
+        onOpenSubTask={(subId) => openTaskDetail(subId, "comments")}
+        onOpenParentTask={(parentId) => openTaskDetail(parentId, "subtasks")}
         onUpdated={() => refetchTasks()}
         initialTab={taskDetailDefaultTab}
         focusProgressReview={focusProgressReview}
@@ -1096,11 +1312,21 @@ export function ProjectWorkspace() {
 
       <DeleteDialog
         isOpen={deleteTaskConfirm.isOpen}
-        onClose={() => setDeleteTaskConfirm({ isOpen: false, taskId: null })}
+        onClose={() =>
+          setDeleteTaskConfirm({ isOpen: false, taskId: null, taskIds: null })
+        }
         onConfirm={confirmDeleteTask}
-        title="Delete Task"
-        description="Are you sure you want to delete this task? This action cannot be undone."
-        isDeleting={isDeletingTask}
+        title={
+          deleteTaskConfirm.taskIds && deleteTaskConfirm.taskIds.length > 1
+            ? "Delete Tasks"
+            : "Delete Task"
+        }
+        description={
+          deleteTaskConfirm.taskIds && deleteTaskConfirm.taskIds.length > 0
+            ? `Are you sure you want to delete ${deleteTaskConfirm.taskIds.length} task${deleteTaskConfirm.taskIds.length === 1 ? "" : "s"}? This action cannot be undone.`
+            : "Are you sure you want to delete this task? This action cannot be undone."
+        }
+        isDeleting={isDeletingTask || isBulkDeleting}
       />
 
       <ImportTasksDialog

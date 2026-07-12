@@ -15,7 +15,10 @@ import { HeaderResolver, I18nModule } from 'nestjs-i18n';
 import { MailModule } from './mail/mail.module';
 import { HomeModule } from './home/home.module';
 import { ProjectsModule } from './projects/projects.module';
+import { ProjectTemplatesModule } from './project-templates/project-templates.module';
+import { ActionPointsModule } from './action-points/action-points.module';
 import { TasksModule } from './tasks/tasks.module';
+import { WorkspaceDocumentsModule } from './workspace-documents/workspace-documents.module';
 import { AllConfigType } from './config/config.type';
 import { SessionModule } from './session/session.module';
 import { MailerModule } from './mailer/mailer.module';
@@ -37,6 +40,11 @@ import { CurrenciesModule } from './currencies/currencies.module';
 import { SearchModule } from './search/search.module';
 import { MppImportModule } from './mpp-import/mpp-import.module';
 import mppImportConfig from './mpp-import/config/mpp-import.config';
+import { KekaModule } from './keka/keka.module';
+import { ResourcesModule } from './resources/resources.module';
+import { TimesheetsModule } from './timesheets/timesheets.module';
+import { ReportsModule } from './reports/reports.module';
+import kekaConfig from './keka/config/keka.config';
 
 @Module({
   imports: [
@@ -54,6 +62,7 @@ import mppImportConfig from './mpp-import/config/mpp-import.config';
         securityAlertsConfig,
         breakGlassConfig,
         mppImportConfig,
+        kekaConfig,
       ],
       envFilePath: ['.env'],
     }),
@@ -107,8 +116,12 @@ import mppImportConfig from './mpp-import/config/mpp-import.config';
     MailModule,
     MailerModule,
     HomeModule,
+    KekaModule.register(),
     ProjectsModule,
+    ProjectTemplatesModule,
+    ActionPointsModule,
     TasksModule,
+    WorkspaceDocumentsModule,
     FilesModule,
     AuditLogsModule,
     RolesModule,
@@ -118,6 +131,9 @@ import mppImportConfig from './mpp-import/config/mpp-import.config';
     CurrenciesModule,
     SearchModule,
     MppImportModule,
+    ResourcesModule,
+    TimesheetsModule,
+    ReportsModule,
     ScheduleModule.forRoot(),
   ],
 })

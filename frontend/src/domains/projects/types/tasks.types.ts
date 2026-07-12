@@ -14,6 +14,19 @@ export interface TaskUserSummary {
   email: string;
 }
 
+export interface TaskScheduleImpact {
+  hasLeaveConflict: boolean;
+  overlapDays: number;
+  estimatedDelayDays: number;
+  projectedTaskEnd: string | null;
+  downstreamTaskCount: number;
+  leaveFrom: string | null;
+  leaveTo: string | null;
+  leaveType: string | null;
+  isCritical: boolean;
+  hasBackup: boolean;
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;
@@ -22,6 +35,23 @@ export interface TaskComment {
   isInternal: boolean;
   createdAt: string;
   author: TaskUserSummary;
+}
+
+export interface TaskChecklistItem {
+  id: string;
+  taskId: string;
+  title: string;
+  isDone: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskChecklistProgress {
+  total: number;
+  done: number;
+  percent: number;
+  items: TaskChecklistItem[];
 }
 
 export interface TaskAttachment {
@@ -42,6 +72,7 @@ export interface TaskSubTask {
   title: string;
   status: string;
   priority?: string;
+  startDate?: string | null;
   endDate?: string | null;
   owner?: TaskUserSummary;
 }
@@ -59,14 +90,26 @@ export interface Task {
   effortHours: number | null;
   progressApproved: number;
   progressPending: number;
+  actualHoursLogged?: number;
+  effortVarianceHours?: number | null;
+  isOverEffort?: boolean;
   status: TaskStatus;
   phaseId: string | null;
   isOnCriticalPath?: boolean;
+  backupOwnerId?: string | null;
+  backupOwner?: TaskUserSummary;
+  scheduleImpact?: TaskScheduleImpact | null;
   createdAt: string;
   updatedAt: string;
   project?: { id: string; name: string };
   owner?: TaskUserSummary;
-  parentTask?: { id: string; title: string };
+  parentTask?: {
+    id: string;
+    title: string;
+    startDate?: string | null;
+    endDate?: string | null;
+    ownerId?: string | null;
+  };
   phase?: { id: string; name: string } | null;
   subTasks?: TaskSubTask[];
   comments?: TaskComment[];
@@ -101,7 +144,12 @@ export interface TaskProgressUpdate {
   createdAt: string;
   engineer: TaskUserSummary;
   reviewer?: TaskUserSummary | null;
-  task?: { id: string; title: string; projectId: string };
+  task?: {
+    id: string;
+    title: string;
+    projectId: string;
+    effortHours?: number | null;
+  };
 }
 
 export interface SubmitProgressUpdatePayload {
@@ -177,6 +225,13 @@ export interface AddTaskCommentPayload {
   isInternal?: boolean;
 }
 
+export interface UpdateTaskCommentPayload {
+  taskId: string;
+  commentId: string;
+  body: string;
+  isInternal?: boolean;
+}
+
 export interface AddTaskAttachmentPayload {
   taskId: string;
   storageKey: string;
@@ -188,6 +243,19 @@ export interface AddTaskAttachmentPayload {
 export interface UpdateTaskPayload {
   id: string;
   body: Record<string, unknown>;
+}
+
+export interface BulkTasksPayload {
+  taskIds: string[];
+  ownerId?: string | null;
+  status?: TaskStatus;
+  delete?: boolean;
+}
+
+export interface BulkTasksResult {
+  deleted: number;
+  updated: number;
+  tasks?: Task[];
 }
 
 export type TaskDependencyType = "FS" | "SS" | "FF" | "SF";

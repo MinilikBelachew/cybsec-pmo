@@ -21,6 +21,13 @@ const rawBaseQuery = fetchBaseQuery({
   },
 });
 
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname.includes("/login")) return;
+  const locale = window.location.pathname.split("/")[1] || "en";
+  window.location.assign(`/${locale}/login?error=session_failed`);
+}
+
 export const baseQueryWithInterceptor: BaseQueryFn<
   string | FetchArgs,
   unknown,
@@ -52,11 +59,14 @@ export const baseQueryWithInterceptor: BaseQueryFn<
           : { ...(args as FetchArgs), _retry: true };
 
       result = await rawBaseQuery(retryArgs, api, extraOptions);
+    } else {
+      // Refresh failed — session is actually gone. Clear auth and leave the app.
+      // Do not clear auth on a lone 401 from a resource endpoint (permission/access
+      // errors must not wipe the logged-in user display mid-page).
+      const hadUser = Boolean((api.getState() as RootState).auth.user);
+      api.dispatch(clearUser());
+      if (hadUser) redirectToLogin();
     }
-  }
-
-  if (result.error?.status === 401 && url !== "/auth/refresh") {
-    api.dispatch(clearUser());
   }
 
   return result;

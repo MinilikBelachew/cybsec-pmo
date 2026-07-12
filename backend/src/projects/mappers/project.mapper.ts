@@ -2,6 +2,7 @@ import {
   BillingModel,
   EngagementType,
   PriorityLevel,
+  ProjectMethodology,
   ProjectStatus,
   type Project,
   type Department,
@@ -12,6 +13,7 @@ import {
   ApiBillingModel,
   ApiEngagementType,
   ApiPriorityLevel,
+  ApiProjectMethodology,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
 import { AppAbility } from '../../casl/casl.types';
@@ -50,6 +52,18 @@ const BILLING_FROM_PRISMA: Record<BillingModel, ApiBillingModel> = {
   [BillingModel.SLA_Based]: ApiBillingModel.Retainer,
 };
 
+const METHODOLOGY_TO_PRISMA: Record<ApiProjectMethodology, ProjectMethodology> = {
+  [ApiProjectMethodology.Agile]: ProjectMethodology.Agile,
+  [ApiProjectMethodology.Waterfall]: ProjectMethodology.Waterfall,
+  [ApiProjectMethodology.Hybrid]: ProjectMethodology.Hybrid,
+};
+
+const METHODOLOGY_FROM_PRISMA: Record<ProjectMethodology, ApiProjectMethodology> = {
+  [ProjectMethodology.Agile]: ApiProjectMethodology.Agile,
+  [ProjectMethodology.Waterfall]: ApiProjectMethodology.Waterfall,
+  [ProjectMethodology.Hybrid]: ApiProjectMethodology.Hybrid,
+};
+
 const STATUS_TO_PRISMA: Record<ApiProjectStatus, ProjectStatus> = {
   [ApiProjectStatus.Draft]: ProjectStatus.Draft,
   [ApiProjectStatus.Active]: ProjectStatus.Active,
@@ -76,6 +90,10 @@ export function toPrismaEngagementType(value: ApiEngagementType): EngagementType
 
 export function toPrismaBillingModel(value: ApiBillingModel): BillingModel {
   return BILLING_TO_PRISMA[value];
+}
+
+export function toPrismaMethodology(value: ApiProjectMethodology): ProjectMethodology {
+  return METHODOLOGY_TO_PRISMA[value];
 }
 
 export function toPrismaStatus(value: ApiProjectStatus): ProjectStatus {
@@ -116,6 +134,7 @@ export function toApiProject(
           billingModel: BILLING_FROM_PRISMA[project.billingModel],
         }
       : {}),
+    methodology: METHODOLOGY_FROM_PRISMA[project.methodology],
     priority: project.priority as ApiPriorityLevel,
     startDate: project.startDate.toISOString().slice(0, 10),
     endDate: project.endDate.toISOString().slice(0, 10),

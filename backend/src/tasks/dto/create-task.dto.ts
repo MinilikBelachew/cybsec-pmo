@@ -82,6 +82,11 @@ export class CreateTaskDto {
   @IsUUID()
   ownerId?: string | null;
 
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsOptional()
+  @IsUUID()
+  backupOwnerId?: string | null;
+
   @ApiProperty({ example: '2026-06-01' })
   @Type(() => Date)
   @IsDate()
@@ -95,11 +100,11 @@ export class CreateTaskDto {
   @Validate(TaskEndDateAfterStartDateConstraint)
   endDate: Date;
 
-  @ApiPropertyOptional({ example: 40 })
-  @IsOptional()
+  @ApiProperty({ example: 40 })
   @IsInt()
   @IsPositive()
-  effortHours?: number;
+  @IsNotEmpty()
+  effortHours: number;
 
   @ApiPropertyOptional({ enum: TaskStatusEnum, default: TaskStatusEnum.To_Do })
   @IsOptional()

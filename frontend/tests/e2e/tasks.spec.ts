@@ -172,7 +172,7 @@ test.describe("Tasks", () => {
     if (dbClient) {
       // Clean up project, phases, tasks, allocations
       await dbClient.query("DELETE FROM task_comments WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
-      await dbClient.query("DELETE FROM task_attachments WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
+      await dbClient.query("DELETE FROM workspace_documents WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
       await dbClient.query("DELETE FROM task_dependencies WHERE predecessor_id IN (SELECT id FROM tasks WHERE project_id = $1) OR successor_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
       await dbClient.query("DELETE FROM task_progress_updates WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [projectId]);
       await dbClient.query("DELETE FROM tasks WHERE project_id = $1", [projectId]);
@@ -279,7 +279,7 @@ test.describe("Tasks", () => {
     await expect(page.locator("body")).toContainText("File attached");
 
     // 5. Verify database
-    const attachmentRes = await dbClient.query("SELECT * FROM task_attachments WHERE task_id = $1 LIMIT 1", [taskId]);
+    const attachmentRes = await dbClient.query("SELECT * FROM workspace_documents WHERE task_id = $1 AND category = 'Task' LIMIT 1", [taskId]);
     expect(attachmentRes.rows.length).toBe(1);
     expect(attachmentRes.rows[0].filename).toBe("design_doc.pdf");
 
@@ -702,7 +702,7 @@ test.describe("Tasks", () => {
     );
 
     // Allocate Brian Nguyen to project
-    const empRes = await dbClient.query("SELECT id FROM employees WHERE keka_employee_id = $1", ["MOCK-KEKA-001"]);
+    const empRes = await dbClient.query("SELECT id FROM employees WHERE keka_employee_id = $1", ["39663c6a-d8d6-49e2-aabd-a366a66fb2c2"]);
     const employeeId = empRes.rows[0].id;
     await dbClient.query(
       `INSERT INTO allocations (id, employee_id, project_id, role, hours, percent, start_date, end_date, status, approved_by, created_at)
@@ -784,7 +784,7 @@ test.describe("Tasks", () => {
     } finally {
       // Clean up isolated project
       await dbClient.query("DELETE FROM task_comments WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [newProjectId]);
-      await dbClient.query("DELETE FROM task_attachments WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [newProjectId]);
+      await dbClient.query("DELETE FROM workspace_documents WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [newProjectId]);
       await dbClient.query("DELETE FROM task_dependencies WHERE predecessor_id IN (SELECT id FROM tasks WHERE project_id = $1) OR successor_id IN (SELECT id FROM tasks WHERE project_id = $1)", [newProjectId]);
       await dbClient.query("DELETE FROM task_progress_updates WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [newProjectId]);
       await dbClient.query("DELETE FROM tasks WHERE project_id = $1", [newProjectId]);

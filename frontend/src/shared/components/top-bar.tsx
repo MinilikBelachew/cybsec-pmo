@@ -194,8 +194,12 @@ export function TopBar() {
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col">
-                <span className="text-xs font-semibold text-foreground">{user?.name || "Robel Elias"}</span>
-                <span className="text-[10px] text-muted-foreground">{user?.email || "roba@pmo.local"}</span>
+                <span className="text-xs font-semibold text-foreground">
+                  {user?.name ?? "Signed in"}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {user?.email ?? "Loading profile…"}
+                </span>
               </div>
             </div>
 

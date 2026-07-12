@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import { type ColumnDef, type SortingState } from "@tanstack/react-table";
+// Phase 2: restore Plug when Keka integration tab is re-enabled
+// import { ClipboardList, Plug } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
 import { createSelectColumn } from "@/shared/components/data-table-select-column";
 import { useServerTableState } from "@/shared/hooks/use-server-table-state";
+// Phase 2: restore cn when Keka tab buttons return
+// import { cn } from "@/shared/utils/cn";
 import {
   downloadAuditBlob,
   downloadAuditBlobAsJson,
@@ -23,11 +27,14 @@ import { auditDataColumns } from "./audit-columns";
 import { AuditDetailSheet } from "./audit-detail-sheet";
 import { AuditFilters } from "./audit-filters";
 import { AuditRowActions } from "./audit-row-actions";
+// Phase 2: Keka integration tab
+// import { AuditKekaIntegrationPanel } from "./audit-keka-integration-panel";
 import { AUDIT_POLLING_INTERVAL_MS } from "../constants/audit-polling";
 import { useAuditPollToasts } from "../hooks/use-audit-poll-toasts";
 
 const SORTABLE_COLUMNS = new Set(["createdAt", "action", "objectType"]);
 
+// Phase 2: re-enable AuditTab = "activity" | "keka" and tab UI below
 export function AuditTrailPage() {
   const [breakGlassOnly, setBreakGlassOnly] = useState(false);
   const [externalOnly, setExternalOnly] = useState(false);
@@ -256,6 +263,42 @@ export function AuditTrailPage() {
           />
         }
       />
+
+      {/* Phase 2 — Keka integration tab
+      <div className="flex border-b border-border gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("activity")}
+          className={cn(
+            "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+            activeTab === "activity"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <ClipboardList className="size-4" />
+          Activity log
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("keka")}
+          className={cn(
+            "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+            activeTab === "keka"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Plug className="size-4" />
+          Keka integration
+        </button>
+      </div>
+
+      {activeTab === "keka" ? (
+        <AuditKekaIntegrationPanel />
+      ) : (
+        <>
+      */}
 
       <DataTable
         columns={columns}

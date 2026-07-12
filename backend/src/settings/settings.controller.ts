@@ -17,12 +17,18 @@ import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { AuditArchiveService } from '../audit/archive/audit-archive.service';
 import {
   AppSettingsService,
+  mapAllocationPoliciesSettingsDto,
   mapAuditSettingsDto,
 } from './app-settings.service';
+import { AllocationPolicyService } from './allocation-policy.service';
 import {
   AuditSettingsDto,
   UpdateAuditSettingsDto,
 } from './dto/audit-settings.dto';
+import {
+  AllocationPoliciesDto,
+  UpdateAllocationPoliciesDto,
+} from './dto/allocation-policies.dto';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -35,6 +41,7 @@ import {
 export class SettingsController {
   constructor(
     private readonly appSettingsService: AppSettingsService,
+    private readonly allocationPolicyService: AllocationPolicyService,
     private readonly auditArchiveService: AuditArchiveService,
   ) {}
 
@@ -72,5 +79,30 @@ export class SettingsController {
       archivedCount,
       settings: mapAuditSettingsDto(settings),
     };
+  }
+
+  @CheckAbility('manage', 'Settings')
+  @Get('allocation-policies')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: AllocationPoliciesDto })
+  async getAllocationPolicies() {
+    const policies = await this.appSettingsService.getAllocationPolicies();
+    return mapAllocationPoliciesSettingsDto(policies);
+  }
+
+  @CheckAbility('manage', 'Settings')
+  @Patch('allocation-policies')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: AllocationPoliciesDto })
+  async updateAllocationPolicies(
+    @Body() dto: UpdateAllocationPoliciesDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    const policies = await this.appSettingsService.updateAllocationPolicies(
+      dto,
+      request.user?.id,
+    );
+    this.allocationPolicyService.invalidateCache();
+    return mapAllocationPoliciesSettingsDto(policies);
   }
 }

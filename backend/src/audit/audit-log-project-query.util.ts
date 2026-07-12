@@ -8,7 +8,7 @@ type PrismaLike = Pick<
   | 'projectMilestone'
   | 'allocation'
   | 'taskComment'
-  | 'taskAttachment'
+  | 'workspaceDocument'
   | 'taskProgressUpdate'
   | 'taskDependency'
 >;
@@ -55,8 +55,8 @@ export async function buildProjectAuditLogWhere(
       where: { task: { projectId } },
       select: { id: true },
     }),
-    prisma.taskAttachment.findMany({
-      where: { task: { projectId } },
+    prisma.workspaceDocument.findMany({
+      where: { projectId },
       select: { id: true },
     }),
     prisma.taskProgressUpdate.findMany({

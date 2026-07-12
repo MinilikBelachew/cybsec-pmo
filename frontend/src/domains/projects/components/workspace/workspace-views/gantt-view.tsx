@@ -88,6 +88,7 @@ export function GanttView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [localZoom, setLocalZoom] = useState(1);
   const [openPhases, setOpenPhases] = useState<Record<string, boolean>>({});
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
 
   const zoom = ganttZoom ?? localZoom;
   const setZoom = setGanttZoom ?? setLocalZoom;
@@ -100,6 +101,44 @@ export function GanttView({
       [phaseId]: prev[phaseId] === false ? true : false,
     }));
   };
+
+  const toggleParentExpand = (taskId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  // Expand parents that have children by default (ClickUp-style tree).
+  React.useEffect(() => {
+    const withChildren = tasks.filter((t) => (t.children?.length ?? 0) > 0);
+    if (withChildren.length === 0) return;
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const t of withChildren) {
+        if (!next.has(t.id)) {
+          next.add(t.id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  function visibleTaskRows(phaseTasks: GanttTaskRow[]): GanttTaskRow[] {
+    const rows: GanttTaskRow[] = [];
+    for (const task of phaseTasks) {
+      rows.push(task);
+      if (expandedParents.has(task.id) && task.children?.length) {
+        rows.push(...task.children);
+      }
+    }
+    return rows;
+  }
 
   // Group data by phase
   const groupedData = useMemo(() => {
@@ -159,10 +198,14 @@ export function GanttView({
       if (!maxDate || date > maxDate) maxDate = date;
     };
 
-    // Tasks dates
+    // Tasks dates (include nested sub-tasks)
     tasks.forEach((t) => {
       parseAndCompare(t.rawStartDate);
       parseAndCompare(t.rawEndDate);
+      t.children?.forEach((c) => {
+        parseAndCompare(c.rawStartDate);
+        parseAndCompare(c.rawEndDate);
+      });
     });
 
     // Phases dates
@@ -474,19 +517,37 @@ export function GanttView({
                     </div>
 
                     {isExpanded &&
-                      group.tasks.map((task) => (
+                      visibleTaskRows(group.tasks).map((task) => {
+                        const depth = task.depth ?? (task.parentTaskId ? 1 : 0);
+                        const hasChildren = Boolean(task.children?.length);
+                        const isParentExpanded = expandedParents.has(task.id);
+                        return (
                         <div
                           key={task.id}
                           className="flex items-center gap-2 px-3 border-b border-border/20 hover:bg-muted/20 cursor-pointer group shrink-0"
                           onClick={() => onTaskClick?.(task.id)}
                           style={{ height: 36 }}
                         >
-                          <div className="w-3.5 shrink-0" />
-                          {task.hasSubtasks ? (
-                            <ChevronRight className="size-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          ) : (
-                            <div className="size-3 shrink-0" />
-                          )}
+                          <div
+                            className="w-3.5 shrink-0 flex items-center justify-center"
+                            style={{ marginLeft: depth * 12 }}
+                          >
+                            {hasChildren && depth === 0 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => toggleParentExpand(task.id, e)}
+                                className="p-0.5 rounded hover:bg-muted text-muted-foreground"
+                              >
+                                {isParentExpanded ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ChevronRight className="size-3" />
+                                )}
+                              </button>
+                            ) : depth > 0 ? (
+                              <span className="size-1 rounded-full bg-muted-foreground/40" />
+                            ) : null}
+                          </div>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -500,6 +561,11 @@ export function GanttView({
                             )}
                           </button>
                           <span className={cn("text-xs truncate flex-1", task.done && "line-through text-muted-foreground")}>
+                            {depth > 0 && (
+                              <span className="mr-1 text-[9px] font-semibold uppercase text-muted-foreground">
+                                Sub
+                              </span>
+                            )}
                             {task.name}
                           </span>
                           {task.isOnCriticalPath && (
@@ -508,8 +574,19 @@ export function GanttView({
                               title="Critical path"
                             />
                           )}
+                          {task.scheduleImpact?.hasLeaveConflict && (
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-amber-500"
+                              title={
+                                task.scheduleImpact.isCritical
+                                  ? `Leave conflict · ${task.scheduleImpact.overlapDays}d overlap · ~${task.scheduleImpact.estimatedDelayDays}d projected slip${task.scheduleImpact.hasBackup ? " · backup set" : " · no backup"}`
+                                  : `Leave overlap · ${task.scheduleImpact.overlapDays}d · ~${task.scheduleImpact.estimatedDelayDays}d slip`
+                              }
+                            />
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                   </React.Fragment>
                 );
               })}
@@ -579,11 +656,12 @@ export function GanttView({
 
                   {/* Task rows timeline */}
                   {isExpanded &&
-                    group.tasks.map((task, idx) => {
+                    visibleTaskRows(group.tasks).map((task, idx) => {
                       const layout = taskLayout.get(task.id);
                       const { startDay, durationDays } =
                         layout ?? getGanttDates(task, idx);
                       const isCritical = layout?.isCritical ?? Boolean(task.isOnCriticalPath);
+                      const depth = task.depth ?? (task.parentTaskId ? 1 : 0);
                       return (
                         <div
                           key={task.id}
@@ -609,11 +687,12 @@ export function GanttView({
                                     "relative rounded-md h-5 overflow-hidden flex items-center hover:brightness-95 transition-all shadow-xs border",
                                     config.bgClass,
                                     isCritical && "ring-2 ring-rose-500 border-rose-500",
+                                    depth > 0 && "h-4 opacity-90",
                                   )}
                                   style={{
                                     width: barWidth,
                                   }}
-                                  title={`${task.name} (${config.label})${isCritical ? " — Critical path" : ""}`}
+                                  title={`${task.name} (${config.label})${isCritical ? " — Critical path" : ""}${depth > 0 ? " — Sub-task" : ""}`}
                                 >
                                   {/* Task Name inside the bar if it fits */}
                                   {barWidth > 85 && (

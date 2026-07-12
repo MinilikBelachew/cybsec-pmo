@@ -6,7 +6,12 @@ function preprocessDate(val: unknown): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-const dateField = z.preprocess(preprocessDate, z.date().optional());
+/** Required calendar date — empty values must fail (DEF-P1-004). */
+const requiredDate = (message: string) =>
+  z.preprocess(
+    preprocessDate,
+    z.coerce.date({ message }),
+  );
 
 const baseProjectSchema = z
   .object({
@@ -19,9 +24,10 @@ const baseProjectSchema = z
     customerId: z.string().uuid("Please select a Customer"),
     engagementType: z.enum(["ManagedServices", "StaffAugmentation", "FixedPrice"]),
     billingModel: z.enum(["TimeAndMaterial", "FixedPrice", "Retainer"]),
+    methodology: z.enum(["Agile", "Waterfall", "Hybrid"]),
     priority: z.enum(["Low", "Medium", "High", "Critical"]),
-    startDate: dateField,
-    endDate: dateField,
+    startDate: requiredDate("Start date is required"),
+    endDate: requiredDate("End date is required"),
     value: z.preprocess(
       (val) => (val === "" || val === null || val === undefined ? undefined : val),
       z.coerce
@@ -43,37 +49,35 @@ const baseProjectSchema = z
       "Cancelled",
     ]),
   })
-  .refine((data) => Boolean(data.startDate), {
-    message: "Start date is required",
-    path: ["startDate"],
-  })
-  .refine((data) => Boolean(data.endDate), {
-    message: "End date is required",
-    path: ["endDate"],
-  })
-  .refine((data) => {
-    if (!data.startDate || !data.endDate) return true;
-    return data.endDate > data.startDate;
-  }, {
-    message: "End date must be after start date",
-    path: ["endDate"],
-  })
+  .refine(
+    (data) => {
+      if (!data.startDate || !data.endDate) return true;
+      return data.endDate > data.startDate;
+    },
+    {
+      message: "End date must be after start date",
+      path: ["endDate"],
+    },
+  )
   .refine((data) => !data.secondaryPmId || data.secondaryPmId !== data.primaryPmId, {
     message: "Secondary PM must differ from Primary PM",
     path: ["secondaryPmId"],
   });
 
-export const createProjectFormSchema = baseProjectSchema.refine((data) => {
-  if (!data.startDate) return true;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(data.startDate);
-  start.setHours(0, 0, 0, 0);
-  return start >= today;
-}, {
-  message: "Start date cannot be in the past",
-  path: ["startDate"],
-});
+export const createProjectFormSchema = baseProjectSchema.refine(
+  (data) => {
+    if (!data.startDate) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(data.startDate);
+    start.setHours(0, 0, 0, 0);
+    return start >= today;
+  },
+  {
+    message: "Start date cannot be in the past",
+    path: ["startDate"],
+  },
+);
 
 export const editProjectFormSchema = baseProjectSchema;
 
@@ -87,6 +91,13 @@ export function toCreateProjectPayload(values: CreateProjectFormValues) {
     throw new Error("Project dates are required");
   }
 
+  const toYmd = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   return {
     name: values.name,
     objective: values.objective,
@@ -94,13 +105,17 @@ export function toCreateProjectPayload(values: CreateProjectFormValues) {
     customerId: values.customerId,
     engagementType: values.engagementType,
     billingModel: values.billingModel,
+    methodology: values.methodology,
     priority: values.priority,
-    startDate: values.startDate.toISOString().slice(0, 10),
-    endDate: values.endDate.toISOString().slice(0, 10),
+    startDate: toYmd(values.startDate),
+    endDate: toYmd(values.endDate),
     value: values.value,
     currency: values.currency,
     primaryPmId: values.primaryPmId,
-    secondaryPmId: values.secondaryPmId && values.secondaryPmId !== "" ? values.secondaryPmId : null,
+    secondaryPmId:
+      values.secondaryPmId && values.secondaryPmId !== ""
+        ? values.secondaryPmId
+        : null,
     status: values.status,
   };
 }

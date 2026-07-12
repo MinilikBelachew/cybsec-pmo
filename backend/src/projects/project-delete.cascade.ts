@@ -22,7 +22,8 @@ export async function deleteProjectWithDependents(
       },
     });
     await tx.taskComment.deleteMany({ where: { taskId: { in: taskIds } } });
-    await tx.taskAttachment.deleteMany({ where: { taskId: { in: taskIds } } });
+    await tx.taskChecklistItem.deleteMany({ where: { taskId: { in: taskIds } } });
+    await tx.workspaceDocument.deleteMany({ where: { taskId: { in: taskIds } } });
     await tx.taskProgressUpdate.deleteMany({ where: { taskId: { in: taskIds } } });
     await tx.timesheet.deleteMany({
       where: {

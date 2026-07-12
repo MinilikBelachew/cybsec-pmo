@@ -15,10 +15,16 @@ import {
   useAddProjectTeamMembersMutation,
   useGetMilestonesQuery,
   useCreateMilestoneMutation,
+  useUpdateMilestoneMutation,
+  useLazyGetAllocationDateIssuesQuery,
+  useAlignProjectAllocationDatesMutation,
+  useGetProjectTemplatesQuery,
+  useInstantiateProjectTemplateMutation,
   createProjectFormSchema,
   editProjectFormSchema,
   toCreateProjectPayload,
   ProjectTeamSection,
+  ProjectLeaveImpactSection,
   type CreateProjectFormValues,
   type PendingTeamMember,
   type Project,
@@ -30,7 +36,9 @@ import {
   getProjectStatusLabel,
   getSelectableProjectStatuses,
 } from "@/domains/projects/utils/project-status";
-import type { ProjectStatus } from "@/domains/projects/types/projects.types";
+import type { ProjectStatus, AllocationDateIssuesResponse } from "@/domains/projects/types/projects.types";
+import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
+import { formatDateValue } from "@/domains/projects/utils/allocation-date.utils";
 import {
   Select,
   SelectContent,
@@ -44,6 +52,7 @@ import {
   Briefcase,
   Users2,
   DollarSign,
+  GitBranch,
   Loader2,
 } from "lucide-react";
 import {
@@ -60,6 +69,9 @@ import { BudgetValueInput } from "../shared/budget-value-input";
 import {
   ProjectFormMilestonesSection,
   toDraftMilestonePayload,
+  toPersistedMilestonePayload,
+  toMilestoneApiDate,
+  existingMilestonesToDrafts,
   isMilestoneDateOutOfRange,
   type DraftProjectMilestone,
   type ProjectFormMilestonesSectionHandle,
@@ -70,6 +82,8 @@ interface CreateProjectSheetProps {
   onClose: () => void;
   refetch?: () => void;
   project?: Project | null;
+  /** When set, create uses this template (phases/tasks/milestones come from the template). */
+  templateId?: string | null;
 }
 
 function projectToFormValues(project: Project): CreateProjectFormValues {
@@ -86,6 +100,7 @@ function projectToFormValues(project: Project): CreateProjectFormValues {
     currency: project.currency ?? "USD",
     engagementType: project.engagementType ?? "FixedPrice",
     billingModel: project.billingModel ?? "FixedPrice",
+    methodology: project.methodology ?? "Agile",
     priority: project.priority,
     status: project.status,
   };
@@ -112,16 +127,23 @@ function toAllocationPayload(members: PendingTeamMember[]) {
   return members.map((member) => ({
     employeeId: member.employeeId,
     role: member.role,
-    hours: member.hoursPerWeek,
+    ...(member.allocationMode === "percent"
+      ? { percent: member.percentPerWeek }
+      : { hours: member.hoursPerWeek }),
     startDate: member.startDate,
     endDate: member.endDate,
   }));
 }
 
-function toMilestoneApiPayload(draft: ReturnType<typeof toDraftMilestonePayload>[number]) {
+function toMilestoneApiPayload(draft: {
+  title: string;
+  targetDate: string;
+  weight?: number | null;
+  status: string;
+}) {
   return {
     title: draft.title,
-    targetDate: new Date(draft.targetDate).toISOString(),
+    targetDate: toMilestoneApiDate(draft.targetDate),
     weight: draft.weight ?? undefined,
     status: draft.status,
   };
@@ -137,30 +159,27 @@ function validateMilestoneDraftDates(
 ): string | null {
   for (const draft of drafts) {
     if (!draft.targetDate) continue;
-    const target = new Date(draft.targetDate);
-    if (Number.isNaN(target.getTime())) {
-      return `Milestone "${draft.title}" has an invalid target date.`;
-    }
-    if (projectEndDate) {
-      const end = new Date(projectEndDate);
-      end.setHours(23, 59, 59, 999);
-      if (target > end) {
-        return `Milestone "${draft.title}" cannot be after the project end date.`;
-      }
-    }
-    if (projectStartDate) {
-      const start = new Date(projectStartDate);
-      start.setHours(0, 0, 0, 0);
-      if (target < start) {
-        return `Milestone "${draft.title}" cannot be before the project start date.`;
-      }
+    const dateError = isMilestoneDateOutOfRange(
+      draft.targetDate,
+      projectStartDate,
+      projectEndDate,
+    );
+    if (dateError) {
+      return `Milestone "${draft.title}": ${dateError}`;
     }
   }
   return null;
 }
 
-export function CreateProjectSheet({ open, onClose, refetch, project }: CreateProjectSheetProps) {
+export function CreateProjectSheet({
+  open,
+  onClose,
+  refetch,
+  project,
+  templateId = null,
+}: CreateProjectSheetProps) {
   const isEditMode = Boolean(project);
+  const isFromTemplate = Boolean(templateId) && !isEditMode;
   const {
     canEditProjects,
     canViewFinancials,
@@ -173,19 +192,47 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const canEditTeam = canEditProject && canManageTeam;
   const isViewOnly = isEditMode && !canEditProject;
   const showFinancialFields = canViewFinancials || canEditProject;
-  const milestonesReadOnly = isViewOnly || !canEditMilestones;
+  const milestonesReadOnly = isViewOnly || !canEditMilestones || isFromTemplate;
   const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
   const milestoneSectionRef = useRef<ProjectFormMilestonesSectionHandle>(null);
+  const milestonesSeededForProjectRef = useRef<string | null>(null);
   const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
   const [milestoneDrafts, setMilestoneDrafts] = useState<DraftProjectMilestone[]>([]);
   const [milestoneError, setMilestoneError] = useState<string | null>(null);
+  const [allocationSaveDialog, setAllocationSaveDialog] = useState<{
+    open: boolean;
+    values: CreateProjectFormValues | null;
+    milestoneDrafts: DraftProjectMilestone[];
+    issues: AllocationDateIssuesResponse | null;
+  }>({ open: false, values: null, milestoneDrafts: [], issues: null });
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
+  const [instantiateTemplate, { isLoading: isInstantiating }] =
+    useInstantiateProjectTemplateMutation();
   const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
   const [addProjectTeamMembers, { isLoading: isSavingTeam }] = useAddProjectTeamMembersMutation();
-  const [createMilestone, { isLoading: isSavingMilestones }] = useCreateMilestoneMutation();
-  const isSubmitting = isCreating || isUpdating || isSavingTeam || isSavingMilestones;
+  const [createMilestone, { isLoading: isCreatingMilestones }] = useCreateMilestoneMutation();
+  const [updateMilestone, { isLoading: isUpdatingMilestones }] = useUpdateMilestoneMutation();
+  const [fetchAllocationDateIssues] = useLazyGetAllocationDateIssuesQuery();
+  const [alignProjectAllocationDates, { isLoading: isAligningAllocations }] =
+    useAlignProjectAllocationDatesMutation();
+  const isSavingMilestones = isCreatingMilestones || isUpdatingMilestones;
+  const isSubmitting =
+    isCreating ||
+    isInstantiating ||
+    isUpdating ||
+    isSavingTeam ||
+    isSavingMilestones ||
+    isAligningAllocations;
 
-  const { data: existingMilestones = [] } = useGetMilestonesQuery(project?.id ?? "", {
+  const { data: templates = [] } = useGetProjectTemplatesQuery(undefined, {
+    skip: !isFromTemplate || !open,
+  });
+  const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
+
+  const {
+    data: existingMilestones = [],
+    isSuccess: milestonesLoaded,
+  } = useGetMilestonesQuery(project?.id ?? "", {
     skip: !isEditMode || !project?.id || !open,
   });
 
@@ -219,6 +266,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       currency: "USD",
       engagementType: "FixedPrice",
       billingModel: "FixedPrice",
+      methodology: "Agile",
       priority: "Medium",
       status: "Draft",
     },
@@ -231,12 +279,14 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       setPendingTeamMembers([]);
       setMilestoneDrafts([]);
       setMilestoneError(null);
+      milestonesSeededForProjectRef.current = null;
       return;
     }
     setMilestoneError(null);
     if (project) {
       reset(projectToFormValues(project));
     } else {
+      setMilestoneDrafts([]);
       reset({
         name: "",
         objective: "",
@@ -250,11 +300,20 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
         currency: "USD",
         engagementType: "FixedPrice",
         billingModel: "FixedPrice",
+        methodology: "Agile",
         priority: "Medium",
         status: "Draft",
       });
     }
   }, [open, project, reset]);
+
+  // Seed editable drafts once per open Edit Project session.
+  useEffect(() => {
+    if (!open || !isEditMode || !milestonesLoaded || !project?.id) return;
+    if (milestonesSeededForProjectRef.current === project.id) return;
+    milestonesSeededForProjectRef.current = project.id;
+    setMilestoneDrafts(existingMilestonesToDrafts(existingMilestones));
+  }, [open, isEditMode, milestonesLoaded, project?.id, existingMilestones]);
 
   const onFormError = () => {
     setTimeout(() => {
@@ -324,6 +383,43 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       return;
     }
 
+    if (isEditMode && project?.id && values.startDate && values.endDate) {
+      const newStart = formatDateValue(values.startDate);
+      const newEnd = formatDateValue(values.endDate);
+      const oldStart = project.startDate.slice(0, 10);
+      const oldEnd = project.endDate.slice(0, 10);
+      const datesChanged = newStart !== oldStart || newEnd !== oldEnd;
+
+      if (datesChanged && newStart && newEnd) {
+        try {
+          const issues = await fetchAllocationDateIssues({
+            projectId: project.id,
+            params: { projectStartDate: newStart, projectEndDate: newEnd },
+          }).unwrap();
+
+          if (issues.alignPreview.length > 0) {
+            setAllocationSaveDialog({
+              open: true,
+              values,
+              milestoneDrafts: currentMilestoneDrafts,
+              issues,
+            });
+            return;
+          }
+        } catch {
+          toast.error("Could not check team allocation dates.");
+          return;
+        }
+      }
+    }
+
+    await completeProjectSave(values, currentMilestoneDrafts);
+  };
+
+  const completeProjectSave = async (
+    values: CreateProjectFormValues,
+    currentMilestoneDrafts: DraftProjectMilestone[],
+  ) => {
     try {
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
@@ -361,6 +457,33 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
             `${newMilestones.length} milestone${newMilestones.length === 1 ? "" : "s"} added.`,
           );
         }
+
+        const persistedMilestones = toPersistedMilestonePayload(currentMilestoneDrafts);
+        if (targetProjectId && persistedMilestones.length > 0) {
+          for (const milestone of persistedMilestones) {
+            await updateMilestone({
+              projectId: targetProjectId,
+              milestoneId: milestone.id,
+              body: toMilestoneApiPayload(milestone),
+            }).unwrap();
+          }
+          toast.success(
+            `${persistedMilestones.length} milestone${persistedMilestones.length === 1 ? "" : "s"} updated.`,
+          );
+        }
+      } else if (isFromTemplate && templateId) {
+        await instantiateTemplate({
+          templateId,
+          body: {
+            ...payload,
+            projectName: payload.name,
+          },
+        }).unwrap();
+        toast.success(
+          selectedTemplate
+            ? `Project created from template “${selectedTemplate.name}”.`
+            : "Project created from template.",
+        );
       } else {
         const created = await createProjectBundle({
           ...payload,
@@ -411,6 +534,45 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     }
   };
 
+  const handleAllocationSaveDialogCancel = () => {
+    setAllocationSaveDialog({
+      open: false,
+      values: null,
+      milestoneDrafts: [],
+      issues: null,
+    });
+  };
+
+  const handleAllocationSaveWithoutAlign = async () => {
+    const { values, milestoneDrafts: drafts } = allocationSaveDialog;
+    if (!values) return;
+    handleAllocationSaveDialogCancel();
+    await completeProjectSave(values, drafts);
+  };
+
+  const handleAllocationSaveWithAlign = async () => {
+    const { values, milestoneDrafts: drafts, issues } = allocationSaveDialog;
+    if (!values || !project?.id || !values.startDate || !values.endDate) return;
+
+    const newStart = formatDateValue(values.startDate);
+    const newEnd = formatDateValue(values.endDate);
+    if (!newStart || !newEnd) return;
+
+    try {
+      if (issues?.canAlign) {
+        const alignResult = await alignProjectAllocationDates({
+          projectId: project.id,
+          body: { projectStartDate: newStart, projectEndDate: newEnd },
+        }).unwrap();
+        alignResult.warnings.forEach((warning) => toast(warning, { icon: "⚠️" }));
+      }
+      handleAllocationSaveDialogCancel();
+      await completeProjectSave(values, drafts);
+    } catch {
+      toast.error("Failed to align allocations before saving.");
+    }
+  };
+
   const onSubmit = handleSubmit(onValidSubmit, onFormError);
 
   const watchedName = watch("name");
@@ -421,6 +583,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const watchedSecondaryPmId = watch("secondaryPmId");
   const watchedEngagementType = watch("engagementType");
   const watchedBillingModel = watch("billingModel");
+  const watchedMethodology = watch("methodology");
   const watchedStartDate = watch("startDate");
   const watchedEndDate = watch("endDate");
 
@@ -453,20 +616,31 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     "disabled:cursor-default disabled:opacity-90 disabled:bg-slate-100/80 dark:disabled:bg-white/[0.04]";
 
   return (
+    <>
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <SheetContent side="right" className={CREATE_PROJECT_SHEET_CLASS} showCloseButton>
         <form onSubmit={onSubmit} className="flex h-full flex-col">
           <SheetHeader className="shrink-0 border-b border-slate-100 px-8 py-5 text-left dark:border-white/[0.06]">
             <SheetTitle className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-900 dark:text-white">
               <FolderKanban className="size-5 text-primary" />
-              {isEditMode ? (isViewOnly ? "View Project" : "Edit Project") : "New Project"}
+              {isEditMode
+                ? isViewOnly
+                  ? "View Project"
+                  : "Edit Project"
+                : isFromTemplate
+                  ? "New Project from Template"
+                  : "New Project"}
             </SheetTitle>
             <SheetDescription className="text-xs text-slate-500 dark:text-slate-400">
               {isViewOnly
                 ? "Project details are read-only for your role."
                 : isEditMode
                   ? "Update project specifications and delivery settings"
-                  : "Configure project specifications inside a unified ledger"}
+                  : isFromTemplate
+                    ? selectedTemplate
+                      ? `Using template “${selectedTemplate.name}” (${selectedTemplate.phaseCount} phases, ${selectedTemplate.milestoneCount} milestones, ${selectedTemplate.taskCount} tasks). Fill in project details to create.`
+                      : "Fill in project details. Structure will be copied from the selected template."
+                    : "Configure project specifications inside a unified ledger"}
             </SheetDescription>
           </SheetHeader>
 
@@ -723,6 +897,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                         void trigger("endDate");
                       }}
                       minDate={isEditMode ? startOfToday() : startOfToday()}
+                      invalid={Boolean(errors.startDate)}
                       disabled={isViewOnly}
                     />
                   )}
@@ -746,6 +921,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
                       value={field.value}
                       onChange={(date) => {
                         field.onChange(date);
+                        void trigger("startDate");
                         void trigger("endDate");
                       }}
                       minDate={endDateMin}
@@ -772,6 +948,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
               onPendingMembersChange={setPendingTeamMembers}
               canEdit={canEditTeam}
             />
+
+            {project?.id && <ProjectLeaveImpactSection projectId={project.id} />}
 
             {showFinancialFields && (
             <div className="grid grid-cols-2 gap-4">
@@ -939,20 +1117,71 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
             </div>
           </div>
 
-          <ProjectFormMilestonesSection
-            ref={milestoneSectionRef}
-            existingMilestones={isEditMode ? existingMilestones : []}
-            drafts={milestoneDrafts}
-            onDraftsChange={(newDrafts) => {
-              setMilestoneDrafts(newDrafts);
-              setMilestoneError(null);
-            }}
-            projectStartDate={watchedStartDate}
-            projectEndDate={watchedEndDate}
-            error={milestoneError || undefined}
-            readOnly={milestonesReadOnly}
-          />
+          {/* SECTION: METHODOLOGY */}
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-primary uppercase tracking-widest border-b border-slate-100 dark:border-white/[0.04] pb-2">
+              <GitBranch className="size-4" />
+              <span>Methodology</span>
+            </div>
+            <div className="space-y-1.5 sm:max-w-xs">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Delivery methodology *
+              </label>
+              <Controller
+                control={control}
+                name="methodology"
+                render={({ field }) => (
+                  <Select
+                    value={field.value || "Agile"}
+                    onValueChange={field.onChange}
+                    disabled={isViewOnly}
+                  >
+                    <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                      <SelectValue placeholder="Select methodology...">
+                        {watchedMethodology || "Agile"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg"
+                    >
+                      <SelectItem value="Agile">Agile</SelectItem>
+                      <SelectItem value="Waterfall">Waterfall</SelectItem>
+                      <SelectItem value="Hybrid">Hybrid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.methodology && (
+                <p className="text-[11px] font-semibold text-rose-500 mt-1">
+                  {errors.methodology.message}
+                </p>
+              )}
+            </div>
+          </div>
 
+          {isFromTemplate ? (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+              Phases, milestones, and tasks will be created automatically from the template
+              {selectedTemplate
+                ? ` (${selectedTemplate.phaseCount} phases · ${selectedTemplate.milestoneCount} milestones · ${selectedTemplate.taskCount} tasks)`
+                : ""}
+              . You can edit them after the project is created.
+            </div>
+          ) : (
+            <ProjectFormMilestonesSection
+              ref={milestoneSectionRef}
+              drafts={milestoneDrafts}
+              onDraftsChange={(newDrafts) => {
+                setMilestoneDrafts(newDrafts);
+                setMilestoneError(null);
+              }}
+              projectStartDate={watchedStartDate}
+              projectEndDate={watchedEndDate}
+              error={milestoneError || undefined}
+              readOnly={milestonesReadOnly}
+            />
+          )}
         </div>
 
         <SheetFooter className="shrink-0 flex-row justify-between border-t border-slate-100 bg-slate-50 px-8 py-4 dark:border-white/[0.06] dark:bg-zinc-950/40">
@@ -962,12 +1191,32 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
           {!isViewOnly && (
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-              {isEditMode ? "Save Changes" : "Create Project"}
+              {isEditMode
+                ? "Save Changes"
+                : isFromTemplate
+                  ? "Create from Template"
+                  : "Create Project"}
             </Button>
           )}
         </SheetFooter>
         </form>
       </SheetContent>
     </Sheet>
+
+    <AllocationAlignDialog
+      isOpen={allocationSaveDialog.open}
+      onCancel={handleAllocationSaveDialogCancel}
+      onSaveWithoutAlign={() => void handleAllocationSaveWithoutAlign()}
+      onConfirmAlign={() => void handleAllocationSaveWithAlign()}
+      isAligning={isAligningAllocations}
+      projectLabel={project?.name ?? "this project"}
+      preview={allocationSaveDialog.issues?.alignPreview ?? []}
+      issueMessages={
+        allocationSaveDialog.issues?.issues
+          .filter((issue) => issue.kinds.includes("outside_project_window"))
+          .flatMap((issue) => issue.messages) ?? []
+      }
+    />
+    </>
   );
 }

@@ -87,10 +87,15 @@ export function CalendarView({
     setFocusDate(d);
   }
 
-  // Map tasks by local date strings YYYY-MM-DD
+  // Map tasks by local date strings YYYY-MM-DD (include nested sub-tasks)
   const tasksByDateKey = useMemo(() => {
     const map: Record<string, GanttTaskRow[]> = {};
-    tasks.forEach((t) => {
+    const allRows: GanttTaskRow[] = [];
+    for (const t of tasks) {
+      allRows.push(t);
+      if (t.children?.length) allRows.push(...t.children);
+    }
+    allRows.forEach((t) => {
       if (t.rawEndDate) {
         try {
           const d = new Date(t.rawEndDate);

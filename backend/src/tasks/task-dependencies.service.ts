@@ -321,6 +321,101 @@ export class TaskDependenciesService {
     });
   }
 
+  /**
+   * Dry-run M1.5 schedule propagation: shift a task by leave overlap days and
+   * return projected slip without persisting changes.
+   */
+  async previewLeaveScheduleSlip(
+    projectId: string,
+    taskId: string,
+    shiftDays: number,
+  ): Promise<{
+    estimatedDelayDays: number;
+    downstreamTaskCount: number;
+    projectedTaskEnd: string | null;
+  }> {
+    if (shiftDays <= 0) {
+      return {
+        estimatedDelayDays: 0,
+        downstreamTaskCount: 0,
+        projectedTaskEnd: null,
+      };
+    }
+
+    const [tasks, dependencies] = await Promise.all([
+      this.prisma.task.findMany({
+        where: { projectId },
+        select: {
+          id: true,
+          title: true,
+          ownerId: true,
+          startDate: true,
+          endDate: true,
+        },
+      }),
+      this.prisma.taskDependency.findMany({
+        where: { predecessor: { projectId } },
+      }),
+    ]);
+
+    const taskMap = new Map(tasks.map((task) => [task.id, { ...task }]));
+    const seed = taskMap.get(taskId);
+    if (!seed) {
+      return {
+        estimatedDelayDays: 0,
+        downstreamTaskCount: 0,
+        projectedTaskEnd: null,
+      };
+    }
+
+    const originalEnds = new Map(
+      tasks.map((task) => [task.id, task.endDate?.getTime() ?? task.startDate?.getTime() ?? null]),
+    );
+    const originalSeedEnd = seed.endDate?.getTime() ?? seed.startDate?.getTime() ?? null;
+
+    this.shiftTaskDatesByDays(seed, shiftDays);
+
+    const { incoming, outgoing } = this.buildDependencyMaps(dependencies);
+    const downstreamTaskCount = this.propagateScheduleChanges(
+      taskMap,
+      incoming,
+      outgoing,
+      [taskId],
+    ).length;
+
+    const projected = taskMap.get(taskId);
+    const projectedTaskEnd = projected?.endDate
+      ? projected.endDate.toISOString().slice(0, 10)
+      : projected?.startDate
+        ? projected.startDate.toISOString().slice(0, 10)
+        : null;
+
+    let estimatedDelayDays = shiftDays;
+    const newSeedEnd = projected?.endDate?.getTime() ?? projected?.startDate?.getTime() ?? null;
+    if (originalSeedEnd != null && newSeedEnd != null) {
+      estimatedDelayDays = Math.max(
+        shiftDays,
+        Math.round((newSeedEnd - originalSeedEnd) / 86_400_000),
+      );
+    }
+
+    for (const task of tasks) {
+      const before = originalEnds.get(task.id);
+      const after =
+        taskMap.get(task.id)?.endDate?.getTime() ??
+        taskMap.get(task.id)?.startDate?.getTime() ??
+        null;
+      if (before != null && after != null) {
+        const slip = Math.round((after - before) / 86_400_000);
+        if (slip > estimatedDelayDays) {
+          estimatedDelayDays = slip;
+        }
+      }
+    }
+
+    return { estimatedDelayDays, downstreamTaskCount, projectedTaskEnd };
+  }
+
   private async finalizeProjectSchedule(
     projectId: string,
     seedTaskIds: string[],
@@ -500,6 +595,39 @@ export class TaskDependenciesService {
     ]);
 
     const taskMap = new Map(tasks.map((task) => [task.id, { ...task }]));
+    const { incoming, outgoing } = this.buildDependencyMaps(dependencies);
+    const changed = this.propagateScheduleChanges(
+      taskMap,
+      incoming,
+      outgoing,
+      seedTaskIds,
+    );
+
+    for (const row of changed) {
+      const task = taskMap.get(row.taskId);
+      if (!task) {
+        continue;
+      }
+      await this.prisma.task.update({
+        where: { id: row.taskId },
+        data: {
+          startDate: task.startDate,
+          endDate: task.endDate,
+        },
+      });
+    }
+
+    return changed;
+  }
+
+  private buildDependencyMaps(
+    dependencies: Array<{
+      predecessorId: string;
+      successorId: string;
+      depType: string;
+      lagDays: number;
+    }>,
+  ) {
     const incoming = new Map<string, typeof dependencies>();
     for (const dep of dependencies) {
       const list = incoming.get(dep.successorId) ?? [];
@@ -514,6 +642,26 @@ export class TaskDependenciesService {
       outgoing.set(dep.predecessorId, list);
     }
 
+    return { incoming, outgoing };
+  }
+
+  private propagateScheduleChanges(
+    taskMap: Map<
+      string,
+      Pick<Task, 'id' | 'startDate' | 'endDate' | 'title' | 'ownerId'>
+    >,
+    incoming: Map<
+      string,
+      Array<{
+        depType: string;
+        lagDays: number;
+        predecessorId: string;
+        successorId: string;
+      }>
+    >,
+    outgoing: Map<string, string[]>,
+    seedTaskIds: string[],
+  ): Array<{ taskId: string; ownerId: string | null; title: string }> {
     const queue = [...new Set(seedTaskIds)];
     const visited = new Set<string>();
     const impacted: Array<{ taskId: string; ownerId: string | null; title: string }> = [];
@@ -554,14 +702,6 @@ export class TaskDependenciesService {
         (task.endDate?.getTime() ?? null) !== beforeEnd;
 
       if (changed && (task.startDate || task.endDate)) {
-        await this.prisma.task.update({
-          where: { id: taskId },
-          data: {
-            startDate: task.startDate,
-            endDate: task.endDate,
-          },
-        });
-
         impacted.push({
           taskId: task.id,
           ownerId: task.ownerId,
@@ -575,6 +715,18 @@ export class TaskDependenciesService {
     }
 
     return impacted;
+  }
+
+  private shiftTaskDatesByDays(
+    task: Pick<Task, 'startDate' | 'endDate'>,
+    shiftDays: number,
+  ): void {
+    if (task.endDate) {
+      task.endDate = this.addDays(task.endDate, shiftDays);
+    }
+    if (task.startDate) {
+      task.startDate = this.addDays(task.startDate, shiftDays);
+    }
   }
 
   private mergeConstraints(

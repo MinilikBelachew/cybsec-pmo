@@ -19,6 +19,7 @@ import { UpdateMilestoneDto } from './dto/update-milestone.dto';
 import { ProjectStatus, TaskStatus, PhaseStatus, Prisma } from '@prisma/client';
 import {
   ApiPriorityLevel,
+  ApiProjectMethodology,
   ApiProjectStatus,
 } from './enums/project-api.enum';
 import {
@@ -26,6 +27,7 @@ import {
   toPrismaBillingModel,
   toPrismaCurrency,
   toPrismaEngagementType,
+  toPrismaMethodology,
   toPrismaStatus,
   STATUS_FROM_PRISMA,
   type ProjectWithRelations,
@@ -113,6 +115,9 @@ export class ProjectsService {
           customerId: dto.customerId,
           engagementType: toPrismaEngagementType(dto.engagementType),
           billingModel: toPrismaBillingModel(dto.billingModel),
+          methodology: toPrismaMethodology(
+            dto.methodology ?? ApiProjectMethodology.Agile,
+          ),
           priority: dto.priority ?? ApiPriorityLevel.Medium,
           startDate: dto.startDate,
           endDate: dto.endDate,
@@ -145,6 +150,11 @@ export class ProjectsService {
     });
 
     return toApiProject(project as ProjectWithRelations, { ability: null });
+  }
+
+  /** Internal rollback helper when bundle team assignment fails after project insert. */
+  async deleteProjectByIdForRollback(projectId: string): Promise<void> {
+    await this.prisma.project.delete({ where: { id: projectId } });
   }
 
   async findManyWithPagination(
@@ -564,6 +574,9 @@ export class ProjectsService {
         ...(dto.billingModel !== undefined && {
           billingModel: toPrismaBillingModel(dto.billingModel),
         }),
+        ...(dto.methodology !== undefined && {
+          methodology: toPrismaMethodology(dto.methodology),
+        }),
         ...(dto.priority !== undefined && { priority: dto.priority }),
         ...(dto.startDate !== undefined && { startDate: dto.startDate }),
         ...(dto.endDate !== undefined && { endDate: dto.endDate }),
@@ -823,11 +836,18 @@ export class ProjectsService {
 
     await this.assertProjectInScope(existing.projectId, caslUser, 'approve');
 
+    const assignedTaskCount = await this.prisma.task.count({
+      where: { phaseId },
+    });
+    if (assignedTaskCount > 0) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { phase: 'phaseHasAssignedTasks' },
+        message: `Cannot delete this phase while ${assignedTaskCount} task(s) are assigned to it. Unassign or move those tasks first.`,
+      });
+    }
+
     await this.prisma.$transaction([
-      this.prisma.task.updateMany({
-        where: { phaseId },
-        data: { phaseId: null },
-      }),
       this.prisma.projectMilestone.updateMany({
         where: { phaseId },
         data: { phaseId: null },

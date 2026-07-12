@@ -12,6 +12,8 @@ import {
 } from "../api/notifications.api";
 import { NotificationListItem } from "./notification-list-item";
 import { resolveNotificationHref } from "../utils/notification-navigation";
+import { useApplyLeaveBackupMutation } from "@/domains/projects";
+import { toast } from "react-hot-toast";
 
 const PAGE_SIZE = 20;
 
@@ -27,6 +29,7 @@ export function NotificationsPage() {
   });
   const [markRead] = useMarkNotificationReadMutation();
   const [markAllRead, { isLoading: isMarkingAll }] = useMarkAllNotificationsReadMutation();
+  const [applyLeaveBackup] = useApplyLeaveBackupMutation();
 
   const notifications = data?.data ?? [];
   const meta = data?.meta;
@@ -44,6 +47,33 @@ export function NotificationsPage() {
     const href = resolveNotificationHref(notification);
     if (href) {
       router.push(href);
+    }
+  };
+
+  const handleApplyBackup = async (notification: (typeof notifications)[number]) => {
+    const projectId =
+      typeof notification.payload.projectId === "string"
+        ? notification.payload.projectId
+        : null;
+    const taskId =
+      typeof notification.payload.taskId === "string"
+        ? notification.payload.taskId
+        : null;
+
+    if (!projectId || !taskId) {
+      toast.error("Missing project or task for backup assignment.");
+      return;
+    }
+
+    try {
+      const result = await applyLeaveBackup({ projectId, taskId }).unwrap();
+      if (!notification.readAt) {
+        await markRead(notification.id).unwrap();
+      }
+      toast.success(`Task reassigned to ${result.ownerName ?? "backup resource"}.`);
+      router.push(`/dashboard/projects/${projectId}?taskId=${taskId}`);
+    } catch {
+      toast.error("Could not assign backup resource.");
     }
   };
 
@@ -118,6 +148,7 @@ export function NotificationsPage() {
                 key={notification.id}
                 notification={notification}
                 onClick={() => void handleOpenNotification(notification)}
+                onApplyBackup={(item) => void handleApplyBackup(item)}
               />
             ))}
           </div>
