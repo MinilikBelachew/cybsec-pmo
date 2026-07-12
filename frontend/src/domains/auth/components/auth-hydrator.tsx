@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useAppDispatch } from "@/store/hooks";
 import { useLazyGetMeQuery, useLazyGetMyPermissionsQuery } from "@/domains/auth/api/auth.api";
 import { apiUserToUser } from "@/domains/auth/transformers/auth.transformer";
 import { setPermissions, setUser } from "@/domains/auth/store/auth.slice";
@@ -9,27 +9,32 @@ import { setPermissions, setUser } from "@/domains/auth/store/auth.slice";
 /** Loads user + permissions when a session cookie exists. */
 export function AuthHydrator() {
   const dispatch = useAppDispatch();
-  const user = useAppSelector((s) => s.auth.user);
-  const permissionsLoaded = useAppSelector((s) => s.auth.permissionsLoaded);
   const [getMe] = useLazyGetMeQuery();
   const [getPermissions] = useLazyGetMyPermissionsQuery();
 
   useEffect(() => {
-    if (user && permissionsLoaded) return;
+    let cancelled = false;
 
+    // Always force-refetch permissions on mount so matrix grants (e.g. Save as template)
+    // appear without requiring a full logout after RBAC changes.
     getMe()
       .unwrap()
       .then(async (apiUser) => {
+        if (cancelled) return;
         dispatch(setUser(apiUserToUser(apiUser)));
         try {
-          const rows = await getPermissions().unwrap();
-          dispatch(setPermissions(rows));
+          const rows = await getPermissions(undefined, false).unwrap();
+          if (!cancelled) dispatch(setPermissions(rows));
         } catch {
-          dispatch(setPermissions([]));
+          if (!cancelled) dispatch(setPermissions([]));
         }
       })
       .catch(() => undefined);
-  }, [dispatch, getMe, getPermissions, permissionsLoaded, user]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, getMe, getPermissions]);
 
   return null;
 }

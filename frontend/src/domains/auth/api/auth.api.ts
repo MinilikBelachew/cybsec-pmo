@@ -20,7 +20,7 @@ export const authApi = api.injectEndpoints({
       void
     >({
       query: () => "/auth/me/permissions",
-      providesTags: ["Permissions"],
+      providesTags: [{ type: "Permissions", id: "ME" }],
     }),
 
     refreshSession: builder.mutation<void, void>({

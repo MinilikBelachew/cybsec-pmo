@@ -247,14 +247,18 @@ export class AuthService {
     } as User & { breakGlass?: boolean };
   }
 
-  getPermissionsForUser(userJwtPayload: JwtPayloadType): PermissionRow[] {
+  async getPermissionsForUser(
+    userJwtPayload: JwtPayloadType,
+  ): Promise<PermissionRow[]> {
     const roleId =
       userJwtPayload.roleId ??
       userJwtPayload.role?.id;
     if (!roleId) {
       return [];
     }
-    return this.permissionsCache.getByRoleId(roleId);
+    // Read from DB so Roles & Permissions matrix grants show up immediately
+    // (in-memory cache can lag until refresh / restart).
+    return this.permissionsCache.getByRoleIdFromDb(roleId);
   }
 
   async createAuthenticatedSession(

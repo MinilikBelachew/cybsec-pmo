@@ -49,4 +49,34 @@ export class PermissionsCacheService implements OnModuleInit {
   getByRoleId(roleId: number): PermissionRow[] {
     return this.cache.get(roleId) ?? [];
   }
+
+  /** Fresh read from DB for the current session (avoids stale menu gates after matrix grants). */
+  async getByRoleIdFromDb(roleId: number): Promise<PermissionRow[]> {
+    const rows = await this.prisma.rolePermission.findMany({
+      where: { roleId },
+      select: {
+        recordScope: true,
+        fieldScope: true,
+        permission: {
+          select: {
+            module: true,
+            action: true,
+          },
+        },
+      },
+    });
+
+    assertKnownRecordScopes(rows.map((row) => row.recordScope));
+
+    const list = rows.map((row) => ({
+      module: row.permission.module,
+      action: row.permission.action,
+      recordScope: row.recordScope,
+      fieldScope: row.fieldScope as Record<string, unknown> | null,
+    }));
+
+    // Keep in-memory cache aligned so ModulePermissionGuard / CASL see the same grants.
+    this.cache.set(roleId, list);
+    return list;
+  }
 }
