@@ -53,6 +53,12 @@ enum EngagementType {
   Staff_Augmentation @map("Staff Augmentation")
 }
 
+enum ProjectMethodology {
+  Agile
+  Waterfall
+  Hybrid
+}
+
 enum BillingModel {
   Fixed_Price        @map("Fixed Price")
   Retainer
@@ -366,9 +372,10 @@ model Project {
   objective         String
   departmentId      String         @map("department_id") @db.Uuid
   customerId        String         @map("customer_id") @db.Uuid
-  engagementType    EngagementType @map("engagement_type")
-  billingModel      BillingModel   @map("billing_model")
-  priority          PriorityLevel  @default(Medium)
+  engagementType    EngagementType     @map("engagement_type")
+  billingModel      BillingModel       @map("billing_model")
+  methodology       ProjectMethodology @default(Agile)
+  priority          PriorityLevel      @default(Medium)
   startDate         DateTime       @map("start_date") @db.Date
   endDate           DateTime       @map("end_date") @db.Date
   baselineStartDate DateTime?      @map("baseline_start_date") @db.Date
@@ -525,6 +532,7 @@ model Task {
   backupOwner User?   @relation("TaskBackupOwner", fields: [backupOwnerId], references: [id])
 
   comments          TaskComment[]
+  checklistItems    TaskChecklistItem[]
   workspaceDocuments WorkspaceDocument[]
   dependenciesAsPre TaskDependency[] @relation("DependencyPredecessor")
   dependenciesAsSuc TaskDependency[] @relation("DependencySuccessor")
@@ -538,6 +546,21 @@ model Task {
   @@index([phaseId], map: "idx_tasks_phase")
   @@index([backupOwnerId], map: "idx_tasks_backup_owner")
   @@map("tasks")
+}
+
+model TaskChecklistItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  title     String   @db.VarChar(255)
+  isDone    Boolean  @default(false) @map("is_done")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId], map: "idx_task_checklist_items_task")
+  @@map("task_checklist_items")
 }
 
 model TaskComment {
@@ -1627,6 +1650,7 @@ model ProjectTemplate {
   id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String         @db.VarChar(255)
   category           String         @db.VarChar(100)
+  description        String?
   engagementType     EngagementType @map("engagement_type")
   version            Int            @default(1)
   isStale            Boolean        @default(false) @map("is_stale")
@@ -1639,29 +1663,70 @@ model ProjectTemplate {
 
   creator User @relation(fields: [createdBy], references: [id])
 
-  projects          Project[]
-  templateTasks     TemplateTask[]
-  closureChecklists ClosureChecklist[]
+  projects           Project[]
+  templatePhases     TemplatePhase[]
+  templateMilestones TemplateMilestone[]
+  templateTasks      TemplateTask[]
+  closureChecklists  ClosureChecklist[]
 
   @@map("project_templates")
+}
+
+model TemplatePhase {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId        String   @map("template_id") @db.Uuid
+  name              String   @db.VarChar(255)
+  description       String?
+  orderIndex        Int      @default(0) @map("order_index")
+  relativeStartDays Int      @default(0) @map("relative_start_days")
+  durationDays      Int      @default(1) @map("duration_days")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  template   ProjectTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  milestones TemplateMilestone[]
+  tasks      TemplateTask[]
+
+  @@index([templateId], map: "idx_template_phases_template")
+  @@map("template_phases")
+}
+
+model TemplateMilestone {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId         String   @map("template_id") @db.Uuid
+  templatePhaseId    String?  @map("template_phase_id") @db.Uuid
+  title              String   @db.VarChar(255)
+  relativeTargetDays Int      @default(0) @map("relative_target_days")
+  weight             Decimal? @db.Decimal(5, 2)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  template ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  phase    TemplatePhase?  @relation(fields: [templatePhaseId], references: [id], onDelete: SetNull)
+
+  @@index([templateId], map: "idx_template_milestones_template")
+  @@index([templatePhaseId], map: "idx_template_milestones_phase")
+  @@map("template_milestones")
 }
 
 model TemplateTask {
   id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   templateId        String         @map("template_id") @db.Uuid
+  templatePhaseId   String?        @map("template_phase_id") @db.Uuid
   parentId          String?        @map("parent_id") @db.Uuid
   title             String         @db.VarChar(255)
   description       String?
   relativeStartDays Int            @default(0) @map("relative_start_days")
   durationDays      Int            @default(1) @map("duration_days")
   priority          PriorityLevel  @default(Medium)
+  effortHours       Int?           @map("effort_hours")
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
-  template   ProjectTemplate @relation(fields: [templateId], references: [id])
-  parentTask TemplateTask?   @relation("SubTemplateTasks", fields: [parentId], references: [id])
+  template   ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  phase      TemplatePhase?  @relation(fields: [templatePhaseId], references: [id], onDelete: SetNull)
+  parentTask TemplateTask?   @relation("SubTemplateTasks", fields: [parentId], references: [id], onDelete: SetNull)
   subTasks   TemplateTask[]  @relation("SubTemplateTasks")
 
   @@index([templateId], map: "idx_template_tasks_template")
+  @@index([templatePhaseId], map: "idx_template_tasks_phase")
   @@index([parentId], map: "idx_template_tasks_parent")
   @@map("template_tasks")
 }

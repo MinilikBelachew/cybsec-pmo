@@ -7,6 +7,8 @@ export * from "./schemas/task/update-task.schema";
 export * from "./schemas/phase/phase.schema";
 export * from "./schemas/milestone/milestone.schema";
 export * from "./api/projects.api";
+export * from "./api/project-templates.api";
+export * from "./api/action-points.api";
 export * from "./api/tasks.api";
 export * from "./api/files.api";
 export * from "./api/project-documents.api";

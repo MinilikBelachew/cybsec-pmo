@@ -176,6 +176,7 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'project_import', action: 'import', recordScope: 'own_projects' },
     { module: 'project_export', action: 'export', recordScope: 'own_projects' },
     { module: 'project_templates', action: 'view', recordScope: 'own_projects' },
+    { module: 'project_templates', action: 'manage', recordScope: 'own_projects' },
     { module: 'project_templates', action: 'instantiate', recordScope: 'own_projects' },
     { module: 'project_closure', action: 'view', recordScope: 'own_projects' },
     { module: 'project_closure', action: 'initiate', recordScope: 'own_projects' },
@@ -242,6 +243,8 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'milestones', action: 'view', recordScope: 'assigned' },
     { module: 'phases', action: 'view', recordScope: 'assigned' },
     { module: 'dependencies', action: 'view', recordScope: 'assigned' },
+    // DEF-P1-028 — Engineers can export assigned project/portfolio data.
+    { module: 'project_export', action: 'export', recordScope: 'assigned' },
     { module: 'tasks', action: 'view', recordScope: 'assigned' },
     { module: 'tasks', action: 'edit', recordScope: 'assigned' },
     { module: 'tasks', action: 'comment', recordScope: 'assigned' },

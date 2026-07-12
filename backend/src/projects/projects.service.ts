@@ -19,6 +19,7 @@ import { UpdateMilestoneDto } from './dto/update-milestone.dto';
 import { ProjectStatus, TaskStatus, PhaseStatus, Prisma } from '@prisma/client';
 import {
   ApiPriorityLevel,
+  ApiProjectMethodology,
   ApiProjectStatus,
 } from './enums/project-api.enum';
 import {
@@ -26,6 +27,7 @@ import {
   toPrismaBillingModel,
   toPrismaCurrency,
   toPrismaEngagementType,
+  toPrismaMethodology,
   toPrismaStatus,
   STATUS_FROM_PRISMA,
   type ProjectWithRelations,
@@ -113,6 +115,9 @@ export class ProjectsService {
           customerId: dto.customerId,
           engagementType: toPrismaEngagementType(dto.engagementType),
           billingModel: toPrismaBillingModel(dto.billingModel),
+          methodology: toPrismaMethodology(
+            dto.methodology ?? ApiProjectMethodology.Agile,
+          ),
           priority: dto.priority ?? ApiPriorityLevel.Medium,
           startDate: dto.startDate,
           endDate: dto.endDate,
@@ -568,6 +573,9 @@ export class ProjectsService {
         }),
         ...(dto.billingModel !== undefined && {
           billingModel: toPrismaBillingModel(dto.billingModel),
+        }),
+        ...(dto.methodology !== undefined && {
+          methodology: toPrismaMethodology(dto.methodology),
         }),
         ...(dto.priority !== undefined && { priority: dto.priority }),
         ...(dto.startDate !== undefined && { startDate: dto.startDate }),

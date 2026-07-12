@@ -16,6 +16,8 @@ import { useLazyExportTasksQuery } from "../../api/tasks.api";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
+import { SaveAsTemplateDialog } from "./save-as-template-dialog";
+import { TemplatePickerDialog } from "./template-picker-dialog";
 import { createProjectListColumns } from "./project-list-columns";
 import { exportProjectsToXLSX, convertToCSV, exportProjectsToPDF, exportProjectsToWord, exportProjectsToMPP } from "../../utils/import-export";
 import { ExportProjectsDialog } from "./export-projects-dialog";
@@ -54,6 +56,7 @@ import {
   Download,
   Loader2,
   FileUp,
+  LayoutTemplate,
 } from "lucide-react";
 const STATUS_CONFIG = PROJECT_STATUS_CONFIG;
 
@@ -348,8 +351,14 @@ export function ProjectsList() {
     canViewFinancials,
     canImportProjects,
     canExportProjects,
+    canManageProjectTemplates,
+    canInstantiateProjectTemplates,
+    canViewProjectTemplates,
   } = useModulePermissions();
   const canCreate = canCreateProjects;
+  const canCreateFromTemplate =
+    canCreateProjects && canInstantiateProjectTemplates && canViewProjectTemplates;
+  const canSaveAsTemplate = canManageProjectTemplates;
   const canUpdate = canEditProjects;
   const canView = canViewProjects;
   const canOpenProjectSheet = canUpdate || canView;
@@ -364,6 +373,9 @@ export function ProjectsList() {
   const [listPageSize, setListPageSize] = useState(10);
   const [listSorting, setListSorting] = useState<SortingState>([{ id: "createdAt", desc: true }]);
   const [showNew, setShowNew] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [createFromTemplateId, setCreateFromTemplateId] = useState<string | null>(null);
+  const [saveTemplateProject, setSaveTemplateProject] = useState<Project | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [showMppImport, setShowMppImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -527,13 +539,26 @@ export function ProjectsList() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
         </div>
-        {canCreate && (
-          <Button
-            onClick={() => setShowNew(true)}
-          >
-            <Plus className="size-4" />
-            New Project
-          </Button>
+        {(canCreate || canCreateFromTemplate) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {canCreateFromTemplate && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowTemplatePicker(true)}
+                className="gap-1.5"
+              >
+                <LayoutTemplate className="size-4" />
+                From Template
+              </Button>
+            )}
+            {canCreate && (
+              <Button type="button" onClick={() => setShowNew(true)}>
+                <Plus className="size-4" />
+                New Project
+              </Button>
+            )}
+          </div>
         )}
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -737,6 +762,7 @@ export function ProjectsList() {
               project={p}
               onEdit={canOpenProjectSheet ? setEditProject : undefined}
               onDelete={canDelete ? setDeleteTarget : undefined}
+              onSaveAsTemplate={canSaveAsTemplate ? setSaveTemplateProject : undefined}
               projectSheetActionLabel={projectSheetActionLabel}
               showBudget={canViewFinancials}
             />
@@ -758,16 +784,36 @@ export function ProjectsList() {
           onSortingChange={setListSorting}
           onEdit={canOpenProjectSheet ? setEditProject : undefined}
           onDelete={canDelete ? setDeleteTarget : undefined}
+          onSaveAsTemplate={canSaveAsTemplate ? setSaveTemplateProject : undefined}
           projectSheetActionLabel={projectSheetActionLabel}
           showBudget={canViewFinancials}
         />
       )}
       <CreateProjectSheet open={showNew} onClose={() => setShowNew(false)} refetch={refetch} />
       <CreateProjectSheet
+        open={Boolean(createFromTemplateId)}
+        templateId={createFromTemplateId}
+        onClose={() => setCreateFromTemplateId(null)}
+        refetch={refetch}
+      />
+      <CreateProjectSheet
         open={Boolean(editProject)}
         project={editProject}
         onClose={() => setEditProject(null)}
         refetch={refetch}
+      />
+      <TemplatePickerDialog
+        open={showTemplatePicker}
+        onClose={() => setShowTemplatePicker(false)}
+        onSelect={(template) => {
+          setShowTemplatePicker(false);
+          setCreateFromTemplateId(template.id);
+        }}
+      />
+      <SaveAsTemplateDialog
+        open={Boolean(saveTemplateProject)}
+        project={saveTemplateProject}
+        onClose={() => setSaveTemplateProject(null)}
       />
       <ImportProjectsDialog
         open={showImport}
@@ -806,12 +852,14 @@ function ProjectGridCard({
   project: p,
   onEdit,
   onDelete,
+  onSaveAsTemplate,
   projectSheetActionLabel = "Edit",
   showBudget = true,
 }: {
   project: ProcessedProject;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProcessedProject) => void;
+  onSaveAsTemplate?: (project: Project) => void;
   projectSheetActionLabel?: string;
   showBudget?: boolean;
 }) {
@@ -819,7 +867,7 @@ function ProjectGridCard({
   const s = getProjectStatusConfig(p.status);
   const budgetPct = p.budget > 0 ? Math.round((p.budgetUsed / p.budget) * 100) : 0;
   const overBudget = p.budgetUsed > p.budget;
-  const showActions = Boolean(onEdit || onDelete);
+  const showActions = Boolean(onEdit || onDelete || onSaveAsTemplate);
 
   const openProject = () => router.push(`/dashboard/projects/${p.id}`);
 
@@ -872,7 +920,7 @@ function ProjectGridCard({
                 >
                   <MoreHorizontal className="size-4" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40" onClick={(event) => event.stopPropagation()}>
+                <DropdownMenuContent align="end" className="w-48" onClick={(event) => event.stopPropagation()}>
                   {onEdit && (
                     <DropdownMenuItem
                       className="cursor-pointer gap-2"
@@ -887,6 +935,18 @@ function ProjectGridCard({
                         <Eye className="size-3.5" />
                       )}
                       {projectSheetActionLabel}
+                    </DropdownMenuItem>
+                  )}
+                  {onSaveAsTemplate && (
+                    <DropdownMenuItem
+                      className="cursor-pointer gap-2"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSaveAsTemplate(p);
+                      }}
+                    >
+                      <LayoutTemplate className="size-3.5" />
+                      Save as template
                     </DropdownMenuItem>
                   )}
                   {onDelete && (
@@ -1012,6 +1072,7 @@ function ProjectListView({
   onSortingChange,
   onEdit,
   onDelete,
+  onSaveAsTemplate,
   projectSheetActionLabel = "Edit",
   showBudget = true,
 }: {
@@ -1027,6 +1088,7 @@ function ProjectListView({
   onSortingChange: (sorting: SortingState) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProcessedProject) => void;
+  onSaveAsTemplate?: (project: Project) => void;
   projectSheetActionLabel?: string;
   showBudget?: boolean;
 }) {
@@ -1045,10 +1107,11 @@ function ProjectListView({
         onNavigate: handleNavigate,
         onEdit,
         onDelete,
+        onSaveAsTemplate,
         projectSheetActionLabel,
         showBudget,
       }),
-    [handleNavigate, onEdit, onDelete, projectSheetActionLabel, showBudget],
+    [handleNavigate, onEdit, onDelete, onSaveAsTemplate, projectSheetActionLabel, showBudget],
   );
 
   return (

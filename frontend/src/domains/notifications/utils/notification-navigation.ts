@@ -13,6 +13,7 @@ export function notificationIcon(eventType: string) {
     case "TASK_ASSIGNED":
       return Plus;
     case "TASK_UPDATED":
+    case "TASK_DEADLINE_REMINDER":
       return Clock;
     case "PROGRESS_SUBMITTED":
       return Clock;
@@ -43,6 +44,8 @@ export function notificationIconClass(eventType: string): string {
       return "text-blue-500";
     case "TASK_UPDATED":
       return "text-amber-500";
+    case "TASK_DEADLINE_REMINDER":
+      return "text-amber-600";
     case "PROGRESS_SUBMITTED":
       return "text-violet-500";
     case "PROGRESS_APPROVED":

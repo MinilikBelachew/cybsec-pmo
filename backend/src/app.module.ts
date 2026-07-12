@@ -15,6 +15,8 @@ import { HeaderResolver, I18nModule } from 'nestjs-i18n';
 import { MailModule } from './mail/mail.module';
 import { HomeModule } from './home/home.module';
 import { ProjectsModule } from './projects/projects.module';
+import { ProjectTemplatesModule } from './project-templates/project-templates.module';
+import { ActionPointsModule } from './action-points/action-points.module';
 import { TasksModule } from './tasks/tasks.module';
 import { WorkspaceDocumentsModule } from './workspace-documents/workspace-documents.module';
 import { AllConfigType } from './config/config.type';
@@ -116,6 +118,8 @@ import kekaConfig from './keka/config/keka.config';
     HomeModule,
     KekaModule.register(),
     ProjectsModule,
+    ProjectTemplatesModule,
+    ActionPointsModule,
     TasksModule,
     WorkspaceDocumentsModule,
     FilesModule,

@@ -3,6 +3,8 @@ import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
 import { TaskProgressService } from './task-progress.service';
 import { TaskDependenciesService } from './task-dependencies.service';
+import { TaskDeadlineReminderService } from './task-deadline-reminder.service';
+import { TaskDeadlineReminderScheduler } from './task-deadline-reminder.scheduler';
 import { PrismaModule } from '../database/prisma.module';
 import { FilesModule } from '../files/files.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -22,7 +24,13 @@ import { WorkspaceDocumentsModule } from '../workspace-documents/workspace-docum
     AuditLogsModule,
   ],
   controllers: [TasksController],
-  providers: [TasksService, TaskProgressService, TaskDependenciesService],
+  providers: [
+    TasksService,
+    TaskProgressService,
+    TaskDependenciesService,
+    TaskDeadlineReminderService,
+    TaskDeadlineReminderScheduler,
+  ],
   exports: [TasksService, TaskProgressService, TaskDependenciesService],
 })
 export class TasksModule {}

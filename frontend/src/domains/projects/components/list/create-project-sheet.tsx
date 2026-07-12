@@ -18,6 +18,8 @@ import {
   useUpdateMilestoneMutation,
   useLazyGetAllocationDateIssuesQuery,
   useAlignProjectAllocationDatesMutation,
+  useGetProjectTemplatesQuery,
+  useInstantiateProjectTemplateMutation,
   createProjectFormSchema,
   editProjectFormSchema,
   toCreateProjectPayload,
@@ -50,6 +52,7 @@ import {
   Briefcase,
   Users2,
   DollarSign,
+  GitBranch,
   Loader2,
 } from "lucide-react";
 import {
@@ -79,6 +82,8 @@ interface CreateProjectSheetProps {
   onClose: () => void;
   refetch?: () => void;
   project?: Project | null;
+  /** When set, create uses this template (phases/tasks/milestones come from the template). */
+  templateId?: string | null;
 }
 
 function projectToFormValues(project: Project): CreateProjectFormValues {
@@ -95,6 +100,7 @@ function projectToFormValues(project: Project): CreateProjectFormValues {
     currency: project.currency ?? "USD",
     engagementType: project.engagementType ?? "FixedPrice",
     billingModel: project.billingModel ?? "FixedPrice",
+    methodology: project.methodology ?? "Agile",
     priority: project.priority,
     status: project.status,
   };
@@ -165,8 +171,15 @@ function validateMilestoneDraftDates(
   return null;
 }
 
-export function CreateProjectSheet({ open, onClose, refetch, project }: CreateProjectSheetProps) {
+export function CreateProjectSheet({
+  open,
+  onClose,
+  refetch,
+  project,
+  templateId = null,
+}: CreateProjectSheetProps) {
   const isEditMode = Boolean(project);
+  const isFromTemplate = Boolean(templateId) && !isEditMode;
   const {
     canEditProjects,
     canViewFinancials,
@@ -179,7 +192,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const canEditTeam = canEditProject && canManageTeam;
   const isViewOnly = isEditMode && !canEditProject;
   const showFinancialFields = canViewFinancials || canEditProject;
-  const milestonesReadOnly = isViewOnly || !canEditMilestones;
+  const milestonesReadOnly = isViewOnly || !canEditMilestones || isFromTemplate;
   const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
   const milestoneSectionRef = useRef<ProjectFormMilestonesSectionHandle>(null);
   const milestonesSeededForProjectRef = useRef<string | null>(null);
@@ -193,6 +206,8 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     issues: AllocationDateIssuesResponse | null;
   }>({ open: false, values: null, milestoneDrafts: [], issues: null });
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
+  const [instantiateTemplate, { isLoading: isInstantiating }] =
+    useInstantiateProjectTemplateMutation();
   const [updateProject, { isLoading: isUpdating }] = useUpdateProjectMutation();
   const [addProjectTeamMembers, { isLoading: isSavingTeam }] = useAddProjectTeamMembersMutation();
   const [createMilestone, { isLoading: isCreatingMilestones }] = useCreateMilestoneMutation();
@@ -202,7 +217,17 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
     useAlignProjectAllocationDatesMutation();
   const isSavingMilestones = isCreatingMilestones || isUpdatingMilestones;
   const isSubmitting =
-    isCreating || isUpdating || isSavingTeam || isSavingMilestones || isAligningAllocations;
+    isCreating ||
+    isInstantiating ||
+    isUpdating ||
+    isSavingTeam ||
+    isSavingMilestones ||
+    isAligningAllocations;
+
+  const { data: templates = [] } = useGetProjectTemplatesQuery(undefined, {
+    skip: !isFromTemplate || !open,
+  });
+  const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
 
   const {
     data: existingMilestones = [],
@@ -241,6 +266,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
       currency: "USD",
       engagementType: "FixedPrice",
       billingModel: "FixedPrice",
+      methodology: "Agile",
       priority: "Medium",
       status: "Draft",
     },
@@ -274,6 +300,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
         currency: "USD",
         engagementType: "FixedPrice",
         billingModel: "FixedPrice",
+        methodology: "Agile",
         priority: "Medium",
         status: "Draft",
       });
@@ -444,6 +471,19 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
             `${persistedMilestones.length} milestone${persistedMilestones.length === 1 ? "" : "s"} updated.`,
           );
         }
+      } else if (isFromTemplate && templateId) {
+        await instantiateTemplate({
+          templateId,
+          body: {
+            ...payload,
+            projectName: payload.name,
+          },
+        }).unwrap();
+        toast.success(
+          selectedTemplate
+            ? `Project created from template “${selectedTemplate.name}”.`
+            : "Project created from template.",
+        );
       } else {
         const created = await createProjectBundle({
           ...payload,
@@ -543,6 +583,7 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
   const watchedSecondaryPmId = watch("secondaryPmId");
   const watchedEngagementType = watch("engagementType");
   const watchedBillingModel = watch("billingModel");
+  const watchedMethodology = watch("methodology");
   const watchedStartDate = watch("startDate");
   const watchedEndDate = watch("endDate");
 
@@ -582,14 +623,24 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
           <SheetHeader className="shrink-0 border-b border-slate-100 px-8 py-5 text-left dark:border-white/[0.06]">
             <SheetTitle className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-900 dark:text-white">
               <FolderKanban className="size-5 text-primary" />
-              {isEditMode ? (isViewOnly ? "View Project" : "Edit Project") : "New Project"}
+              {isEditMode
+                ? isViewOnly
+                  ? "View Project"
+                  : "Edit Project"
+                : isFromTemplate
+                  ? "New Project from Template"
+                  : "New Project"}
             </SheetTitle>
             <SheetDescription className="text-xs text-slate-500 dark:text-slate-400">
               {isViewOnly
                 ? "Project details are read-only for your role."
                 : isEditMode
                   ? "Update project specifications and delivery settings"
-                  : "Configure project specifications inside a unified ledger"}
+                  : isFromTemplate
+                    ? selectedTemplate
+                      ? `Using template “${selectedTemplate.name}” (${selectedTemplate.phaseCount} phases, ${selectedTemplate.milestoneCount} milestones, ${selectedTemplate.taskCount} tasks). Fill in project details to create.`
+                      : "Fill in project details. Structure will be copied from the selected template."
+                    : "Configure project specifications inside a unified ledger"}
             </SheetDescription>
           </SheetHeader>
 
@@ -1066,19 +1117,71 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
             </div>
           </div>
 
-          <ProjectFormMilestonesSection
-            ref={milestoneSectionRef}
-            drafts={milestoneDrafts}
-            onDraftsChange={(newDrafts) => {
-              setMilestoneDrafts(newDrafts);
-              setMilestoneError(null);
-            }}
-            projectStartDate={watchedStartDate}
-            projectEndDate={watchedEndDate}
-            error={milestoneError || undefined}
-            readOnly={milestonesReadOnly}
-          />
+          {/* SECTION: METHODOLOGY */}
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-primary uppercase tracking-widest border-b border-slate-100 dark:border-white/[0.04] pb-2">
+              <GitBranch className="size-4" />
+              <span>Methodology</span>
+            </div>
+            <div className="space-y-1.5 sm:max-w-xs">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Delivery methodology *
+              </label>
+              <Controller
+                control={control}
+                name="methodology"
+                render={({ field }) => (
+                  <Select
+                    value={field.value || "Agile"}
+                    onValueChange={field.onChange}
+                    disabled={isViewOnly}
+                  >
+                    <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                      <SelectValue placeholder="Select methodology...">
+                        {watchedMethodology || "Agile"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg"
+                    >
+                      <SelectItem value="Agile">Agile</SelectItem>
+                      <SelectItem value="Waterfall">Waterfall</SelectItem>
+                      <SelectItem value="Hybrid">Hybrid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.methodology && (
+                <p className="text-[11px] font-semibold text-rose-500 mt-1">
+                  {errors.methodology.message}
+                </p>
+              )}
+            </div>
+          </div>
 
+          {isFromTemplate ? (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+              Phases, milestones, and tasks will be created automatically from the template
+              {selectedTemplate
+                ? ` (${selectedTemplate.phaseCount} phases · ${selectedTemplate.milestoneCount} milestones · ${selectedTemplate.taskCount} tasks)`
+                : ""}
+              . You can edit them after the project is created.
+            </div>
+          ) : (
+            <ProjectFormMilestonesSection
+              ref={milestoneSectionRef}
+              drafts={milestoneDrafts}
+              onDraftsChange={(newDrafts) => {
+                setMilestoneDrafts(newDrafts);
+                setMilestoneError(null);
+              }}
+              projectStartDate={watchedStartDate}
+              projectEndDate={watchedEndDate}
+              error={milestoneError || undefined}
+              readOnly={milestonesReadOnly}
+            />
+          )}
         </div>
 
         <SheetFooter className="shrink-0 flex-row justify-between border-t border-slate-100 bg-slate-50 px-8 py-4 dark:border-white/[0.06] dark:bg-zinc-950/40">
@@ -1088,7 +1191,11 @@ export function CreateProjectSheet({ open, onClose, refetch, project }: CreatePr
           {!isViewOnly && (
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-              {isEditMode ? "Save Changes" : "Create Project"}
+              {isEditMode
+                ? "Save Changes"
+                : isFromTemplate
+                  ? "Create from Template"
+                  : "Create Project"}
             </Button>
           )}
         </SheetFooter>

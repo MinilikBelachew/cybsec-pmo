@@ -3,14 +3,19 @@ import type { RootState } from "@/store";
 import type {
   AddTaskAttachmentPayload,
   AddTaskCommentPayload,
+  UpdateTaskCommentPayload,
   CreateTaskBundlePayload,
   GetTasksParams,
   PaginatedTasksResponse,
   Task,
   TaskAttachment,
   TaskComment,
+  TaskChecklistItem,
+  TaskChecklistProgress,
   UpdateTaskPayload,
   UpdateTaskBundlePayload,
+  BulkTasksPayload,
+  BulkTasksResult,
   TaskProgressUpdate,
   PendingProgressReviewsResponse,
   SubmitProgressUpdatePayload,
@@ -231,6 +236,19 @@ export const tasksApi = api.injectEndpoints({
       },
     }),
 
+    bulkTasks: builder.mutation<BulkTasksResult, BulkTasksPayload>({
+      query: (body) => ({
+        url: `/tasks/bulk`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_result, _error, body) => [
+        { type: "Tasks", id: "LIST" },
+        { type: "Tasks", id: "STATS" },
+        ...body.taskIds.map((id) => ({ type: "Tasks" as const, id })),
+      ],
+    }),
+
     updateTaskBundle: builder.mutation<Task, UpdateTaskBundlePayload>({
       query: ({ taskId, payload, files = [] }) => {
         const formData = new FormData();
@@ -366,6 +384,75 @@ export const tasksApi = api.injectEndpoints({
         }
       },
       invalidatesTags: (result, error, { taskId }) => [{ type: "Tasks", id: taskId }],
+    }),
+
+    updateTaskComment: builder.mutation<TaskComment, UpdateTaskCommentPayload>({
+      query: ({ taskId, commentId, body, isInternal }) => ({
+        url: `/tasks/${taskId}/comments/${commentId}`,
+        method: "PATCH",
+        body: { body, isInternal },
+      }),
+      invalidatesTags: (_result, _error, { taskId }) => [{ type: "Tasks", id: taskId }],
+    }),
+
+    deleteTaskComment: builder.mutation<void, { taskId: string; commentId: string }>({
+      query: ({ taskId, commentId }) => ({
+        url: `/tasks/${taskId}/comments/${commentId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (_result, _error, { taskId }) => [{ type: "Tasks", id: taskId }],
+    }),
+
+    getTaskChecklist: builder.query<TaskChecklistProgress, string>({
+      query: (taskId) => `/tasks/${taskId}/checklist-items`,
+      providesTags: (_result, _error, taskId) => [
+        { type: "Tasks", id: taskId },
+        { type: "Tasks", id: `CHECKLIST_${taskId}` },
+      ],
+    }),
+
+    addTaskChecklistItem: builder.mutation<
+      TaskChecklistItem,
+      { taskId: string; title: string }
+    >({
+      query: ({ taskId, title }) => ({
+        url: `/tasks/${taskId}/checklist-items`,
+        method: "POST",
+        body: { title },
+      }),
+      invalidatesTags: (_result, _error, { taskId }) => [
+        { type: "Tasks", id: taskId },
+        { type: "Tasks", id: `CHECKLIST_${taskId}` },
+      ],
+    }),
+
+    updateTaskChecklistItem: builder.mutation<
+      TaskChecklistItem,
+      { taskId: string; itemId: string; title?: string; isDone?: boolean }
+    >({
+      query: ({ taskId, itemId, title, isDone }) => ({
+        url: `/tasks/${taskId}/checklist-items/${itemId}`,
+        method: "PATCH",
+        body: {
+          ...(title !== undefined ? { title } : {}),
+          ...(isDone !== undefined ? { isDone } : {}),
+        },
+      }),
+      invalidatesTags: (_result, _error, { taskId }) => [
+        { type: "Tasks", id: taskId },
+        { type: "Tasks", id: `CHECKLIST_${taskId}` },
+      ],
+    }),
+
+    deleteTaskChecklistItem: builder.mutation<void, { taskId: string; itemId: string }>({
+      query: ({ taskId, itemId }) => ({
+        url: `/tasks/${taskId}/checklist-items/${itemId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (_result, _error, { taskId }) => [
+        { type: "Tasks", id: taskId },
+        { type: "Tasks", id: `CHECKLIST_${taskId}` },
+      ],
     }),
 
     getTaskAttachments: builder.query<TaskAttachment[], string>({
@@ -533,10 +620,17 @@ export const {
   useCreateTaskMutation,
   useCreateTaskBundleMutation,
   useUpdateTaskMutation,
+  useBulkTasksMutation,
   useUpdateTaskBundleMutation,
   useDeleteTaskMutation,
   useGetTaskCommentsQuery,
   useAddTaskCommentMutation,
+  useUpdateTaskCommentMutation,
+  useDeleteTaskCommentMutation,
+  useGetTaskChecklistQuery,
+  useAddTaskChecklistItemMutation,
+  useUpdateTaskChecklistItemMutation,
+  useDeleteTaskChecklistItemMutation,
   useGetTaskAttachmentsQuery,
   useAddTaskAttachmentMutation,
   useDeleteTaskAttachmentMutation,

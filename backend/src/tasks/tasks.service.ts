@@ -11,8 +11,14 @@ import { AppAbility, CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CreateTaskDto, TaskStatusEnum } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { BulkTasksDto } from './dto/bulk-tasks.dto';
 import { QueryTaskDto } from './dto/query-task.dto';
 import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
+import { UpdateTaskCommentDto } from './dto/update-task-comment.dto';
+import {
+  CreateTaskChecklistItemDto,
+  UpdateTaskChecklistItemDto,
+} from './dto/task-checklist.dto';
 import { CreateTaskAttachmentDto } from './dto/create-task-attachment.dto';
 import { CreateTaskBundleDto } from './dto/create-task-bundle.dto';
 import { UpdateTaskBundleDto } from './dto/update-task-bundle.dto';
@@ -1118,6 +1124,40 @@ export class TasksService {
     );
   }
 
+  async bulk(
+    dto: BulkTasksDto,
+    actorId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    const uniqueIds = [...new Set(dto.taskIds)];
+
+    if (dto.delete) {
+      let deleted = 0;
+      for (const id of uniqueIds) {
+        await this.remove(id, actorId, caslUser, ability);
+        deleted += 1;
+      }
+      return { deleted, updated: 0 };
+    }
+
+    const patch: UpdateTaskDto = {};
+    if (dto.ownerId !== undefined) {
+      patch.ownerId = dto.ownerId;
+    }
+    if (dto.status !== undefined) {
+      patch.status = dto.status;
+    }
+
+    let updatedCount = 0;
+    for (const id of uniqueIds) {
+      await this.update(id, patch, actorId, caslUser, ability, viewerRoleCode);
+      updatedCount += 1;
+    }
+    return { deleted: 0, updated: updatedCount };
+  }
+
   async update(
     id: string,
     dto: UpdateTaskDto,
@@ -1268,12 +1308,150 @@ export class TasksService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await tx.taskChecklistItem.deleteMany({ where: { taskId: id } });
       await tx.taskComment.deleteMany({ where: { taskId: id } });
       await tx.workspaceDocument.deleteMany({
         where: { taskId: id, category: 'Task' },
       });
       await tx.task.delete({ where: { id } });
     });
+  }
+
+  private mapChecklistItem(item: {
+    id: string;
+    taskId: string;
+    title: string;
+    isDone: boolean;
+    sortOrder: number;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: item.id,
+      taskId: item.taskId,
+      title: item.title,
+      isDone: item.isDone,
+      sortOrder: item.sortOrder,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  }
+
+  async getChecklist(
+    taskId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
+
+    const items = await this.prisma.taskChecklistItem.findMany({
+      where: { taskId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    const mapped = items.map((item) => this.mapChecklistItem(item));
+    const done = mapped.filter((item) => item.isDone).length;
+    const total = mapped.length;
+    const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+
+    return { total, done, percent, items: mapped };
+  }
+
+  async addChecklistItem(
+    taskId: string,
+    dto: CreateTaskChecklistItemDto,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
+
+    const title = dto.title.trim();
+    if (!title) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { title: 'titleRequired' },
+      });
+    }
+
+    const maxOrder = await this.prisma.taskChecklistItem.aggregate({
+      where: { taskId },
+      _max: { sortOrder: true },
+    });
+
+    const item = await this.prisma.taskChecklistItem.create({
+      data: {
+        taskId,
+        title,
+        sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
+      },
+    });
+
+    return this.mapChecklistItem(item);
+  }
+
+  async updateChecklistItem(
+    taskId: string,
+    itemId: string,
+    dto: UpdateTaskChecklistItemDto,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
+
+    const existing = await this.prisma.taskChecklistItem.findFirst({
+      where: { id: itemId, taskId },
+    });
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { checklistItem: 'checklistItemNotFound' },
+      });
+    }
+
+    const title =
+      dto.title !== undefined ? dto.title.trim() : undefined;
+    if (dto.title !== undefined && !title) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { title: 'titleRequired' },
+      });
+    }
+
+    const item = await this.prisma.taskChecklistItem.update({
+      where: { id: itemId },
+      data: {
+        ...(title !== undefined && { title }),
+        ...(dto.isDone !== undefined && { isDone: dto.isDone }),
+      },
+    });
+
+    return this.mapChecklistItem(item);
+  }
+
+  async removeChecklistItem(
+    taskId: string,
+    itemId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
+
+    const existing = await this.prisma.taskChecklistItem.findFirst({
+      where: { id: itemId, taskId },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { checklistItem: 'checklistItemNotFound' },
+      });
+    }
+
+    await this.prisma.taskChecklistItem.delete({ where: { id: itemId } });
   }
 
   async getComments(
@@ -1326,6 +1504,86 @@ export class TasksService {
     });
 
     return comment;
+  }
+
+  async updateComment(
+    taskId: string,
+    commentId: string,
+    dto: UpdateTaskCommentDto,
+    actorId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
+
+    const existing = await this.prisma.taskComment.findFirst({
+      where: { id: commentId, taskId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { comment: 'commentNotFound' },
+      });
+    }
+
+    if (existing.authorId !== actorId && !ability.can('update', 'Task')) {
+      throw new ForbiddenException({
+        status: HttpStatus.FORBIDDEN,
+        errors: { comment: 'cannotEditComment' },
+      });
+    }
+
+    const isInternal = dto.isInternal ?? existing.isInternal;
+    if (this.isExternalRole(viewerRoleCode) && isInternal) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { isInternal: 'externalUsersCannotPostInternalComments' },
+      });
+    }
+
+    return this.prisma.taskComment.update({
+      where: { id: commentId },
+      data: {
+        body: dto.body.trim(),
+        isInternal,
+      },
+      include: {
+        author: { select: { id: true, displayName: true, email: true } },
+      },
+    });
+  }
+
+  async removeComment(
+    taskId: string,
+    commentId: string,
+    actorId: string,
+    caslUser: CaslUserContext,
+    ability: AppAbility,
+    viewerRoleCode?: string,
+  ) {
+    await this.findById(taskId, caslUser, ability, viewerRoleCode);
+
+    const existing = await this.prisma.taskComment.findFirst({
+      where: { id: commentId, taskId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { comment: 'commentNotFound' },
+      });
+    }
+
+    if (existing.authorId !== actorId && !ability.can('update', 'Task')) {
+      throw new ForbiddenException({
+        status: HttpStatus.FORBIDDEN,
+        errors: { comment: 'cannotDeleteComment' },
+      });
+    }
+
+    await this.prisma.taskComment.delete({ where: { id: commentId } });
   }
 
   async getAttachments(

@@ -1,7 +1,7 @@
 "use client";
 
 import { type ColumnDef } from "@tanstack/react-table";
-import { Calendar, MoreHorizontal, Pencil, Eye, Trash2 } from "lucide-react";
+import { Calendar, MoreHorizontal, Pencil, Eye, Trash2, LayoutTemplate } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
 import { cn } from "@/shared/utils/cn";
@@ -42,6 +42,7 @@ type CreateProjectListColumnsOptions = {
   onNavigate: (projectId: string) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: ProjectListRow) => void;
+  onSaveAsTemplate?: (project: Project) => void;
   projectSheetActionLabel?: string;
   showBudget?: boolean;
 };
@@ -50,6 +51,7 @@ export function createProjectListColumns({
   onNavigate,
   onEdit,
   onDelete,
+  onSaveAsTemplate,
   projectSheetActionLabel = "Edit",
   showBudget = true,
 }: CreateProjectListColumnsOptions): ColumnDef<ProjectListRow>[] {
@@ -266,7 +268,7 @@ export function createProjectListColumns({
     },
   ];
 
-  if (onEdit || onDelete) {
+  if (onEdit || onDelete || onSaveAsTemplate) {
     columns.push({
       id: "actions",
       header: () => null,
@@ -287,7 +289,7 @@ export function createProjectListColumns({
             >
               <MoreHorizontal className="size-4" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40" onClick={(event) => event.stopPropagation()}>
+            <DropdownMenuContent align="end" className="w-48" onClick={(event) => event.stopPropagation()}>
               {onEdit && (
                 <DropdownMenuItem
                   className="cursor-pointer gap-2"
@@ -302,6 +304,18 @@ export function createProjectListColumns({
                     <Eye className="size-3.5" />
                   )}
                   {projectSheetActionLabel}
+                </DropdownMenuItem>
+              )}
+              {onSaveAsTemplate && (
+                <DropdownMenuItem
+                  className="cursor-pointer gap-2"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSaveAsTemplate(project);
+                  }}
+                >
+                  <LayoutTemplate className="size-3.5" />
+                  Save as template
                 </DropdownMenuItem>
               )}
               {onDelete && (

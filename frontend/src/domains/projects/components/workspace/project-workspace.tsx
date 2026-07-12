@@ -9,9 +9,10 @@ import {
   useGetTasksQuery,
   useLazyExportTasksQuery,
   useUpdateTaskMutation,
+  useDeleteTaskMutation,
+  useBulkTasksMutation,
   useGetPhasesQuery,
   useGetMilestonesQuery,
-  useDeleteTaskMutation,
   useCreateTaskMutation,
   useCreateTaskBundleMutation,
   useGetProjectTaskAssigneesQuery,
@@ -63,6 +64,7 @@ import {
   Users2,
   FolderOpen,
   Milestone,
+  CheckSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -89,6 +91,7 @@ import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
+import { ActionPointsPanel } from "./action-points-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
 import { useRole } from "@/shared/providers/role-provider";
 
@@ -105,6 +108,7 @@ type View =
   | "milestones"
   | "team"
   | "docs"
+  | "actions"
   | "audit";
 
 interface Task {
@@ -157,6 +161,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "milestones", label: "Milestones", icon: Milestone },
   { id: "team", label: "Team", icon: Users2 },
   { id: "docs", label: "Documents", icon: FolderOpen },
+  { id: "actions", label: "Action points", icon: CheckSquare },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -317,6 +322,7 @@ export function ProjectWorkspace() {
   
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
+  const [bulkTasks, { isLoading: isBulkDeleting }] = useBulkTasksMutation();
   const [applyLeaveBackup] = useApplyLeaveBackupMutation();
   const applyBackupHandled = useRef<string | null>(null);
   const [createTask] = useCreateTaskMutation();
@@ -326,6 +332,7 @@ export function ProjectWorkspace() {
   const [deleteTaskConfirm, setDeleteTaskConfirm] = useState<{
     isOpen: boolean;
     taskId: string | null;
+    taskIds?: string[] | null;
   }>({ isOpen: false, taskId: null });
 
   const [isPhasePanelOpen, setIsPhasePanelOpen] = useState(false);
@@ -551,10 +558,32 @@ export function ProjectWorkspace() {
   };
 
   const handleDeleteTask = (taskId: string) => {
-    setDeleteTaskConfirm({ isOpen: true, taskId });
+    setDeleteTaskConfirm({ isOpen: true, taskId, taskIds: null });
+  };
+
+  const handleBulkDeleteTasks = (taskIds: string[]) => {
+    setDeleteTaskConfirm({ isOpen: true, taskId: null, taskIds });
   };
 
   const confirmDeleteTask = async () => {
+    const bulkIds = deleteTaskConfirm.taskIds;
+    if (bulkIds && bulkIds.length > 0) {
+      try {
+        await bulkTasks({ taskIds: bulkIds, delete: true }).unwrap();
+        toast.success(
+          bulkIds.length === 1
+            ? "Task deleted successfully"
+            : `${bulkIds.length} tasks deleted successfully`,
+        );
+      } catch (err) {
+        console.error("Failed to bulk delete tasks:", err);
+        toast.error(formatTaskApiError(err, "Failed to delete tasks"));
+      } finally {
+        setDeleteTaskConfirm({ isOpen: false, taskId: null, taskIds: null });
+      }
+      return;
+    }
+
     if (!deleteTaskConfirm.taskId) return;
     try {
       await deleteTask(deleteTaskConfirm.taskId).unwrap();
@@ -563,7 +592,35 @@ export function ProjectWorkspace() {
       console.error("Failed to delete task:", err);
       toast.error("Failed to delete task");
     } finally {
-      setDeleteTaskConfirm({ isOpen: false, taskId: null });
+      setDeleteTaskConfirm({ isOpen: false, taskId: null, taskIds: null });
+    }
+  };
+
+  const handleBulkAssign = async (taskIds: string[], ownerId: string | null) => {
+    try {
+      await bulkTasks({ taskIds, ownerId }).unwrap();
+      toast.success(
+        taskIds.length === 1
+          ? "Task assignee updated"
+          : `${taskIds.length} tasks assigned`,
+      );
+    } catch (err) {
+      console.error("Failed to bulk assign:", err);
+      toast.error(formatTaskApiError(err, "Failed to update assignees"));
+    }
+  };
+
+  const handleBulkStatus = async (taskIds: string[], status: Status) => {
+    try {
+      await bulkTasks({ taskIds, status }).unwrap();
+      toast.success(
+        taskIds.length === 1
+          ? "Task status updated"
+          : `${taskIds.length} tasks updated`,
+      );
+    } catch (err) {
+      console.error("Failed to bulk status:", err);
+      toast.error(formatTaskApiError(err, "Failed to update status"));
     }
   };
 
@@ -1077,6 +1134,10 @@ export function ProjectWorkspace() {
             canApproveTask={canReviewProgress}
             onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
             dependencies={taskDependencies}
+            canBulkEdit={canManageTasks}
+            onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
+            onBulkStatus={canManageTasks ? handleBulkStatus : undefined}
+            onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
           />
         )}
 
@@ -1188,6 +1249,15 @@ export function ProjectWorkspace() {
           />
         )}
 
+        {activeView === "actions" && (
+          <ActionPointsPanel
+            projectId={id}
+            canEdit={canEditProjects}
+            projectStartDate={project.startDate}
+            projectEndDate={project.endDate}
+          />
+        )}
+
         {activeView === "audit" && canViewProjectAudit && (
           <ProjectAuditView projectId={id} />
         )}
@@ -1242,11 +1312,21 @@ export function ProjectWorkspace() {
 
       <DeleteDialog
         isOpen={deleteTaskConfirm.isOpen}
-        onClose={() => setDeleteTaskConfirm({ isOpen: false, taskId: null })}
+        onClose={() =>
+          setDeleteTaskConfirm({ isOpen: false, taskId: null, taskIds: null })
+        }
         onConfirm={confirmDeleteTask}
-        title="Delete Task"
-        description="Are you sure you want to delete this task? This action cannot be undone."
-        isDeleting={isDeletingTask}
+        title={
+          deleteTaskConfirm.taskIds && deleteTaskConfirm.taskIds.length > 1
+            ? "Delete Tasks"
+            : "Delete Task"
+        }
+        description={
+          deleteTaskConfirm.taskIds && deleteTaskConfirm.taskIds.length > 0
+            ? `Are you sure you want to delete ${deleteTaskConfirm.taskIds.length} task${deleteTaskConfirm.taskIds.length === 1 ? "" : "s"}? This action cannot be undone.`
+            : "Are you sure you want to delete this task? This action cannot be undone."
+        }
+        isDeleting={isDeletingTask || isBulkDeleting}
       />
 
       <ImportTasksDialog

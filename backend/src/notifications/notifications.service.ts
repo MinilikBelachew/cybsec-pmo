@@ -179,6 +179,10 @@ export class NotificationsService {
     const mapped = mapNotification(notification);
     this.notificationsGateway.emitToUser(userId, mapped);
 
+    if (input.inAppOnly) {
+      return;
+    }
+
     const emailDelivery = await this.prisma.notificationDelivery.create({
       data: {
         notificationId: notification.id,

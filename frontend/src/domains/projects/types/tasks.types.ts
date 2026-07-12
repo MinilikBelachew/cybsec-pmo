@@ -37,6 +37,23 @@ export interface TaskComment {
   author: TaskUserSummary;
 }
 
+export interface TaskChecklistItem {
+  id: string;
+  taskId: string;
+  title: string;
+  isDone: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskChecklistProgress {
+  total: number;
+  done: number;
+  percent: number;
+  items: TaskChecklistItem[];
+}
+
 export interface TaskAttachment {
   id: string;
   taskId: string;
@@ -208,6 +225,13 @@ export interface AddTaskCommentPayload {
   isInternal?: boolean;
 }
 
+export interface UpdateTaskCommentPayload {
+  taskId: string;
+  commentId: string;
+  body: string;
+  isInternal?: boolean;
+}
+
 export interface AddTaskAttachmentPayload {
   taskId: string;
   storageKey: string;
@@ -219,6 +243,19 @@ export interface AddTaskAttachmentPayload {
 export interface UpdateTaskPayload {
   id: string;
   body: Record<string, unknown>;
+}
+
+export interface BulkTasksPayload {
+  taskIds: string[];
+  ownerId?: string | null;
+  status?: TaskStatus;
+  delete?: boolean;
+}
+
+export interface BulkTasksResult {
+  deleted: number;
+  updated: number;
+  tasks?: Task[];
 }
 
 export type TaskDependencyType = "FS" | "SS" | "FF" | "SF";
