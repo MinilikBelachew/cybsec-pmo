@@ -17,6 +17,11 @@ import validationOptions from './utils/validation-options';
 import { AllConfigType } from './config/config.type';
 import { ResolvePromisesInterceptor } from './utils/serializer.interceptor';
 
+// Prisma BigInt fields (e.g. sizeBytes) must not crash JSON.stringify in audit/logging paths
+(BigInt.prototype as unknown as { toJSON?: () => string }).toJSON = function () {
+  return this.toString();
+};
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.set('trust proxy', true);

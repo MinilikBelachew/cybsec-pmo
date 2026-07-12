@@ -14,7 +14,8 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6378:6379"
+      # Host-only — avoid exposing Redis on the public interface
+      - "127.0.0.1:6378:6379"
 
   maildev:
     image: maildev/maildev:2.1.0

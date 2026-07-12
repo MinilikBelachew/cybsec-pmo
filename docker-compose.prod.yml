@@ -4,8 +4,8 @@ services:
     container_name: cybersec-postgres
     restart: always
     ports:
-      # Exposed to host port 5433 to avoid conflict with existing host Postgres (on port 5432)
-      - "5433:5432"
+      # Host-only bind — do not publish Postgres on 0.0.0.0 (internet-facing VPS risk)
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -18,8 +18,9 @@ services:
     container_name: cybersec-redis
     restart: always
     ports:
-      # Exposed to host port 6378 to avoid conflict with existing host Redis (on port 6379)
-      - "6378:6379"
+      # Host-only bind — scanners were hitting public 6378 (Cross Protocol Scripting)
+      # Backend reaches Redis via the Docker network as redis:6379 (no public publish needed)
+      - "127.0.0.1:6378:6379"
     volumes:
       - redis_data:/data
 
