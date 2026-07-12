@@ -1,5 +1,6 @@
 export * from "./types/projects.types";
 export * from "./types/tasks.types";
+export type { TaskScheduleImpact } from "./types/tasks.types";
 export * from "./types/files.types";
 export * from "./schemas/project/create-project.schema";
 export * from "./schemas/task/create-task.schema";

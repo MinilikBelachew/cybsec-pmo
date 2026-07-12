@@ -752,14 +752,11 @@ export function ListView({
               </button>
               {canAssignTask && onBulkAssign ? (
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={bulkBusy}
-                      className="h-7 px-2.5 rounded-md border border-border bg-background text-xs font-medium hover:bg-muted disabled:opacity-50"
-                    >
-                      Assign
-                    </button>
+                  <DropdownMenuTrigger
+                    disabled={bulkBusy}
+                    className="h-7 px-2.5 rounded-md border border-border bg-background text-xs font-medium hover:bg-muted disabled:opacity-50 cursor-pointer"
+                  >
+                    Assign
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
                     <DropdownMenuItem
@@ -782,14 +779,11 @@ export function ListView({
               ) : null}
               {onBulkStatus ? (
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={bulkBusy}
-                      className="h-7 px-2.5 rounded-md border border-border bg-background text-xs font-medium hover:bg-muted disabled:opacity-50"
-                    >
-                      Status
-                    </button>
+                  <DropdownMenuTrigger
+                    disabled={bulkBusy}
+                    className="h-7 px-2.5 rounded-md border border-border bg-background text-xs font-medium hover:bg-muted disabled:opacity-50 cursor-pointer"
+                  >
+                    Status
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
                     {(Object.keys(STATUS_LABEL) as Status[]).map((status) => (
