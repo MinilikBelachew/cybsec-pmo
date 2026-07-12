@@ -127,7 +127,9 @@ export const rolesApi = api.injectEndpoints({
         { type: "Roles", id: "LIST" },
         { type: "Roles", id: roleId },
         { type: "Permissions", id: "LIST" },
+        { type: "Permissions", id: "MATRIX" },
         { type: "Permissions", id: `ROLE_${roleId}` },
+        { type: "Permissions", id: "ME" },
       ],
     }),
 
@@ -146,6 +148,7 @@ export const rolesApi = api.injectEndpoints({
         { type: "Permissions", id: "LIST" },
         { type: "Permissions", id: "MATRIX" },
         { type: "Permissions", id: `ROLE_${roleId}` },
+        { type: "Permissions", id: "ME" },
       ],
     }),
 
@@ -184,7 +187,9 @@ export const rolesApi = api.injectEndpoints({
         { type: "Roles", id: "LIST" },
         { type: "Roles", id: roleId },
         { type: "Permissions", id: "LIST" },
+        { type: "Permissions", id: "MATRIX" },
         { type: "Permissions", id: `ROLE_${roleId}` },
+        { type: "Permissions", id: "ME" },
       ],
     }),
   }),

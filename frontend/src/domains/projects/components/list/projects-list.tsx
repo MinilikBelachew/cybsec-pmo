@@ -358,7 +358,10 @@ export function ProjectsList() {
   const canCreate = canCreateProjects;
   const canCreateFromTemplate =
     canCreateProjects && canInstantiateProjectTemplates && canViewProjectTemplates;
-  const canSaveAsTemplate = canManageProjectTemplates;
+  // Prefer manage; also allow when the user can already use From Template (view+instantiate).
+  const canSaveAsTemplate =
+    canManageProjectTemplates ||
+    (canViewProjectTemplates && canInstantiateProjectTemplates);
   const canUpdate = canEditProjects;
   const canView = canViewProjects;
   const canOpenProjectSheet = canUpdate || canView;

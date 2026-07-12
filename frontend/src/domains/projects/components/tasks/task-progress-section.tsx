@@ -333,7 +333,8 @@ export function TaskProgressSection({
         <div
           className={cn(
             "rounded-lg border px-3 py-2 text-[11px]",
-            isOverEffort
+            // Over-effort approve warning is for reviewers (PM / PMO Lead / Team Lead), not submitters.
+            canApprove && isOverEffort
               ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100"
               : "border-border/60 bg-background text-muted-foreground",
           )}
@@ -350,7 +351,9 @@ export function TaskProgressSection({
                 <span
                   className={cn(
                     "font-semibold",
-                    isOverEffort ? "text-amber-800 dark:text-amber-200" : "text-foreground",
+                    canApprove && isOverEffort
+                      ? "text-amber-800 dark:text-amber-200"
+                      : "text-foreground",
                   )}
                 >
                   {effortVarianceHours > 0 ? "+" : ""}
@@ -359,7 +362,7 @@ export function TaskProgressSection({
               </>
             )}
           </p>
-          {isOverEffort && (
+          {canApprove && isOverEffort && (
             <p className="mt-1 font-medium">
               Over planned effort by {effortVarianceHours}h — review before approving.
             </p>
