@@ -303,9 +303,9 @@ async function main() {
     });
 
     const employee = await prisma.employee.upsert({
-      where: { kekaEmployeeId: person.kekaEmployeeId },
+      where: { userId: user.id },
       update: {
-        userId: user.id,
+        kekaEmployeeId: person.kekaEmployeeId,
         name: person.displayName,
         firstName: person.firstName,
         lastName: person.lastName,
