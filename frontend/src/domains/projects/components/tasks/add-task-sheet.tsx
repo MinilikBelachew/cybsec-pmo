@@ -9,6 +9,7 @@ import {
   CheckSquare,
   Loader2,
   Calendar as CalendarIcon,
+  ListChecks,
   ListTree,
   MessageSquare,
   Paperclip,
@@ -91,7 +92,7 @@ function formatDayLabel(ymd: string): string {
 }
 
 type WorkspaceStatus = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
-type SideTab = "subtasks" | "comments" | "attachments";
+type SideTab = "subtasks" | "checklist" | "comments" | "attachments";
 
 const WORKSPACE_STATUS_TO_API: Record<WorkspaceStatus, CreateTaskFormValues["status"]> = {
   "To_Do": "To_Do",
@@ -121,6 +122,11 @@ interface DraftSubTask {
   id: string;
   title: string;
   description?: string;
+}
+
+interface DraftChecklistItem {
+  id: string;
+  title: string;
 }
 
 interface AddTaskSheetProps {
@@ -241,6 +247,7 @@ export function AddTaskSheet({
 
   const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
   const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
+  const [draftChecklist, setDraftChecklist] = useState<DraftChecklistItem[]>([]);
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [previewTarget, setPreviewTarget] = useState<{ filename: string; url?: string; file?: File } | null>(null);
 
@@ -248,6 +255,7 @@ export function AddTaskSheet({
   const [commentInternal, setCommentInternal] = useState(true);
   const [subTaskTitle, setSubTaskTitle] = useState("");
   const [subTaskDescription, setSubTaskDescription] = useState("");
+  const [checklistTitle, setChecklistTitle] = useState("");
 
   const [createTaskBundle] = useCreateTaskBundleMutation();
   const [createPhase] = useCreatePhaseMutation();
@@ -460,11 +468,13 @@ export function AddTaskSheet({
   const resetDrafts = () => {
     setDraftComments([]);
     setDraftSubTasks([]);
+    setDraftChecklist([]);
     setDraftFiles([]);
     setCommentDraft("");
     setCommentInternal(true);
     setSubTaskTitle("");
     setSubTaskDescription("");
+    setChecklistTitle("");
     setSideTab("subtasks");
   };
 
@@ -517,6 +527,15 @@ export function AddTaskSheet({
     setSubTaskDescription("");
   }
 
+  function addDraftChecklistItem() {
+    if (!checklistTitle.trim()) return;
+    setDraftChecklist((prev) => [
+      ...prev,
+      { id: draftId(), title: checklistTitle.trim() },
+    ]);
+    setChecklistTitle("");
+  }
+
   function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length) {
@@ -545,6 +564,9 @@ export function AddTaskSheet({
                 title: sub.title,
                 description: sub.description ?? null,
               })),
+          checklistItems: draftChecklist.map((item) => ({
+            title: item.title,
+          })),
         },
         files: draftFiles,
       }).unwrap();
@@ -553,6 +575,7 @@ export function AddTaskSheet({
 
       const parts = ["Task created"];
       if (draftSubTasks.length) parts.push(`${draftSubTasks.length} sub-task(s)`);
+      if (draftChecklist.length) parts.push(`${draftChecklist.length} checklist item(s)`);
       if (draftComments.length) parts.push(`${draftComments.length} comment(s)`);
       if (draftFiles.length) parts.push(`${draftFiles.length} file(s)`);
       toast.success(parts.join(" · "));
@@ -950,6 +973,24 @@ export function AddTaskSheet({
                 )}
                 <button
                   type="button"
+                  onClick={() => setSideTab("checklist")}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 px-4 py-3 text-xs font-semibold transition",
+                    sideTab === "checklist"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <ListChecks className="size-3.5" />
+                  Checklist
+                  {draftChecklist.length > 0 && (
+                    <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                      {draftChecklist.length}
+                    </Badge>
+                  )}
+                </button>
+                <button
+                  type="button"
                   onClick={() => setSideTab("comments")}
                   className={cn(
                     "flex flex-1 items-center justify-center gap-1.5 px-4 py-3 text-xs font-semibold transition",
@@ -1038,6 +1079,61 @@ export function AddTaskSheet({
                               type="button"
                               onClick={() =>
                                 setDraftSubTasks((prev) => prev.filter((s) => s.id !== sub.id))
+                              }
+                              className="shrink-0 text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {sideTab === "checklist" && (
+                  <div className="space-y-3">
+                    <div className="space-y-3 rounded-xl border border-border bg-background p-4">
+                      <Input
+                        value={checklistTitle}
+                        onChange={(e) => setChecklistTitle(e.target.value)}
+                        placeholder="Checklist item..."
+                        onKeyDown={(e) =>
+                          e.key === "Enter" && (e.preventDefault(), addDraftChecklistItem())
+                        }
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        disabled={!checklistTitle.trim()}
+                        onClick={addDraftChecklistItem}
+                      >
+                        <Plus className="mr-1 size-3.5" />
+                        Add to list
+                      </Button>
+                    </div>
+
+                    {draftChecklist.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-6">
+                        No checklist items yet. They will be created with the main task.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {draftChecklist.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex gap-2 rounded-xl border border-border bg-background p-3"
+                          >
+                            <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                            <p className="min-w-0 flex-1 text-sm font-medium">{item.title}</p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftChecklist((prev) =>
+                                  prev.filter((x) => x.id !== item.id),
+                                )
                               }
                               className="shrink-0 text-muted-foreground hover:text-destructive"
                             >
@@ -1161,9 +1257,13 @@ export function AddTaskSheet({
 
           <SheetFooter className={cn("shrink-0 flex-row justify-between gap-2 border-t border-border", TASK_SHEET_FOOTER_PADDING)}>
             <p className="max-w-md text-xs leading-relaxed text-muted-foreground self-center">
-              {draftSubTasks.length + draftComments.length + draftFiles.length > 0
-                ? `${draftSubTasks.length} sub-task(s) · ${draftComments.length} comment(s) · ${draftFiles.length} file(s) ready`
-                : "Sub-tasks, comments, and files are staged here — everything is created together when you submit."}
+              {draftSubTasks.length +
+                draftChecklist.length +
+                draftComments.length +
+                draftFiles.length >
+              0
+                ? `${draftSubTasks.length} sub-task(s) · ${draftChecklist.length} checklist · ${draftComments.length} comment(s) · ${draftFiles.length} file(s) ready`
+                : "Sub-tasks, checklist, comments, and files are staged here — everything is created together when you submit."}
             </p>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>

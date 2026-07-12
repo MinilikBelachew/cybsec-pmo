@@ -639,6 +639,21 @@ export class TasksService {
         });
       }
 
+      const checklistItems = dto.checklistItems ?? [];
+      let sortOrder = 0;
+      for (const item of checklistItems) {
+        const title = item.title?.trim();
+        if (!title) continue;
+        await tx.taskChecklistItem.create({
+          data: {
+            taskId: created.id,
+            title,
+            isDone: item.isDone ?? false,
+            sortOrder: sortOrder++,
+          },
+        });
+      }
+
       for (const uploaded of uploadedFiles) {
         await this.workspaceDocumentsService.createForTask(
           { id: created.id, projectId: dto.projectId },

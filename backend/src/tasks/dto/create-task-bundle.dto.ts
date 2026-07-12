@@ -30,6 +30,16 @@ export class TaskBundleSubTaskDto {
   description?: string;
 }
 
+export class TaskBundleChecklistItemDto {
+  @IsString()
+  @MaxLength(255)
+  title: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDone?: boolean;
+}
+
 export class CreateTaskBundleDto extends CreateTaskDto {
   @ApiPropertyOptional({ type: [TaskBundleCommentDto] })
   @IsOptional()
@@ -44,4 +54,11 @@ export class CreateTaskBundleDto extends CreateTaskDto {
   @ValidateNested({ each: true })
   @Type(() => TaskBundleSubTaskDto)
   subTasks?: TaskBundleSubTaskDto[];
+
+  @ApiPropertyOptional({ type: [TaskBundleChecklistItemDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TaskBundleChecklistItemDto)
+  checklistItems?: TaskBundleChecklistItemDto[];
 }
