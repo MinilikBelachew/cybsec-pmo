@@ -37,6 +37,9 @@ export class AuditArchiveService {
       const ids = batch.map((row) => row.id);
 
       await this.prisma.$transaction(async (tx) => {
+        // Allow this transaction only to move rows into archive (DB trigger gate).
+        await tx.$executeRaw`SELECT set_config('app.allow_audit_archive_delete', 'on', true)`;
+
         await tx.auditLogArchive.createMany({
           data: batch.map((row) => ({
             id: row.id,
