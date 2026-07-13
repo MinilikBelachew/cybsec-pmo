@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, ListChecks, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,6 +64,7 @@ import {
   STATUS_PILL,
   type ApiPriority,
   getPriorityColors,
+  API_PRIORITY_OPTIONS,
 } from "./task-cell-pickers";
 
 interface ListViewProps {
@@ -86,10 +88,11 @@ interface ListViewProps {
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
   /** Project dependency links — used to nest dependents under predecessors (DEF-P1-047). */
   dependencies?: TaskDependency[];
-  /** DEF-P1-036 — bulk assign / status / delete */
+  /** DEF-P1-036 — bulk assign / status / priority / delete */
   canBulkEdit?: boolean;
   onBulkAssign?: (taskIds: string[], ownerId: string | null) => Promise<void>;
   onBulkStatus?: (taskIds: string[], status: Status) => Promise<void>;
+  onBulkPriority?: (taskIds: string[], priority: ApiPriority) => Promise<void>;
   onBulkDelete?: (taskIds: string[]) => void;
 }
 
@@ -150,6 +153,7 @@ export function ListView({
   canBulkEdit = false,
   onBulkAssign,
   onBulkStatus,
+  onBulkPriority,
   onBulkDelete,
 }: ListViewProps) {
   const [groupByPhase, setGroupByPhase] = React.useState(false);
@@ -253,7 +257,16 @@ export function ListView({
     });
   };
 
-  const allSelectableIds = React.useMemo(() => tasks.map((t) => t.id), [tasks]);
+  const allSelectableIds = React.useMemo(() => {
+    const ids: string[] = [];
+    for (const t of tasks) {
+      ids.push(t.id);
+      for (const c of t.children ?? []) {
+        ids.push(c.id);
+      }
+    }
+    return ids;
+  }, [tasks]);
   const showBulkSelect = canBulkEdit && bulkMode;
   const allSelected =
     showBulkSelect &&
@@ -310,6 +323,17 @@ export function ListView({
     setBulkBusy(true);
     try {
       await onBulkStatus([...selectedIds], status);
+      clearSelection();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const runBulkPriority = async (priority: ApiPriority) => {
+    if (!onBulkPriority || selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      await onBulkPriority([...selectedIds], priority);
       clearSelection();
     } finally {
       setBulkBusy(false);
@@ -440,8 +464,8 @@ export function ListView({
       <div className="shrink-0 w-18 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Comments
       </div>
-      <div className="shrink-0 w-12 text-[11px] font-medium text-slate-400 dark:text-slate-500 text-center flex items-center justify-center">
-        <Plus className="size-3.5 text-muted-foreground/60 cursor-pointer hover:text-primary transition-colors" />
+      <div className="shrink-0 w-12 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Action
       </div>
     </div>
   );
@@ -484,17 +508,21 @@ export function ListView({
           selectedIds.has(task.id) && "bg-primary/5"
         )}
       >
-        {showBulkSelect && depth === 0 ? (
-          <div className="w-4 shrink-0 flex items-center justify-center">
-            <input
-              type="checkbox"
-              checked={selectedIds.has(task.id)}
-              onChange={() => toggleSelect(task.id)}
-              onClick={(e) => e.stopPropagation()}
-              className="rounded border-slate-300 dark:border-white/10 accent-primary size-3.5"
-              aria-label={`Select ${task.name}`}
-            />
-          </div>
+        {showBulkSelect ? (
+          isDependencyRow ? (
+            <div className="w-4 shrink-0" />
+          ) : (
+            <div className="w-4 shrink-0 flex items-center justify-center">
+              <input
+                type="checkbox"
+                checked={selectedIds.has(task.id)}
+                onChange={() => toggleSelect(task.id)}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded border-slate-300 dark:border-white/10 accent-primary size-3.5"
+                aria-label={`Select ${task.name}`}
+              />
+            </div>
+          )
         ) : null}
         <div
           className="w-4 shrink-0 flex items-center justify-center"
@@ -798,6 +826,28 @@ export function ListView({
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
+              {onBulkPriority ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    disabled={bulkBusy}
+                    className="h-7 px-2.5 rounded-md border border-border bg-background text-xs font-medium hover:bg-muted disabled:opacity-50 cursor-pointer"
+                  >
+                    Priority
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {API_PRIORITY_OPTIONS.map((option) => (
+                      <DropdownMenuItem
+                        key={option.value}
+                        className="cursor-pointer text-xs"
+                        onClick={() => void runBulkPriority(option.value)}
+                      >
+                        <Flag className={cn("size-3.5 mr-1.5", option.colorClass)} />
+                        {option.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
               {onBulkDelete ? (
                 <button
                   type="button"
@@ -837,18 +887,16 @@ export function ListView({
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {canBulkEdit ? (
-            <button
+            <Button
               type="button"
+              variant={bulkMode ? "secondary" : "outline"}
+              size="sm"
+              className="h-8 gap-1.5 border-border/60 bg-white shadow-none dark:bg-card"
               onClick={toggleBulkMode}
-              className={cn(
-                "h-7 px-2.5 rounded-md border text-xs font-medium transition-colors",
-                bulkMode
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-background text-slate-600 hover:bg-muted dark:text-slate-300",
-              )}
             >
-              {bulkMode ? "Done" : "Bulk"}
-            </button>
+              <ListChecks className="size-4" />
+              {bulkMode ? "Cancel" : "Select"}
+            </Button>
           ) : null}
           <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none text-slate-650 dark:text-slate-450 hover:text-slate-905 dark:hover:text-white">
             <input

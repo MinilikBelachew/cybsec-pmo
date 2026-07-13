@@ -188,12 +188,12 @@ function AllocationModeToggle({
   return (
     <div
       className={cn(
-        "inline-flex rounded-md border border-slate-200 p-0.5 text-[10px] font-semibold dark:border-white/[0.08]",
+        "inline-flex h-fit self-start items-center rounded-md border border-slate-200 p-0.5 text-[10px] font-semibold dark:border-white/[0.08]",
         className,
       )}
     >
       <button
-        type="button"
+        type="button" 
         className={cn(
           "rounded px-2 py-1",
           value === "hours" ? "bg-primary text-primary-foreground" : "text-muted-foreground",
@@ -745,7 +745,7 @@ export const ProjectTeamSection = forwardRef<
     onHoursChange: (value: string) => void,
     onPercentChange: (value: string) => void,
   ) => (
-    <div className="flex items-center gap-1.5">
+    <div className="flex h-fit self-start items-center gap-1.5">
       {mode === "hours" ? (
         <Input
           type="number"
@@ -1235,7 +1235,7 @@ export const ProjectTeamSection = forwardRef<
                   return (
                     <div
                       key={candidate.employeeId}
-                      className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_88px] gap-2 border-b border-slate-200 px-3 py-2 last:border-b-0 dark:border-white/[0.08]"
+                      className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_88px] items-start gap-2 border-b border-slate-200 px-3 py-2 last:border-b-0 dark:border-white/[0.08]"
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <EmployeeAvatar
@@ -1274,7 +1274,7 @@ export const ProjectTeamSection = forwardRef<
                         )}
                         </div>
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 self-start">
                         <ProjectRoleSelect
                           value={config.role}
                           onValueChange={(role) =>
@@ -1364,7 +1364,7 @@ export const ProjectTeamSection = forwardRef<
             {pendingMembers.map((member) => (
               <div
                 key={member.employeeId}
-                className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px] gap-2 border-b border-primary/10 bg-primary/5 px-3 py-2 last:border-b-0"
+                className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px] items-start gap-2 border-b border-primary/10 bg-primary/5 px-3 py-2 last:border-b-0"
               >
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
@@ -1392,7 +1392,7 @@ export const ProjectTeamSection = forwardRef<
                   </div>
                 </div>
                 {canEdit ? (
-                  <div className="min-w-0">
+                  <div className="min-w-0 self-start">
                     <ProjectRoleSelect
                       value={member.role}
                       onValueChange={(role) =>
@@ -1403,7 +1403,7 @@ export const ProjectTeamSection = forwardRef<
                     />
                   </div>
                 ) : (
-                  <p className="self-center text-sm">{member.role}</p>
+                  <p className="self-start text-sm">{member.role}</p>
                 )}
                 {canEdit ? (
                   <AllocationModeToggle
@@ -1413,7 +1413,7 @@ export const ProjectTeamSection = forwardRef<
                     }
                   />
                 ) : (
-                  <p className="self-center text-sm">{member.allocationMode}</p>
+                  <p className="self-start text-sm">{member.allocationMode}</p>
                 )}
                 {canEdit ? (
                   renderAllocationInput(
@@ -1432,7 +1432,7 @@ export const ProjectTeamSection = forwardRef<
                     },
                   )
                 ) : (
-                  <p className="self-center text-sm">
+                  <p className="self-start text-sm">
                     {member.allocationMode === "percent"
                       ? `${member.percentPerWeek}%`
                       : `${member.hoursPerWeek}h`}
@@ -1443,7 +1443,7 @@ export const ProjectTeamSection = forwardRef<
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="shrink-0 text-rose-500 hover:text-rose-600"
+                    className="h-fit shrink-0 self-start text-rose-500 hover:text-rose-600"
                     onClick={() => handleRemovePending(member.employeeId)}
                   >
                     <Trash2 className="size-4" />

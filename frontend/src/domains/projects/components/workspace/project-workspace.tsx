@@ -624,6 +624,20 @@ export function ProjectWorkspace() {
     }
   };
 
+  const handleBulkPriority = async (taskIds: string[], priority: string) => {
+    try {
+      await bulkTasks({ taskIds, priority: priority as TaskPriority }).unwrap();
+      toast.success(
+        taskIds.length === 1
+          ? "Task priority updated"
+          : `${taskIds.length} tasks updated`,
+      );
+    } catch (err) {
+      console.error("Failed to bulk priority:", err);
+      toast.error(formatTaskApiError(err, "Failed to update priority"));
+    }
+  };
+
   const handleDuplicateTask = async (taskId: string) => {
     const original = tasksResponse?.data?.find((t) => t.id === taskId);
     if (!original) {
@@ -646,7 +660,7 @@ export function ProjectWorkspace() {
         original.parentTaskId
           ? []
           : (original.subTasks ?? []).map((sub) => ({
-              title: sub.title,
+              title: `${sub.title} (Copy)`,
               description: null as string | null,
             }));
 
@@ -1137,6 +1151,7 @@ export function ProjectWorkspace() {
             canBulkEdit={canManageTasks}
             onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
             onBulkStatus={canManageTasks ? handleBulkStatus : undefined}
+            onBulkPriority={canManageTasks ? handleBulkPriority : undefined}
             onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
           />
         )}
@@ -1207,6 +1222,13 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
+            assignees={assignees}
+            canAssignTask={canAssignTask}
+            canBulkEdit={canManageTasks}
+            onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
+            onBulkStatus={canManageTasks ? handleBulkStatus : undefined}
+            onBulkPriority={canManageTasks ? handleBulkPriority : undefined}
+            onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
           />
         )}
 

@@ -12,7 +12,7 @@ import {
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator';
-import { TaskStatusEnum } from './create-task.dto';
+import { TaskPriorityEnum, TaskStatusEnum } from './create-task.dto';
 
 @ValidatorConstraint({ name: 'BulkTasksHasAction', async: false })
 export class BulkTasksHasActionConstraint implements ValidatorConstraintInterface {
@@ -21,12 +21,13 @@ export class BulkTasksHasActionConstraint implements ValidatorConstraintInterfac
     return (
       obj.delete === true ||
       obj.status !== undefined ||
-      obj.ownerId !== undefined
+      obj.ownerId !== undefined ||
+      obj.priority !== undefined
     );
   }
 
   defaultMessage(): string {
-    return 'Provide at least one bulk action: ownerId, status, or delete';
+    return 'Provide at least one bulk action: ownerId, status, priority, or delete';
   }
 }
 
@@ -52,6 +53,11 @@ export class BulkTasksDto {
   @IsOptional()
   @IsEnum(TaskStatusEnum)
   status?: TaskStatusEnum;
+
+  @ApiPropertyOptional({ enum: TaskPriorityEnum })
+  @IsOptional()
+  @IsEnum(TaskPriorityEnum)
+  priority?: TaskPriorityEnum;
 
   @ApiPropertyOptional({
     description: 'When true, deletes all selected tasks (ignores ownerId/status)',

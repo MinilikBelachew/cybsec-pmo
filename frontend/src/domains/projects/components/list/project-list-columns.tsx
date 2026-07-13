@@ -271,7 +271,11 @@ export function createProjectListColumns({
   if (onEdit || onDelete || onSaveAsTemplate) {
     columns.push({
       id: "actions",
-      header: () => null,
+      header: () => (
+        <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+          Action
+        </span>
+      ),
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => {

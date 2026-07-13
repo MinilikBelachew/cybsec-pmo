@@ -249,6 +249,7 @@ export interface BulkTasksPayload {
   taskIds: string[];
   ownerId?: string | null;
   status?: TaskStatus;
+  priority?: TaskPriority;
   delete?: boolean;
 }
 

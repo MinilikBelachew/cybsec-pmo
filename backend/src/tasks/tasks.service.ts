@@ -1164,6 +1164,9 @@ export class TasksService {
     if (dto.status !== undefined) {
       patch.status = dto.status;
     }
+    if (dto.priority !== undefined) {
+      patch.priority = dto.priority;
+    }
 
     let updatedCount = 0;
     for (const id of uniqueIds) {
