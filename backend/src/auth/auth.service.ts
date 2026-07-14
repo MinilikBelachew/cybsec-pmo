@@ -31,7 +31,7 @@ import { PermissionRow } from '../casl/casl.types';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { resolveUserIsExternal } from './utils/user-external.util';
 import { formatIpWithUserAgent } from './utils/request-context.util';
-import { EmployeeUserLinkService } from '../keka/employee-user-link.service';
+import { EmployeeUserLinkService } from '../integrations/keka/employee-user-link.service';
 
 type CreateSessionOptions = {
   isBreakGlass?: boolean;
@@ -374,8 +374,15 @@ export class AuthService {
     };
   }
 
-  async logout(data: Pick<JwtRefreshPayloadType, 'sessionId'>) {
-    return this.sessionService.deleteById(data.sessionId);
+  /**
+   * Logout revokes every active session for the user (all devices), not only
+   * the current one — matches TC-M1.6-07 session-termination intent under SSO.
+   */
+  async logout(data: {
+    sessionId: JwtRefreshPayloadType['sessionId'];
+    userId: User['id'];
+  }) {
+    await this.sessionService.deleteByUserId({ userId: data.userId });
   }
 
   private async writeLoginAudit(

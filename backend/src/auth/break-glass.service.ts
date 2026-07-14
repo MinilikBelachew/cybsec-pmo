@@ -52,7 +52,10 @@ export class BreakGlassService {
     }
 
     if (currentSessionId) {
-      await this.authService.logout({ sessionId: currentSessionId });
+      await this.authService.logout({
+        sessionId: currentSessionId,
+        userId: user.id,
+      });
     }
 
     return this.createBreakGlassSession(
@@ -120,7 +123,7 @@ export class BreakGlassService {
     const user = await this.usersService.findById(userId);
     const roleCode = user?.role?.code;
 
-    await this.authService.logout({ sessionId });
+    await this.sessionService.deleteById(sessionId);
 
     await this.auditLogsService.create({
       action: 'BREAK_GLASS_STOPPED',
