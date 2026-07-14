@@ -31,7 +31,7 @@ import { PermissionRow } from '../casl/casl.types';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { resolveUserIsExternal } from './utils/user-external.util';
 import { formatIpWithUserAgent } from './utils/request-context.util';
-import { EmployeeUserLinkService } from '../integrations/keka/employee-user-link.service';
+import { EmployeeUserLinkService } from '../keka/employee-user-link.service';
 
 type CreateSessionOptions = {
   isBreakGlass?: boolean;
