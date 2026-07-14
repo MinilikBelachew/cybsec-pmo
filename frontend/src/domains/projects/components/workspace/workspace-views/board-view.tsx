@@ -5,7 +5,8 @@ import {
   Plus,
   Flag,
   Calendar as CalendarIcon,
-  CheckSquare,
+  ChevronDown,
+  ChevronRight,
   Loader2,
   User,
   CornerDownLeft,
@@ -715,6 +716,238 @@ interface BoardCardProps {
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
 }
 
+function BoardCardMeta({
+  task,
+  onAssignTask,
+  onUpdateTaskDates,
+  canAssignTask = false,
+  canEditDates = false,
+  currentUserId,
+  assignees = [],
+  onUpdateTaskPriority,
+  compact = false,
+}: {
+  task: Task;
+  onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
+  onUpdateTaskDates?: (taskId: string, dates: { startDate: string; endDate: string }) => Promise<void>;
+  canAssignTask?: boolean;
+  canEditDates?: boolean;
+  currentUserId?: string;
+  assignees?: ProjectTaskAssignee[];
+  onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
+  compact?: boolean;
+}) {
+  const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
+  const dueSoon =
+    task.dueDate && !task.dueDate.includes("-") ? !overdue && isDueSoon(task.dueDate) : false;
+
+  const fullAssignee = task.owner?.id
+    ? assignees.find((a) => a.userId === task.owner?.id)
+    : null;
+  const employeeData = fullAssignee
+    ? {
+        displayName: fullAssignee.displayName,
+        email: fullAssignee.email,
+        designation: fullAssignee.designation,
+        role: fullAssignee.role,
+        department: fullAssignee.department,
+        employeeId: fullAssignee.employeeId,
+      }
+    : task.owner
+      ? {
+          displayName: task.owner.displayName,
+          email: task.owner.email,
+          role: "Assignee",
+        }
+      : null;
+
+  const avatarSize = compact ? "size-5 text-[9px]" : "size-6 text-[10px]";
+  const iconSize = compact ? "size-3" : "size-3.5";
+
+  const assigneeAvatar = task.assigneeId ? (
+    employeeData ? (
+      <EmployeeTooltip employee={employeeData}>
+        <span
+          className={cn(
+            "inline-flex items-center justify-center rounded-full font-semibold text-white shrink-0 hover:opacity-85",
+            avatarSize,
+            task.assigneeColor,
+          )}
+        >
+          {task.assigneeInitials}
+        </span>
+      </EmployeeTooltip>
+    ) : (
+      <span
+        className={cn(
+          "inline-flex items-center justify-center rounded-full font-semibold text-white shrink-0 hover:opacity-85",
+          avatarSize,
+          task.assigneeColor,
+        )}
+      >
+        {task.assigneeInitials}
+      </span>
+    )
+  ) : (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center rounded-full border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 shrink-0 hover:border-primary/50 transition-colors",
+        compact ? "size-5" : "size-6",
+      )}
+    >
+      <User className={iconSize} />
+    </span>
+  );
+
+  return (
+    <div className="flex items-center gap-2">
+      {canAssignTask && onAssignTask ? (
+        <BoardAssigneePicker
+          assignees={assignees}
+          currentUserId={currentUserId}
+          selectedUserId={task.assigneeId}
+          onAssign={(ownerId) => onAssignTask(task.id, ownerId)}
+        >
+          {assigneeAvatar}
+        </BoardAssigneePicker>
+      ) : (
+        assigneeAvatar
+      )}
+
+      {canEditDates && onUpdateTaskDates ? (
+        <BoardTaskDatePicker
+          startDate={task.rawStartDate}
+          endDate={task.rawEndDate}
+          onSave={(dates) => onUpdateTaskDates(task.id, dates)}
+        >
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors hover:bg-muted/50",
+              overdue
+                ? "text-rose-500"
+                : dueSoon
+                  ? "text-amber-500"
+                  : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-label="Set dates"
+          >
+            <CalendarIcon className={cn(iconSize, "shrink-0")} />
+            {task.dueDate && task.dueDate !== "No due date" ? (
+              <span>{task.dueDate}</span>
+            ) : null}
+          </span>
+        </BoardTaskDatePicker>
+      ) : (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground",
+            overdue && "text-rose-500",
+            dueSoon && !overdue && "text-amber-500",
+          )}
+          aria-label="Dates"
+        >
+          <CalendarIcon className={cn(iconSize, "shrink-0")} />
+          {task.dueDate && task.dueDate !== "No due date" && <span>{task.dueDate}</span>}
+        </span>
+      )}
+
+      <div className="flex-1" />
+
+      {onUpdateTaskPriority ? (
+        <TaskPriorityPicker
+          priority={task.priority}
+          onPriorityChange={(priority) => onUpdateTaskPriority(task.id, priority)}
+        >
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-semibold transition-colors hover:bg-muted/50",
+              getPriorityColors(task.priority).text,
+            )}
+            aria-label="Set priority"
+            title={`Priority: ${task.priority || "Medium"}`}
+          >
+            <Flag className={cn(iconSize, "shrink-0")} />
+            {!compact && <span>{PRIORITY_LABEL[task.priority] || "Medium"}</span>}
+          </span>
+        </TaskPriorityPicker>
+      ) : (
+        task.priority && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground",
+              getPriorityColors(task.priority).text,
+            )}
+            title={`Priority: ${task.priority}`}
+          >
+            <Flag className={cn(iconSize, "shrink-0")} />
+            {!compact && <span>{PRIORITY_LABEL[task.priority]}</span>}
+          </span>
+        )
+      )}
+
+      <BoardCommentPicker taskId={task.id} commentCount={task.comments} />
+    </div>
+  );
+}
+
+function BoardSubtaskCard({
+  task,
+  onTaskClick,
+  onAssignTask,
+  onUpdateTaskDates,
+  canAssignTask = false,
+  canEditDates = false,
+  currentUserId,
+  assignees = [],
+  onUpdateTaskPriority,
+}: {
+  task: Task;
+  onTaskClick?: (id: string) => void;
+  onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
+  onUpdateTaskDates?: (taskId: string, dates: { startDate: string; endDate: string }) => Promise<void>;
+  canAssignTask?: boolean;
+  canEditDates?: boolean;
+  currentUserId?: string;
+  assignees?: ProjectTaskAssignee[];
+  onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-border/60 bg-white dark:bg-zinc-950 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+        task.done && "opacity-60",
+      )}
+    >
+      <div className="px-2.5 pt-2 pb-2 space-y-1.5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTaskClick?.(task.id);
+          }}
+          className={cn(
+            "text-[13px] font-medium leading-snug text-left w-full hover:text-primary transition-colors",
+            task.done ? "line-through text-muted-foreground" : "text-foreground",
+          )}
+        >
+          {task.name}
+        </button>
+        <BoardCardMeta
+          task={task}
+          onAssignTask={onAssignTask}
+          onUpdateTaskDates={onUpdateTaskDates}
+          canAssignTask={canAssignTask}
+          canEditDates={canEditDates}
+          currentUserId={currentUserId}
+          assignees={assignees}
+          onUpdateTaskPriority={onUpdateTaskPriority}
+          compact
+        />
+      </div>
+    </div>
+  );
+}
+
 function BoardCard({
   task,
   isDragging,
@@ -752,11 +985,9 @@ function BoardCard({
     return () => cancelAnimationFrame(frame);
   }, [isEditingName]);
 
-  const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
-  const dueSoon = task.dueDate && !task.dueDate.includes("-") ? !overdue && isDueSoon(task.dueDate) : false;
   const hasProgress = task.progress !== undefined;
-  const hasSubs = (task.subtasksTotal ?? 0) > 0;
-  const assigneeLabel = task.assigneeName?.trim() || "Unassigned";
+  const subtaskCount = task.children?.length || task.subtasksTotal || 0;
+  const hasSubs = subtaskCount > 0;
 
   const saveName = async () => {
     const trimmed = nameDraft.trim();
@@ -780,26 +1011,6 @@ function BoardCard({
     }
   };
 
-  const fullAssignee = task.owner?.id
-    ? assignees.find((a) => a.userId === task.owner?.id)
-    : null;
-  const employeeData = fullAssignee
-    ? {
-        displayName: fullAssignee.displayName,
-        email: fullAssignee.email,
-        designation: fullAssignee.designation,
-        role: fullAssignee.role,
-        department: fullAssignee.department,
-        employeeId: fullAssignee.employeeId,
-      }
-    : task.owner
-    ? {
-        displayName: task.owner.displayName,
-        email: task.owner.email,
-        role: "Assignee",
-      }
-    : null;
-
   return (
     <div
       draggable={!isEditingName}
@@ -812,11 +1023,10 @@ function BoardCard({
         "bg-white dark:bg-zinc-950 shadow-[0_1px_3px_rgba(15,23,42,0.05)]",
         isDragging ? "opacity-40 scale-95 shadow-none" : "",
         task.done && "opacity-60",
-        isEditingName && "cursor-default"
+        isEditingName && "cursor-default",
       )}
     >
       <div className="px-3 pt-2.5 pb-2.5 space-y-2">
-        {/* Task name + edit action */}
         <div className="flex items-start justify-between gap-2">
           {isEditingName ? (
             <input
@@ -846,7 +1056,7 @@ function BoardCard({
               }}
               className={cn(
                 "text-sm font-semibold leading-snug text-left flex-1 min-w-0 hover:text-primary transition-colors",
-                task.done ? "line-through text-muted-foreground" : "text-foreground"
+                task.done ? "line-through text-muted-foreground" : "text-foreground",
               )}
             >
               {task.name}
@@ -868,21 +1078,25 @@ function BoardCard({
           )}
         </div>
 
-        {/* Description snippet */}
-        {task.description && <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{task.description}</p>}
+        {task.description && (
+          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
+            {task.description}
+          </p>
+        )}
 
-        {/* Tags */}
         {task.tags && task.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {task.tags.map((tag) => (
-              <span key={tag} className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md", tagColor(tag))}>
+              <span
+                key={tag}
+                className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md", tagColor(tag))}
+              >
                 {tag}
               </span>
             ))}
           </div>
         )}
 
-        {/* Progress bar */}
         {hasProgress && (
           <div className="space-y-1">
             <div className="flex items-center justify-between">
@@ -896,10 +1110,10 @@ function BoardCard({
                   (task.progress ?? 0) === 100
                     ? "bg-emerald-500"
                     : (task.progress ?? 0) >= 60
-                    ? "bg-blue-500"
-                    : (task.progress ?? 0) >= 30
-                    ? "bg-amber-400"
-                    : "bg-muted-foreground/40"
+                      ? "bg-blue-500"
+                      : (task.progress ?? 0) >= 30
+                        ? "bg-amber-400"
+                        : "bg-muted-foreground/40",
                 )}
                 style={{ width: `${task.progress}%` }}
               />
@@ -907,194 +1121,57 @@ function BoardCard({
           </div>
         )}
 
-        {/* Subtasks — ClickUp-style count + expandable nest */}
+        <BoardCardMeta
+          task={task}
+          onAssignTask={onAssignTask}
+          onUpdateTaskDates={onUpdateTaskDates}
+          canAssignTask={canAssignTask}
+          canEditDates={canEditDates}
+          currentUserId={currentUserId}
+          assignees={assignees}
+          onUpdateTaskPriority={onUpdateTaskPriority}
+        />
+
         {hasSubs && (
-          <div className="space-y-1.5">
+          <div className="space-y-2 pt-0.5">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setSubsExpanded((v) => !v);
               }}
-              className="flex w-full items-center gap-1.5 text-left"
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              <CheckSquare className="size-3 text-muted-foreground shrink-0" />
-              <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary/60 transition-all duration-300"
-                  style={{
-                    width: `${((task.subtasksDone ?? 0) / (task.subtasksTotal ?? 1)) * 100}%`,
-                  }}
-                />
-              </div>
-              <span className="text-[10px] text-muted-foreground">
-                {task.subtasksDone}/{task.subtasksTotal}
+              {subsExpanded ? (
+                <ChevronDown className="size-3.5 shrink-0" />
+              ) : (
+                <ChevronRight className="size-3.5 shrink-0" />
+              )}
+              <span>
+                {subtaskCount} {subtaskCount === 1 ? "subtask" : "subtasks"}
               </span>
             </button>
+
             {subsExpanded && (task.children?.length ?? 0) > 0 && (
-              <div className="space-y-1 rounded-lg border border-border/60 bg-muted/20 p-1.5">
+              <div className="ml-4 space-y-2">
                 {task.children!.map((child) => (
-                  <button
+                  <BoardSubtaskCard
                     key={child.id}
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTaskClick?.(child.id);
-                    }}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-background transition-colors",
-                      child.done && "opacity-60",
-                    )}
-                  >
-                    <span className="text-muted-foreground">↳</span>
-                    <span className={cn("truncate flex-1 font-medium", child.done && "line-through")}>
-                      {child.name}
-                    </span>
-                  </button>
+                    task={child}
+                    onTaskClick={onTaskClick}
+                    onAssignTask={onAssignTask}
+                    onUpdateTaskDates={onUpdateTaskDates}
+                    canAssignTask={canAssignTask}
+                    canEditDates={canEditDates}
+                    currentUserId={currentUserId}
+                    assignees={assignees}
+                    onUpdateTaskPriority={onUpdateTaskPriority}
+                  />
                 ))}
               </div>
             )}
           </div>
         )}
-
-        {/* Bottom meta row */}
-        <div className="flex items-center gap-2 pt-1">
-          {canAssignTask && onAssignTask ? (
-            <BoardAssigneePicker
-              assignees={assignees}
-              currentUserId={currentUserId}
-              selectedUserId={task.assigneeId}
-              onAssign={(ownerId) => onAssignTask(task.id, ownerId)}
-            >
-              {task.assigneeId ? (
-                employeeData ? (
-                  <EmployeeTooltip employee={employeeData}>
-                    <span
-                      className={cn(
-                        "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 hover:opacity-85",
-                        task.assigneeColor
-                      )}
-                    >
-                      {task.assigneeInitials}
-                    </span>
-                  </EmployeeTooltip>
-                ) : (
-                  <span
-                    className={cn(
-                      "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 hover:opacity-85",
-                      task.assigneeColor
-                    )}
-                  >
-                    {task.assigneeInitials}
-                  </span>
-                )
-              ) : (
-                <span className="inline-flex items-center justify-center size-6 rounded-full border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 shrink-0 hover:border-primary/50 transition-colors">
-                  <User className="size-3.5" />
-                </span>
-              )}
-            </BoardAssigneePicker>
-          ) : task.assigneeId ? (
-            employeeData ? (
-              <EmployeeTooltip employee={employeeData}>
-                <span
-                  className={cn(
-                    "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 cursor-default",
-                    task.assigneeColor
-                  )}
-                >
-                  {task.assigneeInitials}
-                </span>
-              </EmployeeTooltip>
-            ) : (
-              <span
-                className={cn(
-                  "inline-flex items-center justify-center size-6 rounded-full font-semibold text-white text-[10px] shrink-0 cursor-default",
-                  task.assigneeColor
-                )}
-              >
-                {task.assigneeInitials}
-              </span>
-            )
-          ) : (
-            <span className="inline-flex items-center justify-center size-6 rounded-full border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 shrink-0 cursor-default">
-              <User className="size-3.5" />
-            </span>
-          )}
-
-          {canEditDates && onUpdateTaskDates ? (
-            <BoardTaskDatePicker
-              startDate={task.rawStartDate}
-              endDate={task.rawEndDate}
-              onSave={(dates) => onUpdateTaskDates(task.id, dates)}
-            >
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors hover:bg-muted/50",
-                  overdue ? "text-rose-500" : dueSoon ? "text-amber-500" : "text-muted-foreground hover:text-foreground"
-                )}
-                aria-label="Set dates"
-              >
-                <CalendarIcon className="size-3.5 shrink-0" />
-                {task.dueDate && task.dueDate !== "No due date" ? (
-                  <span>{task.dueDate}</span>
-                ) : (
-                  <span>Set date</span>
-                )}
-              </span>
-            </BoardTaskDatePicker>
-          ) : (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground",
-                overdue && "text-rose-500",
-                dueSoon && !overdue && "text-amber-500"
-              )}
-              aria-label="Dates"
-            >
-              <CalendarIcon className="size-3.5 shrink-0" />
-              {task.dueDate && task.dueDate !== "No due date" && (
-                <span>{task.dueDate}</span>
-              )}
-            </span>
-          )}
-
-          <div className="flex-1" />
-
-          {onUpdateTaskPriority ? (
-            <TaskPriorityPicker
-              priority={task.priority}
-              onPriorityChange={(priority) => onUpdateTaskPriority(task.id, priority)}
-            >
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-semibold transition-colors hover:bg-muted/50",
-                  getPriorityColors(task.priority).text
-                )}
-                aria-label="Set priority"
-                title={`Priority: ${task.priority || "Medium"}`}
-              >
-                <Flag className="size-3.5 shrink-0" />
-                <span>{PRIORITY_LABEL[task.priority] || "Medium"}</span>
-              </span>
-            </TaskPriorityPicker>
-          ) : (
-            task.priority && (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground",
-                  getPriorityColors(task.priority).text
-                )}
-                title={`Priority: ${task.priority}`}
-              >
-                <Flag className="size-3.5 shrink-0" />
-                <span>{PRIORITY_LABEL[task.priority]}</span>
-              </span>
-            )
-          )}
-
-          <BoardCommentPicker taskId={task.id} commentCount={task.comments} />
-        </div>
       </div>
     </div>
   );
