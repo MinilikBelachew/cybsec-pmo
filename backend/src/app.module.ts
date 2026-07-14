@@ -40,11 +40,11 @@ import { CurrenciesModule } from './currencies/currencies.module';
 import { SearchModule } from './search/search.module';
 import { MppImportModule } from './mpp-import/mpp-import.module';
 import mppImportConfig from './mpp-import/config/mpp-import.config';
-import { KekaModule } from './keka/keka.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { ResourcesModule } from './resources/resources.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
 import { ReportsModule } from './reports/reports.module';
-import kekaConfig from './keka/config/keka.config';
+import kekaConfig from './integrations/keka/config/keka.config';
 
 @Module({
   imports: [
@@ -116,7 +116,7 @@ import kekaConfig from './keka/config/keka.config';
     MailModule,
     MailerModule,
     HomeModule,
-    KekaModule.register(),
+    IntegrationsModule.register(),
     ProjectsModule,
     ProjectTemplatesModule,
     ActionPointsModule,

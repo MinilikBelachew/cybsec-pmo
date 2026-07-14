@@ -3,6 +3,8 @@ import type {
   AllocationPolicy,
   AllocationApprovalListResponse,
   DesignationOptionsResponse,
+  EmployeeAttendanceListResponse,
+  EmployeeAttendanceSortField,
   TeamDirectoryResponse,
   TeamDirectorySortField,
   TeamLeaveListResponse,
@@ -31,6 +33,18 @@ export type QueryTeamDirectoryParams = {
 export type QueryTeamLeaveParams = {
   search?: string;
   sortBy?: TeamLeaveSortField;
+  sortOrder?: "asc" | "desc";
+  page?: number;
+  limit?: number;
+};
+
+export type QueryEmployeeAttendanceParams = {
+  employeeId: string;
+  search?: string;
+  dayType?: number;
+  fromDate?: string;
+  toDate?: string;
+  sortBy?: EmployeeAttendanceSortField;
   sortOrder?: "asc" | "desc";
   page?: number;
   limit?: number;
@@ -85,6 +99,30 @@ export const resourcesApi = api.injectEndpoints({
         return `/resources/team/leave${qs ? `?${qs}` : ""}`;
       },
       providesTags: [{ type: "TeamDirectory", id: "LEAVE" }],
+    }),
+
+    getEmployeeAttendance: builder.query<
+      EmployeeAttendanceListResponse,
+      QueryEmployeeAttendanceParams
+    >({
+      query: ({ employeeId, ...params }) => {
+        const queryParams = new URLSearchParams();
+        appendQueryParams(queryParams, {
+          search: params.search,
+          dayType: params.dayType,
+          fromDate: params.fromDate,
+          toDate: params.toDate,
+          sortBy: params.sortBy,
+          sortOrder: params.sortOrder,
+          page: params.page,
+          limit: params.limit,
+        });
+        const qs = queryParams.toString();
+        return `/resources/team/${employeeId}/attendance${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: (_result, _error, arg) => [
+        { type: "TeamDirectory", id: `ATTENDANCE-${arg.employeeId}` },
+      ],
     }),
 
     getAllocationPolicy: builder.query<AllocationPolicy, void>({
@@ -292,6 +330,7 @@ export const resourcesApi = api.injectEndpoints({
 export const {
   useGetTeamDirectoryQuery,
   useGetTeamLeaveQuery,
+  useGetEmployeeAttendanceQuery,
   useGetAllocationPolicyQuery,
   useGetDesignationOptionsQuery,
   useGetAllocationApprovalsQuery,

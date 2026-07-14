@@ -45,7 +45,7 @@ import {
   taskWeeklyHoursFromEffort,
 } from './utils/task-availability.util';
 import { AllocationPolicySummaryDto } from './dto/project-allocation.dto';
-import { AllocationPushService } from '../keka/sync/allocation-push.service';
+import { AllocationPushService } from '../integrations/keka/sync/allocation-push.service';
 import {
   AlignProjectAllocationsResultDto,
   AllocationDateIssuesResponseDto,
@@ -130,7 +130,7 @@ export class ProjectTeamService {
           where: { status: { in: ['Active', 'Pending'] } },
         },
         leaveRecords: {
-          orderBy: { leaveDate: 'asc' },
+          orderBy: { fromDate: 'asc' },
         },
       },
       orderBy: { name: 'asc' },
@@ -185,7 +185,7 @@ export class ProjectTeamService {
           include: {
             ...EMPLOYEE_INCLUDE,
             allocations: { where: { status: 'Active' } },
-            leaveRecords: { orderBy: { leaveDate: 'asc' } },
+            leaveRecords: { orderBy: { fromDate: 'asc' } },
           },
         },
       },
@@ -926,7 +926,7 @@ export class ProjectTeamService {
           include: {
             ...EMPLOYEE_INCLUDE,
             allocations: { where: { status: 'Active' } },
-            leaveRecords: { orderBy: { leaveDate: 'asc' } },
+            leaveRecords: { orderBy: { fromDate: 'asc' } },
           },
         },
       },
@@ -1110,7 +1110,7 @@ export class ProjectTeamService {
           include: {
             ...EMPLOYEE_INCLUDE,
             allocations: { where: { status: 'Active' } },
-            leaveRecords: { orderBy: { leaveDate: 'asc' } },
+            leaveRecords: { orderBy: { fromDate: 'asc' } },
           },
         },
       },

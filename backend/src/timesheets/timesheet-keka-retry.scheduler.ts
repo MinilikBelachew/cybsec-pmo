@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { TimesheetPushService } from '../keka/sync/timesheet-push.service';
+import { TimesheetPushService } from '../integrations/keka/sync/timesheet-push.service';
 
 @Injectable()
 export class TimesheetKekaRetryScheduler {

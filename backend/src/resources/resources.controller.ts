@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Query,
   Request,
@@ -25,9 +26,11 @@ import {
 } from './dto/allocation-approval.dto';
 import { QueryTeamDirectoryDto } from './dto/query-team-directory.dto';
 import { QueryTeamLeaveDto } from './dto/query-team-leave.dto';
+import { QueryEmployeeAttendanceDto } from './dto/query-employee-attendance.dto';
 import {
   AllocationPolicyDto,
   DesignationOptionsDto,
+  EmployeeAttendanceListResponseDto,
   TeamDirectoryResponseDto,
   TeamLeaveListResponseDto,
 } from './dto/team-directory.dto';
@@ -73,6 +76,22 @@ export class ResourcesController {
     @Request() request: RequestWithAbility,
   ): Promise<TeamLeaveListResponseDto> {
     return this.teamDirectoryService.findLeave(query, request.caslUser!);
+  }
+
+  @CheckAbility('read', 'Team')
+  @Get('team/:employeeId/attendance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: EmployeeAttendanceListResponseDto })
+  findEmployeeAttendance(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: QueryEmployeeAttendanceDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<EmployeeAttendanceListResponseDto> {
+    return this.teamDirectoryService.findEmployeeAttendance(
+      employeeId,
+      query,
+      request.caslUser!,
+    );
   }
 
   @CheckAbility('approve', 'Team')

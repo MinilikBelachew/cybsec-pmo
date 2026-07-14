@@ -641,6 +641,8 @@ export class ProjectsService {
         role: {
           code: { in: PM_ROLE_CODES },
         },
+        // Hide users linked to a Keka-inactive employee; keep users with no employee row.
+        OR: [{ employees: null }, { employees: { isActive: true } }],
       },
       orderBy: { displayName: 'asc' },
       select: {
@@ -699,6 +701,7 @@ export class ProjectsService {
           id: dto.primaryPmId,
           isActive: true,
           role: { code: { in: PM_ROLE_CODES } },
+          OR: [{ employees: null }, { employees: { isActive: true } }],
         },
       }),
       dto.secondaryPmId
@@ -707,6 +710,7 @@ export class ProjectsService {
               id: dto.secondaryPmId,
               isActive: true,
               role: { code: { in: PM_ROLE_CODES } },
+              OR: [{ employees: null }, { employees: { isActive: true } }],
             },
           })
         : Promise.resolve(null),

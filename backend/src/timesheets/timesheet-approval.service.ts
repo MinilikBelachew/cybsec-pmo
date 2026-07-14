@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CaslUserContext } from '../casl/casl.types';
-import { TimesheetPushService } from '../keka/sync/timesheet-push.service';
+import { TimesheetPushService } from '../integrations/keka/sync/timesheet-push.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../database/prisma.service';
 import {

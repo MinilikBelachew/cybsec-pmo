@@ -711,23 +711,30 @@ model Allocation {
   @@map("allocations")
 }
 
+/// One row per Keka leave request (fromDate–toDate), not per calendar day.
 model LeaveRecord {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeId  String   @map("employee_id") @db.Uuid
-  leaveDate   DateTime @map("leave_date") @db.Date
-  leaveType   String   @map("leave_type") @db.VarChar(50)
-  isApproved  Boolean  @default(false) @map("is_approved")
-  kekaStatus  Int?     @map("keka_status")
-  fromSession Int?     @map("from_session")
-  toSession   Int?     @map("to_session")
-  kekaRef     String?  @map("keka_ref") @db.VarChar(100)
-  syncedAt    DateTime @map("synced_at") @db.Timestamptz
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId         String    @map("employee_id") @db.Uuid
+  /// Keka leave request id — unique upsert key.
+  kekaRef            String    @unique @map("keka_ref") @db.VarChar(100)
+  fromDate           DateTime  @map("from_date") @db.Date
+  toDate             DateTime  @map("to_date") @db.Date
+  fromSession        Int?      @map("from_session")
+  toSession          Int?      @map("to_session")
+  leaveType          String    @map("leave_type") @db.VarChar(50)
+  isApproved         Boolean   @default(false) @map("is_approved")
+  kekaStatus         Int?      @map("keka_status")
+  note               String?   @db.Text
+  requestedOn        DateTime? @map("requested_on") @db.Timestamptz
+  cancelRejectReason String?   @map("cancel_reject_reason") @db.Text
+  lastActionTakenOn  DateTime? @map("last_action_taken_on") @db.Timestamptz
+  selection          Json?
+  syncedAt           DateTime  @map("synced_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
-  @@unique([employeeId, leaveDate], map: "uq_leave_employee_date")
   @@index([employeeId], map: "idx_leave_employee")
-  @@index([leaveDate], map: "idx_leave_date")
+  @@index([fromDate, toDate], map: "idx_leave_date_range")
   @@map("leave_records")
 }
 

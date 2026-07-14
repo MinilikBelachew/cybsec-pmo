@@ -6,7 +6,7 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
-import { KekaSyncService } from '../src/keka/sync/keka-sync.service';
+import { KekaSyncService } from '../src/integrations/keka/sync/keka-sync.service';
 
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, {

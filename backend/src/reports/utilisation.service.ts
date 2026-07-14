@@ -98,7 +98,8 @@ export class UtilisationService {
         leaveRecords: {
           where: {
             isApproved: true,
-            leaveDate: { gte: start, lte: end },
+            fromDate: { lte: end },
+            toDate: { gte: start },
           },
         },
         timesheets: {
@@ -157,7 +158,7 @@ export class UtilisationService {
         endDate: Date | null;
         projectId: string;
       }>;
-      leaveRecords: Array<{ leaveDate: Date }>;
+      leaveRecords: Array<{ fromDate: Date; toDate: Date }>;
       timesheets: Array<{
         status: string;
         regularHours: Prisma.Decimal;
@@ -173,11 +174,7 @@ export class UtilisationService {
     const weeklyCapacity = Number(employee.weeklyHours);
     const dailyCapacity = weeklyCapacity / 5;
     const workingDays = countWorkingDays(start, end);
-    const leaveDays = countApprovedLeaveDays(
-      employee.leaveRecords.map((row) => row.leaveDate),
-      start,
-      end,
-    );
+    const leaveDays = countApprovedLeaveDays(employee.leaveRecords, start, end);
     const availableHours = roundHours(
       Math.max(0, workingDays * dailyCapacity - leaveDays * dailyCapacity),
     );

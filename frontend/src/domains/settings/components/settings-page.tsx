@@ -5,19 +5,15 @@ import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAuth } from "@/domains/auth";
-import { Users, Settings, ShieldAlert, Archive } from "lucide-react";
-// Phase 2: restore Briefcase when Resource policies tab is re-enabled
-// import { Users, Settings, ShieldAlert, Archive, Briefcase } from "lucide-react";
+import { Users, Settings, ShieldAlert, Archive, Briefcase } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
 import { BreakGlassSection } from "./break-glass-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
-// Phase 2: Resource policies (allocation)
-// import { AllocationPoliciesSection } from "./allocation-policies-section";
+import { AllocationPoliciesSection } from "./allocation-policies-section";
 
-type SettingsTab = "profile" | "users" | "security" | "audit";
-// Phase 2: | "allocation"
+type SettingsTab = "profile" | "users" | "security" | "audit" | "allocation";
 
 export function SettingsPage() {
   const ability = useAppAbility();
@@ -43,7 +39,6 @@ export function SettingsPage() {
     <div className="space-y-6  mx-auto">
       <PageHeader
         title="Settings & Administration"
-        description="Configure your platform settings, directory access, and enterprise role assignments."
       />
 
       <div className="flex border-b border-border gap-2">
@@ -75,7 +70,6 @@ export function SettingsPage() {
             User Directory
           </button>
         )}
-        {/* Phase 2 — Resource policies
         {canManageSecurity && (
           <button
             type="button"
@@ -91,7 +85,7 @@ export function SettingsPage() {
             Resource policies
           </button>
         )}
-        */}
+        
         {canManageSecurity && (
           <button
             type="button"
@@ -133,14 +127,12 @@ export function SettingsPage() {
         />
       )}
 
-      {/* Phase 2 — Resource policies
       {activeTab === "allocation" && canManageSecurity && (
         <AllocationPoliciesSection
           onSuccess={notifySuccess}
           onError={notifyError}
         />
       )}
-      */}
 
       {activeTab === "audit" && canManageSecurity && (
         <AuditComplianceSection

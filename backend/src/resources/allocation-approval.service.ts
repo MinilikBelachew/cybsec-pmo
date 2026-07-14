@@ -8,7 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CaslUserContext } from '../casl/casl.types';
-import { AllocationPushService } from '../keka/sync/allocation-push.service';
+import { AllocationPushService } from '../integrations/keka/sync/allocation-push.service';
 import {
   buildAvailabilitySummary,
   sumOverlappingAllocationHours,

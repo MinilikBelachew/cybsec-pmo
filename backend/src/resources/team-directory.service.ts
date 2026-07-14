@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CaslUserContext } from '../casl/casl.types';
@@ -11,7 +11,13 @@ import {
 } from './dto/query-team-directory.dto';
 import { QueryTeamLeaveDto, TeamLeaveSortField } from './dto/query-team-leave.dto';
 import {
+  QueryEmployeeAttendanceDto,
+  EmployeeAttendanceSortField,
+} from './dto/query-employee-attendance.dto';
+import {
   DesignationOptionsDto,
+  EmployeeAttendanceListResponseDto,
+  EmployeeAttendanceRowDto,
   TeamDirectoryMemberDto,
   TeamDirectoryResponseDto,
   TeamDirectoryStatsDto,
@@ -38,7 +44,7 @@ const EMPLOYEE_INCLUDE = {
     },
   },
   leaveRecords: {
-    orderBy: { leaveDate: 'asc' as const },
+    orderBy: { fromDate: 'asc' as const },
   },
 } as const;
 
@@ -231,7 +237,7 @@ export class TeamDirectoryService {
       },
       include: {
         department: { select: { name: true } },
-        leaveRecords: { orderBy: { leaveDate: 'asc' } },
+        leaveRecords: { orderBy: { fromDate: 'asc' } },
       },
       orderBy: { name: 'asc' },
     });
@@ -376,6 +382,186 @@ export class TeamDirectoryService {
     }
 
     return start <= end ? { start, end } : undefined;
+  }
+
+  async findEmployeeAttendance(
+    employeeId: string,
+    query: QueryEmployeeAttendanceDto,
+    caslUser: CaslUserContext,
+  ): Promise<EmployeeAttendanceListResponseDto> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const sortBy = query.sortBy ?? 'attendanceDate';
+    const sortOrder = query.sortOrder ?? 'desc';
+
+    const employeeScope = this.recordScopeWhere.teamDirectoryEmployeeWhere(caslUser);
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        AND: [{ id: employeeId }, { isActive: true }, employeeScope],
+      },
+      select: { id: true },
+    });
+
+    if (!employee) {
+      throw new NotFoundException({
+        status: 404,
+        errors: { employee: 'employeeNotFound' },
+      });
+    }
+
+    const searchFilters = this.buildAttendanceSearchFilters(query.search);
+
+    const where: Prisma.AttendanceRecordWhereInput = {
+      AND: [
+        { employeeId },
+        ...(query.dayType !== undefined ? [{ dayType: query.dayType }] : []),
+        ...(query.fromDate || query.toDate
+          ? [
+              {
+                attendanceDate: {
+                  ...(query.fromDate
+                    ? { gte: new Date(`${query.fromDate}T00:00:00.000Z`) }
+                    : {}),
+                  ...(query.toDate
+                    ? { lte: new Date(`${query.toDate}T00:00:00.000Z`) }
+                    : {}),
+                },
+              },
+            ]
+          : []),
+        ...searchFilters,
+      ],
+    };
+
+    const orderBy = this.buildAttendanceOrderBy(sortBy, sortOrder);
+
+    const [total, rows, latestSync] = await Promise.all([
+      this.prisma.attendanceRecord.count({ where }),
+      this.prisma.attendanceRecord.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.attendanceRecord.findFirst({
+        where: { employeeId },
+        orderBy: { syncedAt: 'desc' },
+        select: { syncedAt: true },
+      }),
+    ]);
+
+    return {
+      rows: rows.map((row) => this.toAttendanceRow(row)),
+      page,
+      limit,
+      total,
+      lastSuccessfulSyncAt: latestSync?.syncedAt.toISOString() ?? null,
+    };
+  }
+
+  private buildAttendanceSearchFilters(
+    search?: string,
+  ): Prisma.AttendanceRecordWhereInput[] {
+    const term = search?.trim();
+    if (!term) {
+      return [];
+    }
+
+    const or: Prisma.AttendanceRecordWhereInput[] = [
+      { employeeNumber: { contains: term, mode: 'insensitive' } },
+      { kekaEmployeeId: { contains: term, mode: 'insensitive' } },
+      { kekaAttendanceId: { contains: term, mode: 'insensitive' } },
+    ];
+
+    const dayType = this.resolveAttendanceDayTypeSearch(term);
+    if (dayType !== null) {
+      or.push({ dayType });
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(term)) {
+      or.push({
+        attendanceDate: new Date(`${term}T00:00:00.000Z`),
+      });
+    } else if (/^\d{4}-\d{2}$/.test(term)) {
+      const [year, month] = term.split('-').map(Number);
+      const start = new Date(Date.UTC(year, month - 1, 1));
+      const end = new Date(Date.UTC(year, month, 0));
+      or.push({
+        attendanceDate: { gte: start, lte: end },
+      });
+    }
+
+    return [{ OR: or }];
+  }
+
+  private resolveAttendanceDayTypeSearch(term: string): number | null {
+    const normalized = term.toLowerCase();
+    if (normalized.includes('working') || normalized === 'work') return 0;
+    if (normalized.includes('holiday')) return 1;
+    if (normalized.includes('weekly') || normalized.includes('off')) return 2;
+    if (normalized.includes('leave')) return 3;
+    if (normalized.includes('unknown')) return 4;
+    if (/^[0-4]$/.test(normalized)) return Number(normalized);
+    return null;
+  }
+
+  private buildAttendanceOrderBy(
+    sortBy: EmployeeAttendanceSortField,
+    sortOrder: 'asc' | 'desc',
+  ): Prisma.AttendanceRecordOrderByWithRelationInput {
+    switch (sortBy) {
+      case 'dayType':
+        return { dayType: sortOrder };
+      case 'shiftStartTime':
+        return { shiftStartTime: sortOrder };
+      case 'shiftDuration':
+        return { shiftDuration: sortOrder };
+      case 'shiftEffectiveDuration':
+        return { shiftEffectiveDuration: sortOrder };
+      case 'totalEffectiveHours':
+        return { totalEffectiveHours: sortOrder };
+      case 'syncedAt':
+        return { syncedAt: sortOrder };
+      case 'attendanceDate':
+      default:
+        return { attendanceDate: sortOrder };
+    }
+  }
+
+  private toAttendanceRow(row: {
+    id: string;
+    attendanceDate: Date;
+    dayType: number | null;
+    shiftStartTime: Date | null;
+    shiftEndTime: Date | null;
+    shiftDuration: Prisma.Decimal | null;
+    shiftEffectiveDuration: Prisma.Decimal | null;
+    totalEffectiveHours: Prisma.Decimal | null;
+    totalGrossHours: Prisma.Decimal | null;
+    firstInAt: Date | null;
+    lastOutAt: Date | null;
+    syncedAt: Date;
+  }): EmployeeAttendanceRowDto {
+    return {
+      id: row.id,
+      attendanceDate: row.attendanceDate.toISOString().slice(0, 10),
+      dayType: row.dayType,
+      shiftStartTime: row.shiftStartTime?.toISOString() ?? null,
+      shiftEndTime: row.shiftEndTime?.toISOString() ?? null,
+      shiftDuration:
+        row.shiftDuration != null ? Number(row.shiftDuration) : null,
+      shiftEffectiveDuration:
+        row.shiftEffectiveDuration != null
+          ? Number(row.shiftEffectiveDuration)
+          : null,
+      totalEffectiveHours:
+        row.totalEffectiveHours != null ? Number(row.totalEffectiveHours) : null,
+      totalGrossHours:
+        row.totalGrossHours != null ? Number(row.totalGrossHours) : null,
+      firstInAt: row.firstInAt?.toISOString() ?? null,
+      lastOutAt: row.lastOutAt?.toISOString() ?? null,
+      syncedAt: row.syncedAt.toISOString(),
+    };
   }
 }
 

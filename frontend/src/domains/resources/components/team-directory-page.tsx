@@ -39,7 +39,7 @@ import type {
   TeamLeaveSortField,
   UtilizationStatus,
 } from "../types/resources.types";
-import { mapTeamDirectoryMember } from "../utils/team-directory.mapper";
+import { formatUpcomingLeaveSummary, mapTeamDirectoryMember } from "../utils/team-directory.mapper";
 import { KEKA_SYNC_CONFIG, UTILIZATION_CONFIG } from "../utils/resource-ui.config";
 import { createTeamDirectoryColumns } from "./team-directory-columns";
 import { createTeamLeaveColumns } from "./team-leave-columns";
@@ -526,6 +526,15 @@ function MemberCard({
             <span>{member.remainingHours}h remaining</span>
           </div>
         </div>
+        {(() => {
+          const leaveLabel = formatUpcomingLeaveSummary(member.upcomingLeave);
+          if (!leaveLabel) return null;
+          return (
+            <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              {leaveLabel}
+            </p>
+          );
+        })()}
         {member.projects.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {member.projects.slice(0, 3).map((project) => (

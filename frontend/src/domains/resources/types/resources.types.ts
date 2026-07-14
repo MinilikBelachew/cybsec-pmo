@@ -162,6 +162,41 @@ export interface TeamLeaveRecord {
   approvedBy?: string;
 }
 
+/** Keka attendance day type: 0 Working, 1 Holiday, 2 WeeklyOff, 3 Leave, 4 Unknown */
+export type AttendanceDayType = 0 | 1 | 2 | 3 | 4;
+
+export type EmployeeAttendanceSortField =
+  | "attendanceDate"
+  | "dayType"
+  | "shiftStartTime"
+  | "shiftDuration"
+  | "shiftEffectiveDuration"
+  | "totalEffectiveHours"
+  | "syncedAt";
+
+export interface EmployeeAttendanceRow {
+  id: string;
+  attendanceDate: string;
+  dayType: AttendanceDayType | null;
+  shiftStartTime: string | null;
+  shiftEndTime: string | null;
+  shiftDuration: number | null;
+  shiftEffectiveDuration: number | null;
+  totalEffectiveHours: number | null;
+  totalGrossHours: number | null;
+  firstInAt: string | null;
+  lastOutAt: string | null;
+  syncedAt: string;
+}
+
+export interface EmployeeAttendanceListResponse {
+  rows: EmployeeAttendanceRow[];
+  page: number;
+  limit: number;
+  total: number;
+  lastSuccessfulSyncAt: string | null;
+}
+
 export interface TeamDirectoryMember {
   id: string;
   name: string;
@@ -181,6 +216,7 @@ export interface TeamDirectoryMember {
   utilStatus: UtilizationStatus;
   manager?: string;
   assignments: TeamAssignment[];
+  upcomingLeave: TeamLeaveRecord[];
   leaveHistory: TeamLeaveRecord[];
 }
 

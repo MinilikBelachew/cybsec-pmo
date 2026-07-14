@@ -7,6 +7,7 @@ import { cn } from "@/shared/utils/cn";
 import { formatAllocationDateRange } from "@/domains/projects/utils/allocation-date.utils";
 import type { TeamDirectoryMember } from "../types/resources.types";
 import { UTILIZATION_CONFIG } from "../utils/resource-ui.config";
+import { formatUpcomingLeaveSummary } from "../utils/team-directory.mapper";
 
 type CreateTeamDirectoryColumnsOptions = {
   onSelect: (member: TeamDirectoryMember) => void;
@@ -111,6 +112,27 @@ export function createTeamDirectoryColumns({
         <span className="text-sm">{row.original.remainingHours}h/wk</span>
       ),
       meta: { label: "Remaining" },
+    },
+    {
+      id: "upcomingLeave",
+      accessorFn: (row) => row.upcomingLeave.length,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Leave" />,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const label = formatUpcomingLeaveSummary(row.original.upcomingLeave);
+        if (!label) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        return (
+          <span
+            className="line-clamp-2 text-xs font-medium text-amber-700 dark:text-amber-400"
+            title={label}
+          >
+            {label.replace(/^On leave:\s*/, "")}
+          </span>
+        );
+      },
+      meta: { label: "Leave" },
     },
     {
       id: "projects",

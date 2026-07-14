@@ -23,10 +23,10 @@ import {
   QueryKekaSyncLogsDto,
   RetryKekaSyncDto,
   RetryKekaSyncResultDto,
-} from '../keka/dto/keka-integration.dto';
-import { KekaIntegrationAdminService } from '../keka/keka-integration-admin.service';
-import { KekaSyncEnqueueResultDto } from '../keka/dto/keka-sync.dto';
-import { KekaSyncService } from '../keka/sync/keka-sync.service';
+} from '../integrations/keka/dto/keka-integration.dto';
+import { KekaIntegrationAdminService } from '../integrations/keka/keka-integration-admin.service';
+import { KekaSyncEnqueueResultDto } from '../integrations/keka/dto/keka-sync.dto';
+import { KekaSyncService } from '../integrations/keka/sync/keka-sync.service';
 
 type RequestWithUser = {
   user?: { id: string };

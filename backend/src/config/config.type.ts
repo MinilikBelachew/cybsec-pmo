@@ -9,7 +9,7 @@ import { SessionSecurityConfig } from '../auth/config/session-security.config';
 import { SecurityAlertsConfig } from '../auth/config/security-alerts.config';
 import { BreakGlassConfig } from '../auth/config/break-glass.config';
 import { MppImportConfig } from '../mpp-import/config/mpp-import-config.type';
-import { KekaConfig } from '../keka/config/keka-config.type';
+import { KekaConfig } from '../integrations/keka/config/keka-config.type';
 
 export type AllConfigType = {
   app: AppConfig;

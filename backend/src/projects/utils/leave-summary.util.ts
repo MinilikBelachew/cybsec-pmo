@@ -9,7 +9,8 @@ export type LeaveRangeSummary = {
 
 type LeaveRecordInput = {
   id: string;
-  leaveDate: Date;
+  fromDate: Date;
+  toDate: Date;
   leaveType: string;
   isApproved: boolean;
   kekaStatus?: number | null;
@@ -19,10 +20,11 @@ function toDateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
+function countInclusiveDays(from: string, to: string): number {
+  const start = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  const ms = end.getTime() - start.getTime();
+  return Math.max(1, Math.floor(ms / 86_400_000) + 1);
 }
 
 function resolveLeaveStatus(record: LeaveRecordInput): LeaveRangeSummary['status'] {
@@ -35,46 +37,26 @@ function resolveLeaveStatus(record: LeaveRecordInput): LeaveRangeSummary['status
   return 'pending';
 }
 
+/** Map stored leave requests (already from/to ranges) into UI summaries. */
 export function groupLeaveRecords(records: LeaveRecordInput[]): LeaveRangeSummary[] {
   if (records.length === 0) {
     return [];
   }
 
-  const sorted = [...records].sort(
-    (a, b) => a.leaveDate.getTime() - b.leaveDate.getTime(),
-  );
-
-  const ranges: LeaveRangeSummary[] = [];
-  let current: LeaveRangeSummary | null = null;
-
-  for (const record of sorted) {
-    const status = resolveLeaveStatus(record);
-    const dateKey = toDateKey(record.leaveDate);
-
-    if (
-      !current ||
-      current.type !== record.leaveType ||
-      current.status !== status ||
-      addDays(new Date(`${current.to}T00:00:00.000Z`), 1).toISOString().slice(0, 10) !==
-        dateKey
-    ) {
-      current = {
+  return [...records]
+    .sort((a, b) => a.fromDate.getTime() - b.fromDate.getTime())
+    .map((record) => {
+      const from = toDateKey(record.fromDate);
+      const to = toDateKey(record.toDate);
+      return {
         id: record.id,
         type: record.leaveType,
-        from: dateKey,
-        to: dateKey,
-        days: 1,
-        status,
+        from,
+        to,
+        days: countInclusiveDays(from, to),
+        status: resolveLeaveStatus(record),
       };
-      ranges.push(current);
-      continue;
-    }
-
-    current.to = dateKey;
-    current.days += 1;
-  }
-
-  return ranges;
+    });
 }
 
 export function filterLeaveInWindow(
