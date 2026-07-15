@@ -155,6 +155,20 @@ export class NotificationsService {
   ): Promise<void> {
     const payload = input.payload ?? {};
 
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const sourceObjectId =
+      typeof input.sourceObjectId === 'string' &&
+      UUID_RE.test(input.sourceObjectId)
+        ? input.sourceObjectId
+        : null;
+
+    if (input.sourceObjectId && !sourceObjectId) {
+      this.logger.warn(
+        `Dropping non-UUID notification sourceObjectId for ${input.eventType}: ${input.sourceObjectId}`,
+      );
+    }
+
     const notification = await this.prisma.notification.create({
       data: {
         userId,
@@ -163,7 +177,7 @@ export class NotificationsService {
         body: input.body,
         payload: payload as Prisma.InputJsonValue,
         sourceObjectType: input.sourceObjectType,
-        sourceObjectId: input.sourceObjectId,
+        sourceObjectId,
       },
     });
 

@@ -11,6 +11,7 @@ import { CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CreateWorkspaceDocumentDto } from './dto/create-workspace-document.dto';
 import { QueryWorkspaceDocumentDto } from './dto/query-workspace-document.dto';
+import { QueryPortfolioWorkspaceDocumentDto } from './dto/query-portfolio-workspace-document.dto';
 import { WorkspaceDocumentCategory } from './workspace-document.constants';
 
 const DOC_INCLUDE = {
@@ -18,6 +19,7 @@ const DOC_INCLUDE = {
   phase: { select: { id: true, name: true } },
   milestone: { select: { id: true, title: true } },
   task: { select: { id: true, title: true } },
+  project: { select: { id: true, name: true } },
 } as const;
 
 export type UploadedFileMeta = {
@@ -139,6 +141,114 @@ export class WorkspaceDocumentsService {
     });
 
     return docs.map((d) => this.mapDocument(d));
+  }
+
+  private buildVaultWhere(
+    query: QueryPortfolioWorkspaceDocumentDto,
+    caslUser: CaslUserContext,
+  ): Prisma.WorkspaceDocumentWhereInput {
+    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    const search = query.search?.trim();
+
+    return {
+      AND: [
+        { project: projectScope },
+        ...(query.projectId ? [{ projectId: query.projectId }] : []),
+        ...(query.category ? [{ category: query.category }] : []),
+        ...(search
+          ? [
+              {
+                OR: [
+                  {
+                    filename: {
+                      contains: search,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    tags: {
+                      has: search,
+                    },
+                  },
+                  {
+                    project: {
+                      name: {
+                        contains: search,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  },
+                ],
+              },
+            ]
+          : []),
+      ],
+    };
+  }
+
+  /**
+   * Portfolio Document Vault list — scoped by project visibility
+   * (all / own_projects / assigned / team, etc.).
+   */
+  async findManyWithPagination(
+    query: QueryPortfolioWorkspaceDocumentDto,
+    caslUser: CaslUserContext,
+  ) {
+    const page = query.page && query.page > 0 ? query.page : 1;
+    let limit = query.limit && query.limit > 0 ? query.limit : 50;
+    if (limit > 100) {
+      limit = 100;
+    }
+
+    const docs = await this.prisma.workspaceDocument.findMany({
+      where: this.buildVaultWhere(query, caslUser),
+      include: DOC_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return docs.map((d) => this.mapDocument(d));
+  }
+
+  async countMany(
+    query: QueryPortfolioWorkspaceDocumentDto,
+    caslUser: CaslUserContext,
+  ) {
+    return this.prisma.workspaceDocument.count({
+      where: this.buildVaultWhere(query, caslUser),
+    });
+  }
+
+  async getVaultStats(caslUser: CaslUserContext) {
+    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    const where: Prisma.WorkspaceDocumentWhereInput = {
+      project: projectScope,
+    };
+
+    const [total, byCategory] = await Promise.all([
+      this.prisma.workspaceDocument.count({ where }),
+      this.prisma.workspaceDocument.groupBy({
+        by: ['category'],
+        where,
+        _count: { _all: true },
+      }),
+    ]);
+
+    const categoryCounts: Record<string, number> = {};
+    for (const row of byCategory) {
+      categoryCounts[row.category] = row._count._all;
+    }
+
+    return {
+      total,
+      project: categoryCounts.Project ?? 0,
+      phase: categoryCounts.Phase ?? 0,
+      milestone: categoryCounts.Milestone ?? 0,
+      signOff: categoryCounts.SignOff ?? 0,
+      technical: categoryCounts.Technical ?? 0,
+      task: categoryCounts.Task ?? 0,
+    };
   }
 
   async createForProject(

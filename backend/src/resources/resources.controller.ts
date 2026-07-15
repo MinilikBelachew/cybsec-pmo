@@ -40,6 +40,9 @@ import {
   LeaveImpactListResponseDto,
   QueryLeaveImpactsDto,
 } from './dto/leave-impact.dto';
+import { QueryHolidaysDto } from './dto/query-holidays.dto';
+import { HolidayCalendarListResponseDto } from './dto/holidays.dto';
+import { HolidaysService } from './holidays.service';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -54,7 +57,18 @@ export class ResourcesController {
     private readonly teamDirectoryService: TeamDirectoryService,
     private readonly allocationApprovalService: AllocationApprovalService,
     private readonly leaveBackupService: LeaveBackupService,
+    private readonly holidaysService: HolidaysService,
   ) {}
+
+  @CheckAbility('read', 'Team')
+  @Get('holidays')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: HolidayCalendarListResponseDto })
+  listHolidays(
+    @Query() query: QueryHolidaysDto,
+  ): Promise<HolidayCalendarListResponseDto> {
+    return this.holidaysService.listHolidays(query);
+  }
 
   @CheckAbility('read', 'Team')
   @Get('team')

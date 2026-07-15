@@ -16,6 +16,7 @@ import type {
   TimesheetApprovalDecision,
   TimesheetSyncFailure,
   UtilizationStatus,
+  HolidayCalendarResponse,
 } from "../types/resources.types";
 
 export type QueryTeamDirectoryParams = {
@@ -184,8 +185,19 @@ export const resourcesApi = api.injectEndpoints({
       ],
     }),
 
-    getTimesheetContext: builder.query<TimesheetContext, void>({
-      query: () => "/timesheets/context",
+    getTimesheetContext: builder.query<
+      TimesheetContext,
+      { asOf?: string } | void
+    >({
+      query: (params) => {
+        const asOf = params && "asOf" in params ? params.asOf : undefined;
+        const queryParams = new URLSearchParams();
+        if (asOf) {
+          queryParams.append("asOf", asOf);
+        }
+        const qs = queryParams.toString();
+        return `/timesheets/context${qs ? `?${qs}` : ""}`;
+      },
       providesTags: ["Timesheets"],
     }),
 
@@ -208,7 +220,8 @@ export const resourcesApi = api.injectEndpoints({
         projectId: string;
         taskId: string;
         workDate: string;
-        hours: number;
+        regularHours: number;
+        overtimeHours?: number;
         notes?: string;
         isBillable?: boolean;
       }
@@ -255,7 +268,13 @@ export const resourcesApi = api.injectEndpoints({
 
     updateTimesheetEntry: builder.mutation<
       TimesheetWeekEntry,
-      { id: string; hours?: number; notes?: string; isBillable?: boolean }
+      {
+        id: string;
+        regularHours?: number;
+        overtimeHours?: number;
+        notes?: string;
+        isBillable?: boolean;
+      }
     >({
       query: ({ id, ...body }) => ({
         url: `/timesheets/${id}`,
@@ -313,6 +332,23 @@ export const resourcesApi = api.injectEndpoints({
       providesTags: ["TimesheetSyncFailures"],
     }),
 
+    getHolidayCalendars: builder.query<
+      HolidayCalendarResponse,
+      { year?: number; calendarId?: string } | void
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        const p = params ?? {};
+        appendQueryParams(queryParams, {
+          year: p.year,
+          calendarId: p.calendarId,
+        });
+        const qs = queryParams.toString();
+        return `/resources/holidays${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: ["HolidayCalendars"],
+    }),
+
     retryTimesheetSync: builder.mutation<
       { success: boolean; ref: string | null },
       { timesheetId: string }
@@ -348,4 +384,5 @@ export const {
   useRejectTimesheetSubmissionMutation,
   useGetTimesheetSyncFailuresQuery,
   useRetryTimesheetSyncMutation,
+  useGetHolidayCalendarsQuery,
 } = resourcesApi;

@@ -12,14 +12,57 @@ import { TimesheetPushService } from './sync/timesheet-push.service';
 import {
   FailedSyncRecordListResponseDto,
   FailedSyncRecordRowDto,
+  KekaEntitySyncStatusDto,
   KekaSyncLogListResponseDto,
   KekaSyncLogRowDto,
+  KekaSyncStatusResponseDto,
   QueryFailedSyncRecordsDto,
   QueryKekaSyncLogsDto,
   RetryKekaSyncResultDto,
 } from './dto/keka-integration.dto';
-import { KEKA_ENTITY_TYPE } from './keka.constants';
+import { KEKA_ENTITY_TYPE, KEKA_SYNC_STATUS } from './keka.constants';
+import { KEKA_INTEGRATION } from '../../timesheets/timesheets.constants';
 import { backfillFailedRecordsFromSyncLogs } from './utils/failed-sync-record.util';
+
+/** Logs within this window of the latest log are treated as one "last run". */
+const LAST_RUN_WINDOW_MS = 30 * 60 * 1000;
+
+const SYNC_STATUS_ENTITIES: Array<{
+  key: string;
+  label: string;
+  entityTypes: string[];
+}> = [
+  {
+    key: 'employee',
+    label: 'Employees',
+    entityTypes: [KEKA_ENTITY_TYPE.EMPLOYEE, KEKA_ENTITY_TYPE.DEPARTMENT],
+  },
+  {
+    key: 'leave',
+    label: 'Leave',
+    entityTypes: [KEKA_ENTITY_TYPE.LEAVE],
+  },
+  {
+    key: 'attendance',
+    label: 'Attendance',
+    entityTypes: [KEKA_ENTITY_TYPE.ATTENDANCE],
+  },
+  {
+    key: 'holidays',
+    label: 'Holidays',
+    entityTypes: [KEKA_ENTITY_TYPE.HOLIDAY, KEKA_ENTITY_TYPE.HOLIDAY_CALENDAR],
+  },
+  {
+    key: 'client',
+    label: 'Clients',
+    entityTypes: [KEKA_ENTITY_TYPE.CLIENT],
+  },
+  {
+    key: 'project',
+    label: 'Projects',
+    entityTypes: [KEKA_ENTITY_TYPE.PROJECT],
+  },
+];
 
 @Injectable()
 export class KekaIntegrationAdminService {
@@ -29,6 +72,40 @@ export class KekaIntegrationAdminService {
     private readonly allocationPushService: AllocationPushService,
     private readonly kekaSyncService: KekaSyncService,
   ) {}
+
+  async getSyncStatus(): Promise<KekaSyncStatusResponseDto> {
+    const [lastSuccessful, lastFailed, unresolvedFailures, entities] =
+      await Promise.all([
+        this.prisma.kekaSyncLog.findFirst({
+          where: { status: KEKA_SYNC_STATUS.SUCCESS },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        this.prisma.kekaSyncLog.findFirst({
+          where: { status: KEKA_SYNC_STATUS.FAILED },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        this.prisma.failedSyncRecord.count({
+          where: {
+            integration: KEKA_INTEGRATION,
+            isResolved: false,
+          },
+        }),
+        Promise.all(
+          SYNC_STATUS_ENTITIES.map((entity) =>
+            this.buildEntitySyncStatus(entity),
+          ),
+        ),
+      ]);
+
+    return {
+      lastSuccessfulAt: lastSuccessful?.createdAt ?? null,
+      lastFailedAt: lastFailed?.createdAt ?? null,
+      unresolvedFailures,
+      entities,
+    };
+  }
 
   async listSyncLogs(
     query: QueryKekaSyncLogsDto,
@@ -233,6 +310,111 @@ export class KekaIntegrationAdminService {
           status: HttpStatus.BAD_REQUEST,
           errors: { entityType: 'retryNotSupported' },
         });
+    }
+  }
+
+  private async buildEntitySyncStatus(entity: {
+    key: string;
+    label: string;
+    entityTypes: string[];
+  }): Promise<KekaEntitySyncStatusDto> {
+    const entityTypeFilter = { entityType: { in: entity.entityTypes } };
+
+    const [lastSuccessful, lastFailed, lastAny, unresolvedFailures, linkedRecordCount] =
+      await Promise.all([
+        this.prisma.kekaSyncLog.findFirst({
+          where: {
+            ...entityTypeFilter,
+            status: KEKA_SYNC_STATUS.SUCCESS,
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        this.prisma.kekaSyncLog.findFirst({
+          where: {
+            ...entityTypeFilter,
+            status: KEKA_SYNC_STATUS.FAILED,
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        this.prisma.kekaSyncLog.findFirst({
+          where: entityTypeFilter,
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        this.prisma.failedSyncRecord.count({
+          where: {
+            integration: KEKA_INTEGRATION,
+            entityType: { in: entity.entityTypes },
+            isResolved: false,
+          },
+        }),
+        this.countLinkedRecords(entity.key),
+      ]);
+
+    let lastRunSucceeded = 0;
+    let lastRunFailed = 0;
+
+    if (lastAny) {
+      const windowStart = new Date(
+        lastAny.createdAt.getTime() - LAST_RUN_WINDOW_MS,
+      );
+      const groups = await this.prisma.kekaSyncLog.groupBy({
+        by: ['status'],
+        where: {
+          ...entityTypeFilter,
+          createdAt: {
+            gte: windowStart,
+            lte: lastAny.createdAt,
+          },
+        },
+        _count: { _all: true },
+      });
+
+      for (const group of groups) {
+        if (group.status === KEKA_SYNC_STATUS.SUCCESS) {
+          lastRunSucceeded = group._count._all;
+        } else if (group.status === KEKA_SYNC_STATUS.FAILED) {
+          lastRunFailed = group._count._all;
+        }
+      }
+    }
+
+    return {
+      key: entity.key,
+      label: entity.label,
+      entityTypes: entity.entityTypes,
+      lastSuccessfulAt: lastSuccessful?.createdAt ?? null,
+      lastFailedAt: lastFailed?.createdAt ?? null,
+      lastRunAt: lastAny?.createdAt ?? null,
+      lastRunSucceeded,
+      lastRunFailed,
+      unresolvedFailures,
+      linkedRecordCount,
+    };
+  }
+
+  private async countLinkedRecords(key: string): Promise<number> {
+    switch (key) {
+      case 'employee':
+        return this.prisma.employee.count();
+      case 'leave':
+        return this.prisma.leaveRecord.count();
+      case 'attendance':
+        return this.prisma.attendanceRecord.count();
+      case 'holidays':
+        return this.prisma.holiday.count();
+      case 'client':
+        return this.prisma.customer.count({
+          where: { kekaClientId: { not: null } },
+        });
+      case 'project':
+        return this.prisma.project.count({
+          where: { kekaProjectId: { not: null } },
+        });
+      default:
+        return 0;
     }
   }
 

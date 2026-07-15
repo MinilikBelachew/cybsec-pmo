@@ -7,6 +7,7 @@ import {
   KEKA_SYNC_EMPLOYEES_JOB,
   KEKA_SYNC_HOLIDAYS_JOB,
   KEKA_SYNC_LEAVE_JOB,
+  KEKA_SYNC_CLIENTS_JOB,
   KEKA_SYNC_PROJECTS_JOB,
   KEKA_SYNC_QUEUE,
   KEKA_SYNC_SALARY_JOB,
@@ -18,6 +19,7 @@ import { EmployeeSyncService } from './employee-sync.service';
 import { HolidaySyncService } from './holiday-sync.service';
 import { LeaveSyncService } from './leave-sync.service';
 import { ProjectLinkService } from './project-link.service';
+import { ClientSyncService } from './client-sync.service';
 import { SalarySyncService } from './salary-sync.service';
 
 @Injectable()
@@ -31,6 +33,7 @@ export class KekaSyncService {
     private readonly attendanceSyncService: AttendanceSyncService,
     private readonly holidaySyncService: HolidaySyncService,
     private readonly salarySyncService: SalarySyncService,
+    private readonly clientSyncService: ClientSyncService,
     private readonly projectLinkService: ProjectLinkService,
     @InjectQueue(KEKA_SYNC_QUEUE) private readonly syncQueue: Queue,
   ) {}
@@ -60,6 +63,10 @@ export class KekaSyncService {
     return this.salarySyncService.syncSalariesAndPayCycles();
   }
 
+  async syncClientsNow() {
+    return this.clientSyncService.syncClients();
+  }
+
   async syncProjectsNow() {
     return this.projectLinkService.linkProjectsAndTasks();
   }
@@ -86,6 +93,9 @@ export class KekaSyncService {
     const salaryResult = await this.runStep('salary', () =>
       this.salarySyncService.syncSalaries(),
     );
+    const clientResult = await this.runStep('client', () =>
+      this.syncClientsNow(),
+    );
     const projectResult = await this.runStep('project', () =>
       this.syncProjectsNow(),
     );
@@ -101,6 +111,7 @@ export class KekaSyncService {
         { entityType: 'holiday', ...holidayResult },
         { entityType: 'pay_cycle', ...payCycleResult },
         { entityType: 'salary', ...salaryResult },
+        { entityType: 'client', ...clientResult },
         { entityType: 'project', ...projectResult },
       ],
     };
@@ -144,6 +155,11 @@ export class KekaSyncService {
 
   async enqueueSalarySync(): Promise<{ jobId: string | number }> {
     const job = await this.syncQueue.add(KEKA_SYNC_SALARY_JOB, {});
+    return { jobId: job.id ?? 'unknown' };
+  }
+
+  async enqueueClientsSync(): Promise<{ jobId: string | number }> {
+    const job = await this.syncQueue.add(KEKA_SYNC_CLIENTS_JOB, {});
     return { jobId: job.id ?? 'unknown' };
   }
 

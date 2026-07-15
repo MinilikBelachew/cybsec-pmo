@@ -111,6 +111,13 @@ export const sidebarNav: NavSection[] = [
         permission: { action: "read", subject: "Team" },
       },
       {
+        id: "resource-calendar",
+        label: "Calendar",
+        icon: Calendar,
+        href: "/dashboard/calendar",
+        permission: { action: "read", subject: "Team" },
+      },
+      {
         id: "staffing-approvals",
         label: "Staffing Approvals",
         icon: CheckCircle,

@@ -58,7 +58,9 @@ export function LogHoursPage() {
   const [activeDate, setActiveDate] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
-  const { data: context, isLoading: contextLoading } = useGetTimesheetContextQuery();
+  const { data: context, isLoading: contextLoading } = useGetTimesheetContextQuery(
+    activeDate ? { asOf: activeDate } : undefined,
+  );
   const {
     data: week,
     isLoading: weekLoading,
@@ -174,7 +176,9 @@ export function LogHoursPage() {
     <div className="space-y-6 pb-10">
       <PageHeader
         title="Log Hours"
-        description={`Week of ${week.weekLabel} · ${week.totalHours.toFixed(1)}h logged`}
+        description={`Week of ${week.weekLabel} · ${week.totalHours.toFixed(1)}h logged${
+          (week.overtimeHours ?? 0) > 0 ? ` · ${week.overtimeHours.toFixed(1)}h OT` : ""
+        }`}
         actions={
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-lg border border-border/60">
@@ -264,6 +268,9 @@ export function LogHoursPage() {
                 {summary.totalHours.toFixed(1)}h{" "}
                 <span className="text-sm font-normal text-muted-foreground">
                   / {summary.billableHours.toFixed(1)}h billable
+                  {(summary.overtimeHours ?? 0) > 0
+                    ? ` · ${summary.overtimeHours.toFixed(1)}h OT`
+                    : ""}
                 </span>
               </p>
               {summary.approvedBy && (
@@ -446,18 +453,31 @@ function EntryRow({
   entry: TimesheetWeekEntry;
   saving: boolean;
   onDelete: () => void;
-  onSave: (payload: { hours?: number; notes?: string }) => Promise<void>;
+  onSave: (payload: {
+    regularHours?: number;
+    overtimeHours?: number;
+    notes?: string;
+    isBillable?: boolean;
+  }) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [hours, setHours] = useState(String(entry.hours));
+  const [regularHours, setRegularHours] = useState(
+    String(entry.regularHours ?? entry.hours),
+  );
+  const [overtimeHours, setOvertimeHours] = useState(
+    String(entry.overtimeHours ?? 0),
+  );
+  const [isBillable, setIsBillable] = useState(entry.isBillable);
   const [notes, setNotes] = useState(entry.notes ?? "");
 
   const status = TIMESHEET_STATUS_CONFIG[toUiStatus(entry.status)];
   const StatusIcon = status.icon;
   const canEdit =
     toUiStatus(entry.status) === "draft" || toUiStatus(entry.status) === "rejected";
-  const parsedHours = parseFloat(hours);
-  const canSave = Boolean(hours && parsedHours > 0 && parsedHours <= 24);
+  const parsedRegular = parseFloat(regularHours) || 0;
+  const parsedOt = parseFloat(overtimeHours) || 0;
+  const total = parsedRegular + parsedOt;
+  const canSave = total > 0 && total <= 24;
 
   const inputClass =
     "h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-sm outline-none transition-all focus:ring-1 focus:ring-primary/30";
@@ -471,19 +491,64 @@ function EntryRow({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Hours
+              Regular hours
             </label>
             <input
               type="number"
-              min="0.25"
+              min="0"
               max="24"
               step="0.25"
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
+              value={regularHours}
+              onChange={(e) => setRegularHours(e.target.value)}
               className={inputClass}
             />
           </div>
-          <div className="space-y-1 sm:col-span-1">
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Overtime
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="24"
+              step="0.25"
+              value={overtimeHours}
+              onChange={(e) => setOvertimeHours(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Billing
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBillable(true)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  isBillable
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    : "border-border/60 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Billable
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBillable(false)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  !isBillable
+                    ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                    : "border-border/60 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Non-billable
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1 sm:col-span-2">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Notes
             </label>
@@ -509,7 +574,9 @@ function EntryRow({
             disabled={!canSave || saving}
             onClick={async () => {
               await onSave({
-                hours: parsedHours,
+                regularHours: parsedRegular,
+                overtimeHours: parsedOt,
+                isBillable,
                 notes: notes.trim() || undefined,
               });
               setEditing(false);
@@ -542,6 +609,21 @@ function EntryRow({
           <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
             {entry.projectName}
           </span>
+          <span
+            className={cn(
+              "rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+              entry.isBillable
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+            )}
+          >
+            {entry.isBillable ? "Billable" : "Non-billable"}
+          </span>
+          {(entry.overtimeHours ?? 0) > 0 ? (
+            <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+              {entry.regularHours ?? 0}h + {entry.overtimeHours}h OT
+            </span>
+          ) : null}
         </div>
         {entry.notes && (
           <p className="text-xs text-muted-foreground">{entry.notes}</p>
@@ -571,7 +653,13 @@ function EntryRow({
               variant="ghost"
               size="icon"
               className="size-8 text-muted-foreground hover:text-primary"
-              onClick={() => setEditing(true)}
+              onClick={() => {
+                setRegularHours(String(entry.regularHours ?? entry.hours));
+                setOvertimeHours(String(entry.overtimeHours ?? 0));
+                setIsBillable(entry.isBillable);
+                setNotes(entry.notes ?? "");
+                setEditing(true);
+              }}
               aria-label="Edit entry"
             >
               <Pencil className="size-3.5" />
@@ -608,21 +696,25 @@ function AddEntryForm({
     projectId: string;
     taskId: string;
     workDate: string;
-    hours: number;
+    regularHours: number;
+    overtimeHours: number;
     notes?: string;
+    isBillable: boolean;
   }) => Promise<void>;
   onCancel: () => void;
 }) {
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
-  const [hours, setHours] = useState("");
+  const [regularHours, setRegularHours] = useState("");
+  const [overtimeHours, setOvertimeHours] = useState("0");
+  const [isBillable, setIsBillable] = useState(true);
   const [notes, setNotes] = useState("");
 
   const selectedProject = projects.find((item) => item.id === projectId);
-  const parsedHours = parseFloat(hours);
-  const canSubmit = Boolean(
-    projectId && taskId && hours && parsedHours > 0 && parsedHours <= 24,
-  );
+  const parsedRegular = parseFloat(regularHours) || 0;
+  const parsedOt = parseFloat(overtimeHours) || 0;
+  const total = parsedRegular + parsedOt;
+  const canSubmit = Boolean(projectId && taskId && total > 0 && total <= 24);
 
   async function handleAdd() {
     if (!canSubmit) return;
@@ -630,7 +722,9 @@ function AddEntryForm({
       projectId,
       taskId,
       workDate: date,
-      hours: parsedHours,
+      regularHours: parsedRegular,
+      overtimeHours: parsedOt,
+      isBillable,
       notes: notes.trim() || undefined,
     });
   }
@@ -703,26 +797,69 @@ function AddEntryForm({
 
         <div className="space-y-1">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Hours Worked
+            Regular hours
           </label>
           <input
             type="number"
-            min="0.25"
+            min="0"
             max="24"
             step="0.25"
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-            placeholder="e.g. 4.5"
+            value={regularHours}
+            onChange={(e) => setRegularHours(e.target.value)}
+            placeholder="e.g. 4"
             className={inputClass}
           />
-          {parsedHours > dailyThreshold && (
-            <p className="text-[10px] text-rose-500">
-              Over {dailyThreshold}h — may require approval
-            </p>
-          )}
         </div>
 
         <div className="space-y-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Overtime
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="24"
+            step="0.25"
+            value={overtimeHours}
+            onChange={(e) => setOvertimeHours(e.target.value)}
+            placeholder="0"
+            className={inputClass}
+          />
+        </div>
+
+        <div className="space-y-1 sm:col-span-2">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Billing type
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setIsBillable(true)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                isBillable
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  : "border-border/60 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Billable
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBillable(false)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                !isBillable
+                  ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                  : "border-border/60 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Non-billable
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-1 sm:col-span-2">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Date
           </label>
@@ -734,6 +871,12 @@ function AddEntryForm({
           />
         </div>
       </div>
+
+      {total > dailyThreshold ? (
+        <p className="text-[10px] text-rose-500">
+          Total {total}h exceeds the {dailyThreshold}h daily threshold — may require approval
+        </p>
+      ) : null}
 
       <div className="space-y-1">
         <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -755,7 +898,7 @@ function AddEntryForm({
         <Button
           size="sm"
           className="gap-1.5"
-          onClick={handleAdd}
+          onClick={() => void handleAdd()}
           disabled={!canSubmit || saving}
         >
           {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}

@@ -300,6 +300,9 @@ export function ApprovalQueuePage() {
                     <p className="text-sm font-bold">{submission.totalHours.toFixed(1)}h</p>
                     <p className="text-[10px] text-muted-foreground">
                       {submission.billableHours.toFixed(1)}h billable
+                      {(submission.overtimeHours ?? 0) > 0
+                        ? ` · ${submission.overtimeHours.toFixed(1)}h OT`
+                        : ""}
                     </p>
                   </div>
 
@@ -360,7 +363,7 @@ export function ApprovalQueuePage() {
                         {submission.entries.map((entry) => (
                           <div
                             key={entry.id}
-                            className="grid grid-cols-[80px_1fr_1fr_80px_90px] items-start gap-3 px-4 py-2.5 transition-colors hover:bg-muted/20"
+                            className="grid grid-cols-[80px_1fr_1fr_110px_90px] items-start gap-3 px-4 py-2.5 transition-colors hover:bg-muted/20"
                           >
                             <p className="text-xs font-medium">{entry.date}</p>
                             <div>
@@ -370,7 +373,19 @@ export function ApprovalQueuePage() {
                             <p className="text-xs text-muted-foreground">
                               {entry.description || "—"}
                             </p>
-                            <p className="text-sm font-bold">{entry.hours}h</p>
+                            <div>
+                              <p className="text-sm font-bold">{entry.hours}h</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {(entry.regularHours ?? entry.hours) > 0
+                                  ? `${entry.regularHours ?? entry.hours}h`
+                                  : "0h"}
+                                {(entry.overtimeHours ?? 0) > 0
+                                  ? ` + ${entry.overtimeHours}h OT`
+                                  : ""}
+                                {" · "}
+                                {entry.isBillable === false ? "Non-billable" : "Billable"}
+                              </p>
+                            </div>
                             <div className="flex items-center gap-1">
                               {entry.kekaSyncStatus === "synced" && (
                                 <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-600">

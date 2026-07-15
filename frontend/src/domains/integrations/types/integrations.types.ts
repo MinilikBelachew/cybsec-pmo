@@ -64,3 +64,23 @@ export type RetryKekaSyncResult = {
   message: string | null;
   ref: string | null;
 };
+
+export type KekaEntitySyncStatus = {
+  key: string;
+  label: string;
+  entityTypes: string[];
+  lastSuccessfulAt: string | null;
+  lastFailedAt: string | null;
+  lastRunAt: string | null;
+  lastRunSucceeded: number;
+  lastRunFailed: number;
+  unresolvedFailures: number;
+  linkedRecordCount: number;
+};
+
+export type KekaSyncStatusResponse = {
+  lastSuccessfulAt: string | null;
+  lastFailedAt: string | null;
+  unresolvedFailures: number;
+  entities: KekaEntitySyncStatus[];
+};

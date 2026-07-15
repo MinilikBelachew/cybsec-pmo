@@ -333,20 +333,27 @@ export class TimesheetApprovalService {
       const weekEndDate = getWeekEnd(weekStartDate);
       const status = this.resolveGroupStatus(entries);
       const submittedAt = this.latestTimestamp(entries);
-      const { totalHours, billableHours } = this.sumEntryHours(entries);
+      const { totalHours, billableHours, overtimeHours } =
+        this.sumEntryHours(entries);
       const rejection = entries
         .flatMap((entry) => entry.approvals)
         .find((approval) => approval.decision === 'Rejected');
-      const mappedEntries = entries.map((entry) => ({
-        id: entry.id,
-        date: formatDateOnly(entry.workDate),
-        project: entry.project.name,
-        task: entry.task.title,
-        hours:
-          Number(entry.regularHours) + Number(entry.overtimeHours),
-        description: entry.notes,
-        kekaSyncStatus: this.resolveKekaSyncStatus(entry),
-      }));
+      const mappedEntries = entries.map((entry) => {
+        const regular = Number(entry.regularHours);
+        const overtime = Number(entry.overtimeHours);
+        return {
+          id: entry.id,
+          date: formatDateOnly(entry.workDate),
+          project: entry.project.name,
+          task: entry.task.title,
+          hours: regular + overtime,
+          regularHours: regular,
+          overtimeHours: overtime,
+          isBillable: entry.isBillable,
+          description: entry.notes,
+          kekaSyncStatus: this.resolveKekaSyncStatus(entry),
+        };
+      });
       const failedSyncCount = mappedEntries.filter(
         (entry) => entry.kekaSyncStatus === 'failed',
       ).length;
@@ -362,6 +369,7 @@ export class TimesheetApprovalService {
         submittedAt: submittedAt.toISOString(),
         totalHours,
         billableHours,
+        overtimeHours,
         status,
         isOverThreshold: this.isWeekOverThreshold(entries, weekStartDate),
         isEscalated: this.isEscalated(status, submittedAt),
@@ -405,12 +413,13 @@ export class TimesheetApprovalService {
         const hours =
           Number(entry.regularHours) + Number(entry.overtimeHours);
         acc.totalHours += hours;
+        acc.overtimeHours += Number(entry.overtimeHours);
         if (entry.isBillable) {
           acc.billableHours += hours;
         }
         return acc;
       },
-      { totalHours: 0, billableHours: 0 },
+      { totalHours: 0, billableHours: 0, overtimeHours: 0 },
     );
   }
 

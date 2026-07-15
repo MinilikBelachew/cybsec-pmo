@@ -11,6 +11,8 @@ import {
   KEKA_INTEGRATION,
   TIMESHEET_KEKA_MAX_RETRIES,
 } from '../../../timesheets/timesheets.constants';
+import { formatDateOnly } from '../../../timesheets/utils/week.util';
+import { AllocationPushService } from './allocation-push.service';
 import { ProjectLinkService } from './project-link.service';
 
 type KekaTimeEntryDto = {
@@ -47,6 +49,7 @@ export class TimesheetPushService {
     private readonly prisma: PrismaService,
     private readonly kekaClient: KekaHttpClient,
     private readonly projectLinkService: ProjectLinkService,
+    private readonly allocationPushService: AllocationPushService,
   ) {}
 
   async pushTimesheetEntry(
@@ -56,9 +59,15 @@ export class TimesheetPushService {
     const timesheet = await this.prisma.timesheet.findUnique({
       where: { id: timesheetId },
       include: {
-        employee: { select: { kekaEmployeeId: true, name: true } },
+        employee: { select: { id: true, kekaEmployeeId: true, name: true } },
         project: {
-          select: { id: true, name: true, kekaProjectId: true },
+          select: {
+            id: true,
+            name: true,
+            kekaProjectId: true,
+            startDate: true,
+            endDate: true,
+          },
         },
         task: {
           select: { id: true, title: true, kekaTaskId: true },
@@ -96,18 +105,50 @@ export class TimesheetPushService {
         timesheet.project.kekaProjectId?.trim() ||
         (await this.projectLinkService.ensureProjectLinked(timesheet.project.id));
 
+      if (!kekaProjectId) {
+        throw new Error(
+          `Project "${timesheet.project.name}" has no Keka project id`,
+        );
+      }
+
       const kekaTaskId =
         timesheet.task.kekaTaskId?.trim() ||
         (await this.projectLinkService.ensureTaskLinked(timesheet.task.id));
+
+      if (!kekaTaskId) {
+        throw new Error(
+          `Task "${timesheet.task.title}" could not be linked or created in Keka (TaskId required)`,
+        );
+      }
+
+      // Keka rejects time entries when the employee is not allocated on the
+      // project — often with a misleading "ProjectId/TaskId can't be null" error.
+      await this.ensureKekaAllocationForTimesheet({
+        employeeId: timesheet.employee.id,
+        employeeName: timesheet.employee.name,
+        projectId: timesheet.project.id,
+        projectName: timesheet.project.name,
+        kekaProjectId,
+        workDate: timesheet.workDate,
+      });
+
+      await this.ensureEmployeeAssignedToKekaTask({
+        kekaProjectId,
+        kekaTaskId,
+        kekaEmployeeId,
+        taskTitle: timesheet.task.title,
+      });
 
       const hours =
         Number(timesheet.regularHours) + Number(timesheet.overtimeHours);
       payload = [
         {
           projectId: kekaProjectId,
-          ...(kekaTaskId ? { taskId: kekaTaskId } : {}),
+          taskId: kekaTaskId,
           numberOfMinutes: Math.max(1, Math.round(hours * 60)),
-          date: timesheet.workDate.toISOString(),
+          // OpenAPI: date-time. GET samples are date-only; both work when the
+          // employee is allocated — use noon UTC to avoid TZ edge cases.
+          date: `${formatDateOnly(timesheet.workDate)}T00:00:00Z`,
           comment: timesheet.notes,
         },
       ];
@@ -145,12 +186,190 @@ export class TimesheetPushService {
 
       return ref;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Keka timesheet push failed';
+      const message = this.clarifyKekaTimesheetError(
+        error instanceof Error ? error.message : 'Keka timesheet push failed',
+      );
       this.logger.error(`Timesheet push failed for ${timesheetId}: ${message}`);
       await this.logFailure(timesheetId, payload, message);
       return null;
     }
+  }
+
+  /**
+   * Push (or verify) an Active local allocation covering the work date so Keka
+   * will accept the time entry.
+   */
+  private async ensureKekaAllocationForTimesheet(args: {
+    employeeId: string;
+    employeeName: string;
+    projectId: string;
+    projectName: string;
+    kekaProjectId: string;
+    workDate: Date;
+  }): Promise<void> {
+    const workDay = formatDateOnly(args.workDate);
+
+    const alreadyOnKeka = await this.isEmployeeAllocatedOnKekaProject(
+      args.kekaProjectId,
+      args.employeeId,
+      workDay,
+    );
+    if (alreadyOnKeka) {
+      return;
+    }
+
+    const allocation = await this.prisma.allocation.findFirst({
+      where: {
+        employeeId: args.employeeId,
+        projectId: args.projectId,
+        status: 'Active',
+        startDate: { lte: args.workDate },
+        OR: [{ endDate: null }, { endDate: { gte: args.workDate } }],
+      },
+      orderBy: { startDate: 'desc' },
+      select: { id: true, kekaSyncRef: true },
+    });
+
+    if (!allocation) {
+      throw new Error(
+        `Employee "${args.employeeName}" has no Active PMO allocation on project ` +
+          `"${args.projectName}" covering ${workDay}. Create/approve an allocation ` +
+          `before Keka timesheet sync.`,
+      );
+    }
+
+    const ref = await this.allocationPushService.pushAllocation(allocation.id);
+    if (!ref) {
+      throw new Error(
+        `Could not push allocation for "${args.employeeName}" on "${args.projectName}" ` +
+          `to Keka. Common causes: employee is a non-billable resource on a billable ` +
+          `project, billing role mismatch, or allocation dates outside the Keka project window. ` +
+          `Check Failed sync records (entity=allocation).`,
+      );
+    }
+
+    const confirmed = await this.isEmployeeAllocatedOnKekaProject(
+      args.kekaProjectId,
+      args.employeeId,
+      workDay,
+    );
+    if (!confirmed) {
+      throw new Error(
+        `Allocation sync for "${args.employeeName}" on "${args.projectName}" did not ` +
+          `result in a covering Keka resource allocation for ${workDay}. ` +
+          `If Keka says the employee is non-billable on a billable project, fix that in Keka ` +
+          `(mark employee billable, or enable non-billable resource allocation).`,
+      );
+    }
+  }
+
+  private async isEmployeeAllocatedOnKekaProject(
+    kekaProjectId: string,
+    localEmployeeId: string,
+    workDay: string,
+  ): Promise<boolean> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: localEmployeeId },
+      select: { kekaEmployeeId: true },
+    });
+    const kekaEmployeeId = employee?.kekaEmployeeId?.trim();
+    if (!kekaEmployeeId) {
+      return false;
+    }
+
+    type KekaAllocationRow = {
+      employee?: { id?: string | null } | null;
+      startDate?: string | null;
+      endDate?: string | null;
+    };
+
+    try {
+      const rows = await this.kekaClient.getAllPages<KekaAllocationRow>(
+        `/psa/projects/${encodeURIComponent(kekaProjectId)}/allocations`,
+      );
+      return rows.some((row) => {
+        if (row.employee?.id?.trim() !== kekaEmployeeId) {
+          return false;
+        }
+        const start = row.startDate?.slice(0, 10);
+        const end = row.endDate?.slice(0, 10);
+        if (start && workDay < start) return false;
+        if (end && workDay > end) return false;
+        return true;
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not list Keka allocations for project ${kekaProjectId}: ` +
+          (error instanceof Error ? error.message : 'unknown'),
+      );
+      return false;
+    }
+  }
+
+  private async ensureEmployeeAssignedToKekaTask(args: {
+    kekaProjectId: string;
+    kekaTaskId: string;
+    kekaEmployeeId: string;
+    taskTitle: string;
+  }): Promise<void> {
+    try {
+      type KekaTaskRow = {
+        name?: string | null;
+        assignedTo?: string[] | null;
+        startDate?: string | null;
+        endDate?: string | null;
+        estimatedHours?: number | null;
+        taskBillingType?: number | null;
+      };
+
+      const task = await this.kekaClient.get<{
+        data?: KekaTaskRow | null;
+        succeeded?: boolean;
+      }>(
+        `/psa/projects/${encodeURIComponent(args.kekaProjectId)}/tasks/${encodeURIComponent(args.kekaTaskId)}`,
+      );
+
+      const current = task.data;
+      const assigned = new Set(
+        (current?.assignedTo ?? [])
+          .map((id) => id?.trim())
+          .filter((id): id is string => Boolean(id)),
+      );
+      if (assigned.has(args.kekaEmployeeId)) {
+        return;
+      }
+      assigned.add(args.kekaEmployeeId);
+
+      await this.kekaClient.put(
+        `/psa/projects/${encodeURIComponent(args.kekaProjectId)}/tasks/${encodeURIComponent(args.kekaTaskId)}`,
+        {
+          name: current?.name?.trim() || args.taskTitle,
+          taskBillingType: current?.taskBillingType ?? 1,
+          assignedTo: [...assigned],
+          startDate: current?.startDate ?? undefined,
+          endDate: current?.endDate ?? undefined,
+          estimatedHours: current?.estimatedHours ?? null,
+        },
+      );
+    } catch (error) {
+      // Soft-fail: allocation is the hard requirement; assignment helps some tenants.
+      this.logger.warn(
+        `Could not assign employee on Keka task ${args.kekaTaskId}: ` +
+          (error instanceof Error ? error.message : 'unknown'),
+      );
+    }
+  }
+
+  private clarifyKekaTimesheetError(message: string): string {
+    if (/both projectid'?s? and taskid'?s? can'?t be null or empty/i.test(message)) {
+      return (
+        `${message} — Keka often returns this when the employee is not allocated ` +
+        `on the PSA project (or is non-billable on a billable project), even when ` +
+        `projectId/taskId are present in the request. Ensure an Active allocation ` +
+        `is pushed to Keka first.`
+      );
+    }
+    return message;
   }
 
   async retryTimesheetSync(

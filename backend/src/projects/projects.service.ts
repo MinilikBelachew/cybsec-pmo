@@ -16,7 +16,15 @@ import { CreatePhaseDto } from './dto/create-phase.dto';
 import { UpdatePhaseDto } from './dto/update-phase.dto';
 import { CreateMilestoneDto } from './dto/create-milestone.dto';
 import { UpdateMilestoneDto } from './dto/update-milestone.dto';
-import { ProjectStatus, TaskStatus, PhaseStatus, Prisma } from '@prisma/client';
+import { ProjectStatus, TaskStatus, PhaseStatus, PartyType, Prisma } from '@prisma/client';
+import { ClientSyncService } from '../integrations/keka/sync/client-sync.service';
+import { ProjectLinkService } from '../integrations/keka/sync/project-link.service';
+import { CreateCustomerDto } from './dto/create-customer.dto';
+import {
+  KEKA_ENTITY_TYPE,
+  KEKA_SYNC_DIRECTION,
+  KEKA_SYNC_STATUS,
+} from '../integrations/keka/keka.constants';
 import {
   ApiPriorityLevel,
   ApiProjectMethodology,
@@ -79,6 +87,8 @@ export class ProjectsService {
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly permissionsCache: PermissionsCacheService,
+    private readonly clientSyncService: ClientSyncService,
+    private readonly projectLinkService: ProjectLinkService,
   ) {}
 
   private permissionsFor(user: CaslUserContext) {
@@ -106,6 +116,11 @@ export class ProjectsService {
     );
     await this.validateReferences(dto);
 
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, status: 'Active' },
+      select: { id: true, kekaClientId: true },
+    });
+
     const project = await this.prisma.$transaction(async (tx) => {
       const created = await tx.project.create({
         data: {
@@ -115,6 +130,7 @@ export class ProjectsService {
           customerId: dto.customerId,
           engagementType: toPrismaEngagementType(dto.engagementType),
           billingModel: toPrismaBillingModel(dto.billingModel),
+          kekaClientId: customer?.kekaClientId ?? undefined,
           methodology: toPrismaMethodology(
             dto.methodology ?? ApiProjectMethodology.Agile,
           ),
@@ -149,7 +165,50 @@ export class ProjectsService {
       return created;
     });
 
-    return toApiProject(project as ProjectWithRelations, { ability: null });
+    let kekaProjectId: string | null = null;
+    let kekaSyncError: string | null = null;
+
+    if (customer?.kekaClientId) {
+      try {
+        kekaProjectId = await this.projectLinkService.ensureProjectLinked(
+          project.id,
+        );
+      } catch (error) {
+        kekaSyncError =
+          error instanceof Error
+            ? error.message
+            : 'Keka project create/link failed';
+        await this.prisma.kekaSyncLog.create({
+          data: {
+            entityType: KEKA_ENTITY_TYPE.PROJECT,
+            entityId: project.id,
+            direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+            status: KEKA_SYNC_STATUS.FAILED,
+            errorMsg: kekaSyncError,
+            payload: {
+              customerId: customer.id,
+              kekaClientId: customer.kekaClientId,
+            },
+          },
+        });
+      }
+    } else {
+      kekaSyncError =
+        'Customer is not linked to a Keka client; project was created locally only';
+    }
+
+    const apiProject = toApiProject(project as ProjectWithRelations, {
+      ability: null,
+    });
+    return {
+      ...apiProject,
+      kekaProjectId:
+        kekaProjectId ??
+        (project as { kekaProjectId?: string | null }).kekaProjectId ??
+        null,
+      kekaClientId: customer?.kekaClientId ?? null,
+      kekaSyncError,
+    };
   }
 
   /** Internal rollback helper when bundle team assignment fails after project insert. */
@@ -630,8 +689,103 @@ export class ProjectsService {
         displayName: true,
         industry: true,
         status: true,
+        kekaClientId: true,
+        kekaClientCode: true,
       },
     });
+  }
+
+  /**
+   * Create customer in PMO and also in Keka (POST /psa/clients).
+   * Keka requires name + code. Local create still succeeds if Keka push fails;
+   * failure is logged for admin retry.
+   */
+  async createCustomer(dto: CreateCustomerDto) {
+    const name = dto.name.trim();
+    const code =
+      dto.code?.trim() || this.clientSyncService.buildClientCode(name);
+    const email = dto.email?.trim() || null;
+    const phone = dto.phone?.trim() || null;
+    const notes = dto.description?.trim() || null;
+
+    if (email) {
+      const existingEmail = await this.prisma.customer.findFirst({
+        where: { primaryEmail: email },
+        select: { id: true },
+      });
+      if (existingEmail) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { email: 'customerEmailAlreadyExists' },
+        });
+      }
+    }
+
+    let kekaClientId: string | null = null;
+    let kekaError: string | null = null;
+    try {
+      kekaClientId = await this.clientSyncService.createClientInKeka({
+        name,
+        code,
+        description: notes,
+        email,
+        phone,
+      });
+    } catch (error) {
+      kekaError =
+        error instanceof Error ? error.message : 'Keka client create failed';
+    }
+
+    const customer = await this.prisma.customer.create({
+      data: {
+        type: PartyType.Company,
+        displayName: name,
+        companyName: name,
+        notes,
+        primaryEmail: email,
+        primaryPhone: phone,
+        kekaClientCode: code,
+        kekaClientId,
+        kekaSyncedAt: kekaClientId ? new Date() : null,
+        status: 'Active',
+      },
+      select: {
+        id: true,
+        displayName: true,
+        industry: true,
+        status: true,
+        kekaClientId: true,
+        kekaClientCode: true,
+      },
+    });
+
+    if (kekaClientId) {
+      await this.prisma.kekaSyncLog.create({
+        data: {
+          entityType: KEKA_ENTITY_TYPE.CLIENT,
+          entityId: customer.id,
+          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+          status: KEKA_SYNC_STATUS.SUCCESS,
+          payload: { name, code, kekaClientId },
+        },
+      });
+    } else if (kekaError) {
+      await this.prisma.kekaSyncLog.create({
+        data: {
+          entityType: KEKA_ENTITY_TYPE.CLIENT,
+          entityId: customer.id,
+          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+          status: KEKA_SYNC_STATUS.FAILED,
+          errorMsg: kekaError,
+          payload: { name, code },
+        },
+      });
+    }
+
+    return {
+      ...customer,
+      kekaSyncError: kekaError,
+    };
   }
 
   async findProjectManagers() {

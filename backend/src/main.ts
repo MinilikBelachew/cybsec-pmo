@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import dns from 'dns';
 import cookieParser from 'cookie-parser';
 import {
   ClassSerializerInterceptor,
@@ -16,6 +17,14 @@ import { AppModule } from './app.module';
 import validationOptions from './utils/validation-options';
 import { AllConfigType } from './config/config.type';
 import { ResolvePromisesInterceptor } from './utils/serializer.interceptor';
+
+// Prefer IPv4 for outbound HTTPS (Microsoft Entra / JWKS). On some Linux
+// networks Node undici IPv6-first lookups time out while IPv4 works.
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // older Node without this API — ignore
+}
 
 // Prisma BigInt fields (e.g. sizeBytes) must not crash JSON.stringify in audit/logging paths
 (BigInt.prototype as unknown as { toJSON?: () => string }).toJSON = function () {

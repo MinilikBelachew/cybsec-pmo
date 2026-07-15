@@ -222,6 +222,44 @@ export type KekaTimeEntryPayload = {
   notes?: string;
 };
 
+/** PSA client — https://developers.keka.com/reference/get_psa-clients-1 */
+export type KekaPsaClientAddress = {
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  countryCode?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+};
+
+export type KekaPsaClientContact = {
+  id?: string | null;
+  clientId?: string | null;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+};
+
+export type KekaPsaClient = {
+  id?: string | null;
+  name?: string | null;
+  billingName?: string | null;
+  code?: string | null;
+  description?: string | null;
+  billingAddress?: KekaPsaClientAddress | null;
+  clientContacts?: KekaPsaClientContact[] | null;
+};
+
+/** Body for POST /psa/clients — required: name, code */
+export type KekaCreateClientPayload = {
+  name: string;
+  code: string;
+  description?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+};
+
 /** PSA project — https://developers.keka.com/reference/get_psa-projects-1 */
 export type KekaPsaProject = {
   id?: string | null;
@@ -249,6 +287,16 @@ export type KekaPsaTask = {
   startDate?: string | null;
   endDate?: string | null;
   estimatedHours?: number | null;
+};
+
+/** PSA billing role — GET /psa/clients/{id}/billingroles */
+export type KekaBillingRole = {
+  id?: string | null;
+  name?: string | null;
+  billingRate?: {
+    unit?: number | null;
+    rate?: number | null;
+  } | null;
 };
 
 /** Salary — https://developers.keka.com/reference/get_payroll-salaries */

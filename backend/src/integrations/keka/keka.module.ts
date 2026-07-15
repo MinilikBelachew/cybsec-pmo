@@ -12,6 +12,7 @@ import { AttendanceSyncService } from './sync/attendance-sync.service';
 import { HolidaySyncService } from './sync/holiday-sync.service';
 import { SalarySyncService } from './sync/salary-sync.service';
 import { ProjectLinkService } from './sync/project-link.service';
+import { ClientSyncService } from './sync/client-sync.service';
 import { KekaSyncService } from './sync/keka-sync.service';
 import { KekaSyncProcessor } from './sync/keka-sync.processor';
 import { KekaSyncScheduler } from './sync/keka-sync.scheduler';
@@ -56,6 +57,7 @@ export class KekaModule {
         HolidaySyncService,
         SalarySyncService,
         ProjectLinkService,
+        ClientSyncService,
         KekaSyncService,
         KekaSyncProcessor,
         KekaSyncScheduler,
@@ -70,6 +72,7 @@ export class KekaModule {
         AllocationPushService,
         TimesheetPushService,
         ProjectLinkService,
+        ClientSyncService,
         KekaIntegrationAdminService,
         EmployeeUserLinkService,
       ],

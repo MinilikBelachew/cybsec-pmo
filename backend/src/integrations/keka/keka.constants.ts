@@ -6,6 +6,7 @@ export const KEKA_SYNC_ATTENDANCE_JOB = 'sync-attendance';
 export const KEKA_SYNC_HOLIDAYS_JOB = 'sync-holidays';
 export const KEKA_SYNC_SALARY_JOB = 'sync-salary';
 export const KEKA_SYNC_PROJECTS_JOB = 'sync-projects';
+export const KEKA_SYNC_CLIENTS_JOB = 'sync-clients';
 export const KEKA_SYNC_ALL_JOB = 'sync-all';
 
 /** https://developers.keka.com/reference/rate-limit — 50 requests / 60s window */
@@ -35,6 +36,7 @@ export const KEKA_ENTITY_TYPE = {
   PAY_CYCLE: 'pay_cycle',
   PROJECT: 'project',
   TASK: 'task',
+  CLIENT: 'client',
   TIMESHEET: 'timesheet',
   ALLOCATION: 'allocation',
 } as const;

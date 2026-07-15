@@ -19,6 +19,7 @@ import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import {
   FailedSyncRecordListResponseDto,
   KekaSyncLogListResponseDto,
+  KekaSyncStatusResponseDto,
   QueryFailedSyncRecordsDto,
   QueryKekaSyncLogsDto,
   RetryKekaSyncDto,
@@ -45,6 +46,14 @@ export class AuditIntegrationsController {
     private readonly kekaIntegrationAdminService: KekaIntegrationAdminService,
     private readonly kekaSyncService: KekaSyncService,
   ) {}
+
+  @CheckModulePermission('audit', 'view')
+  @Get('sync-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncStatusResponseDto })
+  getSyncStatus(): Promise<KekaSyncStatusResponseDto> {
+    return this.kekaIntegrationAdminService.getSyncStatus();
+  }
 
   @CheckModulePermission('audit', 'view')
   @Get('sync-logs')
@@ -122,6 +131,14 @@ export class AuditIntegrationsController {
   @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
   syncSalary(): Promise<KekaSyncEnqueueResultDto> {
     return this.kekaSyncService.enqueueSalarySync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/clients')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  syncClients(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueClientsSync();
   }
 
   @CheckModulePermission('integrations', 'configure')

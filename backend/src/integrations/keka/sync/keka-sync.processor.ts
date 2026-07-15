@@ -8,6 +8,7 @@ import {
   KEKA_SYNC_EMPLOYEES_JOB,
   KEKA_SYNC_HOLIDAYS_JOB,
   KEKA_SYNC_LEAVE_JOB,
+  KEKA_SYNC_CLIENTS_JOB,
   KEKA_SYNC_PROJECTS_JOB,
   KEKA_SYNC_QUEUE,
   KEKA_SYNC_SALARY_JOB,
@@ -74,6 +75,14 @@ export class KekaSyncProcessor {
     const result = await this.kekaSyncService.syncSalaryNow();
     this.logger.log(
       `Salary sync job ${job.id} finished: synced=${result.synced}, failed=${result.failed}`,
+    );
+  }
+
+  @Process(KEKA_SYNC_CLIENTS_JOB)
+  async handleClientsSync(job: Job): Promise<void> {
+    const result = await this.kekaSyncService.syncClientsNow();
+    this.logger.log(
+      `Client sync job ${job.id} finished: synced=${result.synced}, failed=${result.failed}`,
     );
   }
 

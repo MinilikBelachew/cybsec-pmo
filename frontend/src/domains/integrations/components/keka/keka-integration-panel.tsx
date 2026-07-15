@@ -33,17 +33,20 @@ import { hasModulePermission } from "@/domains/auth/utils/module-permissions";
 import {
   useGetFailedSyncRecordsQuery,
   useGetKekaSyncLogsQuery,
+  useGetKekaSyncStatusQuery,
   useRetryKekaSyncMutation,
   useTriggerKekaEmployeeSyncMutation,
   useTriggerKekaLeaveSyncMutation,
   useTriggerKekaAttendanceSyncMutation,
   useTriggerKekaHolidaysSyncMutation,
   useTriggerKekaSalarySyncMutation,
+  useTriggerKekaClientsSyncMutation,
   useTriggerKekaProjectsSyncMutation,
   useTriggerKekaFullSyncMutation,
 } from "../../api/integrations.api";
 import type {
   FailedSyncRecordEntry,
+  KekaEntitySyncStatus,
   KekaSyncLogEntry,
 } from "../../types/integrations.types";
 import { INTEGRATION_POLLING_INTERVAL_MS } from "../../constants/integration-polling";
@@ -65,6 +68,7 @@ const ENTITY_OPTIONS: FilterOption[] = [
   { value: "holiday_calendar", label: "Holiday calendar" },
   { value: "salary", label: "Salary" },
   { value: "pay_cycle", label: "Pay cycle" },
+  { value: "client", label: "Client" },
   { value: "project", label: "Project" },
   { value: "task", label: "Task" },
   { value: "timesheet", label: "Timesheet" },
@@ -94,6 +98,21 @@ function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function formatSyncTimestamp(value: string | null | undefined) {
+  if (!value) return "Never";
+  return formatDateTime(value);
+}
+
+function entityStatusTone(entity: KekaEntitySyncStatus) {
+  if (entity.unresolvedFailures > 0 || entity.lastRunFailed > 0) {
+    return "warn";
+  }
+  if (entity.lastSuccessfulAt) {
+    return "ok";
+  }
+  return "idle";
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -237,6 +256,10 @@ export function KekaIntegrationPanel() {
     },
   );
 
+  const syncStatusQuery = useGetKekaSyncStatusQuery(undefined, {
+    pollingInterval: INTEGRATION_POLLING_INTERVAL_MS,
+  });
+
   const [retrySync] = useRetryKekaSyncMutation();
   const [syncEmployees, { isLoading: syncingEmployees }] =
     useTriggerKekaEmployeeSyncMutation();
@@ -247,6 +270,8 @@ export function KekaIntegrationPanel() {
     useTriggerKekaHolidaysSyncMutation();
   const [syncSalary, { isLoading: syncingSalary }] =
     useTriggerKekaSalarySyncMutation();
+  const [syncClients, { isLoading: syncingClients }] =
+    useTriggerKekaClientsSyncMutation();
   const [syncProjects, { isLoading: syncingProjects }] =
     useTriggerKekaProjectsSyncMutation();
   const [syncAll, { isLoading: syncingAll }] = useTriggerKekaFullSyncMutation();
@@ -257,12 +282,19 @@ export function KekaIntegrationPanel() {
     syncingAttendance ||
     syncingHolidays ||
     syncingSalary ||
+    syncingClients ||
     syncingProjects ||
     syncingAll;
 
   const activeQuery = subTab === "logs" ? logsQuery : failuresQuery;
-  const isFetching = activeQuery.isFetching;
+  const isFetching = activeQuery.isFetching || syncStatusQuery.isFetching;
   const hasFailuresError = subTab === "failures" && Boolean(failuresQuery.error);
+  const syncStatus = syncStatusQuery.data;
+
+  const refetchAll = useCallback(() => {
+    void syncStatusQuery.refetch();
+    void activeQuery.refetch();
+  }, [activeQuery, syncStatusQuery]);
 
   const filterControls = (
     <div className="flex flex-wrap items-center gap-2">
@@ -306,7 +338,7 @@ export function KekaIntegrationPanel() {
           size="sm"
           className="gap-1.5"
           disabled={isFetching}
-          onClick={() => void activeQuery.refetch()}
+          onClick={() => refetchAll()}
         >
           {isFetching ? (
             <Loader2 className="size-3.5 animate-spin" />
@@ -574,6 +606,74 @@ export function KekaIntegrationPanel() {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-border/50 bg-muted/20 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Sync health
+            </p>
+            <p className="mt-1 text-sm text-foreground">
+              Last successful sync:{" "}
+              <span className="font-semibold">
+                {formatSyncTimestamp(syncStatus?.lastSuccessfulAt)}
+              </span>
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Last failure: {formatSyncTimestamp(syncStatus?.lastFailedAt)}
+              {typeof syncStatus?.unresolvedFailures === "number"
+                ? ` · ${syncStatus.unresolvedFailures} unresolved`
+                : null}
+            </p>
+          </div>
+          {syncStatusQuery.isLoading && !syncStatus ? (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {(syncStatus?.entities ?? []).map((entity) => {
+            const tone = entityStatusTone(entity);
+            return (
+              <div
+                key={entity.key}
+                className={cn(
+                  "rounded-lg border px-3 py-2.5",
+                  tone === "ok" &&
+                    "border-emerald-200/80 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/30",
+                  tone === "warn" &&
+                    "border-amber-200/80 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/30",
+                  tone === "idle" && "border-border/60 bg-background/60",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">{entity.label}</p>
+                  {tone === "ok" ? (
+                    <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600" />
+                  ) : tone === "warn" ? (
+                    <AlertCircle className="size-3.5 shrink-0 text-amber-600" />
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Last success: {formatSyncTimestamp(entity.lastSuccessfulAt)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Last run:{" "}
+                  {entity.lastRunAt
+                    ? `${entity.lastRunSucceeded} ok / ${entity.lastRunFailed} failed`
+                    : "No runs yet"}
+                </p>
+                <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                  {entity.linkedRecordCount.toLocaleString()} linked
+                  {entity.unresolvedFailures > 0
+                    ? ` · ${entity.unresolvedFailures} unresolved`
+                    : null}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {subTab === "failures" && unresolvedCount > 0 && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
           <AlertCircle className="size-4 shrink-0 text-amber-600" />
@@ -756,6 +856,27 @@ export function KekaIntegrationPanel() {
               disabled={syncBusy}
               onClick={async () => {
                 try {
+                  await syncClients().unwrap();
+                  toast.success("Client sync job queued.");
+                } catch {
+                  toast.error("Could not queue client sync.");
+                }
+              }}
+            >
+              {syncingClients ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Users className="size-3.5" />
+              )}
+              Sync clients
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={syncBusy}
+              onClick={async () => {
+                try {
                   await syncProjects().unwrap();
                   toast.success("Project link job queued.");
                 } catch {
@@ -775,7 +896,7 @@ export function KekaIntegrationPanel() {
               size="sm"
               className="gap-1.5"
               disabled={isFetching}
-              onClick={() => void activeQuery.refetch()}
+              onClick={() => refetchAll()}
             >
               {isFetching ? (
                 <Loader2 className="size-3.5 animate-spin" />

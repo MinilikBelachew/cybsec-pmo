@@ -21,6 +21,13 @@ type StringResponse = {
   message?: string | null;
 };
 
+type BooleanResponse = {
+  succeeded?: boolean;
+  data?: boolean;
+  message?: string | null;
+  errors?: string[] | null;
+};
+
 @Injectable()
 export class ProjectLinkService {
   private readonly logger = new Logger(ProjectLinkService.name);
@@ -134,6 +141,9 @@ export class ProjectLinkService {
         kekaProjectId: true,
         kekaClientId: true,
         kekaProjectCode: true,
+        customer: {
+          select: { kekaClientId: true, kekaClientCode: true, displayName: true },
+        },
       },
     });
 
@@ -149,17 +159,29 @@ export class ProjectLinkService {
 
     const refreshed = await this.prisma.project.findUnique({
       where: { id: projectId },
-      select: { kekaProjectId: true, kekaClientId: true, kekaProjectCode: true },
+      select: {
+        kekaProjectId: true,
+        kekaClientId: true,
+        kekaProjectCode: true,
+        customer: { select: { kekaClientId: true } },
+      },
     });
 
     if (refreshed?.kekaProjectId?.trim()) {
       return refreshed.kekaProjectId.trim();
     }
 
-    const clientId = refreshed?.kekaClientId?.trim() || project.kekaClientId?.trim();
+    const clientId =
+      refreshed?.kekaClientId?.trim() ||
+      project.kekaClientId?.trim() ||
+      refreshed?.customer?.kekaClientId?.trim() ||
+      project.customer?.kekaClientId?.trim();
     if (!clientId) {
       throw new Error(
-        `Project "${project.name}" has no Keka project match and no kekaClientId to create one`,
+        `Project "${project.name}" has no Keka project match and no kekaClientId to create one` +
+          (project.customer?.displayName
+            ? ` (customer "${project.customer.displayName}" is not linked to a Keka client)`
+            : ''),
       );
     }
 
@@ -207,6 +229,22 @@ export class ProjectLinkService {
   }
 
   async ensureTaskLinked(taskId: string): Promise<string | null> {
+    const existing = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { kekaTaskId: true },
+    });
+    if (existing?.kekaTaskId?.trim()) {
+      return existing.kekaTaskId.trim();
+    }
+    return this.syncTaskToKeka(taskId);
+  }
+
+  /**
+   * Create or update the task in Keka PSA under the linked project.
+   * Soft-skips when the project is not linked / cannot be linked.
+   * Includes assignedTo (owner + backup) when those users have Keka employee IDs.
+   */
+  async syncTaskToKeka(taskId: string): Promise<string | null> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       select: {
@@ -218,6 +256,8 @@ export class ProjectLinkService {
         effortHours: true,
         kekaTaskId: true,
         projectId: true,
+        ownerId: true,
+        backupOwnerId: true,
         project: {
           select: { kekaProjectId: true, name: true },
         },
@@ -228,55 +268,181 @@ export class ProjectLinkService {
       throw new Error(`Task ${taskId} not found`);
     }
 
-    if (task.kekaTaskId?.trim()) {
-      return task.kekaTaskId.trim();
-    }
-
-    const kekaProjectId =
-      task.project.kekaProjectId?.trim() ||
-      (await this.ensureProjectLinked(task.projectId));
-
-    const result = await this.linkTasksForProject(
-      task.projectId,
-      kekaProjectId,
-      [{ id: task.id, title: task.title, kekaTaskId: task.kekaTaskId }],
-      new Date(),
-    );
-
-    const afterLink = await this.prisma.task.findUnique({
-      where: { id: taskId },
-      select: { kekaTaskId: true },
-    });
-    if (afterLink?.kekaTaskId?.trim()) {
-      return afterLink.kekaTaskId.trim();
-    }
-
-    // No name match — create task in Keka PSA.
-    const response = await this.kekaClient.post<StringResponse>(
-      `/psa/projects/${encodeURIComponent(kekaProjectId)}/tasks`,
-      {
-        name: task.title,
-        description: task.description,
-        startDate: (task.startDate ?? new Date()).toISOString(),
-        endDate: (task.endDate ?? task.startDate ?? new Date()).toISOString(),
-        estimatedHours: task.effortHours ?? null,
-      },
-    );
-
-    const kekaTaskId = response.data?.trim();
-    if (!kekaTaskId) {
-      if (result.failed > 0) {
-        this.logger.warn(`Task create returned no id for ${task.id}`);
+    let kekaProjectId = task.project.kekaProjectId?.trim() || null;
+    if (!kekaProjectId) {
+      try {
+        kekaProjectId = await this.ensureProjectLinked(task.projectId);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'project link failed';
+        this.logger.warn(
+          `Skip Keka task sync for "${task.title}": project not linked (${message})`,
+        );
+        await this.logFailure(KEKA_ENTITY_TYPE.TASK, task.id, { taskId }, message);
+        return null;
       }
+    }
+
+    const payload = {
+      projectId: kekaProjectId,
+      name: task.title.trim(),
+      description: task.description,
+      taskBillingType: 1,
+      startDate: (task.startDate ?? new Date()).toISOString(),
+      endDate: (task.endDate ?? task.startDate ?? new Date()).toISOString(),
+      estimatedHours:
+        task.effortHours != null ? Number(task.effortHours) : null,
+    };
+
+    try {
+      if (!task.kekaTaskId?.trim()) {
+        await this.linkTasksForProject(
+          task.projectId,
+          kekaProjectId,
+          [{ id: task.id, title: task.title, kekaTaskId: task.kekaTaskId }],
+          new Date(),
+        );
+        const afterLink = await this.prisma.task.findUnique({
+          where: { id: taskId },
+          select: { kekaTaskId: true },
+        });
+        if (afterLink?.kekaTaskId?.trim()) {
+          await this.updateKekaTask(
+            kekaProjectId,
+            afterLink.kekaTaskId.trim(),
+            task,
+          );
+          return afterLink.kekaTaskId.trim();
+        }
+      }
+
+      if (task.kekaTaskId?.trim()) {
+        await this.updateKekaTask(kekaProjectId, task.kekaTaskId.trim(), task);
+        return task.kekaTaskId.trim();
+      }
+
+      const assignedTo = await this.resolveAssigneeKekaIds(
+        task.ownerId,
+        task.backupOwnerId,
+      );
+      const createBody = {
+        ...payload,
+        assignedTo: assignedTo.length ? assignedTo : null,
+      };
+
+      const response = await this.kekaClient.post<StringResponse>(
+        `/psa/projects/${encodeURIComponent(kekaProjectId)}/tasks`,
+        createBody,
+      );
+
+      if (response.succeeded === false) {
+        throw new Error(
+          response.message?.trim() ||
+            `Keka rejected task create for "${task.title}"`,
+        );
+      }
+
+      const kekaTaskId = response.data?.trim();
+      if (!kekaTaskId) {
+        throw new Error(
+          response.message?.trim() ||
+            `Keka did not return a task id for "${task.title}" on project ${kekaProjectId}`,
+        );
+      }
+
+      await this.prisma.task.update({
+        where: { id: task.id },
+        data: { kekaTaskId, kekaSyncedAt: new Date() },
+      });
+      await this.logSuccess(KEKA_ENTITY_TYPE.TASK, task.id, {
+        kekaTaskId,
+        assignedTo,
+      });
+      return kekaTaskId;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Keka task sync failed';
+      this.logger.error(`Keka task sync failed for ${taskId}: ${message}`);
+      await this.logFailure(KEKA_ENTITY_TYPE.TASK, task.id, payload, message);
       return null;
+    }
+  }
+
+  private async updateKekaTask(
+    kekaProjectId: string,
+    kekaTaskId: string,
+    task: {
+      id: string;
+      title: string;
+      description: string | null;
+      startDate: Date | null;
+      endDate: Date | null;
+      effortHours: number | null;
+      ownerId: string | null;
+      backupOwnerId: string | null;
+    },
+  ): Promise<void> {
+    const assignedTo = await this.resolveAssigneeKekaIds(
+      task.ownerId,
+      task.backupOwnerId,
+    );
+    const body = {
+      name: task.title.trim(),
+      description: task.description,
+      taskBillingType: 1,
+      assignedTo: assignedTo.length ? assignedTo : null,
+      startDate: (task.startDate ?? new Date()).toISOString(),
+      endDate: (task.endDate ?? task.startDate ?? new Date()).toISOString(),
+      estimatedHours:
+        task.effortHours != null ? Number(task.effortHours) : null,
+    };
+
+    const response = await this.kekaClient.put<BooleanResponse>(
+      `/psa/projects/${encodeURIComponent(kekaProjectId)}/tasks/${encodeURIComponent(kekaTaskId)}`,
+      body,
+    );
+
+    if (response.succeeded === false) {
+      throw new Error(
+        response.message?.trim() ||
+          `Keka rejected task update for "${task.title}"`,
+      );
     }
 
     await this.prisma.task.update({
       where: { id: task.id },
-      data: { kekaTaskId, kekaSyncedAt: new Date() },
+      data: { kekaSyncedAt: new Date() },
     });
-    await this.logSuccess(KEKA_ENTITY_TYPE.TASK, task.id, { kekaTaskId });
-    return kekaTaskId;
+    await this.logSuccess(KEKA_ENTITY_TYPE.TASK, task.id, {
+      kekaTaskId,
+      assignedTo,
+      updated: true,
+    });
+  }
+
+  private async resolveAssigneeKekaIds(
+    ownerId: string | null,
+    backupOwnerId: string | null,
+  ): Promise<string[]> {
+    const userIds = [ownerId, backupOwnerId].filter(
+      (id): id is string => Boolean(id),
+    );
+    if (userIds.length === 0) {
+      return [];
+    }
+
+    const employees = await this.prisma.employee.findMany({
+      where: { userId: { in: userIds } },
+      select: { kekaEmployeeId: true },
+    });
+
+    return [
+      ...new Set(
+        employees
+          .map((row) => row.kekaEmployeeId?.trim())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
   }
 
   private async linkTasksForProject(

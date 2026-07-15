@@ -9,6 +9,7 @@ import {
 } from './timesheet-notifications.util';
 import { TIMESHEET_ESCALATION_DAYS, TIMESHEET_STATUS } from './timesheets.constants';
 import { formatDateOnly, getWeekStart } from './utils/week.util';
+import { timesheetNotificationSourceObjectId } from './utils/timesheet-notification-source-id.util';
 
 @Injectable()
 export class TimesheetEscalationService {
@@ -71,7 +72,9 @@ export class TimesheetEscalationService {
     let notified = 0;
 
     for (const group of groups.values()) {
-      const escalationKey = `${group.employeeId}:${group.weekStart}`;
+      const escalationKey = timesheetNotificationSourceObjectId(
+        `escalated:${group.employeeId}:${group.weekStart}`,
+      );
       const alreadySent = await this.prisma.notification.findFirst({
         where: {
           eventType: NOTIFICATION_EVENT_TYPE.TIMESHEET_ESCALATED,

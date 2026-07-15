@@ -36,6 +36,10 @@ export class KekaHttpClient {
     return this.requestWithRateLimit('POST', path, undefined, body);
   }
 
+  async put<T>(path: string, body: unknown): Promise<T> {
+    return this.requestWithRateLimit('PUT', path, undefined, body);
+  }
+
   async getAllPages<T>(
     path: string,
     params?: QueryParams,
@@ -65,7 +69,7 @@ export class KekaHttpClient {
   }
 
   private async requestWithRateLimit<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     path: string,
     params?: QueryParams,
     body?: unknown,
@@ -77,17 +81,16 @@ export class KekaHttpClient {
 
       const token = await this.getAccessToken();
       const url = this.buildUrl(path, params);
+      const hasBody = method === 'POST' || method === 'PUT';
       const response = await fetch(url, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
           'User-Agent': 'Mozilla',
-          ...(method === 'POST'
-            ? { 'Content-Type': 'application/json' }
-            : {}),
+          ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: method === 'POST' ? JSON.stringify(body) : undefined,
+        body: hasBody ? JSON.stringify(body) : undefined,
       });
 
       if (response.status === 429) {
@@ -238,17 +241,43 @@ export class KekaHttpClient {
     }
 
     if (!response.ok) {
-      const message =
-        typeof payload === 'object' &&
-        payload &&
-        'message' in payload &&
-        typeof payload.message === 'string'
-          ? payload.message
-          : `Keka request failed for ${path} with status ${response.status}`;
+      const message = this.formatErrorMessage(payload, path, response.status);
       this.logger.error(message);
       throw new Error(message);
     }
 
     return payload as T;
+  }
+
+  private formatErrorMessage(
+    payload: unknown,
+    path: string,
+    status: number,
+  ): string {
+    const fallback = `Keka request failed for ${path} with status ${status}`;
+    if (!payload || typeof payload !== 'object') {
+      return fallback;
+    }
+
+    const record = payload as {
+      message?: unknown;
+      errors?: unknown;
+    };
+    const message =
+      typeof record.message === 'string' && record.message.trim()
+        ? record.message.trim()
+        : fallback;
+    const errors = Array.isArray(record.errors)
+      ? record.errors.filter(
+          (item): item is string =>
+            typeof item === 'string' && item.trim().length > 0,
+        )
+      : [];
+
+    if (errors.length === 0) {
+      return message;
+    }
+
+    return `${message}: ${errors.join('; ')}`;
   }
 }

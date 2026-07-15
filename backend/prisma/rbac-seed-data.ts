@@ -107,6 +107,8 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'team', action: 'edit', recordScope: 'all' },
     { module: 'team', action: 'approve', recordScope: 'all' },
     { module: 'reports', action: 'view', recordScope: 'all' },
+    { module: 'documents', action: 'view_internal', recordScope: 'all' },
+    { module: 'documents', action: 'upload_shared', recordScope: 'all' },
   ],
   pmo_lead: [
     { module: 'users', action: 'view', recordScope: 'all' },

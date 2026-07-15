@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -29,6 +30,7 @@ import { ProjectTeamService } from '../projects/project-team.service';
 import { LeaveBackupService } from '../resources/leave-backup.service';
 import { TaskDependenciesService } from './task-dependencies.service';
 import { WorkspaceDocumentsService } from '../workspace-documents/workspace-documents.service';
+import { ProjectLinkService } from '../integrations/keka/sync/project-link.service';
 import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
 
@@ -87,6 +89,8 @@ const LEGAL_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly filesUploadService: FilesUploadService,
@@ -96,7 +100,17 @@ export class TasksService {
     private readonly leaveBackupService: LeaveBackupService,
     private readonly taskDependenciesService: TaskDependenciesService,
     private readonly workspaceDocumentsService: WorkspaceDocumentsService,
+    private readonly projectLinkService: ProjectLinkService,
   ) {}
+
+  /** Soft-fail outbound sync to Keka PSA (never blocks local task save). */
+  private pushTaskToKeka(taskId: string): void {
+    void this.projectLinkService.syncTaskToKeka(taskId).catch((error) => {
+      const message =
+        error instanceof Error ? error.message : 'Keka task sync failed';
+      this.logger.error(`Keka task sync threw for ${taskId}: ${message}`);
+    });
+  }
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
     const map: Record<TaskStatusEnum, TaskStatus> = {
@@ -548,6 +562,7 @@ export class TasksService {
 
     const formatted = this.formatTask(task, viewerRoleCode);
     await this.notifyTaskAssigned(task, actorId);
+    this.pushTaskToKeka(task.id);
     return this.withAvailabilityWarnings(formatted, {
       projectId: dto.projectId,
       ownerId: dto.ownerId,
@@ -682,6 +697,10 @@ export class TasksService {
     }
 
     await this.notifyTaskAssigned(task, actorId);
+    this.pushTaskToKeka(task.id);
+    for (const sub of task.subTasks ?? []) {
+      this.pushTaskToKeka(sub.id);
+    }
     return this.withAvailabilityWarnings(this.formatTask(task, viewerRoleCode), {
       projectId: dto.projectId,
       ownerId: dto.ownerId,
@@ -967,6 +986,11 @@ export class TasksService {
         actorId,
         task.title,
       );
+    }
+
+    this.pushTaskToKeka(task.id);
+    for (const sub of task.subTasks ?? []) {
+      this.pushTaskToKeka(sub.id);
     }
 
     return this.withAvailabilityWarnings(this.formatTask(task, viewerRoleCode), {
@@ -1289,6 +1313,8 @@ export class TasksService {
             include: TASK_INCLUDE,
           })) ?? task)
         : task;
+
+    this.pushTaskToKeka(resultTask.id);
 
     return this.withAvailabilityWarnings(this.formatTask(resultTask, viewerRoleCode), {
       projectId: resultTask.projectId,

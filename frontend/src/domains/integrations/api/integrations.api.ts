@@ -4,12 +4,20 @@ import type {
   FailedSyncRecordsResponse,
   KekaSyncLogsQuery,
   KekaSyncLogsResponse,
+  KekaSyncStatusResponse,
   RetryKekaSyncResult,
 } from "../types/integrations.types";
 
 
 export const integrationsApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    getKekaSyncStatus: builder.query<KekaSyncStatusResponse, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync-status",
+      }),
+      providesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
     getKekaSyncLogs: builder.query<KekaSyncLogsResponse, KekaSyncLogsQuery>({
       query: (params) => ({
         url: "/audit/integrations/keka/sync-logs",
@@ -80,7 +88,7 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/holidays",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "HolidayCalendars"],
     }),
 
     triggerKekaSalarySync: builder.mutation<{ jobId: string | number }, void>({
@@ -89,6 +97,14 @@ export const integrationsApi = api.injectEndpoints({
         method: "POST",
       }),
       invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    triggerKekaClientsSync: builder.mutation<{ jobId: string | number }, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/sync/clients",
+        method: "POST",
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "Customers"],
     }),
 
     triggerKekaProjectsSync: builder.mutation<{ jobId: string | number }, void>({
@@ -104,13 +120,14 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/all",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "HolidayCalendars"],
     }),
   }),
   overrideExisting: process.env.NODE_ENV === "development",
 });
 
 export const {
+  useGetKekaSyncStatusQuery,
   useGetKekaSyncLogsQuery,
   useGetFailedSyncRecordsQuery,
   useRetryKekaSyncMutation,
@@ -119,6 +136,7 @@ export const {
   useTriggerKekaAttendanceSyncMutation,
   useTriggerKekaHolidaysSyncMutation,
   useTriggerKekaSalarySyncMutation,
+  useTriggerKekaClientsSyncMutation,
   useTriggerKekaProjectsSyncMutation,
   useTriggerKekaFullSyncMutation,
 } = integrationsApi;

@@ -39,6 +39,7 @@ import { CreatePhaseDto } from './dto/create-phase.dto';
 import { UpdatePhaseDto } from './dto/update-phase.dto';
 import { CreateMilestoneDto } from './dto/create-milestone.dto';
 import { UpdateMilestoneDto } from './dto/update-milestone.dto';
+import { CreateCustomerDto } from './dto/create-customer.dto';
 import {
   CustomerDto,
   DepartmentDto,
@@ -160,6 +161,14 @@ export class ProjectsController {
   @ApiOkResponse({ type: [CustomerDto] })
   findCustomers(): Promise<CustomerDto[]> {
     return this.projectsService.findCustomers();
+  }
+
+  @CheckAbility('create', 'Project')
+  @Post('meta/customers')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ type: CustomerDto })
+  createCustomer(@Body() dto: CreateCustomerDto) {
+    return this.projectsService.createCustomer(dto);
   }
 
   @CheckAbility('read', 'Project')

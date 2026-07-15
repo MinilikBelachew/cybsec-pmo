@@ -30,6 +30,8 @@ export interface Customer {
   displayName: string;
   industry?: string | null;
   status: string;
+  kekaClientId?: string | null;
+  kekaClientCode?: string | null;
 }
 
 export interface ProjectManager {
@@ -72,6 +74,9 @@ export interface Project {
   milestonesDone?: number;
   budgetSpent?: number;
   budgetRemaining?: number;
+  kekaProjectId?: string | null;
+  kekaClientId?: string | null;
+  kekaSyncError?: string | null;
 }
 
 export type ProjectSortField =

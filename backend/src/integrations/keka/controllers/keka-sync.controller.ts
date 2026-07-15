@@ -82,6 +82,14 @@ export class KekaSyncController {
   }
 
   @CheckModulePermission('integrations', 'configure')
+  @Post('sync/clients')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  async syncClients(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueClientsSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
   @Post('sync/projects')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: KekaSyncEnqueueResultDto })

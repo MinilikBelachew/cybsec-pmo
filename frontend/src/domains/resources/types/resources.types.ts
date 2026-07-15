@@ -251,6 +251,8 @@ export interface TimesheetWeekEntry {
   taskId: string;
   taskName: string;
   hours: number;
+  regularHours: number;
+  overtimeHours: number;
   notes: string | null;
   isBillable: boolean;
   status: string;
@@ -263,6 +265,7 @@ export interface TimesheetWeekSummaryCard {
   weekLabel: string;
   totalHours: number;
   billableHours: number;
+  overtimeHours: number;
   status: "draft" | "submitted" | "approved" | "mixed";
   submittedAt: string | null;
   approvedBy: string | null;
@@ -274,6 +277,7 @@ export interface TimesheetWeekResponse {
   weekLabel: string;
   totalHours: number;
   billableHours: number;
+  overtimeHours: number;
   days: TimesheetDaySummary[];
   entries: TimesheetWeekEntry[];
   recentWeeks: TimesheetWeekSummaryCard[];
@@ -308,6 +312,9 @@ export interface TimesheetSubmissionEntry {
   project: string;
   task: string;
   hours: number;
+  regularHours: number;
+  overtimeHours: number;
+  isBillable: boolean;
   description: string | null;
   kekaSyncStatus?: "synced" | "failed" | null;
 }
@@ -323,6 +330,7 @@ export interface TimesheetSubmission {
   submittedAt: string;
   totalHours: number;
   billableHours: number;
+  overtimeHours: number;
   status: ApprovalStatus;
   entries: TimesheetSubmissionEntry[];
   feedback: string | null;
@@ -368,3 +376,28 @@ export interface TimesheetApprovalDecision {
   syncFailures: string[];
   syncSuccessCount: number;
 }
+
+export type HolidayCalendarOption = {
+  id: string;
+  name: string;
+  holidayCount: number;
+  syncedAt: string | null;
+};
+
+export type HolidayEntry = {
+  id: string;
+  name: string;
+  holidayDate: string;
+  isFloater: boolean;
+  calendarYear: number | null;
+  calendarId: string;
+  calendarName: string;
+  syncedAt: string;
+};
+
+export type HolidayCalendarResponse = {
+  year: number;
+  lastSyncedAt: string | null;
+  calendars: HolidayCalendarOption[];
+  holidays: HolidayEntry[];
+};

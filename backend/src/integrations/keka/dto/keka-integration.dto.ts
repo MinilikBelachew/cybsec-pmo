@@ -221,3 +221,63 @@ export class RetryKekaSyncResultDto {
   @ApiPropertyOptional({ nullable: true })
   ref: string | null;
 }
+
+export class KekaEntitySyncStatusDto {
+  @ApiProperty({
+    description:
+      'Stable key for UI grouping (e.g. employee, leave, holidays)',
+  })
+  key: string;
+
+  @ApiProperty()
+  label: string;
+
+  @ApiProperty({ type: [String] })
+  entityTypes: string[];
+
+  @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
+  lastSuccessfulAt: Date | null;
+
+  @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
+  lastFailedAt: Date | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'Timestamp of the most recent sync log for this entity group',
+  })
+  lastRunAt: Date | null;
+
+  @ApiProperty({
+    description: 'Success log count in the last-run time window',
+  })
+  lastRunSucceeded: number;
+
+  @ApiProperty({
+    description: 'Failed log count in the last-run time window',
+  })
+  lastRunFailed: number;
+
+  @ApiProperty()
+  unresolvedFailures: number;
+
+  @ApiProperty({
+    description: 'Linked / synced records currently stored locally',
+  })
+  linkedRecordCount: number;
+}
+
+export class KekaSyncStatusResponseDto {
+  @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
+  lastSuccessfulAt: Date | null;
+
+  @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
+  lastFailedAt: Date | null;
+
+  @ApiProperty()
+  unresolvedFailures: number;
+
+  @ApiProperty({ type: [KekaEntitySyncStatusDto] })
+  entities: KekaEntitySyncStatusDto[];
+}

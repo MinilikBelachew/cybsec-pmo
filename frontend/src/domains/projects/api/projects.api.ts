@@ -85,6 +85,18 @@ export const projectsApi = api.injectEndpoints({
       providesTags: [{ type: "Customers", id: "LIST" }],
     }),
 
+    createCustomer: builder.mutation<
+      Customer & { kekaSyncError?: string | null },
+      { name: string; code?: string; description?: string; email?: string; phone?: string }
+    >({
+      query: (body) => ({
+        url: "/projects/meta/customers",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: [{ type: "Customers", id: "LIST" }],
+    }),
+
     getProjectManagers: builder.query<ProjectManager[], void>({
       query: () => "/projects/meta/project-managers",
       providesTags: [{ type: "ProjectManagers", id: "LIST" }],
@@ -475,6 +487,7 @@ export const {
   useGetProjectByIdQuery,
   useGetDepartmentsQuery,
   useGetCustomersQuery,
+  useCreateCustomerMutation,
   useGetProjectManagersQuery,
   useGetCurrenciesQuery,
   useCreateProjectMutation,

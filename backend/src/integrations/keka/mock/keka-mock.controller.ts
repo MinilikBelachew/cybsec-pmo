@@ -25,6 +25,24 @@ import {
 @Controller()
 export class KekaMockController {
   private readonly pushedTimeEntries: unknown[] = [];
+  private readonly pushedClients: Array<{ id: string; body: unknown }> = [];
+  private readonly mockClients: Array<{
+    id: string;
+    name: string;
+    code: string;
+    description?: string | null;
+    billingAddress?: Record<string, string | null> | null;
+    clientContacts?: unknown[];
+  }> = [
+    {
+      id: 'mock-client-cisco',
+      name: 'Cisco',
+      code: 'USBU003',
+      description: null,
+      billingAddress: null,
+      clientContacts: [],
+    },
+  ];
 
   @Post('keka-mock/connect/token')
   @HttpCode(HttpStatus.OK)
@@ -137,6 +155,36 @@ export class KekaMockController {
       Number(pageSize) || 100,
       '/keka-mock/api/v1/time/leaverequests',
     );
+  }
+
+  @Get('keka-mock/api/v1/psa/clients')
+  clients(
+    @Query('pageNumber') pageNumber = '1',
+    @Query('pageSize') pageSize = '100',
+  ) {
+    return buildKekaPagedResponse(
+      this.mockClients,
+      Number(pageNumber) || 1,
+      Number(pageSize) || 100,
+      '/keka-mock/api/v1/psa/clients',
+    );
+  }
+
+  @Post('keka-mock/api/v1/psa/clients')
+  @HttpCode(HttpStatus.CREATED)
+  createClient(@Body() body: { name?: string; code?: string; description?: string }) {
+    const id = `mock-client-${this.pushedClients.length + 1}`;
+    const entry = {
+      id,
+      name: body.name ?? `Client ${this.pushedClients.length + 1}`,
+      code: body.code ?? `C${this.pushedClients.length + 1}`,
+      description: body.description ?? null,
+      billingAddress: null,
+      clientContacts: [],
+    };
+    this.mockClients.push(entry);
+    this.pushedClients.push({ id, body });
+    return { succeeded: true, data: id };
   }
 
   @Post('keka-mock/api/v1/psa/employees/:employeeId/timeentries')

@@ -38,6 +38,7 @@ import {
 } from "@/domains/projects/utils/project-status";
 import type { ProjectStatus, AllocationDateIssuesResponse } from "@/domains/projects/types/projects.types";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
+import { RegisterClientDialog } from "@/domains/projects/components/list/register-client-dialog";
 import { formatDateValue } from "@/domains/projects/utils/allocation-date.utils";
 import {
   Select,
@@ -205,6 +206,8 @@ export function CreateProjectSheet({
     milestoneDrafts: DraftProjectMilestone[];
     issues: AllocationDateIssuesResponse | null;
   }>({ open: false, values: null, milestoneDrafts: [], issues: null });
+  const [registerClientOpen, setRegisterClientOpen] = useState(false);
+  const REGISTER_CLIENT_VALUE = "__register_client__";
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
   const [instantiateTemplate, { isLoading: isInstantiating }] =
     useInstantiateProjectTemplateMutation();
@@ -247,6 +250,7 @@ export function CreateProjectSheet({
     control,
     register,
     reset,
+    setValue,
     trigger,
     formState: { errors },
   } = useForm<CreateProjectFormValues>({
@@ -506,6 +510,11 @@ export function CreateProjectSheet({
               ? `Project created with ${newMilestones.length} milestone${newMilestones.length === 1 ? "" : "s"}.`
               : "Project created successfully!",
         );
+        if (created.kekaProjectId) {
+          toast.success("Project linked/created in Keka.");
+        } else if (created.kekaSyncError) {
+          toast(created.kekaSyncError, { icon: "⚠️" });
+        }
       }
 
       setPendingTeamMembers([]);
@@ -744,16 +753,30 @@ export function CreateProjectSheet({
                   control={control}
                   name="customerId"
                   render={({ field }) => (
-                    <Select value={field.value || ""} onValueChange={field.onChange} disabled={isViewOnly}>
+                    <Select
+                      value={field.value || ""}
+                      onValueChange={(value) => {
+                        if (value === REGISTER_CLIENT_VALUE) {
+                          setRegisterClientOpen(true);
+                          return;
+                        }
+                        field.onChange(value);
+                      }}
+                      disabled={isViewOnly}
+                    >
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select...">
                           {activeCustomer ? activeCustomer.displayName : undefined}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg max-h-60 overflow-y-auto">
+                        <SelectItem value={REGISTER_CLIENT_VALUE}>
+                          + Register new client…
+                        </SelectItem>
                         {customers.map((c) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.displayName}
+                            {c.kekaClientId ? "" : " (not linked to Keka)"}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1216,6 +1239,14 @@ export function CreateProjectSheet({
           .filter((issue) => issue.kinds.includes("outside_project_window"))
           .flatMap((issue) => issue.messages) ?? []
       }
+    />
+
+    <RegisterClientDialog
+      open={registerClientOpen}
+      onClose={() => setRegisterClientOpen(false)}
+      onCreated={(customer) => {
+        setValue("customerId", customer.id, { shouldValidate: true });
+      }}
     />
     </>
   );

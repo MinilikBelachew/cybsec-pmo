@@ -1897,6 +1897,10 @@ model Customer {
   primaryEmail       String?    @unique @map("primary_email") @db.VarChar(255)
   primaryPhone       String?    @map("primary_phone") @db.VarChar(50)
   zohoContactId      String?    @unique @map("zoho_contact_id") @db.VarChar(100)
+  /// Linked Keka PSA client id (GET/POST /psa/clients).
+  kekaClientId       String?    @unique @map("keka_client_id") @db.VarChar(100)
+  kekaClientCode     String?    @map("keka_client_code") @db.VarChar(100)
+  kekaSyncedAt       DateTime?  @map("keka_synced_at") @db.Timestamptz
   accountManagerId   String?    @map("account_manager_id") @db.Uuid
   status             String     @default("Active") @db.VarChar(20)
   notes              String?
@@ -1916,6 +1920,7 @@ model Customer {
   @@index([zohoContactId], map: "idx_customers_zoho")
   @@index([status], map: "idx_customers_status")
   @@index([type], map: "idx_customers_type")
+  @@index([kekaClientCode], map: "idx_customers_keka_code")
   @@map("customers")
 }
 
