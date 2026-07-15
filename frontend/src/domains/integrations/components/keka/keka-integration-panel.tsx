@@ -16,6 +16,7 @@ import {
   Wallet,
   FolderKanban,
   Layers,
+  Scale,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { DataTable } from "@/shared/components/data-table";
@@ -34,6 +35,7 @@ import {
   useGetFailedSyncRecordsQuery,
   useGetKekaSyncLogsQuery,
   useGetKekaSyncStatusQuery,
+  useGetKekaTimesheetReconcileQuery,
   useRetryKekaSyncMutation,
   useTriggerKekaEmployeeSyncMutation,
   useTriggerKekaLeaveSyncMutation,
@@ -43,6 +45,7 @@ import {
   useTriggerKekaClientsSyncMutation,
   useTriggerKekaProjectsSyncMutation,
   useTriggerKekaFullSyncMutation,
+  useReconcileKekaTimesheetsMutation,
 } from "../../api/integrations.api";
 import type {
   FailedSyncRecordEntry,
@@ -50,6 +53,7 @@ import type {
   KekaSyncLogEntry,
 } from "../../types/integrations.types";
 import { INTEGRATION_POLLING_INTERVAL_MS } from "../../constants/integration-polling";
+import { RECONCILE_STATUS_CONFIG } from "@/domains/reports/utils/utilization-ui.config";
 
 type IntegrationSubTab = "logs" | "failures";
 
@@ -259,6 +263,8 @@ export function KekaIntegrationPanel() {
   const syncStatusQuery = useGetKekaSyncStatusQuery(undefined, {
     pollingInterval: INTEGRATION_POLLING_INTERVAL_MS,
   });
+  const reconcileQuery = useGetKekaTimesheetReconcileQuery();
+  const reconcileResult = reconcileQuery.data ?? null;
 
   const [retrySync] = useRetryKekaSyncMutation();
   const [syncEmployees, { isLoading: syncingEmployees }] =
@@ -275,6 +281,8 @@ export function KekaIntegrationPanel() {
   const [syncProjects, { isLoading: syncingProjects }] =
     useTriggerKekaProjectsSyncMutation();
   const [syncAll, { isLoading: syncingAll }] = useTriggerKekaFullSyncMutation();
+  const [reconcileTimesheets, { isLoading: reconcilingTimesheets }] =
+    useReconcileKekaTimesheetsMutation();
 
   const syncBusy =
     syncingEmployees ||
@@ -284,17 +292,22 @@ export function KekaIntegrationPanel() {
     syncingSalary ||
     syncingClients ||
     syncingProjects ||
-    syncingAll;
+    syncingAll ||
+    reconcilingTimesheets;
 
   const activeQuery = subTab === "logs" ? logsQuery : failuresQuery;
-  const isFetching = activeQuery.isFetching || syncStatusQuery.isFetching;
+  const isFetching =
+    activeQuery.isFetching ||
+    syncStatusQuery.isFetching ||
+    reconcileQuery.isFetching;
   const hasFailuresError = subTab === "failures" && Boolean(failuresQuery.error);
   const syncStatus = syncStatusQuery.data;
 
   const refetchAll = useCallback(() => {
     void syncStatusQuery.refetch();
+    void reconcileQuery.refetch();
     void activeQuery.refetch();
-  }, [activeQuery, syncStatusQuery]);
+  }, [activeQuery, reconcileQuery, syncStatusQuery]);
 
   const filterControls = (
     <div className="flex flex-wrap items-center gap-2">
@@ -606,6 +619,126 @@ export function KekaIntegrationPanel() {
 
   return (
     <div className="space-y-4">
+      <div
+        className={cn(
+          "rounded-xl border p-4 space-y-3",
+          reconcileResult &&
+            reconcileResult.mismatchCount + reconcileResult.pendingCount > 0
+            ? "border-amber-200/80 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/20"
+            : "border-border/50 bg-card",
+        )}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Timesheet reconcile
+            </p>
+            {reconcileResult ? (
+              <>
+                <p className="mt-1 text-sm">
+                  {reconcileResult.startDate} – {reconcileResult.endDate} ·{" "}
+                  <span className="font-semibold">
+                    {reconcileResult.source === "keka-live"
+                      ? "Pulled from Keka"
+                      : "Local push ack only"}
+                  </span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {reconcileResult.source === "keka-live"
+                    ? "Cybsec approved hours vs hours pulled from Keka PSA (last 30 days)."
+                    : "Push acknowledgement only — approved vs locally synced hours."}
+                </p>
+              </>
+            ) : reconcileQuery.isLoading ? (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Comparing approved hours with Keka…
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Could not load reconcile snapshot. Try Refresh or Reconcile timesheets.
+              </p>
+            )}
+          </div>
+          {(reconcileQuery.isLoading || reconcileQuery.isFetching) && (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          )}
+        </div>
+
+        {reconcileResult ? (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {(
+                [
+                  {
+                    label: "Matched",
+                    value: reconcileResult.matchedCount,
+                    className: RECONCILE_STATUS_CONFIG.matched.text,
+                  },
+                  {
+                    label: "Pending sync",
+                    value: reconcileResult.pendingCount,
+                    className: RECONCILE_STATUS_CONFIG.pending.text,
+                  },
+                  {
+                    label: "Mismatch",
+                    value: reconcileResult.mismatchCount,
+                    className: RECONCILE_STATUS_CONFIG.mismatch.text,
+                  },
+                  {
+                    label: "No Keka link",
+                    value: reconcileResult.unavailableCount,
+                    className: RECONCILE_STATUS_CONFIG.unavailable.text,
+                  },
+                ] as const
+              ).map((stat) => (
+                <div
+                  key={stat.label}
+                  className="rounded-lg border border-border/60 bg-background/70 px-3 py-2"
+                >
+                  <p className="text-[11px] text-muted-foreground">{stat.label}</p>
+                  <p className={cn("mt-0.5 text-lg font-semibold tabular-nums", stat.className)}>
+                    {stat.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {reconcileResult.pulledEntryCount} Keka entries
+              {reconcileResult.notifiedAdminCount > 0
+                ? ` · ${reconcileResult.notifiedAdminCount} admin notified`
+                : null}
+            </p>
+
+            {reconcileResult.mismatches.length > 0 ? (
+              <div className="space-y-2">
+                {reconcileResult.mismatches.slice(0, 8).map((row) => {
+                  const status = RECONCILE_STATUS_CONFIG[row.status];
+                  return (
+                    <div
+                      key={row.employeeId}
+                      className="flex items-center justify-between gap-3 text-xs"
+                    >
+                      <span className="min-w-0 truncate font-medium">{row.name}</span>
+                      <span
+                        className={cn("shrink-0 tabular-nums font-semibold", status.text)}
+                      >
+                        {status.label} · local {row.localApprovedHours.toFixed(1)}h · Keka{" "}
+                        {row.kekaRemoteHours.toFixed(1)}h · Δ {row.deltaHours.toFixed(1)}h
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-emerald-600 dark:text-emerald-400">
+                All employees match Keka for this window.
+              </p>
+            )}
+          </>
+        ) : null}
+      </div>
+
       <div className="rounded-xl border border-border/50 bg-muted/20 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -743,6 +876,40 @@ export function KekaIntegrationPanel() {
                 <Layers className="size-3.5" />
               )}
               Sync all
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={syncBusy}
+              onClick={async () => {
+                try {
+                  const result = await reconcileTimesheets().unwrap();
+                  if (result.mismatchCount > 0) {
+                    toast.error(
+                      `${result.mismatchCount} timesheet mismatch(es) vs Keka` +
+                        (result.notifiedAdminCount
+                          ? ` · notified ${result.notifiedAdminCount} admin(s)`
+                          : ""),
+                    );
+                  } else {
+                    toast.success(
+                      result.source === "keka-live"
+                        ? "Timesheets match Keka hours."
+                        : "Reconcile finished (local push ack only — Keka pull unavailable).",
+                    );
+                  }
+                } catch {
+                  toast.error("Could not reconcile timesheets with Keka.");
+                }
+              }}
+            >
+              {reconcilingTimesheets ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Scale className="size-3.5" />
+              )}
+              Reconcile timesheets
             </Button>
             <Button
               variant="outline"

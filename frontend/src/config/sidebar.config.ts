@@ -25,6 +25,7 @@ import {
   ListChecks,
   Plug,
   // Sparkles,
+  BookUser,
   type LucideIcon,
   FileStack,
 } from "lucide-react";
@@ -43,6 +44,8 @@ export type NavChild = {
   href: string;
   badge?: string;
   permission?: NavPermission;
+  /** When set, only these role codes can see the item (in addition to permission). */
+  roles?: string[];
 };
 
 export type NavSection = {
@@ -52,6 +55,7 @@ export type NavSection = {
   href?: string;
   children?: NavChild[];
   permission?: NavPermission;
+  roles?: string[];
 };
 
 export const sidebarNav: NavSection[] = [
@@ -294,6 +298,14 @@ export const sidebarNav: NavSection[] = [
     permission: { action: "read", subject: "Notification" },
   },
   {
+    id: "admin-directory",
+    label: "People & Org",
+    icon: BookUser,
+    href: "/dashboard/admin-directory",
+    permission: { action: "read", subject: "User" },
+    roles: ["super_admin", "it_admin"],
+  },
+  {
     id: "settings",
     label: "Settings",
     icon: KeyRound,
@@ -312,7 +324,12 @@ export const sidebarNav: NavSection[] = [
 function canSee(
   ability: AppAbility | null,
   permission?: NavPermission,
+  roles?: string[],
+  roleCode?: string | null,
 ): boolean {
+  if (roles?.length) {
+    if (!roleCode || !roles.includes(roleCode)) return false;
+  }
   if (!permission) return true;
   if (!ability) return false;
   return ability.can(permission.action, permission.subject);
@@ -321,6 +338,7 @@ function canSee(
 export function getVisibleSections(
   ability: AppAbility | null,
   permissionsLoaded = false,
+  roleCode?: string | null,
 ): NavSection[] {
   if (!permissionsLoaded) {
     return sidebarNav;
@@ -330,16 +348,20 @@ export function getVisibleSections(
     .map((section) => {
       if (section.children) {
         const children = section.children.filter((child) =>
-          canSee(ability, child.permission ?? section.permission),
+          canSee(
+            ability,
+            child.permission ?? section.permission,
+            child.roles ?? section.roles,
+            roleCode,
+          ),
         );
         if (children.length === 0) return null;
-        if (!canSee(ability, section.permission) && children.length === 0) {
-          return null;
-        }
         return { ...section, children };
       }
 
-      if (!canSee(ability, section.permission)) return null;
+      if (!canSee(ability, section.permission, section.roles, roleCode)) {
+        return null;
+      }
       return section;
     })
     .filter((section): section is NavSection => section !== null);

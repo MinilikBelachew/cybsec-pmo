@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type Row,
   type RowSelectionState,
   type SortingState,
   type VisibilityState,
@@ -15,10 +16,10 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import {
-  Check,
   ChevronLeft,
   ChevronRight,
   Columns3,
+  Eye,
   EyeOff,
   GripVertical,
   ListChecks,
@@ -88,8 +89,16 @@ export type DataTableProps<TData, TValue> = {
   tableClassName?: string;
   minTableWidth?: string;
   onRowClick?: (row: TData) => void;
+  /** Defaults to true — Columns menu includes drag reorder + show/hide. */
   enableColumnReorder?: boolean;
   columnOrderStorageKey?: string;
+  /**
+   * Small-screen layout. `cards` (default) stacks rows as cards below `md`;
+   * `scroll` keeps the wide table with horizontal scroll.
+   */
+  mobileLayout?: "cards" | "scroll";
+  /** Optional custom card body; otherwise visible cells are stacked with labels. */
+  renderMobileCard?: (row: TData) => React.ReactNode;
 };
 
 function stickyCellClass(
@@ -151,6 +160,40 @@ function readStoredColumnOrder(storageKey: string, defaults: string[]) {
   }
 }
 
+function renderDefaultMobileCard<TData>(row: Row<TData>) {
+  const cells = row
+    .getVisibleCells()
+    .filter((cell) => cell.column.id !== "select" && cell.column.getIsVisible());
+  if (cells.length === 0) return null;
+
+  const [primary, ...rest] = cells;
+
+  return (
+    <div className="space-y-3">
+      <div className="min-w-0 text-sm font-semibold text-foreground">
+        {flexRender(primary.column.columnDef.cell, primary.getContext())}
+      </div>
+      {rest.length > 0 ? (
+        <dl className="space-y-2.5 border-t border-border/60 pt-3">
+          {rest.map((cell) => (
+            <div
+              key={cell.id}
+              className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-3"
+            >
+              <dt className="pt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {cell.column.columnDef.meta?.label ?? cell.column.id}
+              </dt>
+              <dd className="min-w-0 text-sm text-foreground">
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
 export function DataTable<TData, TValue>({
   columns,
   data,
@@ -179,8 +222,10 @@ export function DataTable<TData, TValue>({
   tableClassName,
   minTableWidth = "min-w-[960px]",
   onRowClick,
-  enableColumnReorder = false,
+  enableColumnReorder = true,
   columnOrderStorageKey,
+  mobileLayout = "cards",
+  renderMobileCard,
 }: DataTableProps<TData, TValue>) {
   const t = useTranslations("Table");
   const visibilityStorageKey = columnOrderStorageKey
@@ -445,6 +490,8 @@ export function DataTable<TData, TValue>({
     [enableColumnReorder, table],
   );
 
+  const useMobileCards = mobileLayout === "cards";
+
   return (
     <div className={cn("w-full space-y-3", className)}>
       {(filters || showSearch || bulkSelect || showColumnManager) && (
@@ -569,7 +616,7 @@ export function DataTable<TData, TValue>({
                                 <span className="truncate">{label}</span>
                                 {canHide && (
                                   isVisible ? (
-                                    <Check className="ms-auto size-3.5 shrink-0 text-primary" />
+                                    <Eye className="ms-auto size-3.5 shrink-0 text-primary" />
                                   ) : (
                                     <EyeOff className="ms-auto size-3.5 shrink-0 text-muted-foreground" />
                                   )
@@ -596,7 +643,59 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
-      <div className="relative overflow-hidden rounded-t-[10px]">
+      {useMobileCards && (
+        <div className="relative md:hidden">
+          {isLoading && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/60 backdrop-blur-[1px]">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {table.getRowModel().rows.length > 0 ? (
+            <div className="space-y-3">
+              {table.getRowModel().rows.map((row) => (
+                <div
+                  key={row.id}
+                  role={onRowClick ? "button" : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    "rounded-xl border border-border/70 bg-card p-4 text-left shadow-none",
+                    onRowClick && "cursor-pointer transition-colors hover:bg-muted/20",
+                    row.getIsSelected() && "bg-muted/30",
+                  )}
+                >
+                  {renderMobileCard
+                    ? renderMobileCard(row.original)
+                    : renderDefaultMobileCard(row)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex h-40 items-center justify-center rounded-xl border border-border/60 bg-card px-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                {isLoading ? t("loading") : (emptyMessage ?? t("noResults"))}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-t-[10px]",
+          useMobileCards && "hidden md:block",
+        )}
+      >
           {isLoading && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
+import { TimesheetReconcileService } from '../integrations/keka/sync/timesheet-reconcile.service';
 import { TIMESHEET_STATUS } from '../timesheets/timesheets.constants';
 import {
   allocationWeeklyHours,
@@ -35,6 +36,7 @@ export class UtilisationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
+    private readonly timesheetReconcileService: TimesheetReconcileService,
   ) {}
 
   async getUtilisationReport(
@@ -118,8 +120,23 @@ export class UtilisationService {
       orderBy: { name: 'asc' },
     });
 
+    const remote = await this.timesheetReconcileService.getRemoteHoursByEmployeeId({
+      start,
+      end,
+      employeeIds: employees.map((employee) => employee.id),
+      projectId: query.projectId,
+    });
+
     const allRows = employees.map((employee) =>
-      this.buildEmployeeRow(employee, start, end, query.projectId),
+      this.buildEmployeeRow(
+        employee,
+        start,
+        end,
+        query.projectId,
+        remote.source,
+        remote.hoursByEmployeeId.get(employee.id) ?? 0,
+        Boolean(employee.kekaEmployeeId),
+      ),
     );
 
     const sorted = this.sortRows(allRows, sortBy, sortOrder);
@@ -139,6 +156,7 @@ export class UtilisationService {
       page,
       limit,
       total,
+      reconcileSource: remote.source,
     };
   }
 
@@ -169,7 +187,10 @@ export class UtilisationService {
     },
     start: Date,
     end: Date,
-    projectId?: string,
+    projectId: string | undefined,
+    reconcileSource: 'keka-live' | 'local-push-ack',
+    kekaRemoteHoursInput: number,
+    hasKekaLink: boolean,
   ): UtilisationEmployeeRowDto {
     const weeklyCapacity = Number(employee.weeklyHours);
     const dailyCapacity = weeklyCapacity / 5;
@@ -226,6 +247,7 @@ export class UtilisationService {
     billableHours = roundHours(billableHours);
     nonBillableHours = roundHours(nonBillableHours);
     kekaSyncedHours = roundHours(kekaSyncedHours);
+    const kekaRemoteHours = roundHours(kekaRemoteHoursInput);
 
     const billableUtilisationPercent =
       availableHours > 0
@@ -236,15 +258,13 @@ export class UtilisationService {
         ? Math.round((approvedHours / availableHours) * 100)
         : 0;
 
-    const deltaHours = roundHours(approvedHours - kekaSyncedHours);
-    let reconcileStatus: 'matched' | 'pending' | 'mismatch' = 'matched';
-    if (approvedHours === 0 && kekaSyncedHours === 0) {
-      reconcileStatus = 'matched';
-    } else if (kekaSyncedHours === 0 && approvedHours > 0) {
-      reconcileStatus = 'pending';
-    } else if (Math.abs(deltaHours) > 0.01) {
-      reconcileStatus = 'mismatch';
-    }
+    const reconcile = this.resolveReconcile({
+      source: reconcileSource,
+      hasKekaLink,
+      approvedHours,
+      kekaRemoteHours,
+      kekaSyncedHours,
+    });
 
     return {
       employeeId: employee.id,
@@ -262,12 +282,53 @@ export class UtilisationService {
       billableUtilisationPercent,
       totalUtilisationPercent,
       status: resolveUtilisationStatus(billableUtilisationPercent),
-      reconcile: {
-        approvedHours,
-        kekaSyncedHours,
-        deltaHours,
-        status: reconcileStatus,
-      },
+      reconcile,
+    };
+  }
+
+  private resolveReconcile(input: {
+    source: 'keka-live' | 'local-push-ack';
+    hasKekaLink: boolean;
+    approvedHours: number;
+    kekaRemoteHours: number;
+    kekaSyncedHours: number;
+  }): UtilisationEmployeeRowDto['reconcile'] {
+    const deltaHours =
+      input.source === 'keka-live'
+        ? roundHours(input.approvedHours - input.kekaRemoteHours)
+        : roundHours(input.approvedHours - input.kekaSyncedHours);
+
+    let status: 'matched' | 'pending' | 'mismatch' | 'unavailable' = 'matched';
+
+    if (!input.hasKekaLink) {
+      status = input.approvedHours > 0 ? 'unavailable' : 'matched';
+    } else if (input.source === 'keka-live') {
+      if (Math.abs(deltaHours) <= 0.01) {
+        status = 'matched';
+      } else if (
+        input.kekaRemoteHours === 0 &&
+        input.approvedHours > 0 &&
+        input.kekaSyncedHours === 0
+      ) {
+        status = 'pending';
+      } else {
+        status = 'mismatch';
+      }
+    } else if (input.approvedHours === 0 && input.kekaSyncedHours === 0) {
+      status = 'matched';
+    } else if (input.kekaSyncedHours === 0 && input.approvedHours > 0) {
+      status = 'pending';
+    } else if (Math.abs(deltaHours) > 0.01) {
+      status = 'mismatch';
+    }
+
+    return {
+      approvedHours: input.approvedHours,
+      kekaSyncedHours: input.kekaSyncedHours,
+      kekaRemoteHours: input.kekaRemoteHours,
+      deltaHours,
+      status,
+      source: input.source,
     };
   }
 

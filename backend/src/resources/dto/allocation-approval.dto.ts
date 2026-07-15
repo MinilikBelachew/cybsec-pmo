@@ -68,6 +68,9 @@ export class AllocationApprovalRowDto {
 
   @ApiProperty()
   requestedAt: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  overrideReason: string | null;
 }
 
 export class AllocationApprovalListResponseDto {

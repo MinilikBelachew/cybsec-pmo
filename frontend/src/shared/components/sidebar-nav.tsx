@@ -115,7 +115,11 @@ export function SidebarNav() {
 
   const NavContent = ({ mobile = false }: { mobile?: boolean }) => {
     const isCollapsedLayout = collapsed && !mobile;
-    const visibleSections = getVisibleSections(ability, permissionsLoaded);
+    const visibleSections = getVisibleSections(
+      ability,
+      permissionsLoaded,
+      user?.backendRoleCode,
+    );
 
     const navHrefs = React.useMemo(() => {
       const hrefs: string[] = [];

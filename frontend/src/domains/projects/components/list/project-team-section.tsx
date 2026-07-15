@@ -59,6 +59,7 @@ interface DraftMemberConfig {
   allocationMode: AllocationMode;
   hoursPerWeek: string;
   percentPerWeek: string;
+  overrideReason?: string;
 }
 
 interface ExistingMemberEditDraft {
@@ -68,10 +69,12 @@ interface ExistingMemberEditDraft {
   percentPerWeek: string;
   startDate: string;
   endDate: string;
+  overrideReason: string;
 }
 
 const DEFAULT_HOURS = "20";
 const DEFAULT_PERCENT = "50";
+const OVERRIDE_REASON_MIN = 10;
 
 function availabilityLabel(candidate: TeamCandidate): string {
   if (candidate.isOverAllocated) return "Over-allocated";
@@ -148,6 +151,9 @@ function buildPendingMember(
     endDate: formatDateValue(endDate),
     remainingHours: candidate.remainingHours,
     isOverAllocated: wouldExceed,
+    ...(wouldExceed && config.overrideReason?.trim()
+      ? { overrideReason: config.overrideReason.trim() }
+      : {}),
   };
 }
 
@@ -170,10 +176,25 @@ function buildDraftMembers(
   return members;
 }
 
-function toAllocationBody(member: Pick<PendingTeamMember, "role" | "allocationMode" | "hoursPerWeek" | "percentPerWeek">) {
-  return member.allocationMode === "percent"
-    ? { role: member.role, percent: member.percentPerWeek }
-    : { role: member.role, hours: member.hoursPerWeek };
+function toAllocationBody(
+  member: Pick<
+    PendingTeamMember,
+    | "role"
+    | "allocationMode"
+    | "hoursPerWeek"
+    | "percentPerWeek"
+    | "overrideReason"
+    | "isOverAllocated"
+  >,
+) {
+  return {
+    ...(member.allocationMode === "percent"
+      ? { role: member.role, percent: member.percentPerWeek }
+      : { role: member.role, hours: member.hoursPerWeek }),
+    ...(member.isOverAllocated && member.overrideReason?.trim()
+      ? { overrideReason: member.overrideReason.trim() }
+      : {}),
+  };
 }
 
 function AllocationModeToggle({
@@ -242,6 +263,7 @@ export const ProjectTeamSection = forwardRef<
   const [checkedCandidatesMap, setCheckedCandidatesMap] = useState<Record<string, TeamCandidate>>({});
   const [draftConfig, setDraftConfig] = useState<Record<string, DraftMemberConfig>>({});
   const [searchVal, setSearchVal] = useState("");
+  const [bulkOverrideReason, setBulkOverrideReason] = useState("");
   const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<ExistingMemberEditDraft | null>(null);
   const [alignDialogOpen, setAlignDialogOpen] = useState(false);
@@ -350,10 +372,18 @@ export const ProjectTeamSection = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      collectMembersToSave: () =>
-        buildDraftMembers(checkedCandidates, draftConfig, startDate, endDate),
+      collectMembersToSave: () => {
+        const configs: Record<string, DraftMemberConfig> = {};
+        for (const [employeeId, config] of Object.entries(draftConfig)) {
+          configs[employeeId] = {
+            ...config,
+            overrideReason: bulkOverrideReason.trim() || config.overrideReason,
+          };
+        }
+        return buildDraftMembers(checkedCandidates, configs, startDate, endDate);
+      },
     }),
-    [checkedCandidates, draftConfig, startDate, endDate],
+    [bulkOverrideReason, checkedCandidates, draftConfig, startDate, endDate],
   );
 
   const toggleCandidate = (candidate: TeamCandidate, checked: boolean) => {
@@ -405,13 +435,30 @@ export const ProjectTeamSection = forwardRef<
   };
 
   const handleAddSelected = async () => {
+    const configs: Record<string, DraftMemberConfig> = {};
+    for (const [employeeId, config] of Object.entries(draftConfig)) {
+      configs[employeeId] = {
+        ...config,
+        overrideReason: bulkOverrideReason.trim() || config.overrideReason,
+      };
+    }
     const draftMembers = buildDraftMembers(
       checkedCandidates,
-      draftConfig,
+      configs,
       startDate,
       endDate,
     );
     if (draftMembers.length === 0) return;
+
+    const needsOverride =
+      thresholdMode !== "block" &&
+      draftMembers.some((member) => member.isOverAllocated);
+    if (needsOverride && bulkOverrideReason.trim().length < OVERRIDE_REASON_MIN) {
+      toast.error(
+        `Over-allocation requires an override reason (at least ${OVERRIDE_REASON_MIN} characters).`,
+      );
+      return;
+    }
 
     if (projectId) {
       try {
@@ -434,13 +481,16 @@ export const ProjectTeamSection = forwardRef<
         setCheckedIds([]);
         setCheckedCandidatesMap({});
         setDraftConfig({});
+        setBulkOverrideReason("");
         setPickerOpen(false);
         refetchTeam();
       } catch (err: unknown) {
         const apiError = err as {
-          data?: { errors?: { allocation?: string }; message?: string };
+          data?: { errors?: { allocation?: string; overrideReason?: string }; message?: string };
         };
-        const allocationError = apiError?.data?.errors?.allocation;
+        const allocationError =
+          apiError?.data?.errors?.overrideReason ??
+          apiError?.data?.errors?.allocation;
         toast.error(
           allocationError ?? apiError?.data?.message ?? "Failed to add team members.",
         );
@@ -452,6 +502,7 @@ export const ProjectTeamSection = forwardRef<
     setCheckedIds([]);
     setCheckedCandidatesMap({});
     setDraftConfig({});
+    setBulkOverrideReason("");
     setPickerOpen(false);
   };
 
@@ -461,7 +512,12 @@ export const ProjectTeamSection = forwardRef<
 
   const handleUpdatePending = (
     employeeId: string,
-    patch: Partial<Pick<PendingTeamMember, "role" | "allocationMode" | "hoursPerWeek" | "percentPerWeek">>,
+    patch: Partial<
+      Pick<
+        PendingTeamMember,
+        "role" | "allocationMode" | "hoursPerWeek" | "percentPerWeek" | "overrideReason"
+      >
+    >,
   ) => {
     onPendingMembersChange(
       pendingMembers.map((member) => {
@@ -504,6 +560,7 @@ export const ProjectTeamSection = forwardRef<
       percentPerWeek: String(member.percent ?? DEFAULT_PERCENT),
       startDate: member.startDate,
       endDate: member.endDate ?? "",
+      overrideReason: member.overrideReason ?? "",
     });
   };
 
@@ -559,6 +616,16 @@ export const ProjectTeamSection = forwardRef<
       toast.error("Allocation end date must be on or after the start date.");
       return;
     }
+    if (
+      thresholdMode !== "block" &&
+      editWouldOverAllocate(member) &&
+      editDraft.overrideReason.trim().length < OVERRIDE_REASON_MIN
+    ) {
+      toast.error(
+        `Over-allocation requires an override reason (at least ${OVERRIDE_REASON_MIN} characters).`,
+      );
+      return;
+    }
 
     try {
       const result = await updateProjectTeamMember({
@@ -571,6 +638,9 @@ export const ProjectTeamSection = forwardRef<
             : { hours }),
           startDate: editDraft.startDate,
           endDate: editDraft.endDate || null,
+          ...(editWouldOverAllocate(member)
+            ? { overrideReason: editDraft.overrideReason.trim() }
+            : {}),
         },
       }).unwrap();
 
@@ -722,6 +792,10 @@ export const ProjectTeamSection = forwardRef<
       ),
     );
 
+  const needsOverrideReason =
+    thresholdMode !== "block" &&
+    checkedCandidates.some((candidate) => draftWouldOverAllocate(candidate));
+
   const canAddSelected =
     checkedCandidates.length > 0 &&
     checkedCandidates.every((candidate) => {
@@ -736,7 +810,8 @@ export const ProjectTeamSection = forwardRef<
     }) &&
     !hasBlockedOverAllocation &&
     !hasBlockedDesignation &&
-    !hasBlockedDepartment;
+    !hasBlockedDepartment &&
+    (!needsOverrideReason || bulkOverrideReason.trim().length >= OVERRIDE_REASON_MIN);
 
   const renderAllocationInput = (
     mode: AllocationMode,
@@ -845,6 +920,9 @@ export const ProjectTeamSection = forwardRef<
               isEditing &&
               allocationPolicy != null &&
               ((thresholdMode === "block" && editWouldOverAllocate(member)) ||
+                (thresholdMode !== "block" &&
+                  editWouldOverAllocate(member) &&
+                  (editDraft?.overrideReason.trim().length ?? 0) < OVERRIDE_REASON_MIN) ||
                 isPolicyBlocked(
                   allocationPolicy.designationMismatchMode,
                   editHasDesignationMismatch(member),
@@ -946,10 +1024,31 @@ export const ProjectTeamSection = forwardRef<
                         />
                       </div>
                     </div>
-                    {editWouldOverAllocate(member) && (
-                      <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                    {editWouldOverAllocate(member) && thresholdMode !== "block" && (
+                      <div className="space-y-1.5">
+                        <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3" />
+                          Over-allocation requires an authorised override reason.
+                        </p>
+                        <textarea
+                          value={editDraft.overrideReason}
+                          onChange={(event) =>
+                            setEditDraft((prev) =>
+                              prev
+                                ? { ...prev, overrideReason: event.target.value }
+                                : prev,
+                            )
+                          }
+                          rows={2}
+                          placeholder="Why is this over-allocation authorised? (min 10 characters)"
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                        />
+                      </div>
+                    )}
+                    {editWouldOverAllocate(member) && thresholdMode === "block" && (
+                      <p className="flex items-center gap-1 text-[11px] text-rose-600">
                         <AlertTriangle className="size-3" />
-                        May over-allocate
+                        Over-allocation is blocked by policy.
                       </p>
                     )}
                     {editHasDesignationMismatch(member) && allocationPolicy && (
@@ -1317,6 +1416,20 @@ export const ProjectTeamSection = forwardRef<
                     Over-capacity selections will be submitted for staffing approval.
                   </p>
                 )}
+              {needsOverrideReason && (
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-foreground">
+                    Override reason (required)
+                  </label>
+                  <textarea
+                    value={bulkOverrideReason}
+                    onChange={(event) => setBulkOverrideReason(event.target.value)}
+                    rows={2}
+                    placeholder="Why is over-allocation authorised? (min 10 characters)"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                  />
+                </div>
+              )}
               {hasBlockedDesignation && (
                 <p className="flex items-center gap-1 text-[11px] text-rose-600">
                   <AlertTriangle className="size-3" />
@@ -1383,10 +1496,25 @@ export const ProjectTeamSection = forwardRef<
                     {member.remainingHours}h/week remaining before assignment
                   </p>
                   {member.isOverAllocated && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
-                      <AlertTriangle className="size-3" />
-                      This assignment may over-allocate this resource.
-                    </p>
+                    <div className="mt-1 space-y-1.5">
+                      <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                        <AlertTriangle className="size-3" />
+                        This assignment may over-allocate this resource.
+                      </p>
+                      {canEdit && (
+                        <textarea
+                          value={member.overrideReason ?? ""}
+                          onChange={(event) =>
+                            handleUpdatePending(member.employeeId, {
+                              overrideReason: event.target.value,
+                            })
+                          }
+                          rows={2}
+                          placeholder="Override reason (min 10 characters)"
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                        />
+                      )}
+                    </div>
                   )}
                     </div>
                   </div>

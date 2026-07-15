@@ -243,6 +243,7 @@ export class AllocationApprovalService {
         name: allocation.requester.displayName,
       },
       requestedAt: allocation.requestedAt.toISOString(),
+      overrideReason: allocation.overrideReason ?? null,
     };
   }
 }

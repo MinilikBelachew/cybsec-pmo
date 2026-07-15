@@ -7,7 +7,7 @@ import {
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from '../keka.constants';
-import { upsertFailedSyncRecord } from '../utils/failed-sync-record.util';
+import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import { KekaAttendanceSummary } from '../keka.types';
 import { buildKekaDateWindow } from '../utils/keka-date-window';
 
@@ -165,6 +165,10 @@ export class AttendanceSyncService {
         status: KEKA_SYNC_STATUS.SUCCESS,
         payload: payload as Prisma.InputJsonValue,
       },
+    });
+    await resolveFailedSyncRecord(this.prisma, {
+      entityType: KEKA_ENTITY_TYPE.ATTENDANCE,
+      entityId,
     });
   }
 

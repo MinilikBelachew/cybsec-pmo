@@ -75,6 +75,7 @@ type ThresholdOutcome = {
   approvedBy: string | null;
   requestedBy: string | null;
   requestedAt: Date | null;
+  overrideReason: string | null;
   warnings: string[];
 };
 
@@ -719,6 +720,7 @@ export class ProjectTeamService {
             approvedBy: plan.thresholdOutcome.approvedBy,
             requestedBy: plan.thresholdOutcome.requestedBy,
             requestedAt: plan.thresholdOutcome.requestedAt,
+            overrideReason: plan.thresholdOutcome.overrideReason,
           },
           include: {
             requester: { select: { id: true, displayName: true } },
@@ -846,6 +848,7 @@ export class ProjectTeamService {
       summary.isOverAllocated,
       thresholdMessage,
       actorId,
+      dto.overrideReason,
     );
     warnings.push(...thresholdOutcome.warnings);
 
@@ -1019,6 +1022,7 @@ export class ProjectTeamService {
         endDate: nextEndDate
           ? nextEndDate.toISOString().slice(0, 10)
           : undefined,
+        overrideReason: dto.overrideReason,
       };
 
       this.validateAllocationInput(validationDto);
@@ -1048,6 +1052,7 @@ export class ProjectTeamService {
           true,
           thresholdMessage,
           actorId,
+          dto.overrideReason,
         );
         warnings.push(...thresholdOutcome.warnings);
       } else if (hoursOrPercentChanging) {
@@ -1056,6 +1061,7 @@ export class ProjectTeamService {
           false,
           '',
           actorId,
+          undefined,
         );
       }
     }
@@ -1096,6 +1102,7 @@ export class ProjectTeamService {
               approvedBy: thresholdOutcome.approvedBy,
               requestedBy: thresholdOutcome.requestedBy,
               requestedAt: thresholdOutcome.requestedAt,
+              overrideReason: thresholdOutcome.overrideReason,
               ...(thresholdOutcome.status === 'Pending'
                 ? { rejectionComment: null }
                 : {}),
@@ -1313,6 +1320,7 @@ export class ProjectTeamService {
         ? { id: allocation.requester.id, name: allocation.requester.displayName }
         : null,
       requestedAt: allocation.requestedAt?.toISOString() ?? null,
+      overrideReason: allocation.overrideReason ?? null,
       approvedBy: allocation.approver
         ? { id: allocation.approver.id, name: allocation.approver.displayName }
         : null,
@@ -1342,6 +1350,7 @@ export class ProjectTeamService {
     isOverAllocated: boolean,
     message: string,
     actorId: string,
+    overrideReasonInput?: string | null,
   ): ThresholdOutcome {
     if (!isOverAllocated) {
       return {
@@ -1349,6 +1358,7 @@ export class ProjectTeamService {
         approvedBy: actorId,
         requestedBy: null,
         requestedAt: null,
+        overrideReason: null,
         warnings: [],
       };
     }
@@ -1360,12 +1370,15 @@ export class ProjectTeamService {
       });
     }
 
+    const overrideReason = this.requireOverrideReason(overrideReasonInput);
+
     if (policies.thresholdMode === 'approve') {
       return {
         status: 'Pending',
         approvedBy: null,
         requestedBy: actorId,
         requestedAt: new Date(),
+        overrideReason,
         warnings: [
           `${message} Submitted for staffing approval.`,
         ],
@@ -1377,8 +1390,23 @@ export class ProjectTeamService {
       approvedBy: actorId,
       requestedBy: null,
       requestedAt: null,
-      warnings: [message],
+      overrideReason,
+      warnings: [`${message} Proceeding with override reason documented.`],
     };
+  }
+
+  private requireOverrideReason(value?: string | null): string {
+    const reason = value?.trim() ?? '';
+    if (reason.length < 10) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          overrideReason:
+            'Over-allocation requires an authorised override reason (at least 10 characters).',
+        },
+      });
+    }
+    return reason.slice(0, 500);
   }
 
   private async assertProjectInScope(

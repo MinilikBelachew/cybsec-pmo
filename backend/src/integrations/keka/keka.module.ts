@@ -2,6 +2,7 @@ import { DynamicModule, Module, Type } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../database/prisma.module';
+import { NotificationsModule } from '../../notifications/notifications.module';
 import kekaConfig from './config/keka.config';
 import { KekaHttpClient } from './client/keka-http.client';
 import { KekaMockController } from './mock/keka-mock.controller';
@@ -18,6 +19,11 @@ import { KekaSyncProcessor } from './sync/keka-sync.processor';
 import { KekaSyncScheduler } from './sync/keka-sync.scheduler';
 import { AllocationPushService } from './sync/allocation-push.service';
 import { TimesheetPushService } from './sync/timesheet-push.service';
+import { TimesheetReconcileService } from './sync/timesheet-reconcile.service';
+import {
+  FailedSyncRetryScheduler,
+  FailedSyncRetryService,
+} from './sync/failed-sync-retry.service';
 import { KekaIntegrationAdminService } from './keka-integration-admin.service';
 import { EmployeeUserLinkService } from './employee-user-link.service';
 import { KekaSyncController } from './controllers/keka-sync.controller';
@@ -44,6 +50,7 @@ export class KekaModule {
       imports: [
         ConfigModule.forFeature(kekaConfig),
         PrismaModule,
+        NotificationsModule,
         BullModule.registerQueue({ name: KEKA_SYNC_QUEUE }),
         BullModule.registerQueue({ name: LEAVE_BACKUP_QUEUE }),
       ],
@@ -63,6 +70,9 @@ export class KekaModule {
         KekaSyncScheduler,
         AllocationPushService,
         TimesheetPushService,
+        TimesheetReconcileService,
+        FailedSyncRetryService,
+        FailedSyncRetryScheduler,
         KekaIntegrationAdminService,
         EmployeeUserLinkService,
       ],
@@ -71,6 +81,7 @@ export class KekaModule {
         KekaHttpClient,
         AllocationPushService,
         TimesheetPushService,
+        TimesheetReconcileService,
         ProjectLinkService,
         ClientSyncService,
         KekaIntegrationAdminService,

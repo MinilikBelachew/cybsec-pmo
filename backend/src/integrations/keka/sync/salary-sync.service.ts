@@ -7,7 +7,7 @@ import {
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from '../keka.constants';
-import { upsertFailedSyncRecord } from '../utils/failed-sync-record.util';
+import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import { KekaEmployeeSalary, KekaPayCycle, KekaPayGroup } from '../keka.types';
 
 export type SalarySyncResult = {
@@ -460,6 +460,10 @@ export class SalarySyncService {
         status: KEKA_SYNC_STATUS.SUCCESS,
         payload: payload as Prisma.InputJsonValue,
       },
+    });
+    await resolveFailedSyncRecord(this.prisma, {
+      entityType,
+      entityId,
     });
   }
 

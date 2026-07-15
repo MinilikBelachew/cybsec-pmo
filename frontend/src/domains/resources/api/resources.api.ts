@@ -18,6 +18,10 @@ import type {
   UtilizationStatus,
   HolidayCalendarResponse,
 } from "../types/resources.types";
+import type {
+  AdminDepartmentListResponse,
+  QueryAdminDepartmentsParams,
+} from "@/domains/admin-directory/types/admin-directory.types";
 
 export type QueryTeamDirectoryParams = {
   departmentId?: string;
@@ -64,6 +68,53 @@ function appendQueryParams(
 
 export const resourcesApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    getAdminDepartments: builder.query<
+      AdminDepartmentListResponse,
+      QueryAdminDepartmentsParams | void
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        const p = params ?? {};
+        appendQueryParams(queryParams, {
+          search: p.search,
+          sortBy: p.sortBy,
+          sortOrder: p.sortOrder,
+          page: p.page,
+          limit: p.limit,
+          ...(p.isActive === undefined
+            ? {}
+            : { isActive: p.isActive ? "true" : "false" }),
+        });
+        const qs = queryParams.toString();
+        return `/resources/departments${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: [{ type: "Departments", id: "ADMIN_LIST" }],
+    }),
+
+    getAdminEmployees: builder.query<
+      TeamDirectoryResponse,
+      QueryTeamDirectoryParams | void
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        const p = params ?? {};
+        appendQueryParams(queryParams, {
+          departmentId: p.departmentId,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          search: p.search,
+          utilizationStatus: p.utilizationStatus,
+          sortBy: p.sortBy,
+          sortOrder: p.sortOrder,
+          page: p.page,
+          limit: p.limit,
+        });
+        const qs = queryParams.toString();
+        return `/resources/employees${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: [{ type: "TeamDirectory", id: "ADMIN_LIST" }],
+    }),
+
     getTeamDirectory: builder.query<TeamDirectoryResponse, QueryTeamDirectoryParams | void>({
       query: (params) => {
         const queryParams = new URLSearchParams();
@@ -364,6 +415,8 @@ export const resourcesApi = api.injectEndpoints({
 });
 
 export const {
+  useGetAdminDepartmentsQuery,
+  useGetAdminEmployeesQuery,
   useGetTeamDirectoryQuery,
   useGetTeamLeaveQuery,
   useGetEmployeeAttendanceQuery,

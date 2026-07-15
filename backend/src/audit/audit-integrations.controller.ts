@@ -22,8 +22,10 @@ import {
   KekaSyncStatusResponseDto,
   QueryFailedSyncRecordsDto,
   QueryKekaSyncLogsDto,
+  QueryTimesheetReconcileDto,
   RetryKekaSyncDto,
   RetryKekaSyncResultDto,
+  TimesheetReconcileResponseDto,
 } from '../integrations/keka/dto/keka-integration.dto';
 import { KekaIntegrationAdminService } from '../integrations/keka/keka-integration-admin.service';
 import { KekaSyncEnqueueResultDto } from '../integrations/keka/dto/keka-sync.dto';
@@ -155,5 +157,28 @@ export class AuditIntegrationsController {
   @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
   syncAll(): Promise<KekaSyncEnqueueResultDto> {
     return this.kekaSyncService.enqueueFullSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('timesheet-reconcile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TimesheetReconcileResponseDto })
+  reconcileTimesheets(
+    @Body() body: QueryTimesheetReconcileDto,
+  ): Promise<TimesheetReconcileResponseDto> {
+    return this.kekaIntegrationAdminService.reconcileTimesheets(body);
+  }
+
+  @CheckModulePermission('audit', 'view')
+  @Get('timesheet-reconcile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TimesheetReconcileResponseDto })
+  getTimesheetReconcile(
+    @Query() query: QueryTimesheetReconcileDto,
+  ): Promise<TimesheetReconcileResponseDto> {
+    return this.kekaIntegrationAdminService.reconcileTimesheets({
+      ...query,
+      notifyAdmins: false,
+    });
   }
 }

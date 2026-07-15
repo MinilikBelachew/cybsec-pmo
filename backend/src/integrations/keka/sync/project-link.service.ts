@@ -7,7 +7,7 @@ import {
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from '../keka.constants';
-import { upsertFailedSyncRecord } from '../utils/failed-sync-record.util';
+import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import { KekaPsaProject, KekaPsaTask } from '../keka.types';
 
 export type ProjectLinkResult = {
@@ -525,6 +525,10 @@ export class ProjectLinkService {
         status: KEKA_SYNC_STATUS.SUCCESS,
         payload: payload as Prisma.InputJsonValue,
       },
+    });
+    await resolveFailedSyncRecord(this.prisma, {
+      entityType,
+      entityId,
     });
   }
 

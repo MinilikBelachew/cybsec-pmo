@@ -691,6 +691,8 @@ model Allocation {
   approvedBy       String?   @map("approved_by") @db.Uuid
   requestedBy      String?   @map("requested_by") @db.Uuid
   requestedAt      DateTime? @map("requested_at") @db.Timestamptz
+  /// Required when over-allocation is allowed under warn/approve policy.
+  overrideReason   String?   @map("override_reason") @db.Text
   rejectionComment String?   @map("rejection_comment")
   kekaSyncedAt     DateTime? @map("keka_synced_at") @db.Timestamptz
   kekaSyncRef      String?   @map("keka_sync_ref") @db.VarChar(100)

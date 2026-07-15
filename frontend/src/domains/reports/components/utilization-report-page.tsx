@@ -18,15 +18,14 @@ import { PageHeader } from "@/shared/components/page-header";
 import { KpiStatCard, KPI_CARD_THEMES } from "@/shared/components/kpi-stat-card";
 import { DataTable } from "@/shared/components/data-table";
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
+import { EmployeeAvatar } from "@/shared/components/employee-avatar";
+import {
+  EmployeePickerSelect,
+  type EmployeePickerOption,
+} from "@/shared/components/employee-picker-select";
+import { FilterSelect } from "@/shared/components/filter-select";
 import { Button, buttonVariants } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { useGetDepartmentsQuery, useGetProjectsQuery } from "@/domains/projects";
@@ -39,7 +38,6 @@ import {
 import type { UtilisationEmployeeRow } from "../types/reports.types";
 import {
   formatPeriodLabel,
-  initials,
   RECONCILE_STATUS_CONFIG,
   UTILISATION_STATUS_CONFIG,
 } from "../utils/utilization-ui.config";
@@ -53,6 +51,9 @@ import {
 } from "./utilization-charts";
 
 type PeriodPreset = "this-month" | "last-30" | "last-90";
+
+/** Team directory API allows max 50 per page. */
+const EMPLOYEE_PAGE_SIZE = 50;
 
 function resolvePeriod(preset: PeriodPreset) {
   const end = new Date();
@@ -80,6 +81,13 @@ export function UtilizationReportPage() {
   const [preset, setPreset] = useState<PeriodPreset>("this-month");
   const [search, setSearch] = useState("");
   const [employeeId, setEmployeeId] = useState("");
+  const [selectedEmployee, setSelectedEmployee] =
+    useState<EmployeePickerOption | null>(null);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [employeePage, setEmployeePage] = useState(1);
+  const [employeeOptions, setEmployeeOptions] = useState<EmployeePickerOption[]>(
+    [],
+  );
   const [departmentId, setDepartmentId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
@@ -88,6 +96,7 @@ export function UtilizationReportPage() {
     { id: "billableUtilisation", desc: true },
   ]);
   const debouncedSearch = useDebounce(search, 300);
+  const debouncedEmployeeSearch = useDebounce(employeeSearch, 300);
   const period = useMemo(() => resolvePeriod(preset), [preset]);
 
   useEffect(() => {
@@ -114,13 +123,104 @@ export function UtilizationReportPage() {
   );
 
   const { data: departmentOptions = [] } = useGetDepartmentsQuery();
-  const { data: projectsData } = useGetProjectsQuery({ page: 1, limit: 100 });
-  const { data: teamDirectoryData } = useGetTeamDirectoryQuery({
-    page: 1,
-    limit: 100,
+  const { data: projectsData } = useGetProjectsQuery({ page: 1, limit: 200 });
+
+  useEffect(() => {
+    setEmployeePage(1);
+    setEmployeeOptions([]);
+  }, [debouncedEmployeeSearch, departmentId]);
+
+  const {
+    data: teamDirectoryData,
+    isLoading: isEmployeesLoading,
+    isFetching: isEmployeesFetching,
+  } = useGetTeamDirectoryQuery({
+    page: employeePage,
+    limit: EMPLOYEE_PAGE_SIZE,
+    search: debouncedEmployeeSearch.trim() || undefined,
+    departmentId: departmentId || undefined,
     sortBy: "name",
     sortOrder: "asc",
   });
+
+  useEffect(() => {
+    const members = teamDirectoryData?.members;
+    if (!members) return;
+
+    const mapped = members.map((member) => ({
+      id: member.id,
+      name: member.name,
+      profileImageUrl: member.profileImageUrl,
+      subtitle: `${member.department.name} · ${member.designation}`,
+    }));
+
+    setEmployeeOptions((prev) => {
+      if (employeePage === 1) return mapped;
+      const seen = new Set(prev.map((row) => row.id));
+      return [...prev, ...mapped.filter((row) => !seen.has(row.id))];
+    });
+  }, [employeePage, teamDirectoryData?.members]);
+
+  const employeeTotal = teamDirectoryData?.total ?? 0;
+  const hasMoreEmployees = employeeOptions.length < employeeTotal;
+  const isFetchingMoreEmployees =
+    isEmployeesFetching && employeePage > 1 && employeeOptions.length > 0;
+
+  const handleEmployeeChange = useCallback(
+    (next: string | null) => {
+      if (!next) {
+        setEmployeeId("");
+        setSelectedEmployee(null);
+        return;
+      }
+      const option =
+        employeeOptions.find((row) => row.id === next) ??
+        (selectedEmployee?.id === next ? selectedEmployee : null);
+      setEmployeeId(next);
+      setSelectedEmployee(option);
+    },
+    [employeeOptions, selectedEmployee],
+  );
+
+  const handleLoadMoreEmployees = useCallback(() => {
+    if (!hasMoreEmployees || isEmployeesFetching) return;
+    setEmployeePage((page) => page + 1);
+  }, [hasMoreEmployees, isEmployeesFetching]);
+
+  useEffect(() => {
+    if (!employeeId) return;
+    if (employeeOptions.some((option) => option.id === employeeId)) return;
+    if (selectedEmployee?.id === employeeId) return;
+    if (isEmployeesLoading || isEmployeesFetching) return;
+    setEmployeeId("");
+    setSelectedEmployee(null);
+  }, [
+    employeeId,
+    employeeOptions,
+    selectedEmployee,
+    isEmployeesLoading,
+    isEmployeesFetching,
+  ]);
+
+  const teamFilterOptions = useMemo(
+    () =>
+      departmentOptions.map((department) => ({
+        id: department.id,
+        label: department.name,
+        subtitle: department.code ? `Dept · ${department.code}` : "Department",
+      })),
+    [departmentOptions],
+  );
+
+  const projectFilterOptions = useMemo(
+    () =>
+      (projectsData?.data ?? []).map((project) => ({
+        id: project.id,
+        label: project.name,
+        subtitle: project.department?.name,
+      })),
+    [projectsData?.data],
+  );
 
   const { data, isLoading, isFetching, refetch } = useGetUtilisationReportQuery({
     ...baseFilters,
@@ -199,9 +299,12 @@ export function UtilizationReportPage() {
           const member = row.original;
           return (
             <div className="flex items-center gap-2.5 min-w-[180px]">
-              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-[10px] font-bold text-primary">
-                {initials(member.name)}
-              </span>
+              <EmployeeAvatar
+                name={member.name}
+                employeeId={member.employeeId}
+                size="sm"
+                className="rounded-full"
+              />
               <div className="min-w-0">
                 <p className="text-sm font-semibold truncate">{member.name}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
@@ -498,56 +601,43 @@ export function UtilizationReportPage() {
           />
         </div>
 
-        <Select
-          value={employeeId || "all"}
-          onValueChange={(value) => setEmployeeId(!value || value === "all" ? "" : value)}
-        >
-          <SelectTrigger size="sm" className="min-w-[160px]">
-            <SelectValue placeholder="All employees" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All employees</SelectItem>
-            {(teamDirectoryData?.members ?? []).map((member) => (
-              <SelectItem key={member.id} value={member.id}>
-                {member.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <EmployeePickerSelect
+          value={employeeId || null}
+          onValueChange={handleEmployeeChange}
+          options={employeeOptions}
+          selectedOption={selectedEmployee}
+          noneLabel="All employees"
+          searchable
+          remoteSearch
+          searchValue={employeeSearch}
+          onSearchChange={setEmployeeSearch}
+          searchPlaceholder="Search employee..."
+          onLoadMore={handleLoadMoreEmployees}
+          hasMore={hasMoreEmployees}
+          isLoading={isEmployeesLoading && employeeOptions.length === 0}
+          isFetchingMore={isFetchingMoreEmployees}
+          triggerClassName="min-w-[180px]"
+        />
 
-        <Select
-          value={departmentId || "all"}
-          onValueChange={(value) => setDepartmentId(!value || value === "all" ? "" : value)}
-        >
-          <SelectTrigger size="sm" className="min-w-[150px]">
-            <SelectValue placeholder="All teams" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All teams</SelectItem>
-            {departmentOptions.map((department) => (
-              <SelectItem key={department.id} value={department.id}>
-                {department.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <FilterSelect
+          value={departmentId || null}
+          onValueChange={(next) => setDepartmentId(next ?? "")}
+          options={teamFilterOptions}
+          noneLabel="All teams"
+          searchable
+          searchPlaceholder="Search team (department)..."
+          triggerClassName="min-w-[160px]"
+        />
 
-        <Select
-          value={projectId || "all"}
-          onValueChange={(value) => setProjectId(!value || value === "all" ? "" : value)}
-        >
-          <SelectTrigger size="sm" className="min-w-[160px]">
-            <SelectValue placeholder="All projects" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All projects</SelectItem>
-            {(projectsData?.data ?? []).map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <FilterSelect
+          value={projectId || null}
+          onValueChange={(next) => setProjectId(next ?? "")}
+          options={projectFilterOptions}
+          noneLabel="All projects"
+          searchable
+          searchPlaceholder="Search project..."
+          triggerClassName="min-w-[160px]"
+        />
 
         <Button
           variant="outline"
@@ -596,9 +686,11 @@ export function UtilizationReportPage() {
                 const status = UTILISATION_STATUS_CONFIG[row.status];
                 return (
                   <div key={row.employeeId} className="flex items-center gap-2.5">
-                    <span className="inline-flex size-7 items-center justify-center rounded-lg bg-primary/10 text-[9px] font-bold text-primary">
-                      {initials(row.name)}
-                    </span>
+                    <EmployeeAvatar
+                      name={row.name}
+                      employeeId={row.employeeId}
+                      size="xs"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-semibold truncate">{row.name}</p>
                       <p className={cn("text-[10px]", status.text)}>
@@ -614,11 +706,13 @@ export function UtilizationReportPage() {
           <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-3">
             <p className="text-sm font-bold">Keka reconciliation</p>
             <p className="text-xs text-muted-foreground">
-              Approved hours vs successfully synced Keka time entries on this page.
+              {data?.reconcileSource === "keka-live"
+                ? "Bi-directional: Cybsec approved hours vs hours pulled from Keka PSA."
+                : "Push acknowledgement only (Keka pull unavailable) — approved vs locally synced."}
             </p>
             {reconcileIssues.length === 0 ? (
               <p className="text-sm text-emerald-600 dark:text-emerald-400">
-                All visible rows match Keka sync status.
+                All visible rows match Keka.
               </p>
             ) : (
               reconcileIssues.slice(0, 5).map((row) => {
@@ -630,12 +724,19 @@ export function UtilizationReportPage() {
                   >
                     <span className="font-medium truncate">{row.name}</span>
                     <span className={cn("font-semibold shrink-0", reconcile.text)}>
-                      Δ {formatHours(Math.abs(row.reconcile.deltaHours))}
+                      {reconcile.label} · Δ {formatHours(Math.abs(row.reconcile.deltaHours))}
                     </span>
                   </div>
                 );
               })
             )}
+            {data?.reconcileSource === "keka-live" && reconcileIssues.length > 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                Local {formatHours(reconcileIssues[0]?.reconcile.approvedHours ?? 0)} vs Keka{" "}
+                {formatHours(reconcileIssues[0]?.reconcile.kekaRemoteHours ?? 0)} shown per row in
+                admin reconcile.
+              </p>
+            ) : null}
           </div>
         </div>
       </div>

@@ -9,6 +9,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AllocationPushService } from './sync/allocation-push.service';
 import { KekaSyncService } from './sync/keka-sync.service';
 import { TimesheetPushService } from './sync/timesheet-push.service';
+import { TimesheetReconcileService } from './sync/timesheet-reconcile.service';
 import {
   FailedSyncRecordListResponseDto,
   FailedSyncRecordRowDto,
@@ -18,7 +19,9 @@ import {
   KekaSyncStatusResponseDto,
   QueryFailedSyncRecordsDto,
   QueryKekaSyncLogsDto,
+  QueryTimesheetReconcileDto,
   RetryKekaSyncResultDto,
+  TimesheetReconcileResponseDto,
 } from './dto/keka-integration.dto';
 import { KEKA_ENTITY_TYPE, KEKA_SYNC_STATUS } from './keka.constants';
 import { KEKA_INTEGRATION } from '../../timesheets/timesheets.constants';
@@ -62,6 +65,11 @@ const SYNC_STATUS_ENTITIES: Array<{
     label: 'Projects',
     entityTypes: [KEKA_ENTITY_TYPE.PROJECT],
   },
+  {
+    key: 'timesheet',
+    label: 'Timesheets',
+    entityTypes: [KEKA_ENTITY_TYPE.TIMESHEET],
+  },
 ];
 
 @Injectable()
@@ -71,6 +79,7 @@ export class KekaIntegrationAdminService {
     private readonly timesheetPushService: TimesheetPushService,
     private readonly allocationPushService: AllocationPushService,
     private readonly kekaSyncService: KekaSyncService,
+    private readonly timesheetReconcileService: TimesheetReconcileService,
   ) {}
 
   async getSyncStatus(): Promise<KekaSyncStatusResponseDto> {
@@ -104,6 +113,44 @@ export class KekaIntegrationAdminService {
       lastFailedAt: lastFailed?.createdAt ?? null,
       unresolvedFailures,
       entities,
+    };
+  }
+
+  async reconcileTimesheets(
+    query: QueryTimesheetReconcileDto,
+  ): Promise<TimesheetReconcileResponseDto> {
+    const end = query.endDate
+      ? parseDateOnly(query.endDate)
+      : stripToday();
+    const start = query.startDate
+      ? parseDateOnly(query.startDate)
+      : daysAgo(end, 29);
+
+    if (start.getTime() > end.getTime()) {
+      throw new BadRequestException({
+        status: HttpStatus.BAD_REQUEST,
+        errors: { startDate: 'mustBeOnOrBeforeEndDate' },
+      });
+    }
+
+    const result = await this.timesheetReconcileService.reconcilePeriod({
+      start,
+      end,
+      projectId: query.projectId,
+      notifyAdmins: query.notifyAdmins ?? true,
+    });
+
+    return {
+      startDate: result.startDate,
+      endDate: result.endDate,
+      source: result.source,
+      pulledEntryCount: result.pulledEntryCount,
+      matchedCount: result.matchedCount,
+      pendingCount: result.pendingCount,
+      mismatchCount: result.mismatchCount,
+      unavailableCount: result.unavailableCount,
+      notifiedAdminCount: result.notifiedAdminCount,
+      mismatches: result.mismatches,
     };
   }
 
@@ -413,6 +460,10 @@ export class KekaIntegrationAdminService {
         return this.prisma.project.count({
           where: { kekaProjectId: { not: null } },
         });
+      case 'timesheet':
+        return this.prisma.timesheetApproval.count({
+          where: { kekaSyncedAt: { not: null } },
+        });
       default:
         return 0;
     }
@@ -478,4 +529,28 @@ export class KekaIntegrationAdminService {
       createdAt: row.createdAt,
     };
   }
+}
+
+function parseDateOnly(value: string): Date {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new BadRequestException({
+      status: HttpStatus.BAD_REQUEST,
+      errors: { date: 'invalidDate' },
+    });
+  }
+  return parsed;
+}
+
+function stripToday(): Date {
+  const today = new Date();
+  return new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  );
+}
+
+function daysAgo(end: Date, days: number): Date {
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - days);
+  return start;
 }

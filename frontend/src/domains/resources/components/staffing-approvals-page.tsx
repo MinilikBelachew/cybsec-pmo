@@ -132,6 +132,11 @@ export function StaffingApprovalsPage() {
             <p className="text-xs text-muted-foreground">
               {new Date(row.original.requestedAt).toLocaleString()}
             </p>
+            {row.original.overrideReason ? (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                Reason: {row.original.overrideReason}
+              </p>
+            ) : null}
           </div>
         ),
       },

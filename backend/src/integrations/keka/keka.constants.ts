@@ -40,3 +40,6 @@ export const KEKA_ENTITY_TYPE = {
   TIMESHEET: 'timesheet',
   ALLOCATION: 'allocation',
 } as const;
+
+/** Auto-retry ceiling for unresolved FailedSyncRecord rows (inbound + outbound). */
+export const KEKA_FAILED_SYNC_MAX_RETRIES = 5;

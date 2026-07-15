@@ -222,6 +222,19 @@ export type KekaTimeEntryPayload = {
   notes?: string;
 };
 
+/** GET /psa/timeentries — https://developers.keka.com/reference/get_psa-timeentries */
+export type KekaPsaTimesheetEntry = {
+  id?: string | null;
+  date: string;
+  employeeId?: string | null;
+  projectId?: string | null;
+  taskId?: string | null;
+  totalMinutes?: number | null;
+  comments?: string | null;
+  isBillable?: boolean | null;
+  status?: number | null;
+};
+
 /** PSA client — https://developers.keka.com/reference/get_psa-clients-1 */
 export type KekaPsaClientAddress = {
   addressLine1?: string | null;

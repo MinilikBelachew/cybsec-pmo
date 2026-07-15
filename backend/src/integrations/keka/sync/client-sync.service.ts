@@ -7,7 +7,7 @@ import {
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from '../keka.constants';
-import { upsertFailedSyncRecord } from '../utils/failed-sync-record.util';
+import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import {
   KekaCreateClientPayload,
   KekaPsaClient,
@@ -267,7 +267,7 @@ export class ClientSyncService {
     return email;
   }
 
-  private async logSuccess(entityId: string, payload: unknown) {
+  private async logSuccess(entityId: string, payload: unknown): Promise<void> {
     await this.prisma.kekaSyncLog.create({
       data: {
         entityType: KEKA_ENTITY_TYPE.CLIENT,
@@ -276,6 +276,10 @@ export class ClientSyncService {
         status: KEKA_SYNC_STATUS.SUCCESS,
         payload: payload as Prisma.InputJsonValue,
       },
+    });
+    await resolveFailedSyncRecord(this.prisma, {
+      entityType: KEKA_ENTITY_TYPE.CLIENT,
+      entityId,
     });
   }
 

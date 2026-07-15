@@ -84,3 +84,28 @@ export type KekaSyncStatusResponse = {
   unresolvedFailures: number;
   entities: KekaEntitySyncStatus[];
 };
+
+export type TimesheetReconcileMismatch = {
+  employeeId: string;
+  name: string;
+  departmentName: string;
+  kekaEmployeeId: string | null;
+  localApprovedHours: number;
+  kekaRemoteHours: number;
+  kekaSyncedHours: number;
+  deltaHours: number;
+  status: "matched" | "pending" | "mismatch" | "unavailable";
+};
+
+export type TimesheetReconcileResponse = {
+  startDate: string;
+  endDate: string;
+  source: "keka-live" | "local-push-ack";
+  pulledEntryCount: number;
+  matchedCount: number;
+  pendingCount: number;
+  mismatchCount: number;
+  unavailableCount: number;
+  notifiedAdminCount: number;
+  mismatches: TimesheetReconcileMismatch[];
+};

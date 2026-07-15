@@ -132,6 +132,7 @@ export interface AllocationApprovalRow {
   utilizationPercent: number;
   requestedBy: { id: string; name: string };
   requestedAt: string;
+  overrideReason?: string | null;
 }
 
 export interface AllocationApprovalListResponse {

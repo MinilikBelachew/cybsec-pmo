@@ -43,6 +43,10 @@ import {
 import { QueryHolidaysDto } from './dto/query-holidays.dto';
 import { HolidayCalendarListResponseDto } from './dto/holidays.dto';
 import { HolidaysService } from './holidays.service';
+import {
+  AdminDepartmentListResponseDto,
+  QueryAdminDepartmentsDto,
+} from './dto/admin-departments.dto';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -68,6 +72,26 @@ export class ResourcesController {
     @Query() query: QueryHolidaysDto,
   ): Promise<HolidayCalendarListResponseDto> {
     return this.holidaysService.listHolidays(query);
+  }
+
+  @CheckAbility('read', 'User')
+  @Get('departments')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: AdminDepartmentListResponseDto })
+  listAdminDepartments(
+    @Query() query: QueryAdminDepartmentsDto,
+  ): Promise<AdminDepartmentListResponseDto> {
+    return this.teamDirectoryService.listAdminDepartments(query);
+  }
+
+  @CheckAbility('read', 'User')
+  @Get('employees')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TeamDirectoryResponseDto })
+  listAdminEmployees(
+    @Query() query: QueryTeamDirectoryDto,
+  ): Promise<TeamDirectoryResponseDto> {
+    return this.teamDirectoryService.listAdminEmployees(query);
   }
 
   @CheckAbility('read', 'Team')

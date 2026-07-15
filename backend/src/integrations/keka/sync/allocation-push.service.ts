@@ -9,7 +9,7 @@ import {
 } from '../keka.constants';
 import { KekaBillingRole, KekaPagedResponse } from '../keka.types';
 import { ProjectLinkService } from './project-link.service';
-import { upsertFailedSyncRecord } from '../utils/failed-sync-record.util';
+import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 
 /** Keka allows 0–100, multiples of 10, plus 5. */
 const KEKA_ALLOCATION_PERCENTAGES = [
@@ -157,6 +157,11 @@ export class AllocationPushService {
           status: KEKA_SYNC_STATUS.SUCCESS,
           payload: payload as unknown as Prisma.InputJsonValue,
         },
+      });
+
+      await resolveFailedSyncRecord(this.prisma, {
+        entityType: KEKA_ENTITY_TYPE.ALLOCATION,
+        entityId: allocationId,
       });
 
       return ref;

@@ -221,6 +221,7 @@ export interface ProjectAllocation {
   status: string;
   requestedBy: { id: string; name: string } | null;
   requestedAt: string | null;
+  overrideReason?: string | null;
   approvedBy: { id: string; name: string } | null;
   kekaSyncedAt: string | null;
   employee: {
@@ -265,6 +266,7 @@ export interface PendingTeamMember {
   endDate?: string;
   remainingHours: number;
   isOverAllocated?: boolean;
+  overrideReason?: string;
 }
 
 export interface GetTeamCandidatesParams {
@@ -283,6 +285,7 @@ export interface CreateProjectTeamPayload {
     percent?: number;
     startDate: string;
     endDate?: string;
+    overrideReason?: string;
   }>;
 }
 
@@ -313,6 +316,7 @@ export interface UpdateProjectTeamPayload {
   backupEmployeeId?: string | null;
   startDate?: string;
   endDate?: string | null;
+  overrideReason?: string;
 }
 
 export interface AllocationDateIssue {

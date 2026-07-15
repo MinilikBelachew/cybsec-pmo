@@ -133,6 +133,9 @@ function toAllocationPayload(members: PendingTeamMember[]) {
       : { hours: member.hoursPerWeek }),
     startDate: member.startDate,
     endDate: member.endDate,
+    ...(member.isOverAllocated && member.overrideReason?.trim()
+      ? { overrideReason: member.overrideReason.trim() }
+      : {}),
   }));
 }
 
@@ -428,6 +431,17 @@ export function CreateProjectSheet({
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
       const membersToSave = mergeTeamMembers(pendingTeamMembers, draftMembers);
+      const missingOverride = membersToSave.find(
+        (member) =>
+          member.isOverAllocated &&
+          (member.overrideReason?.trim().length ?? 0) < 10,
+      );
+      if (missingOverride) {
+        toast.error(
+          `Over-allocation for ${missingOverride.name} needs an override reason (at least 10 characters).`,
+        );
+        return;
+      }
       const newMilestones = toDraftMilestonePayload(currentMilestoneDrafts);
       let targetProjectId = project?.id;
 

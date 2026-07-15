@@ -24,7 +24,16 @@ import {
 
 @Controller()
 export class KekaMockController {
-  private readonly pushedTimeEntries: unknown[] = [];
+  private readonly pushedTimeEntries: Array<{
+    id: string;
+    date: string;
+    employeeId: string;
+    projectId: string | null;
+    taskId: string | null;
+    totalMinutes: number;
+    comments: string | null;
+    isBillable: boolean;
+  }> = [];
   private readonly pushedClients: Array<{ id: string; body: unknown }> = [];
   private readonly mockClients: Array<{
     id: string;
@@ -193,13 +202,92 @@ export class KekaMockController {
     @Param('employeeId') employeeId: string,
     @Body() body: unknown,
   ): { succeeded: true; data: { id: string; employeeId: string } } {
-    const entry = {
-      id: `TE-${this.pushedTimeEntries.length + 1}`,
-      employeeId,
-      body,
-    };
-    this.pushedTimeEntries.push(entry);
-    return { succeeded: true, data: { id: entry.id, employeeId } };
+    const rows = Array.isArray(body) ? body : [body];
+    const createdIds: string[] = [];
+
+    for (const row of rows) {
+      const item = (row ?? {}) as Record<string, unknown>;
+      const id = `TE-${this.pushedTimeEntries.length + 1}`;
+      const minutesRaw = item.numberOfMinutes ?? item.totalMinutes ?? item.minutes;
+      const totalMinutes = Number(minutesRaw ?? 0);
+      this.pushedTimeEntries.push({
+        id,
+        date: String(item.date ?? new Date().toISOString()),
+        employeeId,
+        projectId: typeof item.projectId === 'string' ? item.projectId : null,
+        taskId: typeof item.taskId === 'string' ? item.taskId : null,
+        totalMinutes: Number.isFinite(totalMinutes) ? totalMinutes : 0,
+        comments:
+          typeof item.comment === 'string'
+            ? item.comment
+            : typeof item.comments === 'string'
+              ? item.comments
+              : null,
+        isBillable: item.isBillable !== false,
+      });
+      createdIds.push(id);
+    }
+
+    const primaryId = createdIds[0] ?? `TE-${this.pushedTimeEntries.length + 1}`;
+    return { succeeded: true, data: { id: primaryId, employeeId } };
+  }
+
+  @Get('keka-mock/api/v1/psa/timeentries')
+  listTimeEntries(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('employeeIds') employeeIds?: string,
+    @Query('projectIds') projectIds?: string,
+    @Query('pageNumber') pageNumber = '1',
+    @Query('pageSize') pageSize = '100',
+  ): KekaPagedResponse<{
+    id: string;
+    date: string;
+    employeeId: string;
+    projectId: string | null;
+    taskId: string | null;
+    totalMinutes: number;
+    comments: string | null;
+    isBillable: boolean;
+    status: number;
+  }> {
+    const fromDate = from ? parseIsoDate(from) : null;
+    const toDate = to ? parseIsoDate(to) : null;
+    const employeeFilter = new Set(
+      (employeeIds ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    const projectFilter = new Set(
+      (projectIds ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+
+    const filtered = this.pushedTimeEntries.filter((entry) => {
+      const entryDate = parseIsoDate(entry.date);
+      if (fromDate && entryDate && entryDate < fromDate) return false;
+      if (toDate && entryDate && entryDate > toDate) return false;
+      if (employeeFilter.size > 0 && !employeeFilter.has(entry.employeeId)) {
+        return false;
+      }
+      if (
+        projectFilter.size > 0 &&
+        (!entry.projectId || !projectFilter.has(entry.projectId))
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    return buildKekaPagedResponse(
+      filtered.map((entry) => ({ ...entry, status: 1 })),
+      Number(pageNumber) || 1,
+      Number(pageSize) || 100,
+      '/api/v1/psa/timeentries',
+    );
   }
 
   private readonly pushedAllocations: unknown[] = [];

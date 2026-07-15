@@ -25,6 +25,10 @@ import {
   TeamLeaveRowDto,
 } from './dto/team-directory.dto';
 import {
+  AdminDepartmentListResponseDto,
+  QueryAdminDepartmentsDto,
+} from './dto/admin-departments.dto';
+import {
   buildAvailabilitySummary,
   allocationWeeklyHours,
   isAllocationOverlappingWindow,
@@ -96,6 +100,23 @@ export class TeamDirectoryService {
     query: QueryTeamDirectoryDto,
     caslUser: CaslUserContext,
   ): Promise<TeamDirectoryResponseDto> {
+    return this.buildDirectoryResponse(
+      query,
+      this.recordScopeWhere.teamDirectoryEmployeeWhere(caslUser),
+    );
+  }
+
+  /** Admin Directory: all active employees (gated by User read, not Team scope). */
+  async listAdminEmployees(
+    query: QueryTeamDirectoryDto,
+  ): Promise<TeamDirectoryResponseDto> {
+    return this.buildDirectoryResponse(query, {});
+  }
+
+  private async buildDirectoryResponse(
+    query: QueryTeamDirectoryDto,
+    employeeScope: Prisma.EmployeeWhereInput,
+  ): Promise<TeamDirectoryResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const sortBy = query.sortBy ?? 'name';
@@ -106,8 +127,6 @@ export class TeamDirectoryService {
       query.startDate,
       query.endDate,
     );
-
-    const employeeScope = this.recordScopeWhere.teamDirectoryEmployeeWhere(caslUser);
 
     const employees = await this.prisma.employee.findMany({
       where: {
@@ -561,6 +580,88 @@ export class TeamDirectoryService {
       firstInAt: row.firstInAt?.toISOString() ?? null,
       lastOutAt: row.lastOutAt?.toISOString() ?? null,
       syncedAt: row.syncedAt.toISOString(),
+    };
+  }
+
+  async listAdminDepartments(
+    query: QueryAdminDepartmentsDto,
+  ): Promise<AdminDepartmentListResponseDto> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const sortBy = query.sortBy ?? 'name';
+    const sortOrder = query.sortOrder ?? 'asc';
+    const search = query.search?.trim();
+
+    const where: Prisma.DepartmentWhereInput = {
+      ...(query.isActive === undefined ? {} : { isActive: query.isActive }),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { code: { contains: search, mode: 'insensitive' } },
+              { kekaDepartmentId: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const rows = await this.prisma.department.findMany({
+      where,
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        kekaDepartmentId: true,
+        isActive: true,
+        createdAt: true,
+        _count: {
+          select: {
+            employees: true,
+            projects: true,
+          },
+        },
+      },
+    });
+
+    const dir = sortOrder === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      let cmp = 0;
+      switch (sortBy) {
+        case 'code':
+          cmp = a.code.localeCompare(b.code);
+          break;
+        case 'employeeCount':
+          cmp = a._count.employees - b._count.employees;
+          break;
+        case 'createdAt':
+          cmp = a.createdAt.getTime() - b.createdAt.getTime();
+          break;
+        case 'name':
+        default:
+          cmp = a.name.localeCompare(b.name);
+      }
+      return cmp * dir;
+    });
+
+    const total = rows.length;
+    const start = (page - 1) * limit;
+    const pageRows = rows.slice(start, start + limit);
+
+    return {
+      data: pageRows.map((row) => ({
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        kekaDepartmentId: row.kekaDepartmentId,
+        isActive: row.isActive,
+        employeeCount: row._count.employees,
+        projectCount: row._count.projects,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 0,
     };
   }
 }

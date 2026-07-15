@@ -281,3 +281,90 @@ export class KekaSyncStatusResponseDto {
   @ApiProperty({ type: [KekaEntitySyncStatusDto] })
   entities: KekaEntitySyncStatusDto[];
 }
+
+export class QueryTimesheetReconcileDto {
+  @ApiPropertyOptional({ example: '2026-07-01' })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-07-31' })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
+
+  @ApiPropertyOptional({
+    description: 'When true, notify integration admins if mismatches are found',
+    default: true,
+  })
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  notifyAdmins?: boolean;
+}
+
+export class TimesheetReconcileEmployeeRowDto {
+  @ApiProperty()
+  employeeId: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty()
+  departmentName: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  kekaEmployeeId: string | null;
+
+  @ApiProperty()
+  localApprovedHours: number;
+
+  @ApiProperty()
+  kekaRemoteHours: number;
+
+  @ApiProperty()
+  kekaSyncedHours: number;
+
+  @ApiProperty()
+  deltaHours: number;
+
+  @ApiProperty({ enum: ['matched', 'pending', 'mismatch', 'unavailable'] })
+  status: 'matched' | 'pending' | 'mismatch' | 'unavailable';
+}
+
+export class TimesheetReconcileResponseDto {
+  @ApiProperty()
+  startDate: string;
+
+  @ApiProperty()
+  endDate: string;
+
+  @ApiProperty({ enum: ['keka-live', 'local-push-ack'] })
+  source: 'keka-live' | 'local-push-ack';
+
+  @ApiProperty()
+  pulledEntryCount: number;
+
+  @ApiProperty()
+  matchedCount: number;
+
+  @ApiProperty()
+  pendingCount: number;
+
+  @ApiProperty()
+  mismatchCount: number;
+
+  @ApiProperty()
+  unavailableCount: number;
+
+  @ApiProperty()
+  notifiedAdminCount: number;
+
+  @ApiProperty({ type: [TimesheetReconcileEmployeeRowDto] })
+  mismatches: TimesheetReconcileEmployeeRowDto[];
+}

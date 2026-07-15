@@ -7,7 +7,7 @@ import {
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from '../keka.constants';
-import { upsertFailedSyncRecord } from '../utils/failed-sync-record.util';
+import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import {
   isKekaEmployeeActive,
   mapKekaEmployeeFields,
@@ -185,6 +185,10 @@ export class EmployeeSyncService {
         status: KEKA_SYNC_STATUS.SUCCESS,
         payload: payload as Prisma.InputJsonValue,
       },
+    });
+    await resolveFailedSyncRecord(this.prisma, {
+      entityType: KEKA_ENTITY_TYPE.EMPLOYEE,
+      entityId,
     });
   }
 

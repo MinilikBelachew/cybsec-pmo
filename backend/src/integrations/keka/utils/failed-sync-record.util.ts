@@ -61,6 +61,33 @@ export async function upsertFailedSyncRecord(
 }
 
 /**
+ * Mark unresolved FailedSyncRecord rows resolved after a successful sync of
+ * the same entity type + entity id (inbound or outbound).
+ */
+export async function resolveFailedSyncRecord(
+  prisma: PrismaService,
+  input: {
+    entityType: string;
+    entityId: string;
+    resolvedBy?: string | null;
+  },
+): Promise<void> {
+  await prisma.failedSyncRecord.updateMany({
+    where: {
+      integration: KEKA_INTEGRATION,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      isResolved: false,
+    },
+    data: {
+      isResolved: true,
+      resolvedAt: new Date(),
+      ...(input.resolvedBy ? { resolvedBy: input.resolvedBy } : {}),
+    },
+  });
+}
+
+/**
  * Backfill FailedSyncRecord rows from failed KekaSyncLog entries so the
  * Failed records tab shows inbound sync failures that only wrote to the log.
  */

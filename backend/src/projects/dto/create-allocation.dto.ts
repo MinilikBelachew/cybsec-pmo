@@ -50,6 +50,16 @@ export class CreateAllocationDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({
+    example: 'Client go-live surge — approved by PMO Lead',
+    description:
+      'Required when assignment exceeds weekly capacity under warn/approve threshold policy (min 10 chars).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  overrideReason?: string;
 }
 
 export class CreateProjectTeamDto {

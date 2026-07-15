@@ -6,6 +6,7 @@ import type {
   KekaSyncLogsResponse,
   KekaSyncStatusResponse,
   RetryKekaSyncResult,
+  TimesheetReconcileResponse,
 } from "../types/integrations.types";
 
 
@@ -16,6 +17,13 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync-status",
       }),
       providesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    getKekaTimesheetReconcile: builder.query<TimesheetReconcileResponse, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/timesheet-reconcile",
+      }),
+      providesTags: ["KekaTimesheetReconcile"],
     }),
 
     getKekaSyncLogs: builder.query<KekaSyncLogsResponse, KekaSyncLogsQuery>({
@@ -122,12 +130,42 @@ export const integrationsApi = api.injectEndpoints({
       }),
       invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "HolidayCalendars"],
     }),
+
+    reconcileKekaTimesheets: builder.mutation<
+      TimesheetReconcileResponse,
+      { startDate?: string; endDate?: string; notifyAdmins?: boolean } | void
+    >({
+      query: (body) => ({
+        url: "/audit/integrations/keka/timesheet-reconcile",
+        method: "POST",
+        body: {
+          notifyAdmins: true,
+          ...(body ?? {}),
+        },
+      }),
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "UtilisationReport"],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          dispatch(
+            integrationsApi.util.updateQueryData(
+              "getKekaTimesheetReconcile",
+              undefined,
+              () => data,
+            ),
+          );
+        } catch {
+          // Leave cached reconcile snapshot unchanged on failure.
+        }
+      },
+    }),
   }),
   overrideExisting: process.env.NODE_ENV === "development",
 });
 
 export const {
   useGetKekaSyncStatusQuery,
+  useGetKekaTimesheetReconcileQuery,
   useGetKekaSyncLogsQuery,
   useGetFailedSyncRecordsQuery,
   useRetryKekaSyncMutation,
@@ -139,4 +177,5 @@ export const {
   useTriggerKekaClientsSyncMutation,
   useTriggerKekaProjectsSyncMutation,
   useTriggerKekaFullSyncMutation,
+  useReconcileKekaTimesheetsMutation,
 } = integrationsApi;

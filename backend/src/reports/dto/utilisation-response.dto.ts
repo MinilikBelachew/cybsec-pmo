@@ -30,14 +30,27 @@ export class UtilisationReconcileDto {
   @ApiProperty()
   approvedHours: number;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Hours locally marked as pushed to Keka (kekaSyncedAt)',
+  })
   kekaSyncedHours: number;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Hours pulled from Keka PSA timeentries (0 when pull unavailable)',
+  })
+  kekaRemoteHours: number;
+
+  @ApiProperty({
+    description:
+      'approvedHours − kekaRemoteHours when live; otherwise approvedHours − kekaSyncedHours',
+  })
   deltaHours: number;
 
-  @ApiProperty({ enum: ['matched', 'pending', 'mismatch'] })
-  status: 'matched' | 'pending' | 'mismatch';
+  @ApiProperty({ enum: ['matched', 'pending', 'mismatch', 'unavailable'] })
+  status: 'matched' | 'pending' | 'mismatch' | 'unavailable';
+
+  @ApiProperty({ enum: ['keka-live', 'local-push-ack'] })
+  source: 'keka-live' | 'local-push-ack';
 }
 
 export class UtilisationEmployeeRowDto {
@@ -149,4 +162,7 @@ export class UtilisationReportResponseDto {
 
   @ApiProperty()
   total: number;
+
+  @ApiPropertyOptional({ enum: ['keka-live', 'local-push-ack'] })
+  reconcileSource?: 'keka-live' | 'local-push-ack';
 }
