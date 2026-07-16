@@ -49,6 +49,7 @@ interface ProjectTeamSectionProps {
   pendingMembers: PendingTeamMember[];
   onPendingMembersChange: (members: PendingTeamMember[]) => void;
   canEdit?: boolean;
+  /** @deprecated Department staffing policy now controls candidate filtering. */
   filterByDepartment?: boolean;
   variant?: "form" | "workspace";
 }
@@ -252,11 +253,12 @@ export const ProjectTeamSection = forwardRef<
     pendingMembers,
     onPendingMembersChange,
     canEdit = true,
-    filterByDepartment = false,
+    filterByDepartment: _filterByDepartment = false,
     variant = "form",
   },
   ref,
 ) {
+  void _filterByDepartment;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [checkedCandidatesMap, setCheckedCandidatesMap] = useState<Record<string, TeamCandidate>>({});
@@ -319,31 +321,41 @@ export const ProjectTeamSection = forwardRef<
     [allocationDateIssues?.issues],
   );
 
+  const { data: allocationPolicy } = useGetAllocationPolicyQuery();
+  const { data: designationOptionsData } = useGetDesignationOptionsQuery();
+  const designationOptions = designationOptionsData?.options ?? [];
+  const { data: departments = [] } = useGetDepartmentsQuery();
+  const thresholdMode = allocationPolicy?.thresholdMode ?? "warn";
+  const departmentStaffingMode = allocationPolicy?.departmentStaffingMode ?? "off";
+  const staffingBlocksCandidates = departmentStaffingMode === "block";
+  const staffingWarnsCandidates = departmentStaffingMode === "warn";
+
+  const projectDepartmentCode = useMemo(() => {
+    if (!departmentId) return "";
+    return departments.find((dept) => dept.id === departmentId)?.code ?? "";
+  }, [departmentId, departments]);
+
+  const needsDepartmentForCandidates =
+    staffingBlocksCandidates && !projectId && !departmentId;
+
   const candidateQuery = useMemo(
     () => ({
-      departmentId: filterByDepartment && departmentId ? departmentId : undefined,
+      // Used by the API to resolve project department for staffing rules
+      // (create flow) or ignored when projectId already carries the department.
+      departmentId: departmentId || undefined,
       projectId: projectId ?? undefined,
       search: debouncedSearch || undefined,
       ...(hasPlanningWindow
         ? { startDate: planningStart, endDate: planningEnd }
         : {}),
     }),
-    [departmentId, filterByDepartment, projectId, debouncedSearch, planningStart, planningEnd, hasPlanningWindow],
+    [departmentId, projectId, debouncedSearch, planningStart, planningEnd, hasPlanningWindow],
   );
 
   const { data: candidates = [], isLoading: loadingCandidates } =
-    useGetTeamCandidatesQuery(candidateQuery, { skip: !hasPlanningWindow });
-
-  const { data: allocationPolicy } = useGetAllocationPolicyQuery();
-  const { data: designationOptionsData } = useGetDesignationOptionsQuery();
-  const designationOptions = designationOptionsData?.options ?? [];
-  const { data: departments = [] } = useGetDepartmentsQuery();
-  const thresholdMode = allocationPolicy?.thresholdMode ?? "warn";
-
-  const projectDepartmentCode = useMemo(() => {
-    if (!departmentId) return "";
-    return departments.find((dept) => dept.id === departmentId)?.code ?? "";
-  }, [departmentId, departments]);
+    useGetTeamCandidatesQuery(candidateQuery, {
+      skip: !hasPlanningWindow || needsDepartmentForCandidates,
+    });
 
   const assignedEmployeeIds = useMemo(() => {
     const ids = new Set<string>();
@@ -352,9 +364,14 @@ export const ProjectTeamSection = forwardRef<
     return ids;
   }, [existingTeam, pendingMembers]);
 
-  const availableCandidates = candidates.filter(
-    (candidate) => !assignedEmployeeIds.has(candidate.employeeId),
-  );
+  const availableCandidates = candidates.filter((candidate) => {
+    if (assignedEmployeeIds.has(candidate.employeeId)) return false;
+    // Only block mode hides cross-department employees from the picker.
+    if (staffingBlocksCandidates && !candidate.departmentStaffingAllowed) {
+      return false;
+    }
+    return true;
+  });
 
   const backupOptions = useMemo(
     () =>
@@ -908,6 +925,39 @@ export const ProjectTeamSection = forwardRef<
         </p>
       )}
 
+      {hasPlanningWindow && needsDepartmentForCandidates && canEdit && (
+        <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          Select a project department above to load team members allowed by the blocking
+          department staffing policy.
+        </p>
+      )}
+
+      {hasPlanningWindow &&
+        staffingBlocksCandidates &&
+        (projectId || departmentId) &&
+        canEdit && (
+          <p className="text-[11px] text-muted-foreground">
+            Team picker only lists employees allowed by the blocking department staffing policy
+            {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+              ? " (project department plus allow-listed departments)"
+              : " (same department only)"}
+            .
+          </p>
+        )}
+
+      {hasPlanningWindow &&
+        staffingWarnsCandidates &&
+        (projectId || departmentId) &&
+        canEdit && (
+          <p className="text-[11px] text-muted-foreground">
+            All employees are listed. Cross-department selections show a warning based on{" "}
+            {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+              ? "the allow-list matrix (project department plus allowed departments)"
+              : "same-department-only rules"}
+            .
+          </p>
+        )}
+
       {projectId && hasPlanningWindow && allocationIssueMessages.length > 0 && (
         <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 dark:border-amber-900/40 dark:bg-amber-950/30">
           <div className="flex items-start gap-2">
@@ -1278,7 +1328,12 @@ export const ProjectTeamSection = forwardRef<
             >
               <PopoverTrigger
                 type="button"
-                disabled={!hasPlanningWindow || loadingCandidates || (availableCandidates.length === 0 && !searchVal)}
+                disabled={
+                  !hasPlanningWindow ||
+                  needsDepartmentForCandidates ||
+                  loadingCandidates ||
+                  (availableCandidates.length === 0 && !searchVal)
+                }
                 className={cn(
                   "flex w-full min-h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm dark:border-white/[0.08] dark:bg-zinc-950",
                   "hover:border-slate-300 dark:hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-50",
@@ -1287,13 +1342,15 @@ export const ProjectTeamSection = forwardRef<
                 <span className="text-muted-foreground">
                   {!hasPlanningWindow
                     ? "Set project dates first"
-                    : loadingCandidates
-                      ? "Loading employees..."
-                      : (availableCandidates.length === 0 && !searchVal)
-                        ? "No available employees"
-                        : checkedCandidates.length > 0
-                          ? `${checkedCandidates.length} selected — configure allocation below`
-                          : "Select employees..."}
+                    : needsDepartmentForCandidates
+                      ? "Select project department first"
+                      : loadingCandidates
+                        ? "Loading employees..."
+                        : (availableCandidates.length === 0 && !searchVal)
+                          ? "No available employees"
+                          : checkedCandidates.length > 0
+                            ? `${checkedCandidates.length} selected — configure allocation below`
+                            : "Select employees..."}
                 </span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </PopoverTrigger>
@@ -1367,10 +1424,13 @@ export const ProjectTeamSection = forwardRef<
                                 On leave: {formatLeaveRanges(candidate.upcomingLeave)}
                               </p>
                             )}
-                            {allocationPolicy?.departmentStaffingMode !== "off" &&
+                            {staffingWarnsCandidates &&
                               !candidate.departmentStaffingAllowed && (
-                                <p className="mt-1 text-[11px] text-amber-600">
-                                  Outside allowed project department
+                                <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                                  <AlertTriangle className="size-3 shrink-0" />
+                                  {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+                                    ? "Not in the project department or allow-listed departments"
+                                    : "Not in the selected project department"}
                                 </p>
                               )}
                           </div>
@@ -1443,7 +1503,9 @@ export const ProjectTeamSection = forwardRef<
                         {departmentMismatch && (
                           <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
                             <AlertTriangle className="size-3" />
-                            Cross-department assignment
+                            {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+                              ? "Not in the project department or allow-listed departments"
+                              : "Not in the selected project department"}
                           </p>
                         )}
                         </div>
