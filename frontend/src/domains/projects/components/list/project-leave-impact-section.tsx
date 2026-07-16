@@ -6,14 +6,18 @@ import Link from "next/link";
 import {
   useGetProjectLeaveImpactsQuery,
   useApplyLeaveBackupMutation,
+  useGetProjectTeamQuery,
+  useSetAllocationBackupMutation,
   type LeaveImpactRow,
 } from "@/domains/projects";
 import { Button } from "@/shared/ui/button";
+import { EmployeePickerSelect } from "@/shared/components/employee-picker-select";
 import { toast } from "react-hot-toast";
 import { cn } from "@/shared/utils/cn";
 
 interface ProjectLeaveImpactSectionProps {
   projectId: string;
+  canEdit?: boolean;
 }
 
 const INITIAL_VISIBLE_GROUPS = 3;
@@ -23,6 +27,7 @@ type GroupedLeaveImpact = {
   key: string;
   assignee: LeaveImpactRow["assignee"];
   leave: LeaveImpactRow["leave"];
+  allocationId: string | null;
   tasks: Array<{
     rowId: string;
     taskId: string;
@@ -33,7 +38,7 @@ type GroupedLeaveImpact = {
     downstreamTaskCount: number;
     isCritical: boolean;
     isCriticalAllocation: boolean;
-    hasBackup: boolean;
+    hasBackupConfigured: boolean;
     backupOwnerName: string | null;
   }>;
   maxSlip: number;
@@ -58,7 +63,7 @@ function groupLeaveImpactRows(rows: LeaveImpactRow[]): GroupedLeaveImpact[] {
       downstreamTaskCount: row.task.downstreamTaskCount,
       isCritical: row.isCritical,
       isCriticalAllocation: row.isCriticalAllocation,
-      hasBackup: row.hasBackup,
+      hasBackupConfigured: row.hasBackup,
       backupOwnerName: row.task.backupOwnerName,
     };
 
@@ -67,6 +72,7 @@ function groupLeaveImpactRows(rows: LeaveImpactRow[]): GroupedLeaveImpact[] {
         key,
         assignee: row.assignee,
         leave: row.leave,
+        allocationId: row.allocationId,
         tasks: [taskEntry],
         maxSlip: row.task.estimatedDelayDays,
         criticalCount: row.isCritical ? 1 : 0,
@@ -77,6 +83,9 @@ function groupLeaveImpactRows(rows: LeaveImpactRow[]): GroupedLeaveImpact[] {
 
     if (!existing.tasks.some((task) => task.taskId === taskEntry.taskId)) {
       existing.tasks.push(taskEntry);
+    }
+    if (!existing.allocationId && row.allocationId) {
+      existing.allocationId = row.allocationId;
     }
     existing.maxSlip = Math.max(existing.maxSlip, row.task.estimatedDelayDays);
     if (row.isCritical) {
@@ -90,13 +99,31 @@ function groupLeaveImpactRows(rows: LeaveImpactRow[]): GroupedLeaveImpact[] {
   return [...groups.values()].sort((a, b) => b.maxSlip - a.maxSlip);
 }
 
-export function ProjectLeaveImpactSection({ projectId }: ProjectLeaveImpactSectionProps) {
-  const { data, isLoading } = useGetProjectLeaveImpactsQuery(projectId);
+export function ProjectLeaveImpactSection({
+  projectId,
+  canEdit = false,
+}: ProjectLeaveImpactSectionProps) {
+  const { data, isLoading, refetch: refetchLeaveImpacts } =
+    useGetProjectLeaveImpactsQuery(projectId);
+  const { data: projectTeam = [] } = useGetProjectTeamQuery(projectId);
   const [applyLeaveBackup, { isLoading: isApplying }] = useApplyLeaveBackupMutation();
+  const [setAllocationBackup, { isLoading: isSettingBackup }] =
+    useSetAllocationBackupMutation();
   const [expanded, setExpanded] = useState(false);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_GROUPS);
 
   const groups = useMemo(() => groupLeaveImpactRows(data?.rows ?? []), [data?.rows]);
+
+  const teamBackupOptions = useMemo(
+    () =>
+      projectTeam.map((member) => ({
+        id: member.employeeId,
+        name: member.employee.name,
+        profileImageUrl: member.employee.profileImageUrl,
+        subtitle: `${member.employee.department.name} · ${member.employee.designation}`,
+      })),
+    [projectTeam],
+  );
 
   if (isLoading) {
     return (
@@ -124,8 +151,31 @@ export function ProjectLeaveImpactSection({ projectId }: ProjectLeaveImpactSecti
     try {
       const result = await applyLeaveBackup({ projectId, taskId }).unwrap();
       toast.success(`Task reassigned to ${result.ownerName ?? "backup resource"}.`);
+      refetchLeaveImpacts();
     } catch {
       toast.error("Could not assign backup to this task.");
+    }
+  };
+
+  const handleBackupChange = async (
+    allocationId: string,
+    assigneeEmployeeId: string,
+    backupEmployeeId: string | null,
+  ) => {
+    if (backupEmployeeId === assigneeEmployeeId) {
+      toast.error("Backup cannot be the same as the primary resource.");
+      return;
+    }
+    try {
+      await setAllocationBackup({
+        projectId,
+        allocationId,
+        backupEmployeeId,
+      }).unwrap();
+      toast.success(backupEmployeeId ? "Backup resource assigned." : "Backup removed.");
+      refetchLeaveImpacts();
+    } catch {
+      toast.error("Failed to update backup resource.");
     }
   };
 
@@ -184,7 +234,10 @@ export function ProjectLeaveImpactSection({ projectId }: ProjectLeaveImpactSecti
               group.assignee.backupEmployeeName;
             const showCriticalAllocation = group.tasks.some((task) => task.isCriticalAllocation);
             const showCriticalTask = group.tasks.some((task) => task.isCritical);
-            const needsBackup = group.criticalWithoutBackup > 0;
+            const needsBackup = !group.assignee.backupEmployeeId;
+            const backupOptionsForAssignee = teamBackupOptions.filter(
+              (option) => option.id !== group.assignee.employeeId,
+            );
 
             return (
               <div
@@ -219,40 +272,65 @@ export function ProjectLeaveImpactSection({ projectId }: ProjectLeaveImpactSecti
                   )}
                 </div>
 
-                <ul className="mt-2 space-y-1.5">
+                {canEdit && needsBackup && group.allocationId && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <label className="text-[11px] font-medium text-muted-foreground">
+                      Assign backup
+                    </label>
+                    <EmployeePickerSelect
+                      value={group.assignee.backupEmployeeId}
+                      onValueChange={(backupEmployeeId) => {
+                        void handleBackupChange(
+                          group.allocationId!,
+                          group.assignee.employeeId,
+                          backupEmployeeId,
+                        );
+                      }}
+                      options={backupOptionsForAssignee}
+                      disabled={isSettingBackup}
+                      noneLabel="Select backup"
+                      triggerClassName="min-w-[200px] h-9"
+                    />
+                  </div>
+                )}
+
+                <ul className="mt-2 space-y-2">
                   {group.tasks.map((task) => (
                     <li key={task.rowId} className="text-muted-foreground">
-                      <Link
-                        href={`/dashboard/projects/${projectId}?taskId=${task.taskId}`}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        {task.title}
-                      </Link>
-                      {" · "}
-                      {task.overlapDays}d overlap
-                      {task.estimatedDelayDays > 0 ? ` · ~${task.estimatedDelayDays}d slip` : ""}
-                      {task.projectedTaskEnd ? ` · end ~${task.projectedTaskEnd}` : ""}
-                      {task.hasBackup && task.backupOwnerName && (
-                        <span className="text-emerald-700 dark:text-emerald-400">
-                          {" "}
-                          · backup {task.backupOwnerName}
-                        </span>
-                      )}
-                      {task.hasBackup && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="ml-2 inline-flex h-6 px-2 text-[10px]"
-                          disabled={isApplying}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            void handleApplyBackup(task.taskId);
-                          }}
+                      <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+                        <Link
+                          href={`/dashboard/projects/${projectId}?taskId=${task.taskId}`}
+                          className="font-medium text-primary hover:underline"
                         >
-                          Assign backup
-                        </Button>
-                      )}
+                          {task.title}
+                        </Link>
+                        <span>
+                          · {task.overlapDays}d overlap
+                          {task.estimatedDelayDays > 0 ? ` · ~${task.estimatedDelayDays}d slip` : ""}
+                          {task.projectedTaskEnd ? ` · end ~${task.projectedTaskEnd}` : ""}
+                        </span>
+                        {task.backupOwnerName && (
+                          <span className="text-emerald-700 dark:text-emerald-400">
+                            · reassigned to {task.backupOwnerName}
+                          </span>
+                        )}
+                      </div>
+                      {canEdit &&
+                        task.hasBackupConfigured &&
+                        !task.backupOwnerName && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="mt-1.5 h-9 px-4 text-xs font-semibold"
+                            disabled={isApplying}
+                            onClick={() => void handleApplyBackup(task.taskId)}
+                          >
+                            {isApplying && (
+                              <Loader2 className="mr-2 size-3.5 animate-spin" />
+                            )}
+                            Assign backup to task
+                          </Button>
+                        )}
                     </li>
                   ))}
                 </ul>

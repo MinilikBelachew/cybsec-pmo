@@ -20,10 +20,8 @@ import {
 } from "@/domains/projects";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
 import {
-  formatAllocationDateLabel,
   formatAllocationDateRange,
   formatDateValue,
-  isAllocationNotStartedYet,
 } from "@/domains/projects/utils/allocation-date.utils";
 import { useGetAllocationPolicyQuery, useGetDesignationOptionsQuery } from "@/domains/resources/api/resources.api";
 import {
@@ -34,6 +32,7 @@ import {
 } from "@/domains/resources/utils/allocation-policy.utils";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
+import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { EmployeeAvatar } from "@/shared/components/employee-avatar";
@@ -267,6 +266,10 @@ export const ProjectTeamSection = forwardRef<
   const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<ExistingMemberEditDraft | null>(null);
   const [alignDialogOpen, setAlignDialogOpen] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState<{
+    allocationId: string;
+    employeeName: string;
+  } | null>(null);
   const debouncedSearch = useDebounce(searchVal, 300);
 
   const { data: existingTeam = [], refetch: refetchTeam } = useGetProjectTeamQuery(
@@ -355,14 +358,23 @@ export const ProjectTeamSection = forwardRef<
 
   const backupOptions = useMemo(
     () =>
-      candidates.map((candidate) => ({
-        id: candidate.employeeId,
-        name: candidate.name,
-        profileImageUrl: candidate.profileImageUrl,
-        subtitle: `${candidate.department.name} · ${candidate.designation}`,
+      existingTeam.map((member) => ({
+        id: member.employeeId,
+        name: member.employee.name,
+        profileImageUrl: member.employee.profileImageUrl,
+        subtitle: `${member.employee.department.name} · ${member.employee.designation}`,
       })),
-    [candidates],
+    [existingTeam],
   );
+
+  const allocationIssuesByMemberId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const issue of allocationDateIssues?.issues ?? []) {
+      const existing = map.get(issue.allocationId) ?? [];
+      map.set(issue.allocationId, [...existing, ...issue.messages]);
+    }
+    return map;
+  }, [allocationDateIssues?.issues]);
 
   const checkedCandidates = useMemo(
     () => Object.values(checkedCandidatesMap),
@@ -547,8 +559,14 @@ export const ProjectTeamSection = forwardRef<
       setEditingAllocationId(null);
       setEditDraft(null);
     }
-    await removeMember({ projectId, allocationId }).unwrap();
-    refetchTeam();
+    try {
+      await removeMember({ projectId, allocationId }).unwrap();
+      toast.success("Team member removed.");
+      setRemoveConfirm(null);
+      refetchTeam();
+    } catch {
+      toast.error("Failed to remove team member.");
+    }
   };
 
   const startEditingExisting = (member: ProjectAllocation) => {
@@ -770,6 +788,26 @@ export const ProjectTeamSection = forwardRef<
     );
   };
 
+  const memberHasDesignationMismatch = (member: ProjectAllocation) => {
+    if (!allocationPolicy || !member.role.trim()) return false;
+    return hasDesignationMismatch(
+      allocationPolicy,
+      member.role,
+      member.employee.designation,
+    );
+  };
+
+  const memberHasDepartmentMismatch = (member: ProjectAllocation) => {
+    if (!allocationPolicy || allocationPolicy.departmentStaffingMode === "off") {
+      return false;
+    }
+    return hasDepartmentStaffingMismatch(
+      allocationPolicy,
+      projectDepartmentCode,
+      member.employee.department.code,
+    );
+  };
+
   const hasBlockedOverAllocation =
     thresholdMode === "block" &&
     checkedCandidates.some((candidate) => draftWouldOverAllocate(candidate));
@@ -906,16 +944,10 @@ export const ProjectTeamSection = forwardRef<
           </p>
           {existingTeam.map((member) => {
             const isEditing = editingAllocationId === member.id && editDraft != null;
-            const memberDateWarnings: string[] = [];
-            if (
-              hasPlanningWindow &&
-              member.status === "Active" &&
-              isAllocationNotStartedYet(member.startDate)
-            ) {
-              memberDateWarnings.push(
-                `Cannot log hours until ${formatAllocationDateLabel(member.startDate)}.`,
-              );
-            }
+            const memberAllocationWarnings =
+              allocationIssuesByMemberId.get(member.id) ?? [];
+            const designationMismatch = memberHasDesignationMismatch(member);
+            const departmentMismatch = memberHasDepartmentMismatch(member);
             const blockedEditSave =
               isEditing &&
               allocationPolicy != null &&
@@ -1074,15 +1106,26 @@ export const ProjectTeamSection = forwardRef<
                         Assignment blocked by allocation policy.
                       </p>
                     )}
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={blockedEditSave || isUpdatingMember}
-                      onClick={() => handleSaveExisting(member)}
-                    >
-                      {isUpdatingMember && <Loader2 className="mr-2 size-4 animate-spin" />}
-                      Save changes
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isUpdatingMember}
+                        onClick={cancelEditingExisting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={blockedEditSave || isUpdatingMember}
+                        onClick={() => handleSaveExisting(member)}
+                      >
+                        {isUpdatingMember && <Loader2 className="mr-2 size-4 animate-spin" />}
+                        Save changes
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-start justify-between gap-3">
@@ -1117,7 +1160,7 @@ export const ProjectTeamSection = forwardRef<
                         <Calendar className="size-3 shrink-0" />
                         {formatAllocationDateRange(member.startDate, member.endDate)}
                       </p>
-                      {memberDateWarnings.map((warning) => (
+                      {memberAllocationWarnings.map((warning) => (
                         <p
                           key={warning}
                           className="mt-1 flex items-center gap-1 text-[11px] text-amber-600"
@@ -1126,6 +1169,33 @@ export const ProjectTeamSection = forwardRef<
                           {warning}
                         </p>
                       ))}
+                      {member.isOverAllocated && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3 shrink-0" />
+                          {thresholdMode === "block"
+                            ? "Over-allocated (blocked by policy)."
+                            : thresholdMode === "approve"
+                              ? "Over-allocated — pending staffing approval."
+                              : "Over-allocated for weekly capacity."}
+                        </p>
+                      )}
+                      {designationMismatch && allocationPolicy && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3 shrink-0" />
+                          {getDesignationMismatchMessage(
+                            allocationPolicy,
+                            member.employee.name,
+                            member.role,
+                            member.employee.designation,
+                          ) ?? "Role not allowed for this designation"}
+                        </p>
+                      )}
+                      {departmentMismatch && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3 shrink-0" />
+                          Employee department differs from project department
+                        </p>
+                      )}
                       {member.upcomingLeave.length > 0 && (
                         <p className="mt-1 text-[11px] text-amber-600">
                           On leave: {formatLeaveRanges(member.upcomingLeave)}
@@ -1172,7 +1242,12 @@ export const ProjectTeamSection = forwardRef<
                           size="icon"
                           className="text-rose-500 hover:text-rose-600"
                           disabled={isRemoving}
-                          onClick={() => handleRemoveExisting(member.id)}
+                          onClick={() =>
+                            setRemoveConfirm({
+                              allocationId: member.id,
+                              employeeName: member.employee.name,
+                            })
+                          }
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -1592,6 +1667,23 @@ export const ProjectTeamSection = forwardRef<
         projectLabel="this project"
         preview={allocationDateIssues?.alignPreview ?? []}
         issueMessages={alignDialogIssueMessages}
+      />
+
+      <DeleteDialog
+        isOpen={removeConfirm != null}
+        onClose={() => setRemoveConfirm(null)}
+        onConfirm={() => {
+          if (removeConfirm) {
+            void handleRemoveExisting(removeConfirm.allocationId);
+          }
+        }}
+        title="Remove team member"
+        description={
+          removeConfirm
+            ? `Remove ${removeConfirm.employeeName} from this project team? Their allocation will end and assigned tasks may need reassignment.`
+            : ""
+        }
+        isDeleting={isRemoving}
       />
     </div>
   );

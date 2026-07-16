@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  HttpStatus,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -222,6 +221,12 @@ export class TimesheetsService {
   ): Promise<TimesheetEntryDto> {
     const employee = await this.requireEmployee(userId);
     const workDate = parseDateOnly(dto.workDate);
+    const todayKey = formatDateOnly(new Date());
+    if (formatDateOnly(workDate) > todayKey) {
+      throw new BadRequestException(
+        'You cannot log hours for a future date.',
+      );
+    }
     const { regularHours, overtimeHours } = this.resolveHourSplit(dto);
 
     await this.assertProjectAccess(
@@ -259,10 +264,9 @@ export class TimesheetsService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException({
-          status: HttpStatus.CONFLICT,
-          errors: { taskId: 'duplicateTaskEntryForDay' },
-        });
+        throw new ConflictException(
+          'You already logged hours for this task on this day. Edit the existing entry instead.',
+        );
       }
       throw error;
     }
@@ -277,10 +281,9 @@ export class TimesheetsService {
     const existing = await this.requireOwnedEntry(entryId, employee.id);
 
     if (!this.isEditable(existing.status)) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { status: 'entryNotEditable' },
-      });
+      throw new ForbiddenException(
+        'This entry cannot be changed while it is submitted or approved.',
+      );
     }
 
     const hoursChanging =
@@ -342,10 +345,9 @@ export class TimesheetsService {
     const existing = await this.requireOwnedEntry(entryId, employee.id);
 
     if (!this.isEditable(existing.status)) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { status: 'entryNotEditable' },
-      });
+      throw new ForbiddenException(
+        'This entry cannot be changed while it is submitted or approved.',
+      );
     }
 
     await this.prisma.timesheet.delete({ where: { id: existing.id } });
@@ -372,10 +374,9 @@ export class TimesheetsService {
     });
 
     if (drafts.length === 0) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { week: 'noDraftEntriesToSubmit' },
-      });
+      throw new UnprocessableEntityException(
+        'There are no draft entries to submit for this week.',
+      );
     }
 
     await this.prisma.timesheet.updateMany({
@@ -430,10 +431,9 @@ export class TimesheetsService {
     });
 
     if (rejected.length === 0) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { week: 'noRejectedEntriesToResubmit' },
-      });
+      throw new UnprocessableEntityException(
+        'There are no rejected entries to resubmit for this week.',
+      );
     }
 
     await this.prisma.timesheet.updateMany({
@@ -500,10 +500,9 @@ export class TimesheetsService {
     });
 
     if (!employee) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { employee: 'employeeProfileNotFound' },
-      });
+      throw new UnprocessableEntityException(
+        'No active employee profile is linked to your account.',
+      );
     }
 
     return employee;
@@ -515,10 +514,7 @@ export class TimesheetsService {
     });
 
     if (!entry) {
-      throw new NotFoundException({
-        status: HttpStatus.NOT_FOUND,
-        errors: { timesheet: 'entryNotFound' },
-      });
+      throw new NotFoundException('Timesheet entry not found.');
     }
 
     return entry;
@@ -554,10 +550,9 @@ export class TimesheetsService {
     });
 
     if (!ownedTask) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { projectId: 'projectNotAllocated' },
-      });
+      throw new ForbiddenException(
+        'You are not allocated to this project on the selected date.',
+      );
     }
   }
 
@@ -568,10 +563,9 @@ export class TimesheetsService {
     });
 
     if (!task) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { taskId: 'taskNotInProject' },
-      });
+      throw new UnprocessableEntityException(
+        'The selected task does not belong to this project.',
+      );
     }
   }
 
@@ -597,10 +591,9 @@ export class TimesheetsService {
     const nextTotal = existingTotal + additionalHours;
 
     if (nextTotal > TIMESHEET_DAILY_MAX_HOURS) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { hours: 'dailyHoursExceeded' },
-      });
+      throw new UnprocessableEntityException(
+        'Adding this entry would exceed the 24-hour daily limit for this date.',
+      );
     }
   }
 
@@ -636,10 +629,7 @@ export class TimesheetsService {
       regularHours = Number(dto.hours);
       overtimeHours = 0;
     } else {
-      throw new BadRequestException({
-        status: HttpStatus.BAD_REQUEST,
-        errors: { hours: 'hoursRequired' },
-      });
+      throw new BadRequestException('Enter regular or overtime hours.');
     }
 
     if (
@@ -648,24 +638,21 @@ export class TimesheetsService {
       regularHours < 0 ||
       overtimeHours < 0
     ) {
-      throw new BadRequestException({
-        status: HttpStatus.BAD_REQUEST,
-        errors: { hours: 'invalidHours' },
-      });
+      throw new BadRequestException(
+        'Hours must be valid non-negative numbers.',
+      );
     }
 
     const total = regularHours + overtimeHours;
     if (total <= 0) {
-      throw new BadRequestException({
-        status: HttpStatus.BAD_REQUEST,
-        errors: { hours: 'hoursMustBePositive' },
-      });
+      throw new BadRequestException(
+        'Total hours must be greater than zero.',
+      );
     }
     if (total > TIMESHEET_DAILY_MAX_HOURS) {
-      throw new BadRequestException({
-        status: HttpStatus.BAD_REQUEST,
-        errors: { hours: 'dailyMaxExceeded' },
-      });
+      throw new BadRequestException(
+        'A single entry cannot exceed 24 hours.',
+      );
     }
 
     return {

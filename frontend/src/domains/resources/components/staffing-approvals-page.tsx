@@ -2,14 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { type SortingState } from "@tanstack/react-table";
-import { AlertTriangle, CheckCircle2, Loader2, Search, X } from "lucide-react";
+import { CheckCircle2, Loader2, Search, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
 import { DataTableColumnHeader } from "@/shared/components/data-table-column-header";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import { cn } from "@/shared/utils/cn";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { getApiErrorMessage } from "@/core/errors/api-error";
 import {
@@ -25,8 +24,6 @@ export function StaffingApprovalsPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [sorting, setSorting] = useState<SortingState>([{ id: "requestedAt", desc: true }]);
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [rejectComment, setRejectComment] = useState("");
   const debouncedSearch = useDebounce(search, 300);
 
   const activeSort = sorting[0];
@@ -64,14 +61,13 @@ export function StaffingApprovalsPage() {
     }
   };
 
-  const handleReject = async (id: string) => {
+  const handleReject = async (id: string, comment: string) => {
     try {
-      await rejectAllocation({ id, comment: rejectComment.trim() || undefined }).unwrap();
+      await rejectAllocation({ id, comment: comment.trim() || undefined }).unwrap();
       toast.success("Staffing request rejected");
-      setRejectingId(null);
-      setRejectComment("");
     } catch (error) {
       toast.error(getApiErrorMessage(error, "Could not reject staffing request"));
+      throw error;
     }
   };
 
@@ -144,73 +140,18 @@ export function StaffingApprovalsPage() {
         id: "actions",
         header: "",
         enableSorting: false,
-        cell: ({ row }) => {
-          const item = row.original;
-          const isRejectOpen = rejectingId === item.id;
-
-          return (
-            <div className="flex flex-col items-end gap-2">
-              {isRejectOpen ? (
-                <div className="w-full max-w-xs space-y-2 rounded-lg border border-border/60 p-2">
-                  <Input
-                    value={rejectComment}
-                    onChange={(e) => setRejectComment(e.target.value)}
-                    placeholder="Rejection reason (optional)"
-                    className="h-8 text-xs"
-                  />
-                  <div className="flex justify-end gap-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setRejectingId(null);
-                        setRejectComment("");
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      disabled={isRejecting}
-                      onClick={() => void handleReject(item.id)}
-                    >
-                      Confirm reject
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="gap-1"
-                    disabled={isApproving}
-                    onClick={() => void handleApprove(item)}
-                  >
-                    <CheckCircle2 className="size-3.5" />
-                    Approve
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
-                    onClick={() => setRejectingId(item.id)}
-                  >
-                    <X className="size-3.5" />
-                    Reject
-                  </Button>
-                </div>
-              )}
-            </div>
-          );
-        },
+        cell: ({ row }) => (
+          <AllocationApprovalActions
+            item={row.original}
+            isApproving={isApproving}
+            isRejecting={isRejecting}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
+        ),
       },
     ],
-    [rejectingId, rejectComment, isApproving, isRejecting],
+    [isApproving, isRejecting],
   );
 
   return (
@@ -229,17 +170,6 @@ export function StaffingApprovalsPage() {
           </Button>
         }
       />
-
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-        <p className="flex items-center gap-2 font-medium">
-          <AlertTriangle className="size-4 shrink-0" />
-          PMO Lead and HR review over-capacity staffing requests
-        </p>
-        <p className="mt-1 text-xs opacity-90">
-          Submitters cannot approve their own requests. Approved allocations sync to Keka.
-        </p>
-      </div>
-
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -268,6 +198,87 @@ export function StaffingApprovalsPage() {
         emptyMessage="No pending staffing approvals."
         minTableWidth="min-w-[960px]"
       />
+    </div>
+  );
+}
+
+function AllocationApprovalActions({
+  item,
+  isApproving,
+  isRejecting,
+  onApprove,
+  onReject,
+}: {
+  item: AllocationApprovalRow;
+  isApproving: boolean;
+  isRejecting: boolean;
+  onApprove: (row: AllocationApprovalRow) => Promise<void>;
+  onReject: (id: string, comment: string) => Promise<void>;
+}) {
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectComment, setRejectComment] = useState("");
+
+  const closeReject = () => {
+    setRejectOpen(false);
+    setRejectComment("");
+  };
+
+  if (rejectOpen) {
+    return (
+      <div className="flex w-full max-w-xs flex-col items-end gap-2">
+        <div className="w-full space-y-2 rounded-lg border border-border/60 p-2">
+          <Input
+            value={rejectComment}
+            onChange={(event) => setRejectComment(event.target.value)}
+            placeholder="Rejection reason (optional)"
+            className="h-8 text-xs"
+            autoFocus
+          />
+          <div className="flex justify-end gap-1">
+            <Button type="button" size="sm" variant="ghost" onClick={closeReject}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={isRejecting}
+              onClick={() => {
+                void onReject(item.id, rejectComment)
+                  .then(() => closeReject())
+                  .catch(() => undefined);
+              }}
+            >
+              Confirm reject
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      <Button
+        type="button"
+        size="sm"
+        className="gap-1"
+        disabled={isApproving}
+        onClick={() => void onApprove(item)}
+      >
+        <CheckCircle2 className="size-3.5" />
+        Approve
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="gap-1"
+        onClick={() => setRejectOpen(true)}
+      >
+        <X className="size-3.5" />
+        Reject
+      </Button>
     </div>
   );
 }
