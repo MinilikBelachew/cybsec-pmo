@@ -2,7 +2,11 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class QueryTeamCandidatesDto {
-  @ApiPropertyOptional({ format: 'uuid' })
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Project owning department. When department staffing is set to block, candidates are limited to employees allowed for this department (same-department or allow-list including the project department). When set to warn, all employees are returned and departmentStaffingAllowed flags mismatches. Used on create-project before a projectId exists.',
+  })
   @IsOptional()
   @IsUUID()
   departmentId?: string;

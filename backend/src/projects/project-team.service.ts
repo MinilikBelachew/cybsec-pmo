@@ -12,6 +12,7 @@ import { AllocationRuntimePolicies } from '../settings/allocation-policy.types';
 import { mapAllocationPoliciesDto } from '../settings/app-settings.service';
 import {
   evaluateStaffingPolicies,
+  getAllowedEmployeeDepartmentCodes,
   previewDepartmentStaffingAllowed,
 } from '../settings/utils/allocation-policy.util';
 import { CaslUserContext } from '../casl/casl.types';
@@ -107,23 +108,79 @@ export class ProjectTeamService {
         select: { department: { select: { code: true } } },
       });
       projectDepartmentCode = project?.department.code ?? '';
+    } else if (query.departmentId) {
+      const department = await this.prisma.department.findUnique({
+        where: { id: query.departmentId },
+        select: { code: true },
+      });
+      projectDepartmentCode = department?.code ?? '';
     }
 
     const policies = await this.allocationPolicyService.getPolicies();
+    const staffingBlocksCandidates =
+      policies.departmentStaffingMode === 'block' &&
+      Boolean(projectDepartmentCode);
+
+    // Block mode on create requires a project department before listing anyone.
+    if (
+      policies.departmentStaffingMode === 'block' &&
+      !projectDepartmentCode &&
+      !query.projectId
+    ) {
+      return [];
+    }
+
+    const allowedDepartmentCodes = staffingBlocksCandidates
+      ? getAllowedEmployeeDepartmentCodes(
+          projectDepartmentCode,
+          policies.departmentStaffingRules,
+        )
+      : [];
 
     const employees = await this.prisma.employee.findMany({
       where: {
         isActive: true,
-        ...(query.departmentId ? { departmentId: query.departmentId } : {}),
-        ...(query.search
-          ? {
-              OR: [
-                { name: { contains: query.search, mode: 'insensitive' as const } },
-                { email: { contains: query.search, mode: 'insensitive' as const } },
-                { designation: { contains: query.search, mode: 'insensitive' as const } },
-              ],
-            }
-          : {}),
+        AND: [
+          ...(staffingBlocksCandidates
+            ? [
+                allowedDepartmentCodes.length > 0
+                  ? {
+                      OR: allowedDepartmentCodes.map((code) => ({
+                        department: {
+                          code: { equals: code, mode: 'insensitive' as const },
+                        },
+                      })),
+                    }
+                  : { id: { in: [] as string[] } },
+              ]
+            : []),
+          ...(query.search
+            ? [
+                {
+                  OR: [
+                    {
+                      name: {
+                        contains: query.search,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                    {
+                      email: {
+                        contains: query.search,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                    {
+                      designation: {
+                        contains: query.search,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  ],
+                },
+              ]
+            : []),
+        ],
       },
       include: {
         ...EMPLOYEE_INCLUDE,

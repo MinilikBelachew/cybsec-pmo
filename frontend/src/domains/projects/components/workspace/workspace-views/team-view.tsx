@@ -37,6 +37,8 @@ export function TeamView({
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <ProjectLeaveImpactSection projectId={projectId} canEdit={canEdit} />
+
         <ProjectTeamSection
           variant="workspace"
           projectId={projectId}
@@ -47,8 +49,6 @@ export function TeamView({
           onPendingMembersChange={handlePendingMembersChange}
           canEdit={canEdit}
         />
-
-        <ProjectLeaveImpactSection projectId={projectId} />
       </div>
     </div>
   );
