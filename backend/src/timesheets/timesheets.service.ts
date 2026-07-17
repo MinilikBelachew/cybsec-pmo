@@ -7,7 +7,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProjectStatus, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
@@ -27,8 +27,10 @@ import {
   TimesheetWeekSummaryCardDto,
 } from './dto/timesheet-response.dto';
 import {
+  TIMESHEET_BLOCKED_TASK_STATUSES,
   TIMESHEET_DAILY_MAX_HOURS,
   TIMESHEET_DAILY_THRESHOLD_HOURS,
+  TIMESHEET_LOGGABLE_PROJECT_STATUSES,
   TIMESHEET_STATUS,
 } from './timesheets.constants';
 import {
@@ -42,8 +44,8 @@ import {
 } from './utils/week.util';
 
 const TIMESHEET_INCLUDE = {
-  project: { select: { id: true, name: true } },
-  task: { select: { id: true, title: true } },
+  project: { select: { id: true, name: true, status: true } },
+  task: { select: { id: true, title: true, status: true } },
   approvals: {
     orderBy: { decidedAt: 'desc' as const },
     take: 5,
@@ -56,6 +58,12 @@ const TIMESHEET_INCLUDE = {
 type TimesheetRow = Prisma.TimesheetGetPayload<{
   include: typeof TIMESHEET_INCLUDE;
 }>;
+
+const LOGGABLE_PROJECT_STATUSES =
+  TIMESHEET_LOGGABLE_PROJECT_STATUSES as readonly ProjectStatus[];
+
+const BLOCKED_TASK_STATUSES =
+  TIMESHEET_BLOCKED_TASK_STATUSES as readonly TaskStatus[];
 
 @Injectable()
 export class TimesheetsService {
@@ -78,9 +86,12 @@ export class TimesheetsService {
         status: 'Active',
         startDate: { lte: asOf },
         OR: [{ endDate: null }, { endDate: { gte: asOf } }],
+        project: {
+          status: { in: [...LOGGABLE_PROJECT_STATUSES] },
+        },
       },
       include: {
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, status: true } },
       },
       orderBy: { project: { name: 'asc' } },
     });
@@ -91,12 +102,16 @@ export class TimesheetsService {
       where: {
         ownerId: userId,
         parentTaskId: null,
+        status: { notIn: [...BLOCKED_TASK_STATUSES] },
+        project: {
+          status: { in: [...LOGGABLE_PROJECT_STATUSES] },
+        },
       },
       select: {
         id: true,
         title: true,
         projectId: true,
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, status: true } },
       },
       orderBy: { title: 'asc' },
     });
@@ -140,6 +155,7 @@ export class TimesheetsService {
         where: {
           projectId: { in: projectIds },
           parentTaskId: null,
+          status: { notIn: [...BLOCKED_TASK_STATUSES] },
         },
         select: { id: true, title: true, projectId: true },
         orderBy: { title: 'asc' },
@@ -231,6 +247,7 @@ export class TimesheetsService {
       userId,
     );
     await this.assertTaskBelongsToProject(dto.taskId, dto.projectId);
+    await this.assertProjectAndTaskLoggable(dto.projectId, dto.taskId);
     await this.assertDailyCapacity(
       employee.id,
       workDate,
@@ -282,6 +299,11 @@ export class TimesheetsService {
         errors: { status: 'entryNotEditable' },
       });
     }
+
+    await this.assertProjectAndTaskLoggable(
+      existing.projectId,
+      existing.taskId,
+    );
 
     const hoursChanging =
       dto.hours !== undefined ||
@@ -378,6 +400,8 @@ export class TimesheetsService {
       });
     }
 
+    this.assertEntriesLoggableForSubmit(drafts);
+
     await this.prisma.timesheet.updateMany({
       where: {
         id: { in: drafts.map((row) => row.id) },
@@ -435,6 +459,8 @@ export class TimesheetsService {
         errors: { week: 'noRejectedEntriesToResubmit' },
       });
     }
+
+    this.assertEntriesLoggableForSubmit(rejected);
 
     await this.prisma.timesheet.updateMany({
       where: {
@@ -572,6 +598,85 @@ export class TimesheetsService {
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         errors: { taskId: 'taskNotInProject' },
       });
+    }
+  }
+
+  /**
+   * Block logging / editing against closed or inactive projects and Done tasks.
+   */
+  private async assertProjectAndTaskLoggable(
+    projectId: string,
+    taskId: string,
+  ): Promise<void> {
+    const [project, task] = await Promise.all([
+      this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true, name: true, status: true },
+      }),
+      this.prisma.task.findUnique({
+        where: { id: taskId },
+        select: { id: true, title: true, status: true, projectId: true },
+      }),
+    ]);
+
+    if (!project) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { projectId: 'projectNotFound' },
+      });
+    }
+
+    if (!task || task.projectId !== projectId) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { taskId: 'taskNotInProject' },
+      });
+    }
+
+    if (!LOGGABLE_PROJECT_STATUSES.includes(project.status)) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          projectId: `Cannot log hours on project "${project.name}" because its status is not Active or At Risk.`,
+        },
+      });
+    }
+
+    if (BLOCKED_TASK_STATUSES.includes(task.status)) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          taskId: `Cannot log hours on task "${task.title}" because it is Done.`,
+        },
+      });
+    }
+  }
+
+  /** Re-check drafts/rejected rows before submit/resubmit. */
+  private assertEntriesLoggableForSubmit(entries: TimesheetRow[]): void {
+    for (const entry of entries) {
+      const projectStatus = entry.project.status;
+      const taskStatus = entry.task.status;
+      const projectName = entry.project.name;
+      const taskTitle = entry.task.title;
+
+      if (!LOGGABLE_PROJECT_STATUSES.includes(projectStatus)) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: {
+            week: `Cannot submit hours for project "${projectName}" because its status is not Active or At Risk.`,
+          },
+        });
+      }
+
+      if (BLOCKED_TASK_STATUSES.includes(taskStatus)) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: {
+            week: `Cannot submit hours for task "${taskTitle}" because it is Done.`,
+          },
+        });
+      }
     }
   }
 

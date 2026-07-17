@@ -85,9 +85,33 @@ export const projectsApi = api.injectEndpoints({
       providesTags: [{ type: "Customers", id: "LIST" }],
     }),
 
+    getKekaCurrencies: builder.query<
+      Array<{ id: string; code: string; name: string }>,
+      void
+    >({
+      query: () => "/projects/meta/keka-currencies",
+      providesTags: [{ type: "KekaCurrencies", id: "LIST" }],
+    }),
+
     createCustomer: builder.mutation<
       Customer & { kekaSyncError?: string | null },
-      { name: string; code?: string; description?: string; email?: string; phone?: string }
+      {
+        name: string;
+        code?: string;
+        description?: string;
+        email?: string;
+        phone?: string;
+        website?: string;
+        billingCurrencyId: string;
+        billingAddress?: {
+          addressLine1?: string;
+          addressLine2?: string;
+          countryCode?: string;
+          city?: string;
+          state?: string;
+          zip?: string;
+        };
+      }
     >({
       query: (body) => ({
         url: "/projects/meta/customers",
@@ -487,6 +511,7 @@ export const {
   useGetProjectByIdQuery,
   useGetDepartmentsQuery,
   useGetCustomersQuery,
+  useGetKekaCurrenciesQuery,
   useCreateCustomerMutation,
   useGetProjectManagersQuery,
   useGetCurrenciesQuery,

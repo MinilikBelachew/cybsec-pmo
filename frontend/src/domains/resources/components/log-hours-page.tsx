@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
+import { getApiErrorMessage } from "@/core/errors/api-error";
 import {
   useCreateTimesheetEntryMutation,
   useDeleteTimesheetEntryMutation,
@@ -117,8 +118,8 @@ export function LogHoursPage() {
   async function handleDelete(id: string) {
     try {
       await deleteEntry(id).unwrap();
-    } catch {
-      toast.error("Could not delete entry.");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not delete entry."));
     }
   }
 
@@ -127,8 +128,8 @@ export function LogHoursPage() {
     try {
       const result = await submitWeek({ weekStart: week.weekStart }).unwrap();
       toast.success(`Submitted ${result.submittedCount} entries for approval.`);
-    } catch {
-      toast.error("Could not submit week.");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not submit week."));
     }
   }
 
@@ -137,8 +138,8 @@ export function LogHoursPage() {
     try {
       const result = await resubmitWeek({ weekStart: week.weekStart }).unwrap();
       toast.success(`Resubmitted ${result.submittedCount} entries for approval.`);
-    } catch {
-      toast.error("Could not resubmit week.");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not resubmit week."));
     }
   }
 
@@ -360,8 +361,13 @@ export function LogHoursPage() {
                   await createEntry(payload).unwrap();
                   setShowForm(false);
                   toast.success("Entry added.");
-                } catch {
-                  toast.error("Could not add entry. Check for duplicates or daily limits.");
+                } catch (error) {
+                  toast.error(
+                    getApiErrorMessage(
+                      error,
+                      "Could not add entry. Check for duplicates, daily limits, or closed projects/tasks.",
+                    ),
+                  );
                 }
               }}
               onCancel={() => setShowForm(false)}
@@ -392,8 +398,10 @@ export function LogHoursPage() {
                           ? "Entry updated and moved to draft."
                           : "Entry updated.",
                       );
-                    } catch {
-                      toast.error("Could not update entry.");
+                    } catch (error) {
+                      toast.error(
+                        getApiErrorMessage(error, "Could not update entry."),
+                      );
                     }
                   }}
                 />

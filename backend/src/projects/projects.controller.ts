@@ -163,6 +163,16 @@ export class ProjectsController {
     return this.projectsService.findCustomers();
   }
 
+  @CheckAbility('read', 'Project')
+  @Get('meta/keka-currencies')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({
+    description: 'Keka currencies for PSA client billingCurrencyId',
+  })
+  findKekaCurrencies() {
+    return this.projectsService.findKekaCurrencies();
+  }
+
   @CheckAbility('create', 'Project')
   @Post('meta/customers')
   @HttpCode(HttpStatus.CREATED)

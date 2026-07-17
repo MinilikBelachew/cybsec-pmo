@@ -166,6 +166,32 @@ export class KekaMockController {
     );
   }
 
+  @Get('keka-mock/api/v1/hris/currencies')
+  currencies(
+    @Query('pageNumber') pageNumber = '1',
+    @Query('pageSize') pageSize = '100',
+  ) {
+    return buildKekaPagedResponse(
+      [
+        {
+          id: '8275e02f-89fe-4a5d-82b3-eef4a1b2c3d4',
+          code: 'USD',
+          name: 'US Dollar',
+          precision: 2,
+        },
+        {
+          id: 'f5a8e984-92d3-4498-b28d-3f82909ddc49',
+          code: 'INR',
+          name: 'India Rupee',
+          precision: 2,
+        },
+      ],
+      Number(pageNumber) || 1,
+      Number(pageSize) || 100,
+      '/keka-mock/api/v1/hris/currencies',
+    );
+  }
+
   @Get('keka-mock/api/v1/psa/clients')
   clients(
     @Query('pageNumber') pageNumber = '1',
@@ -181,14 +207,37 @@ export class KekaMockController {
 
   @Post('keka-mock/api/v1/psa/clients')
   @HttpCode(HttpStatus.CREATED)
-  createClient(@Body() body: { name?: string; code?: string; description?: string }) {
+  createClient(
+    @Body()
+    body: {
+      name?: string;
+      code?: string;
+      description?: string;
+      phone?: string;
+      email?: string;
+      website?: string;
+      billingInfo?: {
+        billingCurrencyId?: string;
+        billingAddress?: Record<string, string | null> | null;
+      };
+    },
+  ) {
+    if (!body.billingInfo?.billingCurrencyId?.trim()) {
+      return {
+        succeeded: false,
+        data: null,
+        message: 'billingInfo.billingCurrencyId is required',
+        errors: ['billingInfo.billingCurrencyId is required'],
+      };
+    }
+
     const id = `mock-client-${this.pushedClients.length + 1}`;
     const entry = {
       id,
       name: body.name ?? `Client ${this.pushedClients.length + 1}`,
       code: body.code ?? `C${this.pushedClients.length + 1}`,
       description: body.description ?? null,
-      billingAddress: null,
+      billingAddress: body.billingInfo.billingAddress ?? null,
       clientContacts: [],
     };
     this.mockClients.push(entry);

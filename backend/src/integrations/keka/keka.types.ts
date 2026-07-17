@@ -263,7 +263,29 @@ export type KekaPsaClient = {
   clientContacts?: KekaPsaClientContact[] | null;
 };
 
-/** Body for POST /psa/clients — required: name, code */
+/** GET /hris/currencies — https://developers.keka.com/reference/get_hris-currencies */
+export type KekaCurrency = {
+  id?: string | null;
+  code?: string | null;
+  name?: string | null;
+  precision?: number | null;
+};
+
+/** Body for POST /psa/clients — https://developers.keka.com/reference/post_psa-clients-1 */
+export type KekaCreateClientBillingAddress = {
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  countryCode?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+};
+
+export type KekaCreateClientBillingInfo = {
+  billingCurrencyId: string;
+  billingAddress?: KekaCreateClientBillingAddress | null;
+};
+
 export type KekaCreateClientPayload = {
   name: string;
   code: string;
@@ -271,6 +293,7 @@ export type KekaCreateClientPayload = {
   phone?: string | null;
   email?: string | null;
   website?: string | null;
+  billingInfo?: KekaCreateClientBillingInfo | null;
 };
 
 /** PSA project — https://developers.keka.com/reference/get_psa-projects-1 */

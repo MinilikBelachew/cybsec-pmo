@@ -8,9 +8,16 @@ export const PROJECT_CLOSURE_APPROVER_ROLES: string[] = [
   RoleEnum.pmo_lead,
 ];
 
+/** Roles allowed to reopen a Cancelled project → Active (mistakes / UAT undo). */
+export const PROJECT_REOPEN_FROM_CANCELLED_ROLES: string[] = [
+  RoleEnum.super_admin,
+  RoleEnum.pmo_lead,
+];
+
 /**
  * Controlled project lifecycle transitions (Gate 1 / M1.2).
- * Terminal states: Closed, Cancelled.
+ * Terminal for most users: Closed, Cancelled.
+ * Cancelled → Active is admin-only (see getAllowedProjectStatusTransitions).
  */
 export const PROJECT_STATUS_TRANSITIONS: Record<
   ApiProjectStatus,
@@ -38,6 +45,7 @@ export const PROJECT_STATUS_TRANSITIONS: Record<
     ApiProjectStatus.Active,
   ],
   [ApiProjectStatus.Closed]: [],
+  // Base list is empty; Active is injected only for reopen roles.
   [ApiProjectStatus.Cancelled]: [],
 };
 
@@ -60,6 +68,12 @@ export function getAllowedProjectStatusTransitions(
     );
   }
 
+  if (from === ApiProjectStatus.Cancelled) {
+    const canReopen =
+      roleCode && PROJECT_REOPEN_FROM_CANCELLED_ROLES.includes(roleCode);
+    return canReopen ? [ApiProjectStatus.Active] : [];
+  }
+
   return base;
 }
 
@@ -74,20 +88,26 @@ export function assertValidProjectStatusTransition(
 
   const allowed = getAllowedProjectStatusTransitions(from, roleCode);
   if (!allowed.includes(to)) {
-    const requiresAdmin =
+    const requiresCloseAdmin =
       from === ApiProjectStatus.PendingClosure &&
       to === ApiProjectStatus.Closed;
+    const requiresReopenAdmin =
+      from === ApiProjectStatus.Cancelled && to === ApiProjectStatus.Active;
 
     throw new UnprocessableEntityException({
       status: HttpStatus.UNPROCESSABLE_ENTITY,
       errors: {
-        status: requiresAdmin
+        status: requiresCloseAdmin
           ? 'statusTransitionRequiresAdminApproval'
-          : 'invalidStatusTransition',
+          : requiresReopenAdmin
+            ? 'statusReopenRequiresAdmin'
+            : 'invalidStatusTransition',
       },
-      message: requiresAdmin
+      message: requiresCloseAdmin
         ? `Only ${PROJECT_CLOSURE_APPROVER_ROLES.join(' or ')} can close a project from Pending Closure.`
-        : `Invalid status transition from ${from} to ${to}.`,
+        : requiresReopenAdmin
+          ? `Only ${PROJECT_REOPEN_FROM_CANCELLED_ROLES.join(' or ')} can reopen a Cancelled project.`
+          : `Invalid status transition from ${from} to ${to}.`,
     });
   }
 }

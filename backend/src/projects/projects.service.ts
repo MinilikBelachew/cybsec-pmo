@@ -696,9 +696,16 @@ export class ProjectsService {
   }
 
   /**
+   * Currencies from Keka (GET /hris/currencies) for PSA client billingCurrencyId.
+   */
+  async findKekaCurrencies() {
+    return this.clientSyncService.listCurrencies();
+  }
+
+  /**
    * Create customer in PMO and also in Keka (POST /psa/clients).
-   * Keka requires name + code. Local create still succeeds if Keka push fails;
-   * failure is logged for admin retry.
+   * Keka requires name + code + billingInfo.billingCurrencyId.
+   * Local create still succeeds if Keka push fails; failure is logged for admin retry.
    */
   async createCustomer(dto: CreateCustomerDto) {
     const name = dto.name.trim();
@@ -706,7 +713,19 @@ export class ProjectsService {
       dto.code?.trim() || this.clientSyncService.buildClientCode(name);
     const email = dto.email?.trim() || null;
     const phone = dto.phone?.trim() || null;
+    const website = dto.website?.trim() || null;
     const notes = dto.description?.trim() || null;
+    const billingCurrencyId = dto.billingCurrencyId.trim();
+    const billingAddress = dto.billingAddress
+      ? {
+          addressLine1: dto.billingAddress.addressLine1?.trim() || null,
+          addressLine2: dto.billingAddress.addressLine2?.trim() || null,
+          countryCode: dto.billingAddress.countryCode?.trim() || null,
+          city: dto.billingAddress.city?.trim() || null,
+          state: dto.billingAddress.state?.trim() || null,
+          zip: dto.billingAddress.zip?.trim() || null,
+        }
+      : null;
 
     if (email) {
       const existingEmail = await this.prisma.customer.findFirst({
@@ -730,11 +749,38 @@ export class ProjectsService {
         description: notes,
         email,
         phone,
+        website,
+        billingInfo: {
+          billingCurrencyId,
+          ...(billingAddress
+            ? {
+                billingAddress: {
+                  addressLine1: billingAddress.addressLine1,
+                  addressLine2: billingAddress.addressLine2,
+                  countryCode: billingAddress.countryCode,
+                  city: billingAddress.city,
+                  state: billingAddress.state,
+                  zip: billingAddress.zip,
+                },
+              }
+            : {}),
+        },
       });
     } catch (error) {
       kekaError =
         error instanceof Error ? error.message : 'Keka client create failed';
     }
+
+    const addressParts = [
+      billingAddress?.addressLine1,
+      billingAddress?.addressLine2,
+      billingAddress?.city,
+      billingAddress?.state,
+      billingAddress?.zip,
+      billingAddress?.countryCode,
+    ]
+      .map((part) => part?.trim())
+      .filter(Boolean);
 
     const customer = await this.prisma.customer.create({
       data: {
@@ -744,6 +790,8 @@ export class ProjectsService {
         notes,
         primaryEmail: email,
         primaryPhone: phone,
+        country: billingAddress?.countryCode || null,
+        address: addressParts.length ? addressParts.join(', ') : null,
         kekaClientCode: code,
         kekaClientId,
         kekaSyncedAt: kekaClientId ? new Date() : null,
@@ -766,7 +814,7 @@ export class ProjectsService {
           entityId: customer.id,
           direction: KEKA_SYNC_DIRECTION.OUTBOUND,
           status: KEKA_SYNC_STATUS.SUCCESS,
-          payload: { name, code, kekaClientId },
+          payload: { name, code, billingCurrencyId, kekaClientId },
         },
       });
     } else if (kekaError) {
@@ -777,7 +825,7 @@ export class ProjectsService {
           direction: KEKA_SYNC_DIRECTION.OUTBOUND,
           status: KEKA_SYNC_STATUS.FAILED,
           errorMsg: kekaError,
-          payload: { name, code },
+          payload: { name, code, billingCurrencyId },
         },
       });
     }

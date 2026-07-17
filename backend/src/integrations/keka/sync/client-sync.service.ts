@@ -10,6 +10,7 @@ import {
 import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import {
   KekaCreateClientPayload,
+  KekaCurrency,
   KekaPsaClient,
   KekaPsaClientAddress,
 } from '../keka.types';
@@ -73,16 +74,74 @@ export class ClientSyncService {
   }
 
   /**
+   * Lookup currencies for Keka PSA client billing.
+   * Docs: https://developers.keka.com/reference/get_hris-currencies
+   */
+  async listCurrencies(): Promise<
+    Array<{ id: string; code: string; name: string }>
+  > {
+    const currencies = await this.kekaClient.getAllPages<KekaCurrency>(
+      '/hris/currencies',
+    );
+
+    return currencies
+      .map((currency) => {
+        const id = currency.id?.trim();
+        if (!id) return null;
+        return {
+          id,
+          code: currency.code?.trim() || id,
+          name: currency.name?.trim() || currency.code?.trim() || id,
+        };
+      })
+      .filter((row): row is { id: string; code: string; name: string } =>
+        Boolean(row),
+      )
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  /**
    * Outbound: create client in Keka (POST /psa/clients).
-   * Required by Keka: name, code.
+   * Required by Keka: name, code, billingInfo.billingCurrencyId.
    * Docs: https://developers.keka.com/reference/post_psa-clients-1
    */
   async createClientInKeka(
     payload: KekaCreateClientPayload,
   ): Promise<string> {
+    const billingCurrencyId = payload.billingInfo?.billingCurrencyId?.trim();
+    if (!billingCurrencyId) {
+      throw new Error(
+        'Keka client create requires billingInfo.billingCurrencyId',
+      );
+    }
+
+    const address = payload.billingInfo?.billingAddress;
+    const cleanedAddress = address
+      ? {
+          ...(address.addressLine1?.trim()
+            ? { addressLine1: address.addressLine1.trim() }
+            : {}),
+          ...(address.addressLine2?.trim()
+            ? { addressLine2: address.addressLine2.trim() }
+            : {}),
+          ...(address.countryCode?.trim()
+            ? { countryCode: address.countryCode.trim() }
+            : {}),
+          ...(address.city?.trim() ? { city: address.city.trim() } : {}),
+          ...(address.state?.trim() ? { state: address.state.trim() } : {}),
+          ...(address.zip?.trim() ? { zip: address.zip.trim() } : {}),
+        }
+      : null;
+
     const body: KekaCreateClientPayload = {
       name: payload.name.trim(),
       code: payload.code.trim(),
+      billingInfo: {
+        billingCurrencyId,
+        ...(cleanedAddress && Object.keys(cleanedAddress).length > 0
+          ? { billingAddress: cleanedAddress }
+          : {}),
+      },
       ...(payload.description?.trim()
         ? { description: payload.description.trim() }
         : {}),
