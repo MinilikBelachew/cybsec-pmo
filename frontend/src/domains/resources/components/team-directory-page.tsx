@@ -373,7 +373,7 @@ export function TeamDirectoryPage() {
             minTableWidth="min-w-[960px]"
             onRowClick={handleSelectMember}
             enableColumnReorder
-            columnOrderStorageKey="cybsec-team-directory-column-order"
+            columnOrderStorageKey="cybsec-team-directory-column-order-v3"
           />
         )
       ) : (

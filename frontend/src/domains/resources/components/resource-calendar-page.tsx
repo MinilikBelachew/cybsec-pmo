@@ -111,6 +111,15 @@ export function ResourceCalendarPage() {
     { month: "long", year: "numeric", timeZone: "UTC" },
   );
 
+  const selectedCalendarLabel = useMemo(() => {
+    if (calendarId === "all") return "All calendars";
+    const selected = (data?.calendars ?? []).find(
+      (calendar) => calendar.id === calendarId,
+    );
+    if (!selected) return "Holiday calendar";
+    return `${selected.name} (${selected.holidayCount})`;
+  }, [calendarId, data?.calendars]);
+
   const shiftMonth = (delta: number) => {
     const next = new Date(Date.UTC(year, monthIndex + delta, 1));
     setYear(next.getUTCFullYear());
@@ -205,7 +214,9 @@ export function ResourceCalendarPage() {
             }}
           >
             <SelectTrigger className="h-8 w-[220px]">
-              <SelectValue placeholder="Holiday calendar" />
+              <SelectValue placeholder="Holiday calendar">
+                {selectedCalendarLabel}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All calendars</SelectItem>

@@ -27,6 +27,11 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
 import { cn } from "@/shared/utils/cn";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { useAppSelector } from "@/store/hooks";
@@ -472,11 +477,32 @@ export function KekaIntegrationPanel() {
       {
         accessorKey: "errorMsg",
         header: "Error",
-        cell: ({ row }) => (
-          <span className="line-clamp-2 max-w-xs text-xs text-muted-foreground">
-            {row.original.errorMsg ?? "—"}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const errorMsg = row.original.errorMsg;
+          if (!errorMsg) {
+            return (
+              <span className="text-xs text-muted-foreground">—</span>
+            );
+          }
+          return (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="line-clamp-2 max-w-xs cursor-default text-xs text-muted-foreground">
+                    {errorMsg}
+                  </span>
+                }
+              />
+              <TooltipContent
+                side="top"
+                sideOffset={6}
+                className="max-w-md whitespace-pre-wrap break-words text-left"
+              >
+                {errorMsg}
+              </TooltipContent>
+            </Tooltip>
+          );
+        },
       },
     ];
 
@@ -572,11 +598,32 @@ export function KekaIntegrationPanel() {
       {
         accessorKey: "errorMsg",
         header: "Error",
-        cell: ({ row }) => (
-          <span className="line-clamp-2 max-w-xs text-xs text-muted-foreground">
-            {row.original.errorMsg}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const errorMsg = row.original.errorMsg;
+          if (!errorMsg) {
+            return (
+              <span className="text-xs text-muted-foreground">—</span>
+            );
+          }
+          return (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="line-clamp-2 max-w-xs cursor-default text-xs text-muted-foreground">
+                    {errorMsg}
+                  </span>
+                }
+              />
+              <TooltipContent
+                side="top"
+                sideOffset={6}
+                className="max-w-md whitespace-pre-wrap break-words text-left"
+              >
+                {errorMsg}
+              </TooltipContent>
+            </Tooltip>
+          );
+        },
       },
     ];
 
