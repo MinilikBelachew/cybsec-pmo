@@ -26,6 +26,10 @@ import {
   KEKA_SYNC_STATUS,
 } from '../integrations/keka/keka.constants';
 import {
+  upsertFailedSyncRecord,
+} from '../integrations/keka/utils/failed-sync-record.util';
+import type { OutboundClientCreatePayload } from '../integrations/keka/sync/client-sync.service';
+import {
   ApiPriorityLevel,
   ApiProjectMethodology,
   ApiProjectStatus,
@@ -178,6 +182,10 @@ export class ProjectsService {
           error instanceof Error
             ? error.message
             : 'Keka project create/link failed';
+        const failurePayload = {
+          customerId: customer.id,
+          kekaClientId: customer.kekaClientId,
+        };
         await this.prisma.kekaSyncLog.create({
           data: {
             entityType: KEKA_ENTITY_TYPE.PROJECT,
@@ -185,11 +193,15 @@ export class ProjectsService {
             direction: KEKA_SYNC_DIRECTION.OUTBOUND,
             status: KEKA_SYNC_STATUS.FAILED,
             errorMsg: kekaSyncError,
-            payload: {
-              customerId: customer.id,
-              kekaClientId: customer.kekaClientId,
-            },
+            payload: failurePayload,
           },
+        });
+        await upsertFailedSyncRecord(this.prisma, {
+          entityType: KEKA_ENTITY_TYPE.PROJECT,
+          entityId: project.id,
+          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+          errorMsg: kekaSyncError,
+          payload: failurePayload,
         });
       }
     } else {
@@ -740,6 +752,17 @@ export class ProjectsService {
       }
     }
 
+    const outboundPayload: OutboundClientCreatePayload = {
+      name,
+      code,
+      billingCurrencyId,
+      description: notes,
+      email,
+      phone,
+      website,
+      billingAddress,
+    };
+
     let kekaClientId: string | null = null;
     let kekaError: string | null = null;
     try {
@@ -808,26 +831,16 @@ export class ProjectsService {
     });
 
     if (kekaClientId) {
-      await this.prisma.kekaSyncLog.create({
-        data: {
-          entityType: KEKA_ENTITY_TYPE.CLIENT,
-          entityId: customer.id,
-          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
-          status: KEKA_SYNC_STATUS.SUCCESS,
-          payload: { name, code, billingCurrencyId, kekaClientId },
-        },
+      await this.clientSyncService.logOutboundSuccess(customer.id, {
+        ...outboundPayload,
+        kekaClientId,
       });
     } else if (kekaError) {
-      await this.prisma.kekaSyncLog.create({
-        data: {
-          entityType: KEKA_ENTITY_TYPE.CLIENT,
-          entityId: customer.id,
-          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
-          status: KEKA_SYNC_STATUS.FAILED,
-          errorMsg: kekaError,
-          payload: { name, code, billingCurrencyId },
-        },
-      });
+      await this.clientSyncService.logOutboundFailure(
+        customer.id,
+        outboundPayload,
+        kekaError,
+      );
     }
 
     return {

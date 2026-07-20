@@ -7,7 +7,9 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AllocationPushService } from './sync/allocation-push.service';
+import { ClientSyncService } from './sync/client-sync.service';
 import { KekaSyncService } from './sync/keka-sync.service';
+import { ProjectLinkService } from './sync/project-link.service';
 import { TimesheetPushService } from './sync/timesheet-push.service';
 import { TimesheetReconcileService } from './sync/timesheet-reconcile.service';
 import {
@@ -23,9 +25,13 @@ import {
   RetryKekaSyncResultDto,
   TimesheetReconcileResponseDto,
 } from './dto/keka-integration.dto';
-import { KEKA_ENTITY_TYPE, KEKA_SYNC_STATUS } from './keka.constants';
+import {
+  KEKA_ENTITY_TYPE,
+  KEKA_SYNC_DIRECTION,
+  KEKA_SYNC_STATUS,
+} from './keka.constants';
 import { KEKA_INTEGRATION } from '../../timesheets/timesheets.constants';
-import { backfillFailedRecordsFromSyncLogs } from './utils/failed-sync-record.util';
+import { backfillFailedRecordsFromSyncLogs, upsertFailedSyncRecord, resolveFailedSyncRecord } from './utils/failed-sync-record.util';
 
 /** Logs within this window of the latest log are treated as one "last run". */
 const LAST_RUN_WINDOW_MS = 30 * 60 * 1000;
@@ -78,6 +84,8 @@ export class KekaIntegrationAdminService {
     private readonly prisma: PrismaService,
     private readonly timesheetPushService: TimesheetPushService,
     private readonly allocationPushService: AllocationPushService,
+    private readonly clientSyncService: ClientSyncService,
+    private readonly projectLinkService: ProjectLinkService,
     private readonly kekaSyncService: KekaSyncService,
     private readonly timesheetReconcileService: TimesheetReconcileService,
   ) {}
@@ -237,6 +245,7 @@ export class KekaIntegrationAdminService {
   ): Promise<RetryKekaSyncResultDto> {
     let entityType = options.entityType;
     let entityId = options.entityId;
+    let direction: string | null = null;
 
     if (options.failedSyncRecordId) {
       const record = await this.prisma.failedSyncRecord.findUnique({
@@ -260,6 +269,7 @@ export class KekaIntegrationAdminService {
 
       entityType = record.entityType;
       entityId = record.entityId ?? undefined;
+      direction = record.direction;
     }
 
     if (!entityType || !entityId) {
@@ -291,6 +301,37 @@ export class KekaIntegrationAdminService {
             ? 'Allocation synced to Keka.'
             : 'Allocation sync failed again.',
           ref,
+        };
+      }
+      case KEKA_ENTITY_TYPE.CLIENT: {
+        const customer = await this.prisma.customer.findUnique({
+          where: { id: entityId },
+          select: { kekaClientId: true },
+        });
+
+        const shouldRetryOutbound =
+          direction === KEKA_SYNC_DIRECTION.OUTBOUND ||
+          (direction == null && !customer?.kekaClientId?.trim());
+
+        if (shouldRetryOutbound) {
+          const result = await this.clientSyncService.retryOutboundClientCreate(
+            entityId,
+            { resolvedBy: actorId },
+          );
+          return {
+            success: result.success,
+            message: result.success
+              ? 'Client created in Keka.'
+              : result.error ?? 'Client sync to Keka failed again.',
+            ref: result.kekaClientId,
+          };
+        }
+
+        await this.kekaSyncService.enqueueClientsSync();
+        return {
+          success: true,
+          message: 'Client sync job queued.',
+          ref: null,
         };
       }
       case KEKA_ENTITY_TYPE.EMPLOYEE: {
@@ -343,7 +384,46 @@ export class KekaIntegrationAdminService {
           ref: null,
         };
       }
-      case KEKA_ENTITY_TYPE.PROJECT:
+      case KEKA_ENTITY_TYPE.PROJECT: {
+        if (direction !== KEKA_SYNC_DIRECTION.INBOUND) {
+          try {
+            const kekaProjectId =
+              await this.projectLinkService.ensureProjectLinked(entityId);
+            await resolveFailedSyncRecord(this.prisma, {
+              entityType: KEKA_ENTITY_TYPE.PROJECT,
+              entityId,
+              resolvedBy: actorId,
+            });
+            return {
+              success: true,
+              message: 'Project linked/created in Keka.',
+              ref: kekaProjectId,
+            };
+          } catch (error) {
+            const errorMsg =
+              error instanceof Error
+                ? error.message
+                : 'Project sync to Keka failed again.';
+            await upsertFailedSyncRecord(this.prisma, {
+              entityType: KEKA_ENTITY_TYPE.PROJECT,
+              entityId,
+              direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+              errorMsg,
+            });
+            return {
+              success: false,
+              message: errorMsg,
+              ref: null,
+            };
+          }
+        }
+        await this.kekaSyncService.enqueueProjectsSync();
+        return {
+          success: true,
+          message: 'Project sync job queued.',
+          ref: null,
+        };
+      }
       case KEKA_ENTITY_TYPE.TASK: {
         await this.kekaSyncService.enqueueProjectsSync();
         return {

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PartyType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { KEKA_INTEGRATION } from '../../../timesheets/timesheets.constants';
 import { KekaHttpClient } from '../client/keka-http.client';
 import {
   KEKA_ENTITY_TYPE,
@@ -9,11 +10,24 @@ import {
 } from '../keka.constants';
 import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import {
+  KekaCreateClientBillingAddress,
   KekaCreateClientPayload,
   KekaCurrency,
   KekaPsaClient,
   KekaPsaClientAddress,
 } from '../keka.types';
+
+/** Stored on FailedSyncRecord so outbound client create can be retried. */
+export type OutboundClientCreatePayload = {
+  name: string;
+  code: string;
+  billingCurrencyId: string;
+  description?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  billingAddress?: KekaCreateClientBillingAddress | null;
+};
 
 export type ClientSyncResult = {
   synced: number;
@@ -98,6 +112,127 @@ export class ClientSyncService {
         Boolean(row),
       )
       .sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  /**
+   * Retry outbound client create for a local Customer that has no kekaClientId.
+   * Requires billingCurrencyId from the FailedSyncRecord payload (not stored on Customer).
+   */
+  async retryOutboundClientCreate(
+    customerId: string,
+    options?: { resolvedBy?: string | null },
+  ): Promise<{ success: boolean; kekaClientId: string | null; error?: string }> {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        displayName: true,
+        companyName: true,
+        notes: true,
+        primaryEmail: true,
+        primaryPhone: true,
+        kekaClientId: true,
+        kekaClientCode: true,
+      },
+    });
+
+    if (!customer) {
+      return {
+        success: false,
+        kekaClientId: null,
+        error: `Customer ${customerId} not found`,
+      };
+    }
+
+    if (customer.kekaClientId?.trim()) {
+      await resolveFailedSyncRecord(this.prisma, {
+        entityType: KEKA_ENTITY_TYPE.CLIENT,
+        entityId: customerId,
+        resolvedBy: options?.resolvedBy,
+      });
+      return { success: true, kekaClientId: customer.kekaClientId.trim() };
+    }
+
+    const failure = await this.prisma.failedSyncRecord.findFirst({
+      where: {
+        integration: KEKA_INTEGRATION,
+        entityType: KEKA_ENTITY_TYPE.CLIENT,
+        entityId: customerId,
+        isResolved: false,
+        direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+      },
+      orderBy: { lastAttempted: 'desc' },
+      select: { payload: true },
+    });
+
+    const stored = this.parseOutboundCreatePayload(failure?.payload);
+    const name =
+      stored?.name?.trim() ||
+      customer.companyName?.trim() ||
+      customer.displayName?.trim() ||
+      '';
+    const code =
+      stored?.code?.trim() ||
+      customer.kekaClientCode?.trim() ||
+      this.buildClientCode(name || 'CLIENT', customer.id);
+    const billingCurrencyId = stored?.billingCurrencyId?.trim() || '';
+
+    if (!name || !billingCurrencyId) {
+      const errorMsg =
+        'Cannot retry Keka client create: name or billingCurrencyId missing from failed sync payload';
+      await this.logOutboundFailure(customerId, stored ?? { customerId }, errorMsg);
+      return { success: false, kekaClientId: null, error: errorMsg };
+    }
+
+    const createPayload: OutboundClientCreatePayload = {
+      name,
+      code,
+      billingCurrencyId,
+      description: stored?.description ?? customer.notes,
+      email: stored?.email ?? customer.primaryEmail,
+      phone: stored?.phone ?? customer.primaryPhone,
+      website: stored?.website ?? null,
+      billingAddress: stored?.billingAddress ?? null,
+    };
+
+    try {
+      const kekaClientId = await this.createClientInKeka({
+        name: createPayload.name,
+        code: createPayload.code,
+        description: createPayload.description,
+        email: createPayload.email,
+        phone: createPayload.phone,
+        website: createPayload.website,
+        billingInfo: {
+          billingCurrencyId: createPayload.billingCurrencyId,
+          ...(createPayload.billingAddress
+            ? { billingAddress: createPayload.billingAddress }
+            : {}),
+        },
+      });
+
+      await this.prisma.customer.update({
+        where: { id: customerId },
+        data: {
+          kekaClientId,
+          kekaClientCode: createPayload.code,
+          kekaSyncedAt: new Date(),
+        },
+      });
+
+      await this.logOutboundSuccess(
+        customerId,
+        { ...createPayload, kekaClientId },
+        options?.resolvedBy,
+      );
+
+      return { success: true, kekaClientId };
+    } catch (error) {
+      const errorMsg =
+        error instanceof Error ? error.message : 'Keka client create failed';
+      await this.logOutboundFailure(customerId, createPayload, errorMsg);
+      return { success: false, kekaClientId: null, error: errorMsg };
+    }
   }
 
   /**
@@ -324,6 +459,99 @@ export class ClientSyncService {
       return excludeCustomerId ? undefined : null;
     }
     return email;
+  }
+
+  private parseOutboundCreatePayload(
+    payload: Prisma.JsonValue | null | undefined,
+  ): OutboundClientCreatePayload | null {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+    const row = payload as Record<string, unknown>;
+    const billingCurrencyId =
+      typeof row.billingCurrencyId === 'string' ? row.billingCurrencyId : '';
+    const name = typeof row.name === 'string' ? row.name : '';
+    const code = typeof row.code === 'string' ? row.code : '';
+    if (!billingCurrencyId && !name && !code) {
+      return null;
+    }
+
+    const billingAddressRaw = row.billingAddress;
+    let billingAddress: KekaCreateClientBillingAddress | null = null;
+    if (
+      billingAddressRaw &&
+      typeof billingAddressRaw === 'object' &&
+      !Array.isArray(billingAddressRaw)
+    ) {
+      const addr = billingAddressRaw as Record<string, unknown>;
+      billingAddress = {
+        addressLine1:
+          typeof addr.addressLine1 === 'string' ? addr.addressLine1 : null,
+        addressLine2:
+          typeof addr.addressLine2 === 'string' ? addr.addressLine2 : null,
+        countryCode:
+          typeof addr.countryCode === 'string' ? addr.countryCode : null,
+        city: typeof addr.city === 'string' ? addr.city : null,
+        state: typeof addr.state === 'string' ? addr.state : null,
+        zip: typeof addr.zip === 'string' ? addr.zip : null,
+      };
+    }
+
+    return {
+      name,
+      code,
+      billingCurrencyId,
+      description: typeof row.description === 'string' ? row.description : null,
+      email: typeof row.email === 'string' ? row.email : null,
+      phone: typeof row.phone === 'string' ? row.phone : null,
+      website: typeof row.website === 'string' ? row.website : null,
+      billingAddress,
+    };
+  }
+
+  async logOutboundFailure(
+    entityId: string,
+    payload: unknown,
+    errorMsg: string,
+  ): Promise<void> {
+    await this.prisma.kekaSyncLog.create({
+      data: {
+        entityType: KEKA_ENTITY_TYPE.CLIENT,
+        entityId,
+        direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+        status: KEKA_SYNC_STATUS.FAILED,
+        errorMsg,
+        payload: payload as Prisma.InputJsonValue,
+      },
+    });
+    await upsertFailedSyncRecord(this.prisma, {
+      entityType: KEKA_ENTITY_TYPE.CLIENT,
+      entityId,
+      direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+      errorMsg,
+      payload: payload as Prisma.InputJsonValue,
+    });
+  }
+
+  async logOutboundSuccess(
+    entityId: string,
+    payload: unknown,
+    resolvedBy?: string | null,
+  ): Promise<void> {
+    await this.prisma.kekaSyncLog.create({
+      data: {
+        entityType: KEKA_ENTITY_TYPE.CLIENT,
+        entityId,
+        direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+        status: KEKA_SYNC_STATUS.SUCCESS,
+        payload: payload as Prisma.InputJsonValue,
+      },
+    });
+    await resolveFailedSyncRecord(this.prisma, {
+      entityType: KEKA_ENTITY_TYPE.CLIENT,
+      entityId,
+      resolvedBy,
+    });
   }
 
   private async logSuccess(entityId: string, payload: unknown): Promise<void> {

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { Controller, useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "react-hot-toast";
@@ -20,6 +22,11 @@ import {
 } from "@/domains/projects/api/projects.api";
 import { getApiErrorMessage } from "@/core/errors/api-error";
 import type { Customer } from "@/domains/projects/types/projects.types";
+import {
+  registerClientFormSchema,
+  toCreateCustomerPayload,
+  type RegisterClientFormValues,
+} from "@/domains/projects/schemas/customer/register-client.schema";
 
 interface RegisterClientDialogProps {
   open: boolean;
@@ -27,25 +34,27 @@ interface RegisterClientDialogProps {
   onCreated: (customer: Customer) => void;
 }
 
+const DEFAULT_VALUES: RegisterClientFormValues = {
+  name: "",
+  code: "",
+  email: "",
+  phone: "",
+  website: "",
+  description: "",
+  billingCurrencyId: "",
+  addressLine1: "",
+  addressLine2: "",
+  countryCode: "",
+  city: "",
+  state: "",
+  zip: "",
+};
+
 export function RegisterClientDialog({
   open,
   onClose,
   onCreated,
 }: RegisterClientDialogProps) {
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [website, setWebsite] = useState("");
-  const [description, setDescription] = useState("");
-  const [billingCurrencyId, setBillingCurrencyId] = useState("");
-  const [addressLine1, setAddressLine1] = useState("");
-  const [addressLine2, setAddressLine2] = useState("");
-  const [countryCode, setCountryCode] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [zip, setZip] = useState("");
-
   const {
     data: kekaCurrencies = [],
     isLoading: loadingCurrencies,
@@ -53,71 +62,48 @@ export function RegisterClientDialog({
   } = useGetKekaCurrenciesQuery(undefined, { skip: !open });
   const [createCustomer, { isLoading }] = useCreateCustomerMutation();
 
+  const {
+    control,
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useForm<RegisterClientFormValues>({
+    resolver: zodResolver(registerClientFormSchema),
+    defaultValues: DEFAULT_VALUES,
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+  });
+
+  const billingCurrencyId = watch("billingCurrencyId");
+
   useEffect(() => {
     if (!open || billingCurrencyId || kekaCurrencies.length === 0) return;
     const preferred =
-      kekaCurrencies.find((c) => c.code === "INR") ||
       kekaCurrencies.find((c) => c.code === "USD") ||
+      kekaCurrencies.find((c) => c.code === "INR") ||
       kekaCurrencies[0];
-    if (preferred) setBillingCurrencyId(preferred.id);
-  }, [open, kekaCurrencies, billingCurrencyId]);
-
-  function reset() {
-    setName("");
-    setCode("");
-    setEmail("");
-    setPhone("");
-    setWebsite("");
-    setDescription("");
-    setBillingCurrencyId("");
-    setAddressLine1("");
-    setAddressLine2("");
-    setCountryCode("");
-    setCity("");
-    setState("");
-    setZip("");
-  }
+    if (preferred) {
+      setValue("billingCurrencyId", preferred.id, { shouldValidate: false });
+    }
+  }, [open, kekaCurrencies, billingCurrencyId, setValue]);
 
   function handleClose() {
     if (isLoading) return;
-    reset();
+    reset(DEFAULT_VALUES);
     onClose();
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      toast.error("Client name is required.");
-      return;
-    }
-    if (!billingCurrencyId) {
-      toast.error("Billing currency is required for Keka.");
-      return;
-    }
-
+  const onSubmit = handleSubmit(async (values) => {
+    const parsed = registerClientFormSchema.parse(values);
     try {
-      const created = await createCustomer({
-        name: trimmedName,
-        code: code.trim() || undefined,
-        email: email.trim() || undefined,
-        phone: phone.trim() || undefined,
-        website: website.trim() || undefined,
-        description: description.trim() || undefined,
-        billingCurrencyId,
-        billingAddress: {
-          addressLine1: addressLine1.trim() || undefined,
-          addressLine2: addressLine2.trim() || undefined,
-          countryCode: countryCode.trim() || undefined,
-          city: city.trim() || undefined,
-          state: state.trim() || undefined,
-          zip: zip.trim() || undefined,
-        },
-      }).unwrap();
+      const created = await createCustomer(toCreateCustomerPayload(parsed)).unwrap();
 
       if (created.kekaSyncError) {
         toast.error(
-          `Client saved locally, but Keka create failed: ${created.kekaSyncError}`,
+          `Client saved locally, but Keka create failed: ${created.kekaSyncError}. Retry from Integrations → Keka.`,
         );
       } else if (created.kekaClientId) {
         toast.success("Client created in PMO and Keka.");
@@ -126,14 +112,14 @@ export function RegisterClientDialog({
       }
 
       onCreated(created);
-      reset();
+      reset(DEFAULT_VALUES);
       onClose();
     } catch (err) {
       toast.error(
         getApiErrorMessage(err, "Failed to create client in PMO / Keka"),
       );
     }
-  }
+  });
 
   const selectedCurrency = kekaCurrencies.find((c) => c.id === billingCurrencyId);
 
@@ -157,18 +143,22 @@ export function RegisterClientDialog({
             Creates the client in PMO and in Keka PSA. Billing currency is required by Keka.
           </DialogPrimitive.Description>
 
-          <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
+          <form onSubmit={onSubmit} className="mt-5 space-y-3.5">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Name *
               </label>
               <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                {...register("name")}
                 placeholder="e.g. Cisco"
                 disabled={isLoading}
                 autoFocus
               />
+              {errors.name && (
+                <p className="text-[11px] font-semibold text-rose-500">
+                  {errors.name.message}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -176,8 +166,7 @@ export function RegisterClientDialog({
                 Code
               </label>
               <Input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
+                {...register("code")}
                 placeholder="Optional — auto-generated if empty"
                 disabled={isLoading}
               />
@@ -187,34 +176,45 @@ export function RegisterClientDialog({
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Billing currency *
               </label>
-              <Select
-                value={billingCurrencyId || undefined}
-                onValueChange={(value) => {
-                  if (typeof value === "string") setBillingCurrencyId(value);
-                }}
-                disabled={isLoading || loadingCurrencies || kekaCurrencies.length === 0}
-              >
-                <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm">
-                  <SelectValue placeholder={loadingCurrencies ? "Loading currencies…" : "Select currency…"}>
-                    {selectedCurrency
-                      ? `${selectedCurrency.code} — ${selectedCurrency.name}`
-                      : loadingCurrencies
-                        ? "Loading currencies…"
-                        : "Select currency…"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent
-                  alignItemWithTrigger={false}
-                  positionerClassName="z-[120]"
-                  className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg"
-                >
-                  {kekaCurrencies.map((currency) => (
-                    <SelectItem key={currency.id} value={currency.id}>
-                      {currency.code} — {currency.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Controller
+                control={control}
+                name="billingCurrencyId"
+                render={({ field }) => (
+                  <Select
+                    value={field.value || undefined}
+                    onValueChange={(value) => {
+                      if (typeof value === "string") field.onChange(value);
+                    }}
+                    disabled={isLoading || loadingCurrencies || kekaCurrencies.length === 0}
+                  >
+                    <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm">
+                      <SelectValue placeholder={loadingCurrencies ? "Loading currencies…" : "Select currency…"}>
+                        {selectedCurrency
+                          ? `${selectedCurrency.code} — ${selectedCurrency.name}`
+                          : loadingCurrencies
+                            ? "Loading currencies…"
+                            : "Select currency…"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      positionerClassName="z-[120]"
+                      className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg"
+                    >
+                      {kekaCurrencies.map((currency) => (
+                        <SelectItem key={currency.id} value={currency.id}>
+                          {currency.code} — {currency.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.billingCurrencyId && (
+                <p className="text-[11px] font-semibold text-rose-500">
+                  {errors.billingCurrencyId.message}
+                </p>
+              )}
               {currenciesError && (
                 <p className="text-[11px] font-semibold text-rose-500">
                   Could not load Keka currencies. Check Keka integration credentials.
@@ -229,22 +229,42 @@ export function RegisterClientDialog({
                 </label>
                 <Input
                   type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  {...register("email")}
                   placeholder="optional"
                   disabled={isLoading}
                 />
+                {errors.email && (
+                  <p className="text-[11px] font-semibold text-rose-500">
+                    {errors.email.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Phone
                 </label>
-                <Input
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="optional"
-                  disabled={isLoading}
+                <Controller
+                  control={control}
+                  name="phone"
+                  render={({ field }) => (
+                    <Input
+                      type="tel"
+                      inputMode="tel"
+                      value={field.value ?? ""}
+                      onChange={(e) =>
+                        field.onChange(e.target.value.replace(/[^0-9+\-\s().]/g, ""))
+                      }
+                      onBlur={field.onBlur}
+                      placeholder="optional"
+                      disabled={isLoading}
+                    />
+                  )}
                 />
+                {errors.phone && (
+                  <p className="text-[11px] font-semibold text-rose-500">
+                    {errors.phone.message}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -253,8 +273,7 @@ export function RegisterClientDialog({
                 Website
               </label>
               <Input
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
+                {...register("website")}
                 placeholder="optional"
                 disabled={isLoading}
               />
@@ -265,8 +284,7 @@ export function RegisterClientDialog({
                 Description
               </label>
               <Input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                {...register("description")}
                 placeholder="optional"
                 disabled={isLoading}
               />
@@ -274,71 +292,76 @@ export function RegisterClientDialog({
 
             <div className="rounded-lg border border-slate-200/70 p-3 space-y-3 dark:border-white/[0.08]">
               <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Billing address (optional)
+                Billing address *
               </p>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-medium text-muted-foreground">
-                  Address line 1
+                  Address line 1 *
                 </label>
-                <Input
-                  value={addressLine1}
-                  onChange={(e) => setAddressLine1(e.target.value)}
-                  disabled={isLoading}
-                />
+                <Input {...register("addressLine1")} disabled={isLoading} />
+                {errors.addressLine1 && (
+                  <p className="text-[11px] font-semibold text-rose-500">
+                    {errors.addressLine1.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-medium text-muted-foreground">
                   Address line 2
                 </label>
-                <Input
-                  value={addressLine2}
-                  onChange={(e) => setAddressLine2(e.target.value)}
-                  disabled={isLoading}
-                />
+                <Input {...register("addressLine2")} disabled={isLoading} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-medium text-muted-foreground">
-                    City
+                    City *
                   </label>
-                  <Input
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    disabled={isLoading}
-                  />
+                  <Input {...register("city")} disabled={isLoading} />
+                  {errors.city && (
+                    <p className="text-[11px] font-semibold text-rose-500">
+                      {errors.city.message}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-medium text-muted-foreground">
-                    State
+                    State *
                   </label>
-                  <Input
-                    value={state}
-                    onChange={(e) => setState(e.target.value)}
-                    disabled={isLoading}
-                  />
+                  <Input {...register("state")} disabled={isLoading} />
+                  {errors.state && (
+                    <p className="text-[11px] font-semibold text-rose-500">
+                      {errors.state.message}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-medium text-muted-foreground">
-                    Country code
+                    Country code *
                   </label>
                   <Input
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
+                    {...register("countryCode")}
                     placeholder="e.g. IN"
+                    maxLength={2}
                     disabled={isLoading}
                   />
+                  {errors.countryCode && (
+                    <p className="text-[11px] font-semibold text-rose-500">
+                      {errors.countryCode.message}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-medium text-muted-foreground">
-                    ZIP
+                    ZIP *
                   </label>
-                  <Input
-                    value={zip}
-                    onChange={(e) => setZip(e.target.value)}
-                    disabled={isLoading}
-                  />
+                  <Input {...register("zip")} disabled={isLoading} />
+                  {errors.zip && (
+                    <p className="text-[11px] font-semibold text-rose-500">
+                      {errors.zip.message}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -352,15 +375,7 @@ export function RegisterClientDialog({
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={
-                  isLoading ||
-                  !name.trim() ||
-                  !billingCurrencyId ||
-                  loadingCurrencies
-                }
-              >
+              <Button type="submit" disabled={isLoading || loadingCurrencies}>
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-1.5 size-3.5 animate-spin" />

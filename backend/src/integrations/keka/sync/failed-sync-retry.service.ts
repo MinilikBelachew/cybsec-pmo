@@ -7,8 +7,11 @@ import {
   KEKA_FAILED_SYNC_MAX_RETRIES,
   KEKA_SYNC_DIRECTION,
 } from '../keka.constants';
+import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import { AllocationPushService } from './allocation-push.service';
+import { ClientSyncService } from './client-sync.service';
 import { KekaSyncService } from './keka-sync.service';
+import { ProjectLinkService } from './project-link.service';
 import { TimesheetPushService } from './timesheet-push.service';
 
 type RetrySummary = {
@@ -19,7 +22,7 @@ type RetrySummary = {
 
 /**
  * Auto-retries unresolved Keka FailedSyncRecord rows:
- * - outbound timesheets / allocations (direct entity retry)
+ * - outbound timesheets / allocations / clients / projects (direct entity retry)
  * - inbound entity types (re-queue the matching sync job)
  */
 @Injectable()
@@ -30,6 +33,8 @@ export class FailedSyncRetryService {
     private readonly prisma: PrismaService,
     private readonly timesheetPushService: TimesheetPushService,
     private readonly allocationPushService: AllocationPushService,
+    private readonly clientSyncService: ClientSyncService,
+    private readonly projectLinkService: ProjectLinkService,
     private readonly kekaSyncService: KekaSyncService,
   ) {}
 
@@ -38,16 +43,22 @@ export class FailedSyncRetryService {
       await this.timesheetPushService.retryPendingFailedSyncs();
 
     const allocationResult = await this.retryPendingAllocations();
+    const clientResult = await this.retryPendingOutboundClients();
+    const projectResult = await this.retryPendingOutboundProjects();
     const inboundResult = await this.retryPendingInbound();
 
     return {
       attempted:
         timesheetResult.attempted +
         allocationResult.attempted +
+        clientResult.attempted +
+        projectResult.attempted +
         inboundResult.attempted,
       succeeded:
         timesheetResult.succeeded +
         allocationResult.succeeded +
+        clientResult.succeeded +
+        projectResult.succeeded +
         inboundResult.succeeded,
       queuedInboundTypes: inboundResult.queuedInboundTypes,
     };
@@ -77,6 +88,81 @@ export class FailedSyncRetryService {
       );
       if (ref) {
         succeeded += 1;
+      }
+    }
+
+    return { attempted: failures.length, succeeded };
+  }
+
+  private async retryPendingOutboundClients(): Promise<{
+    attempted: number;
+    succeeded: number;
+  }> {
+    const failures = await this.prisma.failedSyncRecord.findMany({
+      where: {
+        integration: KEKA_INTEGRATION,
+        entityType: KEKA_ENTITY_TYPE.CLIENT,
+        direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+        isResolved: false,
+        retryCount: { lt: KEKA_FAILED_SYNC_MAX_RETRIES },
+      },
+      orderBy: { lastAttempted: 'asc' },
+      take: 25,
+    });
+
+    let succeeded = 0;
+
+    for (const failure of failures) {
+      if (!failure.entityId) continue;
+      const result = await this.clientSyncService.retryOutboundClientCreate(
+        failure.entityId,
+      );
+      if (result.success) {
+        succeeded += 1;
+      }
+    }
+
+    return { attempted: failures.length, succeeded };
+  }
+
+  private async retryPendingOutboundProjects(): Promise<{
+    attempted: number;
+    succeeded: number;
+  }> {
+    const failures = await this.prisma.failedSyncRecord.findMany({
+      where: {
+        integration: KEKA_INTEGRATION,
+        entityType: KEKA_ENTITY_TYPE.PROJECT,
+        direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+        isResolved: false,
+        retryCount: { lt: KEKA_FAILED_SYNC_MAX_RETRIES },
+      },
+      orderBy: { lastAttempted: 'asc' },
+      take: 25,
+    });
+
+    let succeeded = 0;
+
+    for (const failure of failures) {
+      if (!failure.entityId) continue;
+      try {
+        await this.projectLinkService.ensureProjectLinked(failure.entityId);
+        await resolveFailedSyncRecord(this.prisma, {
+          entityType: KEKA_ENTITY_TYPE.PROJECT,
+          entityId: failure.entityId,
+        });
+        succeeded += 1;
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error
+            ? error.message
+            : 'Keka project create/link failed';
+        await upsertFailedSyncRecord(this.prisma, {
+          entityType: KEKA_ENTITY_TYPE.PROJECT,
+          entityId: failure.entityId,
+          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+          errorMsg,
+        });
       }
     }
 

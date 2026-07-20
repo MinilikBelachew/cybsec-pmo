@@ -55,6 +55,7 @@ import {
   DollarSign,
   GitBranch,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Sheet,
@@ -527,7 +528,12 @@ export function CreateProjectSheet({
         if (created.kekaProjectId) {
           toast.success("Project linked/created in Keka.");
         } else if (created.kekaSyncError) {
-          toast(created.kekaSyncError, { icon: "⚠️" });
+          toast(
+            activeCustomer && !activeCustomer.kekaClientId
+              ? "Project created in PMO only because the selected client is not linked to Keka."
+              : `${created.kekaSyncError} Retry from Integrations → Keka.`,
+            { icon: "⚠️" },
+          );
         }
       }
 
@@ -801,6 +807,18 @@ export function CreateProjectSheet({
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.customerId.message}
                   </p>
+                )}
+                {activeCustomer && !activeCustomer.kekaClientId && (
+                  <div
+                    role="alert"
+                    className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+                  >
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      This client is not linked to Keka. The project will be created in PMO
+                      only; link the client to Keka before syncing the project.
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
