@@ -521,7 +521,7 @@ export function CreateProjectSheet({
         if (statusError === "invalidStatusTransition") {
           toast.error("That status change is not allowed for this project.");
         } else if (statusError === "statusTransitionRequiresAdminApproval") {
-          toast.error("Only PMO Lead or Super Admin can close a project from Pending Closure.");
+          toast.error("Only PM, PMO Lead, or Super Admin can close a project from Pending Closure.");
         } else if (statusError === "invalidStatusOnCreate") {
           toast.error("New projects must start in Draft status.");
         } else {

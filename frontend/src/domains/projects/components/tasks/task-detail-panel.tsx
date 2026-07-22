@@ -50,8 +50,6 @@ import { Calendar } from "@/shared/ui/calendar";
 import { cn } from "@/shared/utils/cn";
 import {
   TaskCollaborationSections,
-  type DraftComment,
-  type DraftSubTask,
 } from "./task-collaboration-sections";
 import type { DraftDependencyAdd } from "./task-dependencies-section";
 import {
@@ -151,10 +149,6 @@ export function TaskDetailPanel({
   const [updateTaskBundle, { isLoading: isSaving }] = useUpdateTaskBundleMutation();
   const [updateTask, { isLoading: isUpdatingStatus }] = useUpdateTaskMutation();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [draftSubTasks, setDraftSubTasks] = useState<DraftSubTask[]>([]);
-  const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
-  const [draftFiles, setDraftFiles] = useState<File[]>([]);
-  const [pendingAttachmentDeletes, setPendingAttachmentDeletes] = useState<string[]>([]);
   const [draftDependencyAdds, setDraftDependencyAdds] = useState<DraftDependencyAdd[]>([]);
   const [pendingDependencyRemoves, setPendingDependencyRemoves] = useState<string[]>([]);
 
@@ -294,10 +288,6 @@ export function TaskDetailPanel({
 
   useEffect(() => {
     if (!open) return;
-    setDraftSubTasks([]);
-    setDraftComments([]);
-    setDraftFiles([]);
-    setPendingAttachmentDeletes([]);
     setDraftDependencyAdds([]);
     setPendingDependencyRemoves([]);
   }, [taskId, open]);
@@ -308,12 +298,7 @@ export function TaskDetailPanel({
   }, [task, taskId, open, reset]);
 
   const hasDraftChanges =
-    draftSubTasks.length > 0 ||
-    draftComments.length > 0 ||
-    draftFiles.length > 0 ||
-    pendingAttachmentDeletes.length > 0 ||
-    draftDependencyAdds.length > 0 ||
-    pendingDependencyRemoves.length > 0;
+    draftDependencyAdds.length > 0 || pendingDependencyRemoves.length > 0;
 
   const hasPendingChanges = isDirty || hasDraftChanges;
   const isBusy = isSaving || isSubmitting || isUpdatingStatus;
@@ -342,17 +327,6 @@ export function TaskDetailPanel({
         taskId,
         payload: {
           ...toUpdateTaskPayload(values),
-          comments: draftComments.map((comment) => ({
-            body: comment.body,
-            isInternal: comment.isInternal,
-          })),
-          subTasks: hasParent
-            ? []
-            : draftSubTasks.map((sub) => ({
-                title: sub.title,
-                description: sub.description ?? null,
-              })),
-          removeAttachmentIds: pendingAttachmentDeletes,
           addDependencies: draftDependencyAdds.map((dep) => ({
             predecessorId: dep.predecessorId,
             successorId: dep.successorId,
@@ -361,7 +335,6 @@ export function TaskDetailPanel({
           })),
           removeDependencyIds: pendingDependencyRemoves,
         },
-        files: draftFiles,
       }).unwrap();
       result.warnings?.forEach((warning) => toast(warning, { icon: "⚠️" }));
       toast.success("Task updated");
@@ -855,17 +828,9 @@ export function TaskDetailPanel({
                   showSubTasks={!hasParent}
                   defaultTab={initialTab ?? (hasParent ? "comments" : "subtasks")}
                   className="h-full"
-                  subTaskMode={canManageTasks ? "draft" : "immediate"}
-                  draftSubTasks={draftSubTasks}
-                  onDraftSubTasksChange={setDraftSubTasks}
-                  commentMode={canManageTasks ? "draft" : "immediate"}
-                  draftComments={draftComments}
-                  onDraftCommentsChange={setDraftComments}
-                  attachmentMode={canManageTasks ? "draft" : "immediate"}
-                  draftFiles={draftFiles}
-                  onDraftFilesChange={setDraftFiles}
-                  pendingAttachmentDeletes={pendingAttachmentDeletes}
-                  onPendingAttachmentDeletesChange={setPendingAttachmentDeletes}
+                  subTaskMode="immediate"
+                  commentMode="immediate"
+                  attachmentMode="immediate"
                 />
               </div>
             </div>
@@ -881,12 +846,12 @@ export function TaskDetailPanel({
                   </Badge>
                 ) : (
                   <span className="text-xs leading-relaxed text-muted-foreground">
-                    Comments, sub-tasks, files, and links save together on Save changes.
+                    Subtasks, checklist, comments, and files save immediately. Task fields and dependencies save with Save changes.
                   </span>
                 )
               ) : (
                 <span className="text-xs leading-relaxed text-muted-foreground">
-                  Comments and attachments save immediately. Use status and progress above to update your work.
+                  Subtasks, checklist, comments, and files save immediately. Use status and progress above to update your work.
                 </span>
               )}
             </div>
