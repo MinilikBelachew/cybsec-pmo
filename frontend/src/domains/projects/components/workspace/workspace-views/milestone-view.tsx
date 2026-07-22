@@ -12,6 +12,7 @@ import {
 } from "../../../api/projects.api";
 import { useUploadFileMutation } from "../../../api/files.api";
 import { formatFileUploadError } from "../../../utils/attachment-limits";
+import { formatMilestoneWeightApiError } from "../../../utils/milestone-weight";
 import {
   useCreateProjectDocumentMutation,
   useDeleteProjectDocumentMutation,
@@ -273,7 +274,7 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
         setActiveForm({ type: null });
       } catch (err) {
         console.error("Failed to save milestone", err);
-        toast.error("Failed to save milestone");
+        toast.error(formatMilestoneWeightApiError(err));
       }
     };
 
@@ -539,6 +540,9 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
                 isSaving={isCreatingMilestone || isUpdatingMilestone}
                 projectStartDate={project?.startDate}
                 projectEndDate={project?.endDate}
+                otherMilestoneWeights={milestones
+                  .filter((m) => m.id !== activeForm.id)
+                  .map((m) => m.weight)}
                 documents={milestoneDocuments}
                 isDocumentsLoading={isMilestoneDocsLoading}
                 onDeleteDocument={handleDeleteEntityDocument}

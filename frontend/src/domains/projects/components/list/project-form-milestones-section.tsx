@@ -8,6 +8,7 @@ import { Label } from "@/shared/ui/label";
 import { toDateString } from "@/shared/utils/date";
 import { ProjectDatePicker, startOfToday } from "../shared/project-date-picker";
 import type { ProjectMilestone } from "../../types/projects.types";
+import { getMilestoneWeightTotalError } from "../../utils/milestone-weight";
 
 export type DraftProjectMilestone = {
   clientId: string;
@@ -214,6 +215,15 @@ export const ProjectFormMilestonesSection = forwardRef<
     }
 
     const nextWeight = weight ? Number(weight) : null;
+    const siblingWeights = drafts
+      .filter((draft) => draft.clientId !== editingClientId)
+      .map((draft) => draft.weight);
+    const totalError = getMilestoneWeightTotalError(siblingWeights, nextWeight);
+    if (totalError) {
+      setLocalError(totalError);
+      return;
+    }
+
     setLocalError(null);
 
     if (editingClientId) {
