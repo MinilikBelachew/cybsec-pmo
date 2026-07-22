@@ -39,6 +39,13 @@ import {
   useGetProjectByIdQuery,
 } from "@/domains/projects";
 import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_LIMITS_HINT,
+  attachmentValidationToastMessage,
+  formatFileUploadError,
+  validateAttachmentFiles,
+} from "@/domains/projects/utils/attachment-limits";
+import {
   taskDatesOutsideParentErrors,
 } from "../../schemas/task/task-date-fields";
 import {
@@ -538,8 +545,19 @@ export function AddTaskSheet({
 
   function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    if (files.length) {
-      setDraftFiles((prev) => [...prev, ...files]);
+    if (!files.length) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const { valid, issues } = validateAttachmentFiles(files, {
+      existingCount: draftFiles.length,
+    });
+    if (issues.length) {
+      toast.error(attachmentValidationToastMessage(issues));
+    }
+    if (valid.length) {
+      setDraftFiles((prev) => [...prev, ...valid]);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -549,8 +567,16 @@ export function AddTaskSheet({
       return;
     }
 
+    const fileCheck = validateAttachmentFiles(draftFiles);
+    if (fileCheck.issues.length) {
+      toast.error(attachmentValidationToastMessage(fileCheck.issues));
+      if (!fileCheck.valid.length) return;
+      setDraftFiles(fileCheck.valid);
+    }
+
     setIsSubmitting(true);
     try {
+      const filesToUpload = fileCheck.valid;
       const result = await createTaskBundle({
         payload: {
           ...toCreateTaskPayload(values),
@@ -568,7 +594,7 @@ export function AddTaskSheet({
             title: item.title,
           })),
         },
-        files: draftFiles,
+        files: filesToUpload,
       }).unwrap();
 
       result.warnings?.forEach((warning) => toast(warning, { icon: "⚠️" }));
@@ -577,7 +603,7 @@ export function AddTaskSheet({
       if (draftSubTasks.length) parts.push(`${draftSubTasks.length} sub-task(s)`);
       if (draftChecklist.length) parts.push(`${draftChecklist.length} checklist item(s)`);
       if (draftComments.length) parts.push(`${draftComments.length} comment(s)`);
-      if (draftFiles.length) parts.push(`${draftFiles.length} file(s)`);
+      if (filesToUpload.length) parts.push(`${filesToUpload.length} file(s)`);
       toast.success(parts.join(" · "));
 
       onCreated?.();
@@ -589,7 +615,7 @@ export function AddTaskSheet({
       const fieldErrors = apiError?.data?.errors;
       const humanMessage = apiError?.data?.message;
       if (humanMessage) {
-        toast.error(humanMessage);
+        toast.error(formatFileUploadError(err, humanMessage));
       } else if (fieldErrors) {
         const code = Object.values(fieldErrors)[0];
         toast.error(
@@ -597,10 +623,10 @@ export function AddTaskSheet({
             ? "Task start date must be within the selected phase dates"
             : code === "taskEndDateOutsidePhase"
               ? "Task end date must be within the selected phase dates"
-              : (code ?? "Failed to create task."),
+              : formatFileUploadError(err, code ?? "Failed to create task."),
         );
       } else {
-        toast.error("Failed to create task. Please try again.");
+        toast.error(formatFileUploadError(err, "Failed to create task. Please try again."));
       }
     } finally {
       setIsSubmitting(false);
@@ -1241,9 +1267,10 @@ export function AddTaskSheet({
                       type="file"
                       multiple
                       className="hidden"
-                      accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                      accept={ATTACHMENT_ACCEPT}
                       onChange={handleFilesSelected}
                     />
+                    <p className="text-[10px] text-muted-foreground">{ATTACHMENT_LIMITS_HINT}</p>
                     {draftFiles.length === 0 && (
                       <p className="text-center text-xs text-muted-foreground py-6">
                         No files yet. They will be uploaded with the main task.

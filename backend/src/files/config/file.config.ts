@@ -59,6 +59,6 @@ export default registerAs<FileConfig>('file', () => {
     cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME,
     cloudinaryApiKey: process.env.CLOUDINARY_API_KEY,
     cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET,
-    maxFileSize: 10485760, // 10mb
+    maxFileSize: 20971520, // 20mb
   };
 });

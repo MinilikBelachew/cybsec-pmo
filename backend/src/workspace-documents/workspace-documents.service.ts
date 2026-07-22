@@ -27,6 +27,9 @@ export type UploadedFileMeta = {
   sizeBytes?: number | null;
 };
 
+/** Max attachments allowed on a single task. */
+export const TASK_ATTACHMENT_MAX_FILES = 20;
+
 @Injectable()
 export class WorkspaceDocumentsService {
   constructor(
@@ -212,6 +215,15 @@ export class WorkspaceDocumentsService {
     tx?: Prisma.TransactionClient,
   ) {
     const client = tx ?? this.prisma;
+    const existingCount = await client.workspaceDocument.count({
+      where: { taskId: task.id, category: 'Task' },
+    });
+    if (existingCount >= TASK_ATTACHMENT_MAX_FILES) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { attachment: 'attachmentLimitExceeded' },
+      });
+    }
     const created = await client.workspaceDocument.create({
       data: this.buildCreateData({
         projectId: task.projectId,

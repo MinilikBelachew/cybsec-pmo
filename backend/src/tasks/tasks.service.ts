@@ -28,7 +28,7 @@ import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constant
 import { ProjectTeamService } from '../projects/project-team.service';
 import { LeaveBackupService } from '../resources/leave-backup.service';
 import { TaskDependenciesService } from './task-dependencies.service';
-import { WorkspaceDocumentsService } from '../workspace-documents/workspace-documents.service';
+import { WorkspaceDocumentsService, TASK_ATTACHMENT_MAX_FILES } from '../workspace-documents/workspace-documents.service';
 import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
 
@@ -587,6 +587,13 @@ export class TasksService {
       }
     }
 
+    if (files.length > TASK_ATTACHMENT_MAX_FILES) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { attachment: 'attachmentLimitExceeded' },
+      });
+    }
+
     const subTasks = dto.parentTaskId ? [] : (dto.subTasks ?? []);
 
     const uploadedFiles: UploadedFileResult[] = [];
@@ -788,6 +795,22 @@ export class TasksService {
         ownerId,
         ability,
       );
+    }
+
+    if (files.length > 0 || removeAttachmentIds.length > 0) {
+      const existingAttachmentCount = await this.prisma.workspaceDocument.count({
+        where: { taskId: id, category: 'Task' },
+      });
+      const remainingAfterRemove = Math.max(
+        0,
+        existingAttachmentCount - removeAttachmentIds.length,
+      );
+      if (remainingAfterRemove + files.length > TASK_ATTACHMENT_MAX_FILES) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { attachment: 'attachmentLimitExceeded' },
+        });
+      }
     }
 
     const uploadedFiles: UploadedFileResult[] = [];
