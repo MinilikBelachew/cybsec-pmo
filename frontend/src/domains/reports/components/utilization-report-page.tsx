@@ -567,7 +567,10 @@ export function UtilizationReportPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1">
+        <div
+          className="flex items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1"
+          data-testid="util-period"
+        >
           {(
             [
               ["this-month", "This month"],
@@ -645,6 +648,7 @@ export function UtilizationReportPage() {
           className="ms-auto"
           disabled={isExporting || isLoading}
           onClick={() => void handleExportCsv()}
+          data-testid="util-export-csv"
         >
           {isExporting ? (
             <Loader2 className="size-3.5 animate-spin" />
@@ -703,7 +707,10 @@ export function UtilizationReportPage() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-3">
+          <div
+            className="rounded-2xl border border-border/60 bg-card p-5 space-y-3"
+            data-testid="util-keka-column"
+          >
             <p className="text-sm font-bold">Keka reconciliation</p>
             <p className="text-xs text-muted-foreground">
               {data?.reconcileSource === "keka-live"

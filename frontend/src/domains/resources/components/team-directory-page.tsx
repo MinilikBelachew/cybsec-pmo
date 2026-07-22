@@ -182,7 +182,7 @@ export function TeamDirectoryPage() {
   }
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-6 pb-10" data-testid="team-directory">
       <PageHeader
         title="Team Directory"
         description={`${stats.total} employees · utilization from active project allocations in the next 90 days`}

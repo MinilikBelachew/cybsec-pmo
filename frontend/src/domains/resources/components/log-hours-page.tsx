@@ -227,6 +227,7 @@ export function LogHoursPage() {
                 className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400"
                 onClick={handleResubmitWeek}
                 disabled={resubmitting || isFetching}
+                data-testid="log-hours-resubmit"
               >
                 <RefreshCw className={cn("size-3.5", resubmitting && "animate-spin")} />
                 Resubmit Week ({rejectedCount})
@@ -238,6 +239,7 @@ export function LogHoursPage() {
                 className="gap-1.5"
                 onClick={handleSubmitWeek}
                 disabled={submitting || isFetching}
+                data-testid="log-hours-submit-week"
               >
                 <Send className="size-3.5" />
                 Submit Week ({draftCount})
@@ -398,6 +400,7 @@ export function LogHoursPage() {
               className="gap-1.5"
               disabled={isFutureDate}
               onClick={() => setShowForm(!showForm)}
+              data-testid="log-hours-add-header"
             >
               <Plus className="size-3.5" />
               Add Entry
@@ -446,6 +449,7 @@ export function LogHoursPage() {
                 size="sm"
                 disabled={isFutureDate}
                 onClick={() => setShowForm(true)}
+                data-testid="log-hours-add"
               >
                 + Add entry
               </Button>
@@ -1023,7 +1027,7 @@ function AddEntryForm({
         <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>
-        <Button type="submit" size="sm" className="gap-1.5" disabled={saving}>
+        <Button type="submit" size="sm" className="gap-1.5" disabled={saving} data-testid="log-hours-submit">
           {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
           Add Entry
         </Button>

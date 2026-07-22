@@ -430,6 +430,7 @@ export function ApprovalQueuePage() {
                                     className="h-6 px-1.5 text-[10px]"
                                     disabled={retryingId === entry.id}
                                     onClick={() => retryEntrySync(entry.id)}
+                                    data-testid="approval-keka-retry"
                                   >
                                     {retryingId === entry.id ? (
                                       <Loader2 className="size-3 animate-spin" />
@@ -502,6 +503,7 @@ export function ApprovalQueuePage() {
                             className="gap-1.5 bg-emerald-600 hover:bg-emerald-600/90"
                             disabled={approving || rejecting}
                             onClick={() => approve(submission)}
+                            data-testid="approval-approve"
                           >
                             <CheckCircle2 className="size-4" />
                             Approve Timesheet
@@ -512,6 +514,7 @@ export function ApprovalQueuePage() {
                             className="gap-1.5"
                             disabled={approving || rejecting}
                             onClick={() => reject(submission)}
+                            data-testid="approval-reject"
                           >
                             <X className="size-4" />
                             Reject & Send Feedback

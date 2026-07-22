@@ -1,30 +1,7 @@
-import { defineConfig, devices } from "@playwright/test";
-
-export default defineConfig({
-  testDir: "./tests/e2e",
-  fullyParallel: false,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: 1, // Single worker for sequential database verification
-  timeout: 120000,
-  reporter: "html",
-  globalTeardown: "./global-teardown.ts",
-  use: {
-    baseURL: "http://localhost:3000",
-
-    // Use domcontentloaded instead of load to avoid hanging on WebSocket/live connections
-    navigationTimeout: 30000,
-    actionTimeout: 15000,
-
-    trace: "on-first-retry",
-    video: "on",
-    screenshot: "on",
-  },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
-});
-
+/**
+ * Default Playwright config = Phase 1.
+ * Prefer explicit scripts:
+ *   npm run test:e2e:phase1
+ *   npm run test:e2e:phase2
+ */
+export { default } from "./playwright.phase1.config";

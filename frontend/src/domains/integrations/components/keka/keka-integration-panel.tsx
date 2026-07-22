@@ -523,6 +523,7 @@ export function KekaIntegrationPanel() {
                 className="h-7 gap-1 text-xs"
                 disabled={retryingId === key}
                 onClick={() => void handleRetryLog(row.original)}
+                data-testid="keka-retry"
               >
                 {retryingId === key ? (
                   <Loader2 className="size-3 animate-spin" />
@@ -647,6 +648,7 @@ export function KekaIntegrationPanel() {
                 className="h-7 gap-1 text-xs"
                 disabled={retryingId === row.original.id}
                 onClick={() => void handleRetryRecord(row.original)}
+                data-testid="keka-retry"
               >
                 {retryingId === row.original.id ? (
                   <Loader2 className="size-3 animate-spin" />
@@ -879,6 +881,7 @@ export function KekaIntegrationPanel() {
           <button
             type="button"
             onClick={() => setSubTab("logs")}
+            data-testid="keka-tab-sync-log"
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
               subTab === "logs"
@@ -891,6 +894,7 @@ export function KekaIntegrationPanel() {
           <button
             type="button"
             onClick={() => setSubTab("failures")}
+            data-testid="keka-tab-failed"
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
               subTab === "failures"
@@ -963,6 +967,7 @@ export function KekaIntegrationPanel() {
               size="sm"
               className="gap-1.5"
               disabled={syncBusy}
+              data-testid="keka-sync-employees"
               onClick={async () => {
                 try {
                   await syncEmployees().unwrap();
@@ -984,6 +989,7 @@ export function KekaIntegrationPanel() {
               size="sm"
               className="gap-1.5"
               disabled={syncBusy}
+              data-testid="keka-sync-leave"
               onClick={async () => {
                 try {
                   await syncLeave().unwrap();

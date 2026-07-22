@@ -1,15 +1,24 @@
 #!/usr/bin/env node
 /**
  * rename-test-results.mjs
- * Renames test-results/ folders to end with [TC-M1.X-XX] using a hardcoded map
- * of every known test case in the 51-test suite.
+ * Renames test-results folders to end with [TC-M1.X-XX] / [TC-M2.X-XX] using a hardcoded map
+ * of known test cases in the suite.
+ *
+ * Usage: node rename-test-results.mjs [resultsDir]
+ * Default: test-results-phase1 (or PLAYWRIGHT_OUTPUT_DIR / PLAYWRIGHT_PHASE)
  */
 import { readdirSync, renameSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const RESULTS = resolve(__dirname, "..", "test-results");
+
+const phase = process.env.PLAYWRIGHT_PHASE === "2" ? "2" : "1";
+const RESULTS = resolve(
+  process.argv[2] ||
+    process.env.PLAYWRIGHT_OUTPUT_DIR ||
+    join(__dirname, "..", `test-results-phase${phase}`),
+);
 
 // ── Hardcoded map: folder suffix fragment → TC code ──────────────────────
 // Key = unique substring that appears in the folder name (case-sensitive)
@@ -98,12 +107,106 @@ const MAP = [
   ["TC-M1-4-03-PM-Rejection",               "TC-M1.4-03"],
   ["TC-M1-4-04-PM-can-request-rework",      "TC-M1.4-04"],
   ["TC-M1-4-05",                            "TC-M1.4-05"],
+
+  // ─── Phase 2 — Keka Sync (M2.1) ───────────────────────────────────────
+  ["TC-M2-1-01",                            "TC-M2.1-01"],
+  ["Sync-name-department-designation",      "TC-M2.1-01"],
+  ["TC-M2-1-02",                            "TC-M2.1-02"],
+  ["Sync-runs-at-agreed-frequency",         "TC-M2.1-02"],
+  ["TC-M2-1-03",                            "TC-M2.1-03"],
+  ["Bi-directional-sync",                   "TC-M2.1-03"],
+  ["TC-M2-1-04",                            "TC-M2.1-04"],
+  ["Failures-retry-automatically",          "TC-M2.1-04"],
+  ["TC-M2-1-05",                            "TC-M2.1-05"],
+  ["Failed-records-visible",                "TC-M2.1-05"],
+
+  // ─── Phase 2 — Keka (M2.1) — Playwright truncated folder fragments ────
+  ["g-hours-leave-active-status",           "TC-M2.1-01"],
+  ["nc-runs-at-agreed-frequency",           "TC-M2.1-02"],
+  ["rectional-sync-where-agreed",           "TC-M2.1-03"],
+  ["ailures-retry-automatically",           "TC-M2.1-04"],
+  ["ed-records-visible-to-admin",           "TC-M2.1-05"],
+
+  // ─── Phase 2 — Allocations (M2.2) ─────────────────────────────────────
+  ["TC-M2-2-01",                            "TC-M2.2-01"],
+  ["PM-sees-current-allocation",            "TC-M2.2-01"],
+  ["urrent-allocation-and-leave",           "TC-M2.2-01"],
+  ["TC-M2-2-02",                            "TC-M2.2-02"],
+  ["Assign-project-role",                   "TC-M2.2-02"],
+  ["ign-project-role-and-hours",            "TC-M2.2-02"],
+  ["TC-M2-2-03",                            "TC-M2.2-03"],
+  ["Threshold-conflicts",                   "TC-M2.2-03"],
+  ["7814e-ts-warn-or-block-per-policy",     "TC-M2.2-03"],
+  ["TC-M2-2-04",                            "TC-M2.2-04"],
+  ["Designation-conflicts",                 "TC-M2.2-04"],
+  ["c657f-ts-warn-or-block-per-policy",     "TC-M2.2-04"],
+  ["TC-M2-2-05",                            "TC-M2.2-05"],
+  ["Over-allocation-approval",              "TC-M2.2-05"],
+  ["llocation-approval-workflow",           "TC-M2.2-05"],
+  ["TC-M2-2-06",                            "TC-M2.2-06"],
+  ["Allocation-pushback-to-Keka",           "TC-M2.2-06"],
+  ["shback-to-Keka-where-agreed",           "TC-M2.2-06"],
+
+  // ─── Phase 2 — Leave impact (M2.3) ────────────────────────────────────
+  ["TC-M2-3-01",                            "TC-M2.3-01"],
+  ["Leave-on-critical-assignment",          "TC-M2.3-01"],
+  ["l-assignment-triggers-alert",           "TC-M2.3-01"],
+  ["TC-M2-3-02",                            "TC-M2.3-02"],
+  ["Named-backup-resource",                 "TC-M2.3-02"],
+  ["d-backup-resource-supported",           "TC-M2.3-02"],
+  ["TC-M2-3-03",                            "TC-M2.3-03"],
+  ["Project-schedule-impact",               "TC-M2.3-03"],
+  ["schedule-impact-is-visible",            "TC-M2.3-03"],
+
+  // ─── Phase 2 — Timesheet log (M2.4) ───────────────────────────────────
+  ["TC-M2-4-01",                            "TC-M2.4-01"],
+  ["Log-date-project-task",                 "TC-M2.4-01"],
+  ["egular-hours-overtime-notes",           "TC-M2.4-01"],
+  ["73606-ntries-prevented-or-flagged",     "TC-M2.4-02"],
+  ["81fb6-ntries-prevented-or-flagged",     "TC-M2.4-03"],
+  ["TC-M2-4-02",                            "TC-M2.4-02"],
+  ["Duplicate-entries-prevented",           "TC-M2.4-02"],
+  ["TC-M2-4-03",                            "TC-M2.4-03"],
+  ["Over-limit-entries",                    "TC-M2.4-03"],
+
+  // ─── Phase 2 — Timesheet approval (M2.5) ──────────────────────────────
+  ["TC-M2-5-01",                            "TC-M2.5-01"],
+  ["PM-approves-rejects",                   "TC-M2.5-01"],
+  ["roves-rejects-with-comments",           "TC-M2.5-01"],
+  ["TC-M2-5-02",                            "TC-M2.5-02"],
+  ["Approved-records-sync-to-Keka",         "TC-M2.5-02"],
+  ["proved-records-sync-to-Keka",           "TC-M2.5-02"],
+  ["TC-M2-5-03",                            "TC-M2.5-03"],
+  ["Rejected-records-return",               "TC-M2.5-03"],
+  ["rds-return-for-resubmission",           "TC-M2.5-03"],
+  ["TC-M2-5-04",                            "TC-M2.5-04"],
+  ["Delayed-approvals-escalate",            "TC-M2.5-04"],
+  ["TC-M2-5-05",                            "TC-M2.5-05"],
+  ["Retry-logic-on-failed-sync",            "TC-M2.5-05"],
+  ["TC-M2-5-06",                            "TC-M2.5-06"],
+  ["Approved-records-available-to-payroll", "TC-M2.5-06"],
+  ["ecords-available-to-payroll",           "TC-M2.5-06"],
+
+  // ─── Phase 2 — Utilization (M2.6) ─────────────────────────────────────
+  ["TC-M2-6-01",                            "TC-M2.6-01"],
+  ["Utilisation-formula",                   "TC-M2.6-01"],
+  ["tilisation-formula-approved",           "TC-M2.6-01"],
+  ["TC-M2-6-02",                            "TC-M2.6-02"],
+  ["Report-shows-planned-submitted",        "TC-M2.6-02"],
+  ["illable-and-available-hours",           "TC-M2.6-02"],
+  ["TC-M2-6-03",                            "TC-M2.6-03"],
+  ["Filter-by-employee",                    "TC-M2.6-03"],
+  ["er-by-employee-team-project",           "TC-M2.6-03"],
+  ["TC-M2-6-04",                            "TC-M2.6-04"],
+  ["Reconciles-to-Keka",                    "TC-M2.6-04"],
 ];
 
 if (!existsSync(RESULTS)) {
-  console.log("No test-results/ directory found — run playwright test first.");
+  console.log(`No results directory found (${RESULTS}) — run playwright test first.`);
   process.exit(0);
 }
+
+console.log(`Tagging results in: ${RESULTS}`);
 
 const folders = readdirSync(RESULTS).filter((f) => !f.startsWith("."));
 let renamed = 0;

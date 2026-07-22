@@ -155,7 +155,7 @@ export function StaffingApprovalsPage() {
   );
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-6 pb-10" data-testid="staffing-approvals">
       <PageHeader
         title="Staffing Approvals"
         description={`${total} pending over-allocation request${total === 1 ? "" : "s"}`}
@@ -265,6 +265,7 @@ function AllocationApprovalActions({
         className="gap-1"
         disabled={isApproving}
         onClick={() => void onApprove(item)}
+        data-testid="staffing-approve"
       >
         <CheckCircle2 className="size-3.5" />
         Approve
@@ -275,6 +276,7 @@ function AllocationApprovalActions({
         variant="outline"
         className="gap-1"
         onClick={() => setRejectOpen(true)}
+        data-testid="staffing-reject"
       >
         <X className="size-3.5" />
         Reject

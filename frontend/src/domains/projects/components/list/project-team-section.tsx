@@ -1328,6 +1328,7 @@ export const ProjectTeamSection = forwardRef<
             >
               <PopoverTrigger
                 type="button"
+                data-testid="project-team-add"
                 disabled={
                   !hasPlanningWindow ||
                   needsDepartmentForCandidates ||

@@ -43,6 +43,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# E2E Playwright test artifacts
-#/test-results/
-/playwright-report/
+# E2E Playwright test artifacts (phase-separated)
+# /test-results/
+# /test-results-phase1/
+# /test-results-phase2/
+# /playwright-report/
+# /playwright-report-phase1/
+# /playwright-report-phase2/

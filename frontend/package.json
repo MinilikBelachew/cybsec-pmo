@@ -8,7 +8,13 @@
     "dev:clean": "rm -rf .next && next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test --config=playwright.phase1.config.ts",
+    "test:e2e:phase1": "playwright test --config=playwright.phase1.config.ts",
+    "test:e2e:phase2": "playwright test --config=playwright.phase2.config.ts",
+    "test:e2e:report": "playwright show-report playwright-report-phase1",
+    "test:e2e:report:phase1": "playwright show-report playwright-report-phase1",
+    "test:e2e:report:phase2": "playwright show-report playwright-report-phase2"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -44,12 +50,17 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.1",
     "@tailwindcss/postcss": "^4",
+    "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^20",
+    "@types/pg": "^8.11.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.14.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "xlsx": "^0.18.5"

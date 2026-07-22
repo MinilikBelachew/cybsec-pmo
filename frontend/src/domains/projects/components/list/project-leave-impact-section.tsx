@@ -183,6 +183,7 @@ export function ProjectLeaveImpactSection({
     <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-950/20">
       <button
         type="button"
+        data-testid="leave-impact-panel"
         className="flex w-full items-start gap-2 px-4 py-3 text-left"
         onClick={() => {
           setExpanded((current) => {
@@ -273,7 +274,10 @@ export function ProjectLeaveImpactSection({
                 </div>
 
                 {canEdit && needsBackup && group.allocationId && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div
+                    className="mt-2 flex flex-wrap items-center gap-2"
+                    data-testid="assign-backup"
+                  >
                     <label className="text-[11px] font-medium text-muted-foreground">
                       Assign backup
                     </label>
