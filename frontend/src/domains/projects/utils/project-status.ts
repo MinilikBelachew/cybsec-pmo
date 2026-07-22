@@ -20,7 +20,11 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   Cancelled: "Cancelled",
 };
 
-export const PROJECT_CLOSURE_APPROVER_ROLES = ["super_admin", "pmo_lead"];
+export const PROJECT_CLOSURE_APPROVER_ROLES = [
+  "super_admin",
+  "pmo_lead",
+  "pm",
+];
 
 export const PROJECT_STATUS_TRANSITIONS: Record<
   ProjectStatus,

@@ -6,6 +6,7 @@ import { RoleEnum } from '../roles/roles.enum';
 export const PROJECT_CLOSURE_APPROVER_ROLES: string[] = [
   RoleEnum.super_admin,
   RoleEnum.pmo_lead,
+  RoleEnum.pm,
 ];
 
 /**

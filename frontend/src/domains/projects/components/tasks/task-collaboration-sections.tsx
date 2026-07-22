@@ -138,8 +138,8 @@ export function TaskCollaborationSections({
   attachmentMode = "immediate",
   draftFiles = [],
   onDraftFilesChange,
-  pendingAttachmentDeletes = [],
-  onPendingAttachmentDeletesChange,
+  pendingAttachmentDeletes: _pendingAttachmentDeletes = [],
+  onPendingAttachmentDeletesChange: _onPendingAttachmentDeletesChange,
 }: TaskCollaborationSectionsProps) {
   const { user } = useAuth();
   const ability = useAppAbility();
@@ -184,11 +184,10 @@ export function TaskCollaborationSections({
 
   const comments = task?.comments ?? [];
   const attachments = task?.attachments ?? [];
-  const visibleAttachments = attachments.filter((att) => !pendingAttachmentDeletes.includes(att.id));
   const subTasks = task?.subTasks ?? [];
   const totalSubTaskCount = subTasks.length + draftSubTasks.length;
   const totalCommentCount = comments.length + draftComments.length;
-  const totalAttachmentCount = visibleAttachments.length + draftFiles.length;
+  const totalAttachmentCount = attachments.length + draftFiles.length;
   const completedSubTasks = subTasks.filter(
     (s) => s.status === "Done" || s.status === "Approved"
   ).length;
@@ -256,20 +255,24 @@ export function TaskCollaborationSections({
       return;
     }
 
-    void handleFileSelectImmediate(selected[0]);
+    void handleFileSelectImmediate(selected);
   }
 
-  async function handleFileSelectImmediate(file: File) {
+  async function handleFileSelectImmediate(files: File[]) {
+    let uploadedCount = 0;
     try {
-      const uploaded = await uploadFile(file).unwrap();
-      await addAttachment({
-        taskId,
-        storageKey: uploaded.storageKey || uploaded.file.path,
-        filename: uploaded.filename || file.name,
-        mimeType: uploaded.mimeType || file.type,
-        sizeBytes: uploaded.sizeBytes || file.size,
-      }).unwrap();
-      toast.success("File attached");
+      for (const file of files) {
+        const uploaded = await uploadFile(file).unwrap();
+        await addAttachment({
+          taskId,
+          storageKey: uploaded.storageKey || uploaded.file.path,
+          filename: uploaded.filename || file.name,
+          mimeType: uploaded.mimeType || file.type,
+          sizeBytes: uploaded.sizeBytes || file.size,
+        }).unwrap();
+        uploadedCount += 1;
+      }
+      toast.success(uploadedCount > 1 ? "Files attached" : "File attached");
     } catch (err: unknown) {
       const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
       toast.error(
@@ -425,12 +428,7 @@ export function TaskCollaborationSections({
       return;
     }
     if (pending.type === "attachment") {
-      if (attachmentMode === "draft") {
-        onPendingAttachmentDeletesChange?.([...pendingAttachmentDeletes, pending.id]);
-        toast.success("File removed");
-        setDeleteConfirm(null);
-        return;
-      }
+      // Existing attachments delete immediately (API), including Update Task sheet.
       await handleDeleteAttachmentImmediate(pending.id);
       setDeleteConfirm(null);
       return;
@@ -466,7 +464,7 @@ export function TaskCollaborationSections({
     }
     if (pending.type === "draft-file") {
       onDraftFilesChange?.(draftFiles.filter((_, i) => i !== pending.index));
-      toast.success("File removed");
+      toast.success("Draft file discarded");
       setDeleteConfirm(null);
     }
   }
@@ -481,10 +479,16 @@ export function TaskCollaborationSections({
         description: `Delete sub-task "${deleteConfirm.title}"? This cannot be undone.`,
       };
     }
-    if (deleteConfirm.type === "attachment" || deleteConfirm.type === "draft-file") {
+    if (deleteConfirm.type === "attachment") {
       return {
         title: "Delete file",
-        description: `Delete file "${deleteConfirm.title}"? This cannot be undone.`,
+        description: `Delete file "${deleteConfirm.title}"? This removes it immediately and cannot be undone.`,
+      };
+    }
+    if (deleteConfirm.type === "draft-file") {
+      return {
+        title: "Discard draft file",
+        description: `Remove "${deleteConfirm.title}" from this draft? It has not been uploaded yet.`,
       };
     }
     return {
@@ -839,14 +843,14 @@ export function TaskCollaborationSections({
           ) : (
             <>
               <Plus className="mr-1 size-3.5" />
-              {attachmentMode === "draft" ? "Add files" : "Upload"}
+              {attachmentMode === "draft" ? "Add files" : isUploading || isLinking ? "Uploading…" : "Add files"}
             </>
           )}
         </Button>
         <input
           ref={fileInputRef}
           type="file"
-          multiple={attachmentMode === "draft"}
+          multiple
           className="hidden"
           accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
           onChange={handleFileSelect}
@@ -854,10 +858,10 @@ export function TaskCollaborationSections({
       </div>
 
       <div className="space-y-2">
-        {visibleAttachments.length === 0 && draftFiles.length === 0 && (
+        {attachments.length === 0 && draftFiles.length === 0 && (
           <p className="text-xs text-muted-foreground">No attachments yet.</p>
         )}
-        {visibleAttachments.map((att) => (
+        {attachments.map((att) => (
           <div
             key={att.id}
             className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
