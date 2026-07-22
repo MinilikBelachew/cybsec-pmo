@@ -148,6 +148,7 @@ function EnumSelect({ value, options, onChange, placeholder = "Select...", class
 export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportTasksDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedTaskRow[]>([]);
+  const [existingTaskCatalog, setExistingTaskCatalog] = useState<{ id: string; title: string }[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -229,12 +230,14 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
         }
 
         const processed = processRawTaskCSVRows(taskData, phases, assignees, existingTasks);
+        setExistingTaskCatalog(existingTasks);
         setParsedRows(processed);
         toast.success(`Loaded ${processed.length} rows from XLSX`);
       } catch (err) {
         console.error(err);
         setValidationError("Failed to parse XLSX file. Please ensure it is not password-protected or corrupted.");
         setParsedRows([]);
+        setExistingTaskCatalog([]);
       }
     };
     reader.readAsArrayBuffer(selectedFile);
@@ -243,6 +246,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   const handleReset = () => {
     setFile(null);
     setParsedRows([]);
+    setExistingTaskCatalog([]);
     setImportProgress(0);
     setIsImporting(false);
     setValidationError(null);
@@ -257,7 +261,12 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     onClose();
   };
 
-  const handleInlineChange = (index: number, field: keyof ParsedTaskRow, value: any) => {
+  const handleInlineChange = (
+    index: number,
+    field: keyof ParsedTaskRow,
+    value: any,
+    extra?: Partial<ParsedTaskRow>,
+  ) => {
     setParsedRows((prev) => {
       const duplicateTitles = new Set(
         prev
@@ -267,8 +276,14 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
 
       return prev.map((row, idx) => {
         if (idx !== index) return row;
-        const updated = { ...row, [field]: value };
-        return revalidateParsedTaskRow(updated, phases, assignees, duplicateTitles);
+        const updated = { ...row, [field]: value, ...extra };
+        return revalidateParsedTaskRow(
+          updated,
+          phases,
+          assignees,
+          duplicateTitles,
+          existingTaskCatalog,
+        );
       });
     });
   };
@@ -633,9 +648,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                                     ) : (
                                       <select
                                         value={row.resolvedPhaseId || ""}
-                                        onChange={(e) =>
-                                          handleInlineChange(idx, "resolvedPhaseId", e.target.value || null)
-                                        }
+                                        onChange={(e) => {
+                                          const phaseId = e.target.value || null;
+                                          const selected = phaseId
+                                            ? phases.find((p: ProjectPhase) => p.id === phaseId)
+                                            : undefined;
+                                          handleInlineChange(idx, "resolvedPhaseId", phaseId, {
+                                            phaseName: selected?.name ?? "",
+                                          });
+                                        }}
                                         className="w-full h-8 text-xs rounded-lg border border-border bg-background px-2 font-medium"
                                         disabled={row.isSummary}
                                       >

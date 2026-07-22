@@ -52,7 +52,20 @@ export function MilestonesPreviewTable({ milestonesList, projName, handleSubRowC
               )}
             </td>
 
-            <td className="p-3 font-semibold">{msRow.title}</td>
+            <td className="p-3">
+              <div className="font-semibold truncate flex items-center gap-1.5">
+                {msRow.importMode === "update" ? (
+                  <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                    UPDATE
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                    NEW
+                  </span>
+                )}
+                <span className="truncate">{msRow.title}</span>
+              </div>
+            </td>
             <td className="p-3">{msRow.targetDate}</td>
             <td className="p-3 font-medium">{msRow.weight}%</td>
 
