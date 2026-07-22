@@ -38,6 +38,13 @@ import {
 } from "@/domains/projects";
 import { useAppAbility, useAuth } from "@/domains/auth";
 import { useUploadFileMutation } from "@/domains/projects/api/files.api";
+import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_LIMITS_HINT,
+  attachmentValidationToastMessage,
+  formatFileUploadError,
+  validateAttachmentFiles,
+} from "@/domains/projects/utils/attachment-limits";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -250,7 +257,15 @@ export function TaskCollaborationSections({
     if (!selected.length) return;
 
     if (attachmentMode === "draft") {
-      onDraftFilesChange?.([...draftFiles, ...selected]);
+      const { valid, issues } = validateAttachmentFiles(selected, {
+        existingCount: draftFiles.length,
+      });
+      if (issues.length) {
+        toast.error(attachmentValidationToastMessage(issues));
+      }
+      if (valid.length) {
+        onDraftFilesChange?.([...draftFiles, ...valid]);
+      }
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -259,9 +274,20 @@ export function TaskCollaborationSections({
   }
 
   async function handleFileSelectImmediate(files: File[]) {
+    const { valid, issues } = validateAttachmentFiles(files, {
+      existingCount: attachments.length,
+    });
+    if (issues.length) {
+      toast.error(attachmentValidationToastMessage(issues));
+    }
+    if (!valid.length) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     let uploadedCount = 0;
     try {
-      for (const file of files) {
+      for (const file of valid) {
         const uploaded = await uploadFile(file).unwrap();
         await addAttachment({
           taskId,
@@ -274,12 +300,7 @@ export function TaskCollaborationSections({
       }
       toast.success(uploadedCount > 1 ? "Files attached" : "File attached");
     } catch (err: unknown) {
-      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
-      toast.error(
-        apiError?.data?.errors?.file ??
-          apiError?.data?.message ??
-          "Failed to upload file"
-      );
+      toast.error(formatFileUploadError(err));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -852,10 +873,11 @@ export function TaskCollaborationSections({
           type="file"
           multiple
           className="hidden"
-          accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+          accept={ATTACHMENT_ACCEPT}
           onChange={handleFileSelect}
         />
       </div>
+      <p className="text-[10px] text-muted-foreground">{ATTACHMENT_LIMITS_HINT}</p>
 
       <div className="space-y-2">
         {attachments.length === 0 && draftFiles.length === 0 && (
@@ -1067,7 +1089,19 @@ export function TaskAttachmentsBlock({
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    for (const file of files) {
+    const { valid, issues } = validateAttachmentFiles(files, {
+      existingCount: attachments.length,
+    });
+    if (issues.length) {
+      toast.error(attachmentValidationToastMessage(issues));
+    }
+    if (!valid.length) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    let uploadedCount = 0;
+    for (const file of valid) {
       try {
         const uploaded = await uploadFile(file).unwrap();
         await addAttachment({
@@ -1077,13 +1111,15 @@ export function TaskAttachmentsBlock({
           mimeType: uploaded.mimeType || file.type,
           sizeBytes: uploaded.sizeBytes || file.size,
         }).unwrap();
+        uploadedCount += 1;
       } catch (err: unknown) {
-        const apiError = err as { data?: { message?: string } };
-        toast.error(apiError?.data?.message ?? "Failed to upload file");
+        toast.error(formatFileUploadError(err));
         break;
       }
     }
-    toast.success(files.length > 1 ? "Files attached" : "File attached");
+    if (uploadedCount > 0) {
+      toast.success(uploadedCount > 1 ? "Files attached" : "File attached");
+    }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -1177,9 +1213,10 @@ export function TaskAttachmentsBlock({
         type="file"
         multiple
         className="hidden"
-        accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+        accept={ATTACHMENT_ACCEPT}
         onChange={handleFileSelect}
       />
+      <p className="text-[10px] text-muted-foreground">{ATTACHMENT_LIMITS_HINT}</p>
 
       <FilePreviewModal
         open={!!previewTarget}

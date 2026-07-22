@@ -1,8 +1,17 @@
 import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectTaskAssignee } from "../types/projects.types";
 import { Task } from "../types/tasks.types";
+import { taskDatesOutsidePhaseErrors, toTaskDayKey } from "../schemas/task/task-date-fields";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+
+/** Build a local calendar Date from an import day string (avoids UTC day-shift). */
+function importDayToLocalDate(value?: string | null): Date | null {
+  const key = toTaskDayKey(value);
+  if (!key) return null;
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 
 function findProjectTaskAssignee(
   assigneeName: string,
@@ -332,6 +341,8 @@ export interface ParsedPhaseRow {
   status: string; // "Planned" | "Active" | "Completed" | "On_Hold"
   startDate: string;
   endDate: string;
+  importMode: "create" | "update";
+  resolvedPhaseId?: string;
   errors: string[];
   warnings: string[];
 }
@@ -344,7 +355,22 @@ function normalizePhaseStatus(raw: string): string {
   return "Planned";
 }
 
-export function processRawPhaseRows(rows: string[][]): ParsedPhaseRow[] {
+export function resolvePhaseImportMatch(
+  name: string,
+  existingPhases?: { id: string; name: string }[],
+): { importMode: "create" | "update"; resolvedPhaseId?: string } {
+  const lower = name.trim().toLowerCase();
+  if (!lower || !existingPhases?.length) return { importMode: "create" };
+  const match = existingPhases.find((p) => p.name.trim().toLowerCase() === lower);
+  return match
+    ? { importMode: "update", resolvedPhaseId: match.id }
+    : { importMode: "create" };
+}
+
+export function processRawPhaseRows(
+  rows: string[][],
+  existingPhases?: { id: string; name: string }[],
+): ParsedPhaseRow[] {
   if (rows.length <= 1) return [];
 
   const headers = rows[0].map((h) => String(h).toLowerCase().trim());
@@ -395,7 +421,20 @@ export function processRawPhaseRows(rows: string[][]): ParsedPhaseRow[] {
       }
     }
 
-    return { name, description, orderIndex, status, startDate, endDate, errors, warnings };
+    const { importMode, resolvedPhaseId } = resolvePhaseImportMatch(name, existingPhases);
+
+    return {
+      name,
+      description,
+      orderIndex,
+      status,
+      startDate,
+      endDate,
+      importMode,
+      resolvedPhaseId,
+      errors,
+      warnings,
+    };
   });
 }
 // MILESTONE PARSING
@@ -406,6 +445,8 @@ export interface ParsedMilestoneRow {
   weight: number;
   status: string; // "Pending" | "Completed" | "Missed"
   phaseName: string;
+  importMode: "create" | "update";
+  resolvedMilestoneId?: string;
   errors: string[];
   warnings: string[];
 }
@@ -417,7 +458,22 @@ function normalizeMilestoneStatus(raw: string): string {
   return "Pending";
 }
 
-export function processRawMilestoneRows(rows: string[][]): ParsedMilestoneRow[] {
+export function resolveMilestoneImportMatch(
+  title: string,
+  existingMilestones?: { id: string; title: string }[],
+): { importMode: "create" | "update"; resolvedMilestoneId?: string } {
+  const lower = title.trim().toLowerCase();
+  if (!lower || !existingMilestones?.length) return { importMode: "create" };
+  const match = existingMilestones.find((m) => m.title.trim().toLowerCase() === lower);
+  return match
+    ? { importMode: "update", resolvedMilestoneId: match.id }
+    : { importMode: "create" };
+}
+
+export function processRawMilestoneRows(
+  rows: string[][],
+  existingMilestones?: { id: string; title: string }[],
+): ParsedMilestoneRow[] {
   if (rows.length <= 1) return [];
 
   const headers = rows[0].map((h) => String(h).toLowerCase().trim());
@@ -454,7 +510,22 @@ export function processRawMilestoneRows(rows: string[][]): ParsedMilestoneRow[] 
       errors.push("Target date must be a valid date (YYYY-MM-DD).");
     }
 
-    return { title, targetDate, weight, status, phaseName, errors, warnings };
+    const { importMode, resolvedMilestoneId } = resolveMilestoneImportMatch(
+      title,
+      existingMilestones,
+    );
+
+    return {
+      title,
+      targetDate,
+      weight,
+      status,
+      phaseName,
+      importMode,
+      resolvedMilestoneId,
+      errors,
+      warnings,
+    };
   });
 }
 // SAMPLE TEMPLATE GENERATORS
@@ -653,6 +724,17 @@ export function processRawCSVRows(
   const pm2Idx = getIndex(["secondary pm", "backup pm"]);
   const statusIdx = getIndex(["status", "project status"]);
 
+  const nameFrequency: Record<string, number> = {};
+  for (const row of rows) {
+    const n = (nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : "").toLowerCase();
+    if (n) nameFrequency[n] = (nameFrequency[n] ?? 0) + 1;
+  }
+  const duplicateNames = new Set(
+    Object.entries(nameFrequency)
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name),
+  );
+
   return rows.map((row) => {
     const getVal = (idx: number, fallback = "") => (idx !== -1 && row[idx] ? row[idx].trim() : fallback);
 
@@ -679,6 +761,9 @@ export function processRawCSVRows(
     // Basic required field validations
     if (!name) errors.push("Project name is required.");
     if (!objective) errors.push("Objective is required.");
+    if (name && duplicateNames.has(name.trim().toLowerCase())) {
+      errors.push(`Duplicate project name "${name}" found in this file.`);
+    }
 
     // Validate Start Date
     let isStartValid = false;
@@ -884,20 +969,7 @@ export function processRawCSVRows(
     }
 
     // Resolve existing project for update mode
-    let resolvedProjectId: string | undefined;
-    let importMode: "create" | "update" = "create";
-    if (existingProjects && name) {
-      const match = existingProjects.find(
-        (p) => p.name.trim().toLowerCase() === name.trim().toLowerCase()
-      );
-      if (match) {
-        resolvedProjectId = match.id;
-        importMode = "update";
-        // For updates, "already exists" is allowed — remove it from errors
-        const alreadyExistsIdx = errors.findIndex((e) => e.includes("already exists"));
-        if (alreadyExistsIdx !== -1) errors.splice(alreadyExistsIdx, 1);
-      }
-    }
+    const { importMode, resolvedProjectId } = resolveProjectImportMatch(name, existingProjects);
 
     return {
       name,
@@ -910,7 +982,7 @@ export function processRawCSVRows(
       startDate,
       endDate,
       value: isNaN(value) ? 0 : value,
-      currency,
+      currency: normalizedCurrency,
       primaryPmName,
       secondaryPmName,
       status: normalizedStatus,
@@ -1100,11 +1172,36 @@ function normalizeTaskStatus(status: string) {
   return status;
 }
 
+export function resolveProjectImportMatch(
+  name: string,
+  existingProjects?: { id: string; name: string }[],
+): { importMode: "create" | "update"; resolvedProjectId?: string } {
+  const lower = name.trim().toLowerCase();
+  if (!lower || !existingProjects?.length) return { importMode: "create" };
+  const match = existingProjects.find((p) => p.name.trim().toLowerCase() === lower);
+  return match
+    ? { importMode: "update", resolvedProjectId: match.id }
+    : { importMode: "create" };
+}
+
+export function resolveTaskImportMatch(
+  title: string,
+  existingTasks?: { id: string; title: string }[],
+): { importMode: "create" | "update"; resolvedTaskId?: string } {
+  const lower = title.trim().toLowerCase();
+  if (!lower || !existingTasks?.length) return { importMode: "create" };
+  const match = existingTasks.find((t) => t.title.trim().toLowerCase() === lower);
+  return match
+    ? { importMode: "update", resolvedTaskId: match.id }
+    : { importMode: "create" };
+}
+
 export function revalidateParsedTaskRow(
   row: ParsedTaskRow,
   phases: ProjectPhase[],
   assignees: ProjectTaskAssignee[],
   duplicateTitles?: Set<string>,
+  existingTasks?: { id: string; title: string }[],
 ): ParsedTaskRow {
   const updated = {
     ...row,
@@ -1113,7 +1210,7 @@ export function revalidateParsedTaskRow(
   };
 
   const errors: string[] = [];
-  const warnings: string[] = [...(updated.warnings ?? [])];
+  const warnings: string[] = [];
 
   if (!updated.title) errors.push("Task title is required.");
 
@@ -1121,28 +1218,36 @@ export function revalidateParsedTaskRow(
     errors.push(`Duplicate task title "${updated.title}" found in this file.`);
   }
 
+  const { importMode, resolvedTaskId } = existingTasks
+    ? resolveTaskImportMatch(updated.title, existingTasks)
+    : { importMode: updated.importMode, resolvedTaskId: updated.resolvedTaskId };
+
   let isStartValid = false;
+  let normalizedStart = "";
   if (updated.startDate) {
-    const parsedStart = Date.parse(updated.startDate);
-    if (!isNaN(parsedStart)) {
+    const startKey = toTaskDayKey(updated.startDate);
+    if (startKey) {
       isStartValid = true;
+      normalizedStart = startKey;
     } else {
       errors.push("Start date must be a valid date (YYYY-MM-DD).");
     }
   }
 
   let isEndValid = false;
+  let normalizedEnd = "";
   if (updated.endDate) {
-    const parsedEnd = Date.parse(updated.endDate);
-    if (!isNaN(parsedEnd)) {
+    const endKey = toTaskDayKey(updated.endDate);
+    if (endKey) {
       isEndValid = true;
+      normalizedEnd = endKey;
     } else {
       errors.push("End date must be a valid date (YYYY-MM-DD).");
     }
   }
 
-  if (isStartValid && isEndValid && updated.startDate && updated.endDate) {
-    if (new Date(updated.startDate).getTime() > new Date(updated.endDate).getTime()) {
+  if (isStartValid && isEndValid && normalizedStart && normalizedEnd) {
+    if (normalizedStart > normalizedEnd) {
       errors.push("End date must be on or after start date.");
     }
   }
@@ -1159,6 +1264,10 @@ export function revalidateParsedTaskRow(
     const assignee = findProjectTaskAssignee(updated.assigneeName, assignees);
     if (assignee) {
       resolvedAssigneeId = assignee.userId;
+    } else if (assignees.length === 0) {
+      warnings.push(
+        `Assignee "${updated.assigneeName}" will be skipped until they are on the project team.`,
+      );
     } else {
       errors.push(
         `Assignee "${updated.assigneeName}" is not on the project team. Add them to the team first.`,
@@ -1168,24 +1277,50 @@ export function revalidateParsedTaskRow(
 
   let resolvedPhaseId = updated.resolvedPhaseId ?? null;
   let phaseName = updated.phaseName;
+  let resolvedPhase: ProjectPhase | undefined;
   if (resolvedPhaseId) {
-    const phase = phases.find((item) => item.id === resolvedPhaseId);
-    if (phase) {
-      phaseName = phase.name;
+    resolvedPhase = phases.find((item) => item.id === resolvedPhaseId);
+    if (resolvedPhase) {
+      phaseName = resolvedPhase.name;
     } else {
       resolvedPhaseId = null;
     }
   }
 
   if (!resolvedPhaseId && phaseName) {
-    const phase = phases.find((item) => item.name.toLowerCase() === phaseName.toLowerCase());
-    if (phase) {
-      resolvedPhaseId = phase.id;
-      phaseName = phase.name;
+    resolvedPhase = phases.find((item) => item.name.toLowerCase() === phaseName.toLowerCase());
+    if (resolvedPhase) {
+      resolvedPhaseId = resolvedPhase.id;
+      phaseName = resolvedPhase.name;
     } else if (phases.length === 0) {
       warnings.push("No project phases exist yet. Create phases first, then re-select.");
     } else {
       errors.push(`Phase "${phaseName}" not found. Please select one.`);
+    }
+  }
+
+  // Import falls back to the first project phase when none is selected — validate that too.
+  // Skip the fallback when a CSV phase name failed to resolve (already an error).
+  const effectivePhase =
+    resolvedPhase ??
+    (!resolvedPhaseId && !phaseName && phases[0] ? phases[0] : undefined);
+
+  if (effectivePhase && (isStartValid || isEndValid)) {
+    const phaseStartKey = toTaskDayKey(effectivePhase.startDate);
+    const phaseEndKey = toTaskDayKey(effectivePhase.endDate);
+    if (!phaseStartKey && !phaseEndKey) {
+      errors.push(
+        `Phase "${effectivePhase.name}" has no start/end dates. Update the phase dates first.`,
+      );
+    } else {
+      const phaseDateErrors = taskDatesOutsidePhaseErrors({
+        start: isStartValid ? importDayToLocalDate(normalizedStart) : null,
+        end: isEndValid ? importDayToLocalDate(normalizedEnd) : null,
+        phaseStart: effectivePhase.startDate,
+        phaseEnd: effectivePhase.endDate,
+      });
+      if (phaseDateErrors.startDate) errors.push(phaseDateErrors.startDate);
+      if (phaseDateErrors.endDate) errors.push(phaseDateErrors.endDate);
     }
   }
 
@@ -1203,9 +1338,13 @@ export function revalidateParsedTaskRow(
 
   return {
     ...updated,
+    startDate: isStartValid ? normalizedStart : updated.startDate,
+    endDate: isEndValid ? normalizedEnd : updated.endDate,
     phaseName,
     resolvedAssigneeId,
     resolvedPhaseId,
+    importMode,
+    resolvedTaskId,
     errors,
     warnings,
   };
@@ -1295,6 +1434,7 @@ export function processRawTaskCSVRows(
       phases,
       assignees,
       duplicateTitles,
+      existingTasks,
     );
   });
 }

@@ -1,4 +1,5 @@
 import { getApiErrorMessage } from "@/core/errors/api-error";
+import { mapFileUploadErrorCode } from "./attachment-limits";
 import type { TaskStatus } from "@/domains/projects/types/tasks.types";
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -100,6 +101,17 @@ export function formatTaskApiError(
   error: unknown,
   fallback = "Failed to update task",
 ): string {
+  const payload =
+    error && typeof error === "object" && "data" in error
+      ? (error as { data?: { errors?: Record<string, string>; message?: string } }).data
+      : undefined;
+  const fileMapped =
+    mapFileUploadErrorCode(payload?.errors?.file) ??
+    mapFileUploadErrorCode(payload?.errors?.attachment) ??
+    mapFileUploadErrorCode(payload?.errors ? Object.values(payload.errors)[0] : undefined) ??
+    mapFileUploadErrorCode(payload?.message);
+  if (fileMapped) return fileMapped;
+
   const msg = getApiErrorMessage(error, "");
   if (!msg) return fallback;
 

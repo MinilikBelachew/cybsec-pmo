@@ -42,7 +42,20 @@ export function PhasesPreviewTable({ phasesList, projName, handleSubRowChange }:
                 <span className="text-emerald-600 font-semibold flex items-center gap-1.5"><CheckCircle className="size-3.5" />Ready</span>
               )}
             </td>
-            <td className="p-3 font-semibold">{phRow.name}</td>
+            <td className="p-3">
+              <div className="font-semibold truncate flex items-center gap-1.5">
+                {phRow.importMode === "update" ? (
+                  <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                    UPDATE
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                    NEW
+                  </span>
+                )}
+                <span className="truncate">{phRow.name}</span>
+              </div>
+            </td>
             <td className="p-3 text-muted-foreground truncate max-w-xs">{phRow.description || "—"}</td>
             <td className="p-3">{phRow.orderIndex}</td>
             <td className="p-3">

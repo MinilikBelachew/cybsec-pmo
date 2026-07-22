@@ -21,6 +21,7 @@ export type {
 } from "./types/project-documents.types";
 export * from "./components/tasks/task-progress-section";
 export * from "./utils/task-status-permissions";
+export * from "./utils/attachment-limits";
 export * from "./utils/project-status";
 export * from "./components/tasks/progress-review-inbox";
 export * from "./components/tasks/task-dependencies-section";

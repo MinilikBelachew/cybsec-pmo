@@ -11,7 +11,12 @@ import {
   useUpdateProjectMutation,
   useLazyGetPhasesQuery,
   useCreatePhaseMutation,
+  useUpdatePhaseMutation,
   useCreateMilestoneMutation,
+  useUpdateMilestoneMutation,
+  useLazyGetMilestonesQuery,
+  useLazyGetProjectTaskAssigneesQuery,
+  useLazyExportProjectsQuery,
 } from "../../api/projects.api";
 import { useCreateTaskMutation, useUpdateTaskMutation, useLazyGetTasksQuery } from "../../api/tasks.api";
 import {
@@ -27,7 +32,12 @@ import {
   ParsedTaskRow,
   ParsedMilestoneRow,
   detectTaskCsvImportKind,
+  resolveProjectImportMatch,
+  resolvePhaseImportMatch,
+  resolveMilestoneImportMatch,
+  revalidateParsedTaskRow,
 } from "../../utils/import-export";
+import type { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import { Button } from "@/shared/ui/button";
 import {
   Upload,
@@ -46,20 +56,31 @@ interface ImportProjectsDialogProps {
   open: boolean;
   onClose: () => void;
   refetch: () => void;
-  existingProjects: { id: string; name: string }[];
+  /** Fallback when full export catalog cannot be loaded */
+  existingProjects?: { id: string; name: string }[];
 }
+
+type ProjectNestedMeta = {
+  phases: ProjectPhase[];
+  assignees: ProjectTaskAssignee[];
+  existingTasks: { id: string; title: string }[];
+  existingPhases: { id: string; name: string }[];
+  existingMilestones: { id: string; title: string }[];
+};
 
 export function ImportProjectsDialog({
   open,
   onClose,
   refetch,
-  existingProjects,
+  existingProjects = [],
 }: ImportProjectsDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedProjectRow[]>([]);
   const [parsedPhases, setParsedPhases] = useState<Record<string, ParsedPhaseRow[]>>({});
   const [parsedTasks, setParsedTasks] = useState<Record<string, ParsedTaskRow[]>>({});
   const [parsedMilestones, setParsedMilestones] = useState<Record<string, ParsedMilestoneRow[]>>({});
+  const [projectMatchCatalog, setProjectMatchCatalog] = useState<{ id: string; name: string }[]>([]);
+  const [nestedMetaByProject, setNestedMetaByProject] = useState<Record<string, ProjectNestedMeta>>({});
 
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -77,9 +98,14 @@ export function ImportProjectsDialog({
 
   const [createProject] = useCreateProjectMutation();
   const [updateProject] = useUpdateProjectMutation();
+  const [triggerExportProjects] = useLazyExportProjectsQuery();
   const [triggerGetPhases] = useLazyGetPhasesQuery();
   const [createPhase] = useCreatePhaseMutation();
+  const [updatePhase] = useUpdatePhaseMutation();
   const [createMilestone] = useCreateMilestoneMutation();
+  const [updateMilestone] = useUpdateMilestoneMutation();
+  const [triggerGetMilestones] = useLazyGetMilestonesQuery();
+  const [triggerGetAssignees] = useLazyGetProjectTaskAssigneesQuery();
   const [createTask] = useCreateTaskMutation();
   const [updateTask] = useUpdateTaskMutation();
   const [triggerGetTasks] = useLazyGetTasksQuery();
@@ -94,14 +120,17 @@ export function ImportProjectsDialog({
     [parsedRows]
   );
 
-  const hasActiveErrors = useMemo(() => {
+  const nestedErrorCount = useMemo(() => {
+    let count = 0;
     for (const proj of validRows) {
-      if (parsedPhases[proj.name]?.some((r) => r.errors.length > 0)) return true;
-      if (parsedTasks[proj.name]?.some((r) => r.errors.length > 0)) return true;
-      if (parsedMilestones[proj.name]?.some((r) => r.errors.length > 0)) return true;
+      count += parsedPhases[proj.name]?.filter((r) => r.errors.length > 0).length || 0;
+      count += parsedTasks[proj.name]?.filter((r) => r.errors.length > 0).length || 0;
+      count += parsedMilestones[proj.name]?.filter((r) => r.errors.length > 0).length || 0;
     }
-    return false;
+    return count;
   }, [validRows, parsedPhases, parsedTasks, parsedMilestones]);
+
+  const hasActiveErrors = nestedErrorCount > 0;
 
   const downloadSampleXLSX = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -167,13 +196,21 @@ export function ImportProjectsDialog({
           return;
         }
 
-        const processed = processRawCSVRows(projectsData, departments, customers, managers, existingProjects);
+        // Prefer full portfolio catalog so matches are not limited to the current list page
+        let matchCatalog = existingProjects;
+        try {
+          const allProjects = await triggerExportProjects({}).unwrap();
+          matchCatalog = allProjects.map((p) => ({ id: p.id, name: p.name }));
+        } catch (err) {
+          console.error("Failed to load full project catalog for import matching:", err);
+        }
+        setProjectMatchCatalog(matchCatalog);
 
-        const existingSet = new Set(existingProjects.map((p) => p.name.trim().toLowerCase()));
+        const processed = processRawCSVRows(projectsData, departments, customers, managers, matchCatalog);
+
+        const existingSet = new Set(matchCatalog.map((p) => p.name.trim().toLowerCase()));
         const finalProcessed = processed.map((row) => {
-          // For update mode, the row already has resolvedProjectId — skip duplicate error
           if (row.importMode === "update") return row;
-          // For create mode, flag if name already exists
           const lowerName = row.name.trim().toLowerCase();
           if (lowerName && existingSet.has(lowerName)) {
             return { ...row, errors: [...row.errors, `Project "${row.name}" already exists.`] };
@@ -184,42 +221,101 @@ export function ImportProjectsDialog({
         const tempPhases: Record<string, ParsedPhaseRow[]> = {};
         const tempTasks: Record<string, ParsedTaskRow[]> = {};
         const tempMilestones: Record<string, ParsedMilestoneRow[]> = {};
+        const tempNestedMeta: Record<string, ProjectNestedMeta> = {};
 
         for (const projRow of finalProcessed) {
           const projName = projRow.name.trim();
           if (!projName) continue;
 
           const phaseSheetName = `${projName} Phases`;
-          if (sheetNames.includes(phaseSheetName)) {
-            const raw = parseXLSXSheet(buffer, phaseSheetName, true);
-            if (raw.length > 1) tempPhases[projName] = processRawPhaseRows(raw);
-          }
-
           const taskSheetName = `${projName} Tasks`;
-          if (sheetNames.includes(taskSheetName)) {
-            const raw = parseXLSXSheet(buffer, taskSheetName, true);
-            if (raw.length > 1) {
-              let existingTasks: { id: string; title: string }[] = [];
-              if (projRow.importMode === "update" && projRow.resolvedProjectId) {
-                try {
-                  const result = await triggerGetTasks({
-                    projectId: projRow.resolvedProjectId,
-                    limit: 1000,
-                    topLevelOnly: false,
-                  }).unwrap();
-                  existingTasks = result.data.map((t) => ({ id: t.id, title: t.title }));
-                } catch (err) {
-                  console.error("Failed to fetch existing tasks for preview:", err);
-                }
-              }
-              tempTasks[projName] = processRawTaskCSVRows(raw, [], [], existingTasks);
+          const msSheetName = `${projName} Milestones`;
+          const hasPhaseSheet = sheetNames.includes(phaseSheetName);
+          const hasTaskSheet = sheetNames.includes(taskSheetName);
+          const hasMsSheet = sheetNames.includes(msSheetName);
+
+          let existingTasks: { id: string; title: string }[] = [];
+          let phasesForProject: ProjectPhase[] = [];
+          let assigneesForProject: ProjectTaskAssignee[] = [];
+          let existingPhases: { id: string; name: string }[] = [];
+          let existingMilestones: { id: string; title: string }[] = [];
+
+          if (
+            projRow.importMode === "update" &&
+            projRow.resolvedProjectId &&
+            (hasPhaseSheet || hasTaskSheet || hasMsSheet)
+          ) {
+            const projectId = projRow.resolvedProjectId;
+            const [tasksResult, phasesResult, assigneesResult, milestonesResult] =
+              await Promise.allSettled([
+                hasTaskSheet
+                  ? triggerGetTasks({ projectId, limit: 1000, topLevelOnly: false }).unwrap()
+                  : Promise.resolve(null),
+                hasPhaseSheet || hasTaskSheet
+                  ? triggerGetPhases(projectId).unwrap()
+                  : Promise.resolve(null),
+                hasTaskSheet ? triggerGetAssignees(projectId).unwrap() : Promise.resolve(null),
+                hasMsSheet ? triggerGetMilestones(projectId).unwrap() : Promise.resolve(null),
+              ]);
+
+            if (tasksResult.status === "fulfilled" && tasksResult.value) {
+              existingTasks = tasksResult.value.data.map((t) => ({ id: t.id, title: t.title }));
+            } else if (tasksResult.status === "rejected") {
+              console.error("Failed to fetch existing tasks for preview:", tasksResult.reason);
+            }
+            if (phasesResult.status === "fulfilled" && phasesResult.value) {
+              phasesForProject = phasesResult.value;
+              existingPhases = phasesResult.value.map((p) => ({ id: p.id, name: p.name }));
+            } else if (phasesResult.status === "rejected") {
+              console.error("Failed to fetch existing phases for preview:", phasesResult.reason);
+            }
+            if (assigneesResult.status === "fulfilled" && assigneesResult.value) {
+              assigneesForProject = assigneesResult.value;
+            } else if (assigneesResult.status === "rejected") {
+              console.error("Failed to fetch assignees for preview:", assigneesResult.reason);
+            }
+            if (milestonesResult.status === "fulfilled" && milestonesResult.value) {
+              existingMilestones = milestonesResult.value.map((m) => ({
+                id: m.id,
+                title: m.title,
+              }));
+            } else if (milestonesResult.status === "rejected") {
+              console.error("Failed to fetch existing milestones for preview:", milestonesResult.reason);
             }
           }
 
-          const msSheetName = `${projName} Milestones`;
-          if (sheetNames.includes(msSheetName)) {
+          if (hasPhaseSheet || hasTaskSheet || hasMsSheet) {
+            tempNestedMeta[projName] = {
+              phases: phasesForProject,
+              assignees: assigneesForProject,
+              existingTasks,
+              existingPhases,
+              existingMilestones,
+            };
+          }
+
+          if (hasPhaseSheet) {
+            const raw = parseXLSXSheet(buffer, phaseSheetName, true);
+            if (raw.length > 1) tempPhases[projName] = processRawPhaseRows(raw, existingPhases);
+          }
+
+          if (hasTaskSheet) {
+            const raw = parseXLSXSheet(buffer, taskSheetName, true);
+            if (raw.length > 1) {
+              tempTasks[projName] = processRawTaskCSVRows(
+                raw,
+                phasesForProject,
+                assigneesForProject,
+                existingTasks,
+              );
+            }
+          }
+
+          if (hasMsSheet) {
             const raw = parseXLSXSheet(buffer, msSheetName, true);
-            if (raw.length > 1) tempMilestones[projName] = processRawMilestoneRows(raw);
+            if (raw.length > 1) {
+              tempMilestones[projName] = processRawMilestoneRows(raw, existingMilestones);
+            }
           }
         }
 
@@ -227,6 +323,7 @@ export function ImportProjectsDialog({
         setParsedPhases(tempPhases);
         setParsedTasks(tempTasks);
         setParsedMilestones(tempMilestones);
+        setNestedMetaByProject(tempNestedMeta);
 
         // Auto-expand first new project that has sub-sheets
         const firstWithSheets = finalProcessed.find(
@@ -241,6 +338,11 @@ export function ImportProjectsDialog({
         console.error(err);
         setValidationError("Failed to parse XLSX file. Please ensure it is not password-protected or corrupted.");
         setParsedRows([]);
+        setParsedPhases({});
+        setParsedTasks({});
+        setParsedMilestones({});
+        setProjectMatchCatalog([]);
+        setNestedMetaByProject({});
       }
     };
 
@@ -253,6 +355,8 @@ export function ImportProjectsDialog({
     setParsedPhases({});
     setParsedTasks({});
     setParsedMilestones({});
+    setProjectMatchCatalog([]);
+    setNestedMetaByProject({});
     setOpenAccordion(null);
     setActiveSubTab({});
     setImportProgress(0);
@@ -269,8 +373,14 @@ export function ImportProjectsDialog({
   };
 
   const handleInlineChange = (index: number, field: keyof ParsedProjectRow, value: any) => {
-    setParsedRows((prev) =>
-      prev.map((row, idx) => {
+    setParsedRows((prev) => {
+      const duplicateNames = new Set(
+        prev
+          .map((row) => row.name.trim().toLowerCase())
+          .filter((name, nameIndex, all) => name && all.indexOf(name) !== nameIndex),
+      );
+
+      return prev.map((row, idx) => {
         if (idx !== index) return row;
         const updated = { ...row, [field]: value };
 
@@ -322,15 +432,26 @@ export function ImportProjectsDialog({
         }
 
         const lowerName = (updated.name || "").trim().toLowerCase();
-        const existingSet = new Set(existingProjects.map((p) => p.name.trim().toLowerCase()));
-        // Only flag duplicate for create mode rows
-        if (updated.importMode !== "update" && lowerName && existingSet.has(lowerName)) {
-          rowErrors.push(`Project "${updated.name}" already exists.`);
+        if (lowerName && duplicateNames.has(lowerName)) {
+          rowErrors.push(`Duplicate project name "${updated.name}" found in this file.`);
         }
 
-        return { ...updated, errors: rowErrors };
-      })
-    );
+        const match = resolveProjectImportMatch(updated.name, projectMatchCatalog);
+        if (match.importMode !== "update" && lowerName) {
+          const existingSet = new Set(projectMatchCatalog.map((p) => p.name.trim().toLowerCase()));
+          if (existingSet.has(lowerName)) {
+            rowErrors.push(`Project "${updated.name}" already exists.`);
+          }
+        }
+
+        return {
+          ...updated,
+          importMode: match.importMode,
+          resolvedProjectId: match.resolvedProjectId,
+          errors: rowErrors,
+        };
+      });
+    });
   };
 
   const handleSubRowChange = (
@@ -357,35 +478,43 @@ export function ImportProjectsDialog({
         ) {
           errors.push("End date must be on or after start date.");
         }
-        updated.errors = errors;
-        rows[rowIndex] = updated;
+        const match = resolvePhaseImportMatch(
+          updated.name,
+          nestedMetaByProject[projName]?.existingPhases,
+        );
+        rows[rowIndex] = {
+          ...updated,
+          importMode: match.importMode,
+          resolvedPhaseId: match.resolvedPhaseId,
+          errors,
+        };
         return { ...prev, [projName]: rows };
       });
     } else if (type === "tasks") {
       setParsedTasks((prev) => {
         const rows = [...(prev[projName] || [])];
         const updated = { ...rows[rowIndex], [field]: value };
-        const errors: string[] = [];
-        if (!updated.title) errors.push("Task title is required.");
-        if (updated.startDate && isNaN(Date.parse(updated.startDate)))
-          errors.push("Start date must be valid.");
-        if (updated.endDate && isNaN(Date.parse(updated.endDate)))
-          errors.push("End date must be valid.");
-        if (
-          updated.startDate && updated.endDate &&
-          !isNaN(Date.parse(updated.startDate)) && !isNaN(Date.parse(updated.endDate)) &&
-          new Date(updated.startDate) > new Date(updated.endDate)
-        ) {
-          errors.push("End date must be on or after start date.");
-        }
-        const validTaskStatus = ["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"];
-        if (!validTaskStatus.includes(updated.status))
-          errors.push(`Status "${updated.status}" is invalid.`);
-        const validPriority = ["Low", "Medium", "High", "Critical"];
-        if (!validPriority.includes(updated.priority))
-          errors.push(`Priority "${updated.priority}" is invalid.`);
-        updated.errors = errors;
-        rows[rowIndex] = updated;
+        const meta = nestedMetaByProject[projName] || {
+          phases: [],
+          assignees: [],
+          existingTasks: [],
+          existingPhases: [],
+          existingMilestones: [],
+        };
+        const duplicateTitles = new Set(
+          rows
+            .map((row, idx) =>
+              idx === rowIndex ? updated.title.trim().toLowerCase() : row.title.trim().toLowerCase(),
+            )
+            .filter((title, titleIndex, all) => title && all.indexOf(title) !== titleIndex),
+        );
+        rows[rowIndex] = revalidateParsedTaskRow(
+          updated,
+          meta.phases,
+          meta.assignees,
+          duplicateTitles,
+          meta.existingTasks,
+        );
         return { ...prev, [projName]: rows };
       });
     } else if (type === "milestones") {
@@ -397,8 +526,16 @@ export function ImportProjectsDialog({
         if (!updated.targetDate) errors.push("Target date is required.");
         else if (isNaN(Date.parse(updated.targetDate)))
           errors.push("Target date must be valid YYYY-MM-DD.");
-        updated.errors = errors;
-        rows[rowIndex] = updated;
+        const match = resolveMilestoneImportMatch(
+          updated.title,
+          nestedMetaByProject[projName]?.existingMilestones,
+        );
+        rows[rowIndex] = {
+          ...updated,
+          importMode: match.importMode,
+          resolvedMilestoneId: match.resolvedMilestoneId,
+          errors,
+        };
         return { ...prev, [projName]: rows };
       });
     }
@@ -467,7 +604,7 @@ export function ImportProjectsDialog({
             currency: projRow.currency as any,
             primaryPmId: projRow.resolvedPrimaryPmId!,
             secondaryPmId: projRow.resolvedSecondaryPmId || undefined,
-            status: "Draft",
+            status: (projRow.status as any) || "Draft",
           }).unwrap();
           projectId = projectResult.id;
           successCreated++;
@@ -487,32 +624,45 @@ export function ImportProjectsDialog({
           }
         }
 
-        // Create Phases
+        // Create or update Phases
         const projectPhases = parsedPhases[projRow.name] || [];
         if (projectPhases.length > 0) {
-          setImportStatusText(`Creating phases for: ${projRow.name}`);
+          setImportStatusText(`${isUpdate ? "Updating" : "Creating"} phases for: ${projRow.name}`);
           for (const phaseRow of projectPhases) {
             if (phaseRow.errors.length > 0) continue;
+            const phaseKey = phaseRow.name.toLowerCase().trim();
+            const existingPhaseId =
+              phaseRow.resolvedPhaseId || phaseNameToId[phaseKey];
+            const phaseBody = {
+              name: phaseRow.name,
+              description: phaseRow.description || undefined,
+              orderIndex: phaseRow.orderIndex,
+              status: phaseRow.status as any,
+              startDate: phaseRow.startDate
+                ? new Date(phaseRow.startDate).toISOString()
+                : new Date(projRow.startDate).toISOString(),
+              endDate: phaseRow.endDate
+                ? new Date(phaseRow.endDate).toISOString()
+                : new Date(projRow.endDate).toISOString(),
+            };
             try {
-              const res = await createPhase({
-                projectId,
-                body: {
-                  name: phaseRow.name,
-                  description: phaseRow.description || undefined,
-                  orderIndex: phaseRow.orderIndex,
-                  status: phaseRow.status as any,
-                  startDate: phaseRow.startDate
-                    ? new Date(phaseRow.startDate).toISOString()
-                    : new Date(projRow.startDate).toISOString(),
-                  endDate: phaseRow.endDate
-                    ? new Date(phaseRow.endDate).toISOString()
-                    : new Date(projRow.endDate).toISOString(),
-                },
-              }).unwrap();
-              phaseNameToId[phaseRow.name.toLowerCase().trim()] = res.id;
+              if (existingPhaseId) {
+                await updatePhase({
+                  projectId,
+                  phaseId: existingPhaseId,
+                  body: phaseBody,
+                }).unwrap();
+                phaseNameToId[phaseKey] = existingPhaseId;
+              } else {
+                const res = await createPhase({
+                  projectId,
+                  body: phaseBody,
+                }).unwrap();
+                phaseNameToId[phaseKey] = res.id;
+              }
               successPhases++;
             } catch (err) {
-              console.error(`Failed to create phase "${phaseRow.name}" for "${projRow.name}":`, err);
+              console.error(`Failed to import phase "${phaseRow.name}" for "${projRow.name}":`, err);
             }
           }
         }
@@ -541,14 +691,23 @@ export function ImportProjectsDialog({
           }
         }
 
-        // Resolve existing tasks for matching if this project already exists
+        // Resolve existing tasks + assignees for matching
         let existingProjectTasks: { id: string; title: string }[] = [];
+        let projectAssignees: ProjectTaskAssignee[] = [];
         if (isUpdate) {
-          try {
-            const result = await triggerGetTasks({ projectId, limit: 1000, topLevelOnly: false }).unwrap();
-            existingProjectTasks = result.data.map((t) => ({ id: t.id, title: t.title }));
-          } catch (err) {
-            console.error("Failed to fetch existing tasks:", err);
+          const [tasksResult, assigneesResult] = await Promise.allSettled([
+            triggerGetTasks({ projectId, limit: 1000, topLevelOnly: false }).unwrap(),
+            triggerGetAssignees(projectId).unwrap(),
+          ]);
+          if (tasksResult.status === "fulfilled") {
+            existingProjectTasks = tasksResult.value.data.map((t) => ({ id: t.id, title: t.title }));
+          } else {
+            console.error("Failed to fetch existing tasks:", tasksResult.reason);
+          }
+          if (assigneesResult.status === "fulfilled") {
+            projectAssignees = assigneesResult.value;
+          } else {
+            console.error("Failed to fetch assignees:", assigneesResult.reason);
           }
         }
 
@@ -556,6 +715,22 @@ export function ImportProjectsDialog({
         for (const t of existingProjectTasks) {
           existingTaskMap.set(t.title.trim().toLowerCase(), t.id);
         }
+
+        const resolveOwnerId = (taskRow: ParsedTaskRow): string | undefined => {
+          if (taskRow.resolvedAssigneeId) {
+            const stillOnTeam = projectAssignees.some((a) => a.userId === taskRow.resolvedAssigneeId);
+            if (stillOnTeam || projectAssignees.length === 0) return taskRow.resolvedAssigneeId;
+          }
+          if (!taskRow.assigneeName || projectAssignees.length === 0) return undefined;
+          const normalized = taskRow.assigneeName.toLowerCase().trim();
+          const match = projectAssignees.find(
+            (a) =>
+              a.displayName.toLowerCase() === normalized ||
+              a.email.toLowerCase() === normalized ||
+              a.name.toLowerCase() === normalized,
+          );
+          return match?.userId;
+        };
 
         // Create/Update Tasks
         if (projectTasks.length > 0) {
@@ -565,7 +740,7 @@ export function ImportProjectsDialog({
             try {
               let resolvedPhaseId = taskRow.phaseName
                 ? phaseNameToId[taskRow.phaseName.toLowerCase().trim()]
-                : undefined;
+                : taskRow.resolvedPhaseId || undefined;
 
               // Fallback to first available phase ID if none is resolved (since phaseId is required)
               if (!resolvedPhaseId) {
@@ -576,10 +751,12 @@ export function ImportProjectsDialog({
               }
 
               const lowerTitle = taskRow.title.trim().toLowerCase();
-              const resolvedTaskId = lowerTitle ? existingTaskMap.get(lowerTitle) : undefined;
+              const resolvedTaskId =
+                taskRow.resolvedTaskId ||
+                (lowerTitle ? existingTaskMap.get(lowerTitle) : undefined);
+              const ownerId = resolveOwnerId(taskRow);
 
               if (resolvedTaskId) {
-                // Update existing task
                 await updateTask({
                   id: resolvedTaskId,
                   body: {
@@ -587,7 +764,7 @@ export function ImportProjectsDialog({
                     description: taskRow.description || undefined,
                     priority: taskRow.priority,
                     status: taskRow.status,
-                    ownerId: undefined,
+                    ownerId,
                     phaseId: resolvedPhaseId,
                     startDate: taskRow.startDate ? new Date(taskRow.startDate).toISOString() : undefined,
                     endDate: taskRow.endDate ? new Date(taskRow.endDate).toISOString() : undefined,
@@ -596,14 +773,13 @@ export function ImportProjectsDialog({
                 }).unwrap();
                 successTasksUpdated++;
               } else {
-                // Create new task
                 await createTask({
                   projectId,
                   title: taskRow.title,
                   description: taskRow.description || undefined,
                   priority: taskRow.priority,
                   status: taskRow.status,
-                  ownerId: undefined,
+                  ownerId,
                   phaseId: resolvedPhaseId,
                   startDate: taskRow.startDate ? new Date(taskRow.startDate).toISOString() : undefined,
                   endDate: taskRow.endDate ? new Date(taskRow.endDate).toISOString() : undefined,
@@ -617,10 +793,22 @@ export function ImportProjectsDialog({
           }
         }
 
-        // Create Milestones
+        // Create or update Milestones
         const projectMilestones = parsedMilestones[projRow.name] || [];
         if (projectMilestones.length > 0) {
-          setImportStatusText(`Creating milestones for: ${projRow.name}`);
+          setImportStatusText(`${isUpdate ? "Updating" : "Creating"} milestones for: ${projRow.name}`);
+          const existingMilestoneMap = new Map<string, string>();
+          if (isUpdate) {
+            try {
+              const existingMilestones = await triggerGetMilestones(projectId).unwrap();
+              for (const ms of existingMilestones) {
+                existingMilestoneMap.set(ms.title.trim().toLowerCase(), ms.id);
+              }
+            } catch (err) {
+              console.error("Failed to fetch existing milestones:", err);
+            }
+          }
+
           for (const msRow of projectMilestones) {
             if (msRow.errors.length > 0) continue;
             try {
@@ -628,7 +816,6 @@ export function ImportProjectsDialog({
                 ? phaseNameToId[msRow.phaseName.toLowerCase().trim()]
                 : undefined;
 
-              // Fallback to first available phase ID if none is resolved (milestones can optionally have a phase, but if it exists we map it)
               if (!resolvedPhaseId && msRow.phaseName) {
                 const phaseIds = Object.values(phaseNameToId);
                 if (phaseIds.length > 0) {
@@ -636,19 +823,32 @@ export function ImportProjectsDialog({
                 }
               }
 
-              await createMilestone({
-                projectId,
-                body: {
-                  title: msRow.title,
-                  targetDate: new Date(msRow.targetDate).toISOString(),
-                  weight: msRow.weight || 0,
-                  status: msRow.status,
-                  phaseId: resolvedPhaseId,
-                },
-              }).unwrap();
+              const msBody = {
+                title: msRow.title,
+                targetDate: new Date(msRow.targetDate).toISOString(),
+                weight: msRow.weight || 0,
+                status: msRow.status,
+                phaseId: resolvedPhaseId,
+              };
+              const existingMilestoneId =
+                msRow.resolvedMilestoneId ||
+                existingMilestoneMap.get(msRow.title.trim().toLowerCase());
+
+              if (existingMilestoneId) {
+                await updateMilestone({
+                  projectId,
+                  milestoneId: existingMilestoneId,
+                  body: msBody,
+                }).unwrap();
+              } else {
+                await createMilestone({
+                  projectId,
+                  body: msBody,
+                }).unwrap();
+              }
               successMilestones++;
             } catch (err) {
-              console.error(`Failed to create milestone "${msRow.title}" for "${projRow.name}":`, err);
+              console.error(`Failed to import milestone "${msRow.title}" for "${projRow.name}":`, err);
             }
           }
         }
@@ -876,8 +1076,8 @@ export function ImportProjectsDialog({
                 <span>
                   {validRows.length} of {parsedRows.length} projects ready to import.
                   {hasActiveErrors && (
-                    <span className="text-rose-500 ml-1">
-                      (Some sheets contain validation errors)
+                    <span className="text-amber-600 dark:text-amber-400 ml-1 font-medium">
+                      ({nestedErrorCount} nested row{nestedErrorCount === 1 ? "" : "s"} with errors will be skipped)
                     </span>
                   )}
                 </span>
@@ -896,7 +1096,7 @@ export function ImportProjectsDialog({
               {file && !isImporting && (
                 <Button
                   onClick={handleImport}
-                  disabled={validRows.length === 0 || hasActiveErrors || !!validationError}
+                  disabled={validRows.length === 0 || !!validationError}
                   size="sm"
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >

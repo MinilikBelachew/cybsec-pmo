@@ -16,6 +16,13 @@ import { SecureFileLink } from "@/shared/components/secure-file-link";
 import { FilePreviewModal } from "../tasks/file-preview-modal";
 import type { WorkspaceDocument } from "../../types/project-documents.types";
 import { cn } from "@/shared/utils/cn";
+import { toast } from "react-hot-toast";
+import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_LIMITS_HINT,
+  attachmentValidationToastMessage,
+  validateAttachmentFiles,
+} from "../../utils/attachment-limits";
 
 function formatFileSize(bytes: number | null | undefined) {
   if (bytes == null || Number.isNaN(bytes)) return "";
@@ -76,11 +83,20 @@ export function EntityAttachmentsSection({
     if (!selected.length) return;
     if (fileInputRef.current) fileInputRef.current.value = "";
 
+    const existingCount = onImmediateUpload
+      ? documents.length
+      : draftFiles.length;
+    const { valid, issues } = validateAttachmentFiles(selected, { existingCount });
+    if (issues.length) {
+      toast.error(attachmentValidationToastMessage(issues));
+    }
+    if (!valid.length) return;
+
     if (onImmediateUpload) {
-      await onImmediateUpload(selected);
+      await onImmediateUpload(valid);
       return;
     }
-    onDraftFilesChange([...draftFiles, ...selected]);
+    onDraftFilesChange([...draftFiles, ...valid]);
   }
 
   return (
@@ -119,12 +135,15 @@ export function EntityAttachmentsSection({
               type="file"
               multiple
               className="hidden"
-              accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+              accept={ATTACHMENT_ACCEPT}
               onChange={handleFileSelect}
             />
           </>
         )}
       </div>
+      {canEdit && (
+        <p className="text-[10px] text-muted-foreground">{ATTACHMENT_LIMITS_HINT}</p>
+      )}
 
       {isLoading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

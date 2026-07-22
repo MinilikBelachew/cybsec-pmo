@@ -11,6 +11,7 @@ import {
   useGetProjectByIdQuery,
 } from "../../../api/projects.api";
 import { useUploadFileMutation } from "../../../api/files.api";
+import { formatFileUploadError } from "../../../utils/attachment-limits";
 import {
   useCreateProjectDocumentMutation,
   useDeleteProjectDocumentMutation,
@@ -211,12 +212,7 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
         );
       } catch (err) {
         console.error(err);
-        const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
-        toast.error(
-          apiError?.data?.message ??
-            Object.values(apiError?.data?.errors ?? {})[0] ??
-            "Failed to attach file to milestone",
-        );
+        toast.error(formatFileUploadError(err, "Failed to attach file to milestone"));
       }
     }
 
