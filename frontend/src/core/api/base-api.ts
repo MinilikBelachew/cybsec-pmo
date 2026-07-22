@@ -6,6 +6,7 @@ import {
 } from "@reduxjs/toolkit/query/react";
 import type { RootState } from "@/store";
 import { clearUser } from "@/domains/auth/store/auth.slice";
+import { redirectToLogin } from "@/domains/auth/utils/clear-session";
 
 type FetchArgsWithRetry = FetchArgs & { _retry?: boolean };
 
@@ -20,13 +21,6 @@ const rawBaseQuery = fetchBaseQuery({
     return headers;
   },
 });
-
-function redirectToLogin() {
-  if (typeof window === "undefined") return;
-  if (window.location.pathname.includes("/login")) return;
-  const locale = window.location.pathname.split("/")[1] || "en";
-  window.location.assign(`/${locale}/login?error=session_failed`);
-}
 
 export const baseQueryWithInterceptor: BaseQueryFn<
   string | FetchArgs,
@@ -65,7 +59,7 @@ export const baseQueryWithInterceptor: BaseQueryFn<
       // errors must not wipe the logged-in user display mid-page).
       const hadUser = Boolean((api.getState() as RootState).auth.user);
       api.dispatch(clearUser());
-      if (hadUser) redirectToLogin();
+      if (hadUser) redirectToLogin("session_failed");
     }
   }
 

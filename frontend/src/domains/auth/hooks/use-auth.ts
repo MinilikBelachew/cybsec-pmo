@@ -4,12 +4,10 @@ import { useCallback } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { logger } from "@/core/logger";
 import { useLogoutMutation } from "../api/auth.api";
-import { logout } from "../store/auth.slice";
-import { useRouter } from "@/i18n/routing";
+import { endClientSession } from "../utils/clear-session";
 
 export function useAuth() {
   const dispatch = useAppDispatch();
-  const router = useRouter();
   const [logoutMutation] = useLogoutMutation();
 
   const user = useAppSelector((s) => s.auth.user);
@@ -21,11 +19,10 @@ export function useAuth() {
     } catch {
       // Always clear local state even if API call fails
     } finally {
-      dispatch(logout());
       logger.audit("User logged out", { userId: user?.id });
-      router.push("/login");
+      endClientSession(dispatch);
     }
-  }, [dispatch, logoutMutation, router, user]);
+  }, [dispatch, logoutMutation, user]);
 
   return { user, isAuthenticated, signOut };
 }

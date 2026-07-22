@@ -94,6 +94,20 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // Prevent bfcache / intermediary caches from restoring authenticated HTML after logout.
+        source: "/:locale/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, no-store, must-revalidate",
+          },
+          {
+            key: "Pragma",
+            value: "no-cache",
+          },
+        ],
+      },
     ];
   },
 };
