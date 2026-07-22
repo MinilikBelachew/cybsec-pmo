@@ -77,7 +77,7 @@ export function TaskProgressSection({
     user?.id === task.ownerId ||
     (task.ownerId == null && user?.id != null && user.id === task.parentTask?.ownerId);
   const approvedPercent = task.progressApproved ?? 0;
-  const remainingPercent = Math.max(0, 100 - approvedPercent);
+  const remainingApprovedPercent = Math.max(0, 100 - approvedPercent);
   const hasPartialApproval = approvedPercent > 0 && approvedPercent < 100;
   const pendingUpdates = useMemo(
     () => updates.filter((row) => row.status === "Pending"),
@@ -89,6 +89,19 @@ export function TaskProgressSection({
     [pendingUpdates],
   );
   const progressFloor = Math.max(approvedPercent, highestPendingPercent);
+  const remainingCapacity = Math.max(0, 100 - progressFloor);
+  const incrementByUpdateId = useMemo(() => {
+    const chronological = [...updates].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    const map = new Map<string, number>();
+    let previousTotal = 0;
+    for (const row of chronological) {
+      map.set(row.id, Math.max(0, row.progressPercent - previousTotal));
+      previousTotal = row.progressPercent;
+    }
+    return map;
+  }, [updates]);
   const canSubmit =
     isOwner &&
     (task.status === "In_Progress" ||
@@ -193,19 +206,19 @@ export function TaskProgressSection({
   }
 
   async function handleSubmit() {
-    const percent = Number(progressPercent);
+    const increment = Number(progressPercent);
     const hours = Number(hoursSpent);
-    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
-      toast.error("Enter a valid progress percentage (0–100).");
+    if (!Number.isFinite(increment) || increment < 1 || increment > 100) {
+      toast.error("Enter how much progress to add this time (1–100%).");
       return;
     }
     if (progressFloor >= 100) {
       toast.error("Progress is already at 100%. No further submissions are allowed.");
       return;
     }
-    if (percent <= progressFloor) {
+    if (increment > remainingCapacity) {
       toast.error(
-        `Enter total progress above the current highest (${progressFloor}%). Max is 100%.`,
+        `You can add at most ${remainingCapacity}% more (total cannot exceed 100%).`,
       );
       return;
     }
@@ -214,18 +227,18 @@ export function TaskProgressSection({
       return;
     }
 
+    const newTotal = progressFloor + increment;
+
     try {
       await submitProgress({
         taskId: task.id,
-        progressPercent: percent,
+        progressPercent: increment,
         hoursSpent: hours,
         comment: comment.trim() || undefined,
         evidenceFiles: evidenceFiles.length > 0 ? evidenceFiles : undefined,
       }).unwrap();
       toast.success(
-        hasPartialApproval || pendingUpdates.length > 0
-          ? "Next progress update submitted for PM review"
-          : "Progress submitted for PM review",
+        `+${increment}% submitted (total ${newTotal}% pending PM review)`,
       );
       setProgressPercent("");
       setComment("");
@@ -290,7 +303,7 @@ export function TaskProgressSection({
           </Badge>
           {hasPartialApproval && (
             <Badge variant="secondary" className="text-[10px]">
-              {remainingPercent}% remaining
+              {remainingApprovedPercent}% remaining
             </Badge>
           )}
           {task.progressPending > 0 && (
@@ -321,7 +334,7 @@ export function TaskProgressSection({
           (task.status === "In_Progress" || task.status === "Submitted_for_Review") &&
           isOwner && (
           <p className="text-[10px] text-muted-foreground">
-            Continue the remaining work, then submit your next cumulative total (e.g. 100%).
+            Continue the remaining work, then add more progress (e.g. +{remainingCapacity}% to finish).
             {pendingUpdates.length > 0
               ? ` ${pendingUpdates.length} update(s) still awaiting PM review.`
               : ""}
@@ -379,28 +392,27 @@ export function TaskProgressSection({
                 : "Submit progress update"}
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Enter the <span className="font-medium text-foreground">total</span> progress so
-              far (max 100%), not an amount to add. Example: 25% → 50% → 75% → 100%.
-              {progressFloor > 0
-                ? ` Next value must be above ${progressFloor}%.`
-                : ""}
+              Enter how much progress to <span className="font-medium text-foreground">add</span>{" "}
+              this time. Example: +40% then +10% → total 50%. You can add up to{" "}
+              <span className="font-medium text-foreground">{remainingCapacity}%</span> more
+              (current total {progressFloor}%).
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">
-                Total progress % (max 100)
+                Progress to add % (max {remainingCapacity})
               </Label>
               <Input
                 type="number"
-                min={progressFloor + 1}
-                max={100}
+                min={1}
+                max={remainingCapacity}
                 value={progressPercent}
                 onChange={(e) => setProgressPercent(e.target.value)}
                 placeholder={
-                  progressFloor > 0
-                    ? `e.g. ${Math.min(100, progressFloor + 25)}`
-                    : "e.g. 25"
+                  remainingCapacity >= 10
+                    ? "e.g. 10"
+                    : `e.g. ${remainingCapacity}`
                 }
               />
             </div>
@@ -513,7 +525,11 @@ export function TaskProgressSection({
                 Pending review from {update.engineer.displayName}
                 {pendingUpdates.length > 1 ? ` (${index + 1} of ${pendingUpdates.length})` : ""}
               </p>
-              <ProgressUpdateRow update={update} compact />
+              <ProgressUpdateRow
+                update={update}
+                compact
+                incrementPercent={incrementByUpdateId.get(update.id)}
+              />
               {plannedEffortHours != null && loggedHours > plannedEffortHours && (
                 <p className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
                   Task is over effort: planned {plannedEffortHours}h, logged {loggedHours}h (
@@ -575,7 +591,13 @@ export function TaskProgressSection({
         ) : updates.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">No progress submissions yet.</p>
         ) : (
-          updates.map((update) => <ProgressUpdateRow key={update.id} update={update} />)
+          updates.map((update) => (
+            <ProgressUpdateRow
+              key={update.id}
+              update={update}
+              incrementPercent={incrementByUpdateId.get(update.id)}
+            />
+          ))
         )}
       </div>
     </div>
@@ -585,9 +607,11 @@ export function TaskProgressSection({
 function ProgressUpdateRow({
   update,
   compact = false,
+  incrementPercent,
 }: {
   update: TaskProgressUpdate;
   compact?: boolean;
+  incrementPercent?: number;
 }) {
   return (
     <div
@@ -599,7 +623,11 @@ function ProgressUpdateRow({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Badge className={cn("text-[10px]", STATUS_BADGE[update.status])}>{update.status}</Badge>
-          <span className="text-xs font-semibold">{update.progressPercent}%</span>
+          <span className="text-xs font-semibold">
+            {incrementPercent != null && incrementPercent > 0
+              ? `+${incrementPercent}% → total ${update.progressPercent}%`
+              : `${update.progressPercent}%`}
+          </span>
           <span className="text-[11px] text-muted-foreground">{update.hoursSpent}h spent</span>
         </div>
         <span className="text-[10px] text-muted-foreground flex items-center gap-1">

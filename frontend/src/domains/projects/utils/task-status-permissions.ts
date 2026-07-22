@@ -115,6 +115,21 @@ export function formatTaskApiError(
   };
   if (DATE_ERROR_CODES[msg]) return DATE_ERROR_CODES[msg];
 
+  if (msg === "progressAlreadyAt100CannotSubmitMore") {
+    return "Progress is already at 100%. No further submissions are allowed.";
+  }
+  if (msg === "progressIncrementMustBeBetween1And100") {
+    return "Enter how much progress to add this time (1–100%).";
+  }
+  const exceedRemaining = msg.match(/^progressIncrementExceedsRemaining \((\d+)%\)$/);
+  if (exceedRemaining) {
+    return `You can add at most ${exceedRemaining[1]}% more (total cannot exceed 100%).`;
+  }
+  // Legacy cumulative validation message (older servers)
+  const mustExceed = msg.match(/^progressMustExceedCurrentTotal \((\d+)%\)$/);
+  if (mustExceed) {
+    return `Enter total progress above ${mustExceed[1]}%. Max is 100%.`;
+  }
   const illegalMatch = msg.match(/^Illegal status transition from (.+) to (.+)$/);
   if (illegalMatch) {
     return `Tasks can't move directly from ${illegalMatch[1]} to ${illegalMatch[2]}. Follow the workflow steps for this task.`;

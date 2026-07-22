@@ -14,10 +14,16 @@ import {
 import { ProgressEvidenceFileDto } from './progress-evidence-file.dto';
 
 export class CreateProgressUpdateDto {
-  @ApiProperty({ example: 25, minimum: 0, maximum: 100 })
+  @ApiProperty({
+    example: 10,
+    minimum: 1,
+    maximum: 100,
+    description:
+      'Progress added in this update (increment). Stored as cumulative total = current floor + this value.',
+  })
   @Type(() => Number)
   @IsInt()
-  @Min(0)
+  @Min(1)
   @Max(100)
   progressPercent: number;
 

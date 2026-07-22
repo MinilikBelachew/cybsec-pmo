@@ -77,10 +77,10 @@ export class TaskProgressService {
       });
     }
 
-    if (dto.progressPercent > 100) {
+    if (dto.progressPercent < 1 || dto.progressPercent > 100) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { progressPercent: 'progressCannotExceed100' },
+        errors: { progressPercent: 'progressIncrementMustBeBetween1And100' },
       });
     }
 
@@ -96,15 +96,17 @@ export class TaskProgressService {
       });
     }
 
-    if (dto.progressPercent <= progressFloor) {
+    const remainingCapacity = 100 - progressFloor;
+    if (dto.progressPercent > remainingCapacity) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         errors: {
-          progressPercent: `progressMustExceedCurrentTotal (${progressFloor}%)`,
+          progressPercent: `progressIncrementExceedsRemaining (${remainingCapacity}%)`,
         },
       });
     }
 
+    const cumulativePercent = progressFloor + dto.progressPercent;
     const evidenceFiles = this.normalizeEvidenceFiles(dto);
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -112,7 +114,7 @@ export class TaskProgressService {
         data: {
           taskId,
           engineerId: actorId,
-          progressPercent: dto.progressPercent,
+          progressPercent: cumulativePercent,
           hoursSpent: dto.hoursSpent,
           comment: dto.comment?.trim() || null,
           s3EvidenceKey: evidenceFiles[0]?.storageKey ?? null,
@@ -151,7 +153,7 @@ export class TaskProgressService {
       eventType: NOTIFICATION_EVENT_TYPE.PROGRESS_SUBMITTED,
       recipientUserIds: pmIds,
       title: 'Progress submitted for review',
-      body: `${result.engineer.displayName} submitted progress (${dto.progressPercent}%) on "${result.task.title}".`,
+      body: `${result.engineer.displayName} submitted +${dto.progressPercent}% (total ${cumulativePercent}%) on "${result.task.title}".`,
       payload: this.buildPayload(result.task, result.id, { forPmReview: true }),
       sourceObjectType: 'TaskProgressUpdate',
       sourceObjectId: result.id,
