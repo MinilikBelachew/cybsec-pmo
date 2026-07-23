@@ -11,6 +11,12 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   Done: "Done",
 };
 
+function formatStatusLabel(status: string): string {
+  const key = status.trim() as TaskStatus;
+  if (STATUS_LABELS[key]) return STATUS_LABELS[key];
+  return status.replace(/_/g, " ").trim();
+}
+
 const PM_ALLOWED: Partial<Record<TaskStatus, TaskStatus[]>> = {
   To_Do: ["In_Progress"],
   In_Progress: ["To_Do", "Submitted_for_Review"],
@@ -144,7 +150,9 @@ export function formatTaskApiError(
   }
   const illegalMatch = msg.match(/^Illegal status transition from (.+) to (.+)$/);
   if (illegalMatch) {
-    return `Tasks can't move directly from ${illegalMatch[1]} to ${illegalMatch[2]}. Follow the workflow steps for this task.`;
+    const fromLabel = formatStatusLabel(illegalMatch[1]);
+    const toLabel = formatStatusLabel(illegalMatch[2]);
+    return `Tasks can't move directly from ${fromLabel} to ${toLabel}. Follow the workflow steps for this task.`;
   }
 
   return msg;

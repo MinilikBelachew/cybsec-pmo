@@ -768,7 +768,7 @@ export class ProjectsService {
   private assertMilestoneWeightsDoNotExceedTotal(
     weights: Array<number | null | undefined>,
   ): void {
-    const total = weights.reduce(
+    const total = weights.reduce<number>(
       (sum, weight) => sum + this.toMilestoneWeightNumber(weight),
       0,
     );

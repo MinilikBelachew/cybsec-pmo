@@ -1272,12 +1272,14 @@ export function ProjectWorkspace() {
         )}
 
         {activeView === "actions" && (
-          <ActionPointsPanel
-            projectId={id}
-            canEdit={canEditProjects}
-            projectStartDate={project.startDate}
-            projectEndDate={project.endDate}
-          />
+          <div className="h-full min-h-0">
+            <ActionPointsPanel
+              projectId={id}
+              canEdit={canEditProjects}
+              projectStartDate={project.startDate}
+              projectEndDate={project.endDate}
+            />
+          </div>
         )}
 
         {activeView === "audit" && canViewProjectAudit && (

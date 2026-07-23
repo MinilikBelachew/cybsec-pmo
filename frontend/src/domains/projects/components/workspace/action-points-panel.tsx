@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   CheckSquare,
   Loader2,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
+import { useAuth } from "@/domains/auth";
 import {
   useCreateActionPointMutation,
   useDeleteActionPointMutation,
@@ -48,12 +50,28 @@ const STATUS_OPTIONS: ActionPointStatus[] = [
   "Cancelled",
 ];
 
+/** Statuses assignees (engineers) may set — Cancelled is manager-only. */
+const ASSIGNEE_STATUS_OPTIONS: ActionPointStatus[] = [
+  "Open",
+  "In Progress",
+  "Done",
+];
+
 const PRIORITY_OPTIONS: ActionPointPriority[] = [
   "Low",
   "Medium",
   "High",
   "Critical",
 ];
+
+/** Matches backend ACTION_POINT_MANAGER_ROLES */
+const ACTION_POINT_MANAGER_ROLES = new Set([
+  "super_admin",
+  "it_admin",
+  "pmo_lead",
+  "pm",
+  "team_lead",
+]);
 
 function toDateOnly(value?: string | Date | null): Date | undefined {
   if (!value) return undefined;
@@ -75,6 +93,19 @@ function toApiDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function getApiErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data?: { message?: string | string[] } }).data;
+    if (typeof data?.message === "string" && data.message.trim()) {
+      return data.message;
+    }
+    if (Array.isArray(data?.message) && data.message[0]) {
+      return String(data.message[0]);
+    }
+  }
+  return fallback;
+}
+
 type ActionPointsPanelProps = {
   projectId: string;
   canEdit: boolean;
@@ -88,13 +119,23 @@ export function ActionPointsPanel({
   projectStartDate,
   projectEndDate,
 }: ActionPointsPanelProps) {
+  const { user } = useAuth();
+  const currentUserId = user?.id;
+  const roleCode = user?.backendRoleCode ?? "";
+
+  const canManage =
+    canEdit && ACTION_POINT_MANAGER_ROLES.has(roleCode);
+
   const { data: actionPoints = [], isLoading, isError } = useGetActionPointsQuery(projectId);
-  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId);
+  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
+    skip: !canManage,
+  });
   const [createActionPoint, { isLoading: isCreating }] = useCreateActionPointMutation();
   const [updateActionPoint, { isLoading: isUpdating }] = useUpdateActionPointMutation();
   const [deleteActionPoint, { isLoading: isDeleting }] = useDeleteActionPointMutation();
 
-  const [showForm, setShowForm] = useState(false);
+  const [formMode, setFormMode] = useState<"closed" | "create" | "edit">("closed");
+  const [editingPoint, setEditingPoint] = useState<ActionPoint | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ActionPoint | null>(null);
 
   const projectStart = useMemo(() => toDateOnly(projectStartDate), [projectStartDate]);
@@ -127,7 +168,8 @@ export function ActionPointsPanel({
   });
 
   useEffect(() => {
-    if (!showForm) {
+    if (formMode === "closed") {
+      setEditingPoint(null);
       reset({
         name: "",
         ownerId: "",
@@ -135,7 +177,7 @@ export function ActionPointsPanel({
         priority: "Medium",
       });
     }
-  }, [showForm, reset]);
+  }, [formMode, reset]);
 
   const ownerOptions = useMemo(
     () =>
@@ -148,33 +190,76 @@ export function ActionPointsPanel({
 
   const overdueCount = actionPoints.filter((ap) => ap.isOverdue).length;
 
+  function canUpdateStatus(ap: ActionPoint): boolean {
+    return canManage || Boolean(currentUserId && ap.ownerId === currentUserId);
+  }
+
+  function openCreateForm() {
+    setEditingPoint(null);
+    reset({
+      name: "",
+      ownerId: "",
+      dueDate: undefined,
+      priority: "Medium",
+    });
+    setFormMode("create");
+  }
+
+  function openEditForm(ap: ActionPoint) {
+    setEditingPoint(ap);
+    reset({
+      name: ap.title,
+      ownerId: ap.ownerId,
+      dueDate: toDateOnly(ap.dueDate),
+      priority: (PRIORITY_OPTIONS.includes(ap.priority as ActionPointPriority)
+        ? ap.priority
+        : "Medium") as ActionPointPriority,
+    });
+    setFormMode("edit");
+  }
+
+  function closeForm() {
+    setFormMode("closed");
+  }
+
   const onValidSubmit = async (values: ActionPointFormValues) => {
     try {
-      await createActionPoint({
-        projectId,
-        body: {
-          title: values.name.trim(),
-          ownerId: values.ownerId,
-          dueDate: toApiDate(values.dueDate),
-          priority: values.priority,
-          sourceType: "Project",
-          status: "Open",
-        },
-      }).unwrap();
-      toast.success("Action point created");
-      setShowForm(false);
-      reset({
-        name: "",
-        ownerId: "",
-        dueDate: undefined,
-        priority: "Medium",
-      });
+      if (formMode === "edit" && editingPoint) {
+        await updateActionPoint({
+          projectId,
+          actionPointId: editingPoint.id,
+          body: {
+            title: values.name.trim(),
+            ownerId: values.ownerId,
+            dueDate: toApiDate(values.dueDate),
+            priority: values.priority,
+          },
+        }).unwrap();
+        toast.success("Action point updated");
+      } else {
+        await createActionPoint({
+          projectId,
+          body: {
+            title: values.name.trim(),
+            ownerId: values.ownerId,
+            dueDate: toApiDate(values.dueDate),
+            priority: values.priority,
+            sourceType: "Project",
+            status: "Open",
+          },
+        }).unwrap();
+        toast.success("Action point created");
+      }
+      closeForm();
     } catch (err: unknown) {
-      const message =
-        err && typeof err === "object" && "data" in err
-          ? String((err as { data?: { message?: string } }).data?.message ?? "")
-          : "";
-      toast.error(message || "Failed to create action point");
+      toast.error(
+        getApiErrorMessage(
+          err,
+          formMode === "edit"
+            ? "Failed to update action point"
+            : "Failed to create action point",
+        ),
+      );
     }
   };
 
@@ -186,8 +271,8 @@ export function ActionPointsPanel({
         body: { status },
       }).unwrap();
       toast.success("Status updated");
-    } catch {
-      toast.error("Failed to update status");
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, "Failed to update status"));
     }
   };
 
@@ -200,20 +285,161 @@ export function ActionPointsPanel({
       }).unwrap();
       toast.success("Action point deleted");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Failed to delete action point");
+      if (editingPoint?.id === deleteTarget.id) {
+        closeForm();
+      }
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, "Failed to delete action point"));
     }
   };
 
   const fieldErrorClass = "text-[11px] font-medium text-rose-500";
+  const isSaving = isCreating || isUpdating;
+
+  const actionPointForm = (
+    <form
+      onSubmit={handleSubmit(onValidSubmit)}
+      className="space-y-3 rounded-2xl border border-border/60 bg-card p-4"
+      noValidate
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-foreground">
+          {formMode === "edit" ? "Edit action point" : "New action point"}
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Name *
+        </label>
+        <input
+          {...register("name")}
+          className={cn(
+            "h-9 w-full rounded-lg border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20",
+            errors.name
+              ? "border-rose-500 ring-2 ring-rose-500/20"
+              : "border-border",
+          )}
+          placeholder="Action point name"
+        />
+        {errors.name && <p className={fieldErrorClass}>{errors.name.message}</p>}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Owner *
+          </label>
+          <Controller
+            control={control}
+            name="ownerId"
+            render={({ field }) => (
+              <Select
+                value={field.value || undefined}
+                onValueChange={(v) => field.onChange(v ?? "")}
+              >
+                <SelectTrigger
+                  className={cn(
+                    "h-9",
+                    errors.ownerId && "border-rose-500 ring-2 ring-rose-500/20",
+                  )}
+                >
+                  <SelectValue placeholder="Select owner">
+                    {ownerOptions.find((o) => o.id === field.value)?.label}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ownerOptions.length === 0 ? (
+                    <SelectItem value="__none" disabled>
+                      No assignees available — add team members first
+                    </SelectItem>
+                  ) : (
+                    ownerOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.label}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          {errors.ownerId && <p className={fieldErrorClass}>{errors.ownerId.message}</p>}
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Due date *
+          </label>
+          <Controller
+            control={control}
+            name="dueDate"
+            render={({ field }) => (
+              <ProjectDatePicker
+                value={field.value}
+                onChange={(date) => field.onChange(date)}
+                minDate={projectStart ?? new Date(2000, 0, 1)}
+                maxDate={projectEnd}
+                placeholder="Pick a due date"
+                className="h-9"
+                invalid={Boolean(errors.dueDate)}
+              />
+            )}
+          />
+          {errors.dueDate && <p className={fieldErrorClass}>{errors.dueDate.message}</p>}
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Priority
+          </label>
+          <Controller
+            control={control}
+            name="priority"
+            render={({ field }) => (
+              <Select
+                value={field.value}
+                onValueChange={(v) =>
+                  field.onChange((v as ActionPointPriority) || "Medium")
+                }
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={closeForm} disabled={isSaving}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isSaving} className="gap-1.5">
+          {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+          {formMode === "edit" ? "Save changes" : "Save action point"}
+        </Button>
+      </div>
+    </form>
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border/40 px-4 py-3 sm:px-5">
         <div>
           <h2 className="text-sm font-bold text-foreground">Action points</h2>
           <p className="text-xs text-muted-foreground">
-            Track owners, due dates, status, and overdue items for this project.
+            {canManage
+              ? "Track owners, due dates, status, and overdue items for this project."
+              : "Action points assigned to you. You can update status only."}
             {overdueCount > 0 ? (
               <span className="ml-1 font-semibold text-rose-600">
                 {overdueCount} overdue
@@ -221,252 +447,172 @@ export function ActionPointsPanel({
             ) : null}
           </p>
         </div>
-        {canEdit && (
+        {canManage && (
           <Button
             type="button"
             size="sm"
             className="gap-1.5"
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() =>
+              formMode === "create" ? closeForm() : openCreateForm()
+            }
           >
             <Plus className="size-3.5" />
-            {showForm ? "Close" : "Add action point"}
+            {formMode === "create" ? "Close" : "Add action point"}
           </Button>
         )}
       </div>
 
-      {showForm && canEdit && (
-        <form
-          onSubmit={handleSubmit(onValidSubmit)}
-          className="space-y-3 rounded-2xl border border-border/60 bg-card p-4"
-          noValidate
-        >
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Name *
-            </label>
-            <input
-              {...register("name")}
-              className={cn(
-                "h-9 w-full rounded-lg border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20",
-                errors.name
-                  ? "border-rose-500 ring-2 ring-rose-500/20"
-                  : "border-border",
-              )}
-              placeholder="Action point name"
-            />
-            {errors.name && <p className={fieldErrorClass}>{errors.name.message}</p>}
-          </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <div className="space-y-4">
+          {formMode === "create" && canManage && actionPointForm}
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Owner *
-              </label>
-              <Controller
-                control={control}
-                name="ownerId"
-                render={({ field }) => (
-                  <Select
-                    value={field.value || undefined}
-                    onValueChange={(v) => field.onChange(v ?? "")}
-                  >
-                    <SelectTrigger
-                      className={cn(
-                        "h-9",
-                        errors.ownerId && "border-rose-500 ring-2 ring-rose-500/20",
+          {isLoading && (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading action points…
+            </div>
+          )}
+
+          {isError && (
+            <p className="py-10 text-center text-sm text-rose-500">
+              Failed to load action points.
+            </p>
+          )}
+
+          {!isLoading && !isError && actionPoints.length === 0 && formMode !== "create" && (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border/60 py-16 text-center">
+              <CheckSquare className="size-8 text-muted-foreground/50" />
+              <p className="text-sm font-semibold text-muted-foreground">No action points yet</p>
+              <p className="text-xs text-muted-foreground/70">
+                {canManage
+                  ? "Create one with an owner and due date to start tracking."
+                  : "No action points are assigned to you on this project."}
+              </p>
+            </div>
+          )}
+
+          {!isLoading && actionPoints.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+              <div className="sticky top-0 z-10 grid grid-cols-[1fr_140px_120px_140px_72px] gap-2 border-b border-border/50 bg-muted/80 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground backdrop-blur-sm">
+                <span>Name</span>
+                <span>Owner</span>
+                <span>Due</span>
+                <span>Status</span>
+                <span />
+              </div>
+              <ul className="divide-y divide-border/40">
+                {actionPoints.map((ap) => {
+                  const allowStatus = canUpdateStatus(ap);
+                  const isEditingRow =
+                    formMode === "edit" && editingPoint?.id === ap.id;
+                  const statusChoices = canManage
+                    ? STATUS_OPTIONS
+                    : ASSIGNEE_STATUS_OPTIONS;
+
+                  return (
+                    <li key={ap.id} className="block">
+                      <div
+                        className={cn(
+                          "grid grid-cols-[1fr_140px_120px_140px_72px] items-center gap-2 px-4 py-3",
+                          ap.isOverdue && "bg-rose-500/5",
+                          isEditingRow && "bg-primary/5",
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-foreground">
+                              {ap.title}
+                            </p>
+                            {ap.isOverdue && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">
+                                <AlertTriangle className="size-3" />
+                                Overdue
+                              </span>
+                            )}
+                            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                              {ap.priority}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="truncate text-xs text-foreground">
+                          {ap.owner?.displayName || "—"}
+                        </p>
+                        <p
+                          className={cn(
+                            "text-xs font-medium",
+                            ap.isOverdue ? "text-rose-600" : "text-muted-foreground",
+                          )}
+                        >
+                          {ap.dueDate}
+                        </p>
+                        <div>
+                          {allowStatus ? (
+                            <Select
+                              value={ap.status}
+                              onValueChange={(v) => {
+                                if (v) {
+                                  void handleStatusChange(ap.id, v as ActionPointStatus);
+                                }
+                              }}
+                              disabled={isUpdating}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {statusChoices.map((s) => (
+                                  <SelectItem key={s} value={s}>
+                                    {s}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-xs font-medium">{ap.status}</span>
+                          )}
+                        </div>
+                        <div className="flex justify-end gap-0.5">
+                          {canManage && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  isEditingRow ? closeForm() : openEditForm(ap)
+                                }
+                                className={cn(
+                                  "rounded-lg p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                                  isEditingRow && "bg-primary/10 text-primary",
+                                )}
+                                title={isEditingRow ? "Close edit" : "Edit"}
+                              >
+                                <Pencil className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget(ap)}
+                                className="rounded-lg p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"
+                                title="Delete"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {isEditingRow && canManage && (
+                        <div className="border-t border-border/40 bg-muted/20 px-4 py-3">
+                          {actionPointForm}
+                        </div>
                       )}
-                    >
-                      <SelectValue placeholder="Select owner">
-                        {ownerOptions.find((o) => o.id === field.value)?.label}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ownerOptions.length === 0 ? (
-                        <SelectItem value="__none" disabled>
-                          No assignees available — add team members first
-                        </SelectItem>
-                      ) : (
-                        ownerOptions.map((o) => (
-                          <SelectItem key={o.id} value={o.id}>
-                            {o.label}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {errors.ownerId && <p className={fieldErrorClass}>{errors.ownerId.message}</p>}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Due date *
-              </label>
-              <Controller
-                control={control}
-                name="dueDate"
-                render={({ field }) => (
-                  <ProjectDatePicker
-                    value={field.value}
-                    onChange={(date) => field.onChange(date)}
-                    minDate={projectStart ?? new Date(2000, 0, 1)}
-                    maxDate={projectEnd}
-                    placeholder="Pick a due date"
-                    className="h-9"
-                    invalid={Boolean(errors.dueDate)}
-                  />
-                )}
-              />
-              {errors.dueDate && <p className={fieldErrorClass}>{errors.dueDate.message}</p>}
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Priority
-              </label>
-              <Controller
-                control={control}
-                name="priority"
-                render={({ field }) => (
-                  <Select
-                    value={field.value}
-                    onValueChange={(v) =>
-                      field.onChange((v as ActionPointPriority) || "Medium")
-                    }
-                  >
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PRIORITY_OPTIONS.map((p) => (
-                        <SelectItem key={p} value={p}>
-                          {p}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isCreating} className="gap-1.5">
-              {isCreating ? <Loader2 className="size-4 animate-spin" /> : null}
-              Save action point
-            </Button>
-          </div>
-        </form>
-      )}
-
-      {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          Loading action points…
+          )}
         </div>
-      )}
-
-      {isError && (
-        <p className="py-10 text-center text-sm text-rose-500">
-          Failed to load action points.
-        </p>
-      )}
-
-      {!isLoading && !isError && actionPoints.length === 0 && !showForm && (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border/60 py-16 text-center">
-          <CheckSquare className="size-8 text-muted-foreground/50" />
-          <p className="text-sm font-semibold text-muted-foreground">No action points yet</p>
-          <p className="text-xs text-muted-foreground/70">
-            Create one with an owner and due date to start tracking.
-          </p>
-        </div>
-      )}
-
-      {!isLoading && actionPoints.length > 0 && (
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
-          <div className="grid grid-cols-[1fr_140px_120px_140px_40px] gap-2 border-b border-border/50 bg-muted/30 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-            <span>Name</span>
-            <span>Owner</span>
-            <span>Due</span>
-            <span>Status</span>
-            <span />
-          </div>
-          <ul className="divide-y divide-border/40">
-            {actionPoints.map((ap) => (
-              <li
-                key={ap.id}
-                className={cn(
-                  "grid grid-cols-[1fr_140px_120px_140px_40px] items-center gap-2 px-4 py-3",
-                  ap.isOverdue && "bg-rose-500/5",
-                )}
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-foreground">{ap.title}</p>
-                    {ap.isOverdue && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">
-                        <AlertTriangle className="size-3" />
-                        Overdue
-                      </span>
-                    )}
-                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                      {ap.priority}
-                    </span>
-                  </div>
-                </div>
-                <p className="truncate text-xs text-foreground">
-                  {ap.owner?.displayName || "—"}
-                </p>
-                <p
-                  className={cn(
-                    "text-xs font-medium",
-                    ap.isOverdue ? "text-rose-600" : "text-muted-foreground",
-                  )}
-                >
-                  {ap.dueDate}
-                </p>
-                <div>
-                  {canEdit ? (
-                    <Select
-                      value={ap.status}
-                      onValueChange={(v) => {
-                        if (v) void handleStatusChange(ap.id, v as ActionPointStatus);
-                      }}
-                      disabled={isUpdating}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <span className="text-xs font-medium">{ap.status}</span>
-                  )}
-                </div>
-                <div className="flex justify-end">
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget(ap)}
-                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600"
-                      title="Delete"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      </div>
 
       <DeleteDialog
         isOpen={Boolean(deleteTarget)}

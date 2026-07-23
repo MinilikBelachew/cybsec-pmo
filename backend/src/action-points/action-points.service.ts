@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { CaslUserContext } from '../casl/casl.types';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { ApiPriorityLevel } from '../projects/enums/project-api.enum';
+import { RoleEnum } from '../roles/roles.enum';
 import {
   ActionPointSourceType,
   CreateActionPointDto,
@@ -19,6 +21,20 @@ import { ActionPointDto } from './dto/action-point.dto';
 
 const CLOSED_STATUSES = new Set(['Done', 'Cancelled']);
 const ALLOWED_STATUSES = new Set(['Open', 'In Progress', 'Done', 'Cancelled']);
+
+/** Roles that can create/edit/delete all action points on accessible projects. */
+const ACTION_POINT_MANAGER_ROLES = new Set<string>([
+  RoleEnum.super_admin,
+  RoleEnum.it_admin,
+  RoleEnum.pmo_lead,
+  RoleEnum.pm,
+  RoleEnum.team_lead,
+]);
+
+/** Roles that only see assigned action points and may update status only. */
+const ACTION_POINT_ASSIGNEE_ROLES = new Set<string>([
+  RoleEnum.engineer,
+]);
 
 function startOfUtcToday(): Date {
   const now = new Date();
@@ -48,13 +64,26 @@ export class ActionPointsService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  private isActionPointManager(roleCode?: string | null): boolean {
+    return Boolean(roleCode && ACTION_POINT_MANAGER_ROLES.has(roleCode));
+  }
+
+  private isAssigneeOnlyRole(roleCode?: string | null): boolean {
+    return Boolean(roleCode && ACTION_POINT_ASSIGNEE_ROLES.has(roleCode));
+  }
+
   async listForProject(
     projectId: string,
     caslUser: CaslUserContext,
   ): Promise<ActionPointDto[]> {
     await this.assertProjectAccess(projectId, caslUser);
     const rows = await this.prisma.actionPoint.findMany({
-      where: { projectId },
+      where: {
+        projectId,
+        ...(this.isAssigneeOnlyRole(caslUser.roleCode)
+          ? { ownerId: caslUser.id }
+          : {}),
+      },
       include: {
         owner: { select: { id: true, displayName: true, email: true } },
       },
@@ -69,6 +98,8 @@ export class ActionPointsService {
     actorId: string,
     caslUser: CaslUserContext,
   ): Promise<ActionPointDto> {
+    this.assertCanManageActionPoints(caslUser);
+
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     const project = await this.prisma.project.findFirst({
       where: { AND: [{ id: projectId }, scopeWhere] },
@@ -164,6 +195,35 @@ export class ActionPointsService {
       throw new NotFoundException('Action point not found');
     }
 
+    const isManager = this.isActionPointManager(caslUser.roleCode);
+    const isOwner =
+      existing.ownerId === caslUser.id || existing.ownerId === actorId;
+
+    if (!isManager) {
+      if (!isOwner) {
+        throw new ForbiddenException(
+          'You can only update action points assigned to you',
+        );
+      }
+      // Assignees may only change status (and optional closure note).
+      const forbiddenKeys = (
+        ['title', 'ownerId', 'dueDate', 'priority'] as const
+      ).filter((key) => dto[key] !== undefined);
+      if (forbiddenKeys.length > 0) {
+        throw new ForbiddenException(
+          'You can only update the status of action points assigned to you',
+        );
+      }
+      if (dto.status === undefined && dto.closureNote === undefined) {
+        throw new BadRequestException('No allowed fields to update');
+      }
+      if (dto.status?.trim() === 'Cancelled') {
+        throw new ForbiddenException(
+          'Assignees cannot cancel action points. Ask a project manager to cancel it.',
+        );
+      }
+    }
+
     if (dto.ownerId) {
       await this.assertOwnerExists(dto.ownerId);
     }
@@ -185,10 +245,12 @@ export class ActionPointsService {
     const updated = await this.prisma.actionPoint.update({
       where: { id: actionPointId },
       data: {
-        ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
-        ...(dto.ownerId !== undefined ? { ownerId: dto.ownerId } : {}),
-        ...(dto.dueDate !== undefined ? { dueDate: asDateOnly(dto.dueDate) } : {}),
-        ...(dto.priority !== undefined
+        ...(isManager && dto.title !== undefined ? { title: dto.title.trim() } : {}),
+        ...(isManager && dto.ownerId !== undefined ? { ownerId: dto.ownerId } : {}),
+        ...(isManager && dto.dueDate !== undefined
+          ? { dueDate: asDateOnly(dto.dueDate) }
+          : {}),
+        ...(isManager && dto.priority !== undefined
           ? { priority: dto.priority as PriorityLevel }
           : {}),
         ...(dto.status !== undefined ? { status: nextStatus } : {}),
@@ -200,7 +262,7 @@ export class ActionPointsService {
       },
     });
 
-    if (dto.ownerId && dto.ownerId !== existing.ownerId) {
+    if (isManager && dto.ownerId && dto.ownerId !== existing.ownerId) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_ASSIGNED,
         recipientUserIds: [dto.ownerId],
@@ -236,6 +298,7 @@ export class ActionPointsService {
     actionPointId: string,
     caslUser: CaslUserContext,
   ): Promise<void> {
+    this.assertCanManageActionPoints(caslUser);
     await this.assertProjectAccess(projectId, caslUser);
     const existing = await this.prisma.actionPoint.findFirst({
       where: { id: actionPointId, projectId },
@@ -245,6 +308,14 @@ export class ActionPointsService {
       throw new NotFoundException('Action point not found');
     }
     await this.prisma.actionPoint.delete({ where: { id: actionPointId } });
+  }
+
+  private assertCanManageActionPoints(caslUser: CaslUserContext): void {
+    if (!this.isActionPointManager(caslUser.roleCode)) {
+      throw new ForbiddenException(
+        'You do not have permission to manage action points',
+      );
+    }
   }
 
   private async notifyOverdue(

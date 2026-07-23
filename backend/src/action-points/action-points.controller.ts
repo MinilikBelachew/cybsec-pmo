@@ -23,6 +23,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
+import { CheckAnyModulePermission } from '../casl/decorators/check-any-module-permission.decorator';
 import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { ActionPointsService } from './action-points.service';
@@ -70,8 +71,18 @@ export class ActionPointsController {
     );
   }
 
-  @CheckAbility('update', 'Project')
-  @CheckModulePermission('projects', 'edit')
+  /**
+   * Assignees (engineers) may update status on their own action points.
+   * They have projects:view / tasks:edit, but not projects:edit — so do not
+   * require projects:edit here. Field-level rules are enforced in the service.
+   */
+  @CheckAbility('read', 'Project')
+  @CheckAnyModulePermission(
+    { module: 'projects', action: 'view' },
+    { module: 'tasks', action: 'edit' },
+    { module: 'tasks', action: 'view' },
+    { module: 'issues', action: 'edit' },
+  )
   @Patch(':actionPointId')
   @ApiOkResponse({ type: ActionPointDto })
   update(
