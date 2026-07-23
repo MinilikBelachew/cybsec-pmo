@@ -319,6 +319,8 @@ model AppSetting {
   departmentStaffingMode        String    @default("off") @map("department_staffing_mode") @db.VarChar(10)
   designationRules              Json      @default("[]") @map("designation_rules")
   departmentStaffingRules       Json      @default("{\"rule\":\"same_department_only\"}") @map("department_staffing_rules")
+  sessionIdleTimeoutSec         Int       @default(900) @map("session_idle_timeout_sec")
+  sessionWarningBeforeSec       Int       @default(300) @map("session_warning_before_sec")
   updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 

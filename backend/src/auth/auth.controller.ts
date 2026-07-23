@@ -92,7 +92,7 @@ export class AuthController {
 
   @Get('session-policy')
   @HttpCode(HttpStatus.OK)
-  public sessionPolicy() {
+  public async sessionPolicy() {
     return this.sessionActivityService.getPolicy();
   }
 

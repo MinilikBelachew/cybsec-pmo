@@ -17,6 +17,17 @@ export type UpdateAuditSettingsPayload = {
   auditArchiveEnabled?: boolean;
 };
 
+export type SessionSecuritySettings = {
+  idleTimeoutSec: number;
+  warningBeforeSec: number;
+  updatedAt: string;
+};
+
+export type UpdateSessionSecurityPayload = {
+  idleTimeoutSec?: number;
+  warningBeforeSec?: number;
+};
+
 export type {
   AllocationPolicies,
   UpdateAllocationPoliciesPayload,

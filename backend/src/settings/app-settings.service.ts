@@ -1,13 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { AppSetting, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   APP_SETTINGS_ID,
   DEFAULT_ALLOCATION_POLICIES,
   DEFAULT_AUDIT_SETTINGS,
+  DEFAULT_SESSION_SECURITY,
+  SESSION_SECURITY_LIMITS,
 } from './app-settings.constants';
 import { UpdateAuditSettingsDto } from './dto/audit-settings.dto';
 import { UpdateAllocationPoliciesDto } from './dto/allocation-policies.dto';
+import { UpdateSessionSecuritySettingsDto } from './dto/session-security.dto';
 import { AllocationRuntimePolicies } from './allocation-policy.types';
 import { AllocationPolicySummaryDto } from '../projects/dto/project-allocation.dto';
 import {
@@ -23,6 +26,12 @@ export type AuditRuntimeSettings = {
   auditArchiveEnabled: boolean;
   lastAuditArchiveAt: Date | null;
   lastAuditArchiveCount: number;
+  updatedAt: Date;
+};
+
+export type SessionSecurityRuntimeSettings = {
+  idleTimeoutSec: number;
+  warningBeforeSec: number;
   updatedAt: Date;
 };
 
@@ -120,6 +129,54 @@ export class AppSettingsService {
     return this.toAllocationPolicies(row);
   }
 
+  async getSessionSecuritySettings(): Promise<SessionSecurityRuntimeSettings> {
+    const row = await this.ensureSettingsRow();
+    return this.toSessionSecuritySettings(row);
+  }
+
+  async updateSessionSecuritySettings(
+    dto: UpdateSessionSecuritySettingsDto,
+    updatedById?: string,
+  ): Promise<SessionSecurityRuntimeSettings> {
+    const existing = await this.ensureSettingsRow();
+    const idleTimeoutSec =
+      dto.idleTimeoutSec ?? existing.sessionIdleTimeoutSec;
+    const warningBeforeSec =
+      dto.warningBeforeSec ?? existing.sessionWarningBeforeSec;
+
+    if (warningBeforeSec >= idleTimeoutSec) {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: {
+          warningBeforeSec: 'warningBeforeSecMustBeLessThanIdleTimeoutSec',
+        },
+      });
+    }
+
+    if (
+      warningBeforeSec < SESSION_SECURITY_LIMITS.warningBeforeSec.min ||
+      idleTimeoutSec > SESSION_SECURITY_LIMITS.idleTimeoutSec.max ||
+      idleTimeoutSec < SESSION_SECURITY_LIMITS.idleTimeoutSec.min ||
+      warningBeforeSec > SESSION_SECURITY_LIMITS.warningBeforeSec.max
+    ) {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: { sessionSecurity: 'sessionSecurityOutOfRange' },
+      });
+    }
+
+    const row = await this.prisma.appSetting.update({
+      where: { id: APP_SETTINGS_ID },
+      data: {
+        sessionIdleTimeoutSec: idleTimeoutSec,
+        sessionWarningBeforeSec: warningBeforeSec,
+        ...(updatedById ? { updatedById } : {}),
+      },
+    });
+
+    return this.toSessionSecuritySettings(row);
+  }
+
   private async ensureSettingsRow(): Promise<AppSetting> {
     return this.prisma.appSetting.upsert({
       where: { id: APP_SETTINGS_ID },
@@ -133,6 +190,8 @@ export class AppSettingsService {
         designationRules: [...DEFAULT_ALLOCATION_POLICIES.designationRules],
         departmentStaffingRules:
           DEFAULT_ALLOCATION_POLICIES.departmentStaffingRules as Prisma.InputJsonValue,
+        sessionIdleTimeoutSec: DEFAULT_SESSION_SECURITY.sessionIdleTimeoutSec,
+        sessionWarningBeforeSec: DEFAULT_SESSION_SECURITY.sessionWarningBeforeSec,
       },
     });
   }
@@ -180,6 +239,16 @@ export class AppSettingsService {
       updatedAt: row.updatedAt,
     };
   }
+
+  private toSessionSecuritySettings(
+    row: AppSetting,
+  ): SessionSecurityRuntimeSettings {
+    return {
+      idleTimeoutSec: row.sessionIdleTimeoutSec,
+      warningBeforeSec: row.sessionWarningBeforeSec,
+      updatedAt: row.updatedAt,
+    };
+  }
 }
 
 export function mapAuditSettingsDto(
@@ -215,5 +284,15 @@ export function mapAllocationPoliciesSettingsDto(
   return {
     ...mapAllocationPoliciesDto(policies),
     updatedAt: policies.updatedAt.toISOString(),
+  };
+}
+
+export function mapSessionSecuritySettingsDto(
+  settings: SessionSecurityRuntimeSettings,
+) {
+  return {
+    idleTimeoutSec: settings.idleTimeoutSec,
+    warningBeforeSec: settings.warningBeforeSec,
+    updatedAt: settings.updatedAt.toISOString(),
   };
 }

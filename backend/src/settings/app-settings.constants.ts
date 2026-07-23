@@ -31,3 +31,13 @@ export const DEPARTMENT_STAFFING_RULE_VALUES = [
   'same_department_only',
   'allow_list',
 ] as const;
+
+export const DEFAULT_SESSION_SECURITY = {
+  sessionIdleTimeoutSec: 900,
+  sessionWarningBeforeSec: 300,
+} as const;
+
+export const SESSION_SECURITY_LIMITS = {
+  idleTimeoutSec: { min: 60, max: 86_400 },
+  warningBeforeSec: { min: 10, max: 3_600 },
+} as const;

@@ -19,8 +19,10 @@ import {
   AppSettingsService,
   mapAllocationPoliciesSettingsDto,
   mapAuditSettingsDto,
+  mapSessionSecuritySettingsDto,
 } from './app-settings.service';
 import { AllocationPolicyService } from './allocation-policy.service';
+import { SessionSecurityPolicyService } from './session-security-policy.service';
 import {
   AuditSettingsDto,
   UpdateAuditSettingsDto,
@@ -29,6 +31,10 @@ import {
   AllocationPoliciesDto,
   UpdateAllocationPoliciesDto,
 } from './dto/allocation-policies.dto';
+import {
+  SessionSecuritySettingsDto,
+  UpdateSessionSecuritySettingsDto,
+} from './dto/session-security.dto';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -42,6 +48,7 @@ export class SettingsController {
   constructor(
     private readonly appSettingsService: AppSettingsService,
     private readonly allocationPolicyService: AllocationPolicyService,
+    private readonly sessionSecurityPolicyService: SessionSecurityPolicyService,
     private readonly auditArchiveService: AuditArchiveService,
   ) {}
 
@@ -104,5 +111,30 @@ export class SettingsController {
     );
     this.allocationPolicyService.invalidateCache();
     return mapAllocationPoliciesSettingsDto(policies);
+  }
+
+  @CheckAbility('manage', 'Settings')
+  @Get('session-security')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: SessionSecuritySettingsDto })
+  async getSessionSecuritySettings() {
+    const settings = await this.appSettingsService.getSessionSecuritySettings();
+    return mapSessionSecuritySettingsDto(settings);
+  }
+
+  @CheckAbility('manage', 'Settings')
+  @Patch('session-security')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: SessionSecuritySettingsDto })
+  async updateSessionSecuritySettings(
+    @Body() dto: UpdateSessionSecuritySettingsDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    const settings = await this.appSettingsService.updateSessionSecuritySettings(
+      dto,
+      request.user?.id,
+    );
+    this.sessionSecurityPolicyService.invalidateCache();
+    return mapSessionSecuritySettingsDto(settings);
   }
 }

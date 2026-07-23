@@ -1,10 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { AllConfigType } from '../config/config.type';
 import { RedisService } from '../redis/redis.service';
 import { SessionService } from '../session/session.service';
 import { AuditLogsService } from '../audit/audit-logs.service';
-import { SessionSecurityConfig } from './config/session-security.config';
+import { SessionSecurityPolicyService } from '../settings/session-security-policy.service';
 
 const ACTIVITY_KEY_PREFIX = 'session:activity:';
 
@@ -14,24 +12,17 @@ export class SessionActivityService {
     private readonly redis: RedisService,
     private readonly sessionService: SessionService,
     private readonly auditLogsService: AuditLogsService,
-    private readonly configService: ConfigService<AllConfigType>,
+    private readonly sessionSecurityPolicy: SessionSecurityPolicyService,
   ) {}
-
-  private get config(): SessionSecurityConfig {
-    return this.configService.getOrThrow('sessionSecurity', { infer: true });
-  }
 
   private activityKey(sessionId: string): string {
     return `${ACTIVITY_KEY_PREFIX}${sessionId}`;
   }
 
   async touch(sessionId: string): Promise<void> {
+    const { idleTimeoutSec } = await this.sessionSecurityPolicy.getPolicy();
     const now = Date.now().toString();
-    await this.redis.set(
-      this.activityKey(sessionId),
-      now,
-      this.config.idleTimeoutSec,
-    );
+    await this.redis.set(this.activityKey(sessionId), now, idleTimeoutSec);
   }
 
   async assertActive(
@@ -53,12 +44,13 @@ export class SessionActivityService {
       throw new UnauthorizedException();
     }
 
+    const { idleTimeoutSec } = await this.sessionSecurityPolicy.getPolicy();
     const lastActivityRaw = await this.redis.get(this.activityKey(sessionId));
     const lastActivity = lastActivityRaw
       ? parseInt(lastActivityRaw, 10)
       : session.createdAt.getTime();
 
-    const idleMs = this.config.idleTimeoutSec * 1000;
+    const idleMs = idleTimeoutSec * 1000;
     if (Date.now() - lastActivity > idleMs) {
       await this.revokeForTimeout(sessionId, context);
       throw new UnauthorizedException();
@@ -76,6 +68,7 @@ export class SessionActivityService {
       isExternal?: boolean;
     },
   ): Promise<void> {
+    const { idleTimeoutSec } = await this.sessionSecurityPolicy.getPolicy();
     await this.sessionService.deleteById(sessionId);
     await this.redis.del(this.activityKey(sessionId));
 
@@ -86,7 +79,7 @@ export class SessionActivityService {
         objectId: sessionId,
         newValue: {
           reason: 'idle_timeout',
-          idleTimeoutSec: this.config.idleTimeoutSec,
+          idleTimeoutSec,
           userId: context?.userId,
           userAgent: context?.userAgent,
         },
@@ -102,8 +95,9 @@ export class SessionActivityService {
     }
   }
 
-  getPolicy() {
-    const { idleTimeoutSec, warningBeforeSec } = this.config;
+  async getPolicy() {
+    const { idleTimeoutSec, warningBeforeSec } =
+      await this.sessionSecurityPolicy.getPolicy();
     return {
       idleTimeoutMs: idleTimeoutSec * 1000,
       warningAtMs: Math.max(idleTimeoutSec - warningBeforeSec, 0) * 1000,

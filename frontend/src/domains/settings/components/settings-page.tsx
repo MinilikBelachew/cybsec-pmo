@@ -12,6 +12,7 @@ import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
 import { BreakGlassSection } from "./break-glass-section";
+import { SessionTimeoutSection } from "./session-timeout-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
 // Phase 2: Resource policies (allocation)
 // import { AllocationPoliciesSection } from "./allocation-policies-section";
@@ -150,10 +151,16 @@ export function SettingsPage() {
       )}
 
       {activeTab === "security" && canManageSecurity && (
-        <BreakGlassSection
-          onSuccess={notifySuccess}
-          onError={notifyError}
-        />
+        <div className="space-y-6">
+          <SessionTimeoutSection
+            onSuccess={notifySuccess}
+            onError={notifyError}
+          />
+          <BreakGlassSection
+            onSuccess={notifySuccess}
+            onError={notifyError}
+          />
+        </div>
       )}
     </div>
   );

@@ -17,6 +17,7 @@ import { SessionModule } from '../session/session.module';
 import { UsersModule } from '../users/users.module';
 import { AuditLogsModule } from '../audit/audit-logs.module';
 import { MailModule } from '../mail/mail.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { MailModule } from '../mail/mail.module';
     SessionModule,
     AuditLogsModule,
     MailModule,
+    SettingsModule,
     PassportModule,
     JwtModule.register({}),
   ],

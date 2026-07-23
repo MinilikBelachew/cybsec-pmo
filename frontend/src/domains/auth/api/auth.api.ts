@@ -8,6 +8,7 @@ export const authApi = api.injectEndpoints({
   endpoints: (builder) => ({
     getSessionPolicy: builder.query<SessionPolicy, void>({
       query: () => "/auth/session-policy",
+      providesTags: ["Auth"],
     }),
 
     getMe: builder.query<ApiUser, void>({

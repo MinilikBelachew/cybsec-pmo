@@ -4,6 +4,8 @@ import type {
   UpdateAuditSettingsPayload,
   AllocationPolicies,
   UpdateAllocationPoliciesPayload,
+  SessionSecuritySettings,
+  UpdateSessionSecurityPayload,
 } from "../types/settings.types";
 
 export const settingsApi = api.injectEndpoints({
@@ -49,6 +51,23 @@ export const settingsApi = api.injectEndpoints({
       }),
       invalidatesTags: ["Settings", "TeamDirectory", "ProjectTeam"],
     }),
+
+    getSessionSecuritySettings: builder.query<SessionSecuritySettings, void>({
+      query: () => ({ url: "/settings/session-security" }),
+      providesTags: ["Settings"],
+    }),
+
+    updateSessionSecuritySettings: builder.mutation<
+      SessionSecuritySettings,
+      UpdateSessionSecurityPayload
+    >({
+      query: (body) => ({
+        url: "/settings/session-security",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["Settings", "Auth"],
+    }),
   }),
 });
 
@@ -58,4 +77,6 @@ export const {
   useRunAuditArchiveMutation,
   useGetAllocationPoliciesQuery,
   useUpdateAllocationPoliciesMutation,
+  useGetSessionSecuritySettingsQuery,
+  useUpdateSessionSecuritySettingsMutation,
 } = settingsApi;
