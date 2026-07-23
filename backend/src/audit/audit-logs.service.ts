@@ -3,6 +3,7 @@ import { PrismaService } from '../database/prisma.service';
 import { Prisma } from '@prisma/client';
 import { buildProjectAuditLogWhere } from './audit-log-project-query.util';
 import { buildAuditLogOrderBy, buildAuditLogWhere } from './audit-log-query.util';
+import { generateAuditDescription } from './audit-description.helper';
 import { QueryAuditDto } from './dto/query-audit.dto';
 import { QueryProjectAuditDto } from './dto/query-project-audit.dto';
 
@@ -11,8 +12,25 @@ export class AuditLogsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(data: Prisma.AuditLogCreateInput) {
+    const description =
+      data.description ??
+      generateAuditDescription({
+        action: data.action,
+        objectType: data.objectType,
+        objectId:
+          typeof data.objectId === 'string'
+            ? data.objectId
+            : ((data.objectId as { set?: string | null } | undefined)?.set ??
+              null),
+        oldValue: data.oldValue === Prisma.DbNull ? null : data.oldValue,
+        newValue: data.newValue === Prisma.DbNull ? null : data.newValue,
+      });
+
     return this.prisma.auditLog.create({
-      data,
+      data: {
+        ...data,
+        description,
+      },
     });
   }
 

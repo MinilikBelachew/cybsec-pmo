@@ -149,6 +149,13 @@ export interface TaskProgressUpdate {
     title: string;
     projectId: string;
     effortHours?: number | null;
+    actualHoursLogged?: number;
+    effortVarianceHours?: number | null;
+    isOverEffort?: boolean;
+    project?: {
+      id: string;
+      name: string;
+    };
   };
 }
 

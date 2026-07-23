@@ -37,6 +37,10 @@ interface Task {
   /** DEF-P1-047 — nested under predecessor in the tree */
   treeKind?: "subtask" | "dependency";
   depType?: string;
+  effortHours?: number | null;
+  actualHoursLogged?: number;
+  effortVarianceHours?: number | null;
+  isOverEffort?: boolean;
 }
 
 function formatDueDate(dateStr?: string | null) {
@@ -458,6 +462,15 @@ export function ListView({
       <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Priority
       </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Planned
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Logged
+      </div>
+      <div className="shrink-0 w-20 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Variance
+      </div>
       <div className="shrink-0 w-32 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Status
       </div>
@@ -671,6 +684,38 @@ export function ListView({
           ) : (
             <Flag className="size-3.5 text-slate-350 dark:text-slate-650" />
           )}
+        </div>
+        <div className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground">
+          {task.effortHours != null && task.effortHours > 0 ? `${task.effortHours}h` : "—"}
+        </div>
+        <div
+          className={cn(
+            "shrink-0 w-16 flex items-center justify-center text-xs tabular-nums",
+            task.isOverEffort
+              ? "font-semibold text-amber-700 dark:text-amber-300"
+              : "text-muted-foreground",
+          )}
+        >
+          {(task.actualHoursLogged ?? 0) > 0 || (task.effortHours ?? 0) > 0
+            ? `${task.actualHoursLogged ?? 0}h`
+            : "—"}
+        </div>
+        <div
+          className={cn(
+            "shrink-0 w-20 flex items-center justify-center text-xs font-medium tabular-nums",
+            task.isOverEffort
+              ? "text-amber-700 dark:text-amber-300"
+              : (task.effortVarianceHours ?? 0) < 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-muted-foreground",
+          )}
+          title={
+            task.isOverEffort ? "Logged hours exceed planned effort" : undefined
+          }
+        >
+          {task.effortVarianceHours == null || task.effortHours == null
+            ? "—"
+            : `${task.effortVarianceHours > 0 ? "+" : ""}${task.effortVarianceHours}h${task.isOverEffort ? " ⚠" : ""}`}
         </div>
         <div className="shrink-0 w-32 flex items-center justify-center">
           {onMoveTask ? (

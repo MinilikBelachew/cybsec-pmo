@@ -24,6 +24,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { MilestoneForm } from "../../roadmap/milestone-form";
+import { DocumentAttachmentList } from "../../documents/document-attachment-list";
 import { MilestoneFormValues } from "../../../schemas/milestone/milestone.schema";
 import {
   Calendar,
@@ -35,6 +36,7 @@ import {
   Milestone,
   Trash2,
   Edit2,
+  Paperclip,
 } from "lucide-react";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
@@ -94,14 +96,14 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
 
     const { data: allDocuments = [] } = useGetProjectDocumentsQuery({ projectId });
 
-    const docCounts = useMemo(() => {
-      const counts: Record<string, number> = {};
+    const docsByMilestone = useMemo(() => {
+      const map: Record<string, typeof allDocuments> = {};
       for (const doc of allDocuments) {
-        if (doc.milestoneId) {
-          counts[doc.milestoneId] = (counts[doc.milestoneId] ?? 0) + 1;
-        }
+        if (!doc.milestoneId) continue;
+        if (!map[doc.milestoneId]) map[doc.milestoneId] = [];
+        map[doc.milestoneId].push(doc);
       }
-      return counts;
+      return map;
     }, [allDocuments]);
 
     const isUploadingDocument = isUploadingFile || isCreatingDocument;
@@ -301,7 +303,8 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
 
     function renderMilestoneCard(m: (typeof milestones)[number], showPhase = false) {
       const phaseLabel = m.phaseId ? phaseNameById[m.phaseId] : null;
-      const attachmentCount = docCounts[m.id] ?? 0;
+      const attachments = docsByMilestone[m.id] ?? [];
+      const attachmentCount = attachments.length;
 
       return (
         <div
@@ -320,7 +323,8 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
                 {m.status.replace("_", " ")}
               </Badge>
               {attachmentCount > 0 && (
-                <span className="text-[10px] text-muted-foreground font-medium">
+                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
+                  <Paperclip className="size-3" />
                   {attachmentCount} file{attachmentCount === 1 ? "" : "s"}
                 </span>
               )}
@@ -344,6 +348,11 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
               )}
               {m.weight != null && <span>Weight: {String(m.weight)}</span>}
             </div>
+            {attachmentCount > 0 && (
+              <div className="space-y-1">
+                <DocumentAttachmentList documents={attachments} maxVisible={3} />
+              </div>
+            )}
           </div>
           {(canEditMilestones || canApproveProjects) && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">

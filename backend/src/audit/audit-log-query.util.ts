@@ -69,6 +69,7 @@ export function buildAuditLogWhere(
     const searchOr: Prisma.AuditLogWhereInput[] = [
       { action: { contains: search, mode: 'insensitive' } },
       { objectType: { contains: search, mode: 'insensitive' } },
+      { description: { contains: search, mode: 'insensitive' } },
       { source: { contains: search, mode: 'insensitive' } },
       { ipAddress: { contains: search, mode: 'insensitive' } },
       {

@@ -44,6 +44,10 @@ interface Task {
   parentTaskId?: string | null;
   depth?: number;
   children?: Task[];
+  effortHours?: number | null;
+  actualHoursLogged?: number;
+  effortVarianceHours?: number | null;
+  isOverEffort?: boolean;
 }
 
 const STATUS_PILL: Record<Status, string> = {
@@ -447,6 +451,71 @@ export function TableView({
             {PRIORITY_LABEL[row.original.priority]}
           </span>
         ),
+      },
+      {
+        id: "plannedHours",
+        header: "Planned",
+        cell: ({ row }) => {
+          const planned = row.original.effortHours;
+          return (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {planned != null && planned > 0 ? `${planned}h` : "—"}
+            </span>
+          );
+        },
+      },
+      {
+        id: "loggedHours",
+        header: "Logged",
+        cell: ({ row }) => {
+          const logged = row.original.actualHoursLogged ?? 0;
+          return (
+            <span
+              className={cn(
+                "text-xs tabular-nums",
+                row.original.isOverEffort
+                  ? "font-semibold text-amber-700 dark:text-amber-300"
+                  : "text-muted-foreground",
+              )}
+            >
+              {logged > 0 || (row.original.effortHours ?? 0) > 0
+                ? `${logged}h`
+                : "—"}
+            </span>
+          );
+        },
+      },
+      {
+        id: "effortVariance",
+        header: "Variance",
+        cell: ({ row }) => {
+          const variance = row.original.effortVarianceHours;
+          if (variance == null || row.original.effortHours == null) {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
+          const sign = variance > 0 ? "+" : "";
+          return (
+            <span
+              className={cn(
+                "text-xs font-medium tabular-nums",
+                row.original.isOverEffort
+                  ? "text-amber-700 dark:text-amber-300"
+                  : variance < 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground",
+              )}
+              title={
+                row.original.isOverEffort
+                  ? "Logged hours exceed planned effort"
+                  : undefined
+              }
+            >
+              {sign}
+              {variance}h
+              {row.original.isOverEffort ? " ⚠" : ""}
+            </span>
+          );
+        },
       },
       {
         id: "actions",

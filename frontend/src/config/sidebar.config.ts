@@ -24,6 +24,7 @@ import {
   Bell,
   ShieldCheck,
   ListChecks,
+  ClipboardCheck,
   // Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -79,6 +80,13 @@ export const sidebarNav: NavSection[] = [
         icon: CheckSquare,
         href: "/dashboard/tasks",
         permission: { action: "read", subject: "Task" },
+      },
+      {
+        id: "progress-approvals",
+        label: "Progress Approvals",
+        icon: ClipboardCheck,
+        href: "/dashboard/tasks/progress-approvals",
+        permission: { action: "approve", subject: "Task" },
       },
       {
         id: "gantt",

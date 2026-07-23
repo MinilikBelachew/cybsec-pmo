@@ -47,6 +47,7 @@ export class AuditArchiveService {
             action: row.action,
             objectType: row.objectType,
             objectId: row.objectId,
+            description: row.description,
             oldValue: row.oldValue ?? undefined,
             newValue: row.newValue ?? undefined,
             ipAddress: row.ipAddress,

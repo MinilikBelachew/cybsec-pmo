@@ -141,6 +141,10 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
                 <DetailRow label="Event ID" value={entry.id} mono />
                 <DetailRow label="Time" value={new Date(entry.createdAt).toLocaleString()} />
                 <DetailRow label="Action" value={entry.action} mono />
+                <DetailRow
+                  label="Description"
+                  value={entry.description?.trim() || "—"}
+                />
                 <DetailRow label="Object type" value={entry.objectType} />
                 <DetailRow label="Object ID" value={entry.objectId ?? "—"} mono />
                 <DetailRow label="Source" value={entry.source ?? "—"} mono />

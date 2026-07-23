@@ -12,6 +12,7 @@ export type AuditLogEntry = {
   action: string;
   objectType: string;
   objectId: string | null;
+  description?: string | null;
   oldValue: AuditJsonValue;
   newValue: AuditJsonValue;
   source: string | null;

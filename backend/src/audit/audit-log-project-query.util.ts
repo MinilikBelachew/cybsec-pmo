@@ -7,6 +7,7 @@ type PrismaLike = Pick<
   | 'projectPhase'
   | 'projectMilestone'
   | 'allocation'
+  | 'actionPoint'
   | 'taskComment'
   | 'workspaceDocument'
   | 'taskProgressUpdate'
@@ -18,7 +19,7 @@ type PrismaLike = Pick<
  *
  * 1. Direct project updates (objectType=Project, objectId=projectId)
  * 2. Any row whose objectId is a related entity ID (tasks, phases, milestones,
- *    team allocations, comments, attachments, progress updates, dependencies)
+ *    team allocations, action points, comments, attachments, progress updates, dependencies)
  * 3. Rows whose JSON payload references projectId (imports, nested creates, etc.)
  */
 export async function buildProjectAuditLogWhere(
@@ -30,6 +31,7 @@ export async function buildProjectAuditLogWhere(
     phases,
     milestones,
     allocations,
+    actionPoints,
     comments,
     attachments,
     progressUpdates,
@@ -48,6 +50,10 @@ export async function buildProjectAuditLogWhere(
       select: { id: true },
     }),
     prisma.allocation.findMany({
+      where: { projectId },
+      select: { id: true },
+    }),
+    prisma.actionPoint.findMany({
       where: { projectId },
       select: { id: true },
     }),
@@ -80,6 +86,7 @@ export async function buildProjectAuditLogWhere(
     ...phases.map((row) => row.id),
     ...milestones.map((row) => row.id),
     ...allocations.map((row) => row.id),
+    ...actionPoints.map((row) => row.id),
     ...comments.map((row) => row.id),
     ...attachments.map((row) => row.id),
     ...progressUpdates.map((row) => row.id),

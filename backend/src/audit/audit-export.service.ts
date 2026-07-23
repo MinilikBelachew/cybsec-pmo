@@ -32,6 +32,7 @@ type FlatAuditExportRow = {
   actor: string;
   email: string;
   action: string;
+  description: string;
   objectType: string;
   objectId: string;
   ipAddress: string;
@@ -58,6 +59,7 @@ export class AuditExportService {
       { header: 'Actor', key: 'actor', width: 22 },
       { header: 'Email', key: 'email', width: 28 },
       { header: 'Action', key: 'action', width: 24 },
+      { header: 'Description', key: 'description', width: 40 },
       { header: 'Object Type', key: 'objectType', width: 18 },
       { header: 'Object ID', key: 'objectId', width: 38 },
       { header: 'IP Address', key: 'ipAddress', width: 18 },
@@ -123,17 +125,18 @@ export class AuditExportService {
       // ── Column definitions — widths sum to USABLE_W (≈ 770) ───────────────
       type ColKey = keyof FlatAuditExportRow;
       const COLS: { key: ColKey; label: string; width: number; expand?: boolean }[] = [
-        { key: 'time',       label: 'Time (UTC)',  width: 116 },
-        { key: 'actor',      label: 'Actor',       width: 88  },
-        { key: 'action',     label: 'Action',      width: 108 },
-        { key: 'objectType', label: 'Object Type', width: 78  },
-        { key: 'objectId',   label: 'Object ID',   width: 88  },
-        { key: 'ipAddress',  label: 'IP Address',  width: 76  },
-        { key: 'isExternal', label: 'Ext',         width: 24  },
-        { key: 'breakGlass', label: 'BG',          width: 24  },
+        { key: 'time',        label: 'Time (UTC)',   width: 100 },
+        { key: 'actor',       label: 'Actor',        width: 72  },
+        { key: 'action',      label: 'Action',       width: 90  },
+        { key: 'description', label: 'Description',  width: 120 },
+        { key: 'objectType',  label: 'Object Type',  width: 70  },
+        { key: 'objectId',    label: 'Object ID',    width: 72  },
+        { key: 'ipAddress',   label: 'IP Address',   width: 64  },
+        { key: 'isExternal',  label: 'Ext',          width: 22  },
+        { key: 'breakGlass',  label: 'BG',           width: 22  },
         // These two expand vertically to show full JSON content
-        { key: 'oldValue',   label: 'Old Value',   width: 84, expand: true },
-        { key: 'newValue',   label: 'New Value',   width: 84, expand: true },
+        { key: 'oldValue',    label: 'Old Value',    width: 68, expand: true },
+        { key: 'newValue',    label: 'New Value',    width: 68, expand: true },
       ];
 
       // ── Helper: measure the height the Old/New cells will need ────────────
@@ -320,6 +323,7 @@ export class AuditExportService {
       actor: entry.user?.displayName ?? 'System',
       email: entry.user?.email ?? '—',
       action: entry.action,
+      description: entry.description ?? '—',
       objectType: entry.objectType,
       objectId: entry.objectId ?? '—',
       ipAddress: entry.ipAddress ?? '—',

@@ -4,7 +4,8 @@ import { randomStringGenerator } from '@nestjs/common/utils/random-string-genera
 
 export const LOCAL_FILES_DIR = './files';
 
-const ALLOWED_EXTENSION = /\.(jpg|jpeg|png|gif|pdf|doc|docx|xls|xlsx|csv|txt)$/i;
+const ALLOWED_EXTENSION =
+  /\.(jpg|jpeg|png|gif|pdf|doc|docx|xls|xlsx|csv|txt|mpp|mpx|xml)$/i;
 
 export function isAllowedUploadFilename(filename: string): boolean {
   return ALLOWED_EXTENSION.test(filename);

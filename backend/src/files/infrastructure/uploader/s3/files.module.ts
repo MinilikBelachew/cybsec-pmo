@@ -39,7 +39,11 @@ const infrastructurePersistenceModule = RelationalFilePersistenceModule;
         return {
           fileFilter: (request, file, callback) => {
             // Allow images and documents
-            if (!file.originalname.match(/\.(jpg|jpeg|png|gif|pdf|doc|docx)$/i)) {
+            if (
+              !file.originalname.match(
+                /\.(jpg|jpeg|png|gif|pdf|doc|docx|xls|xlsx|csv|txt|mpp|mpx|xml)$/i,
+              )
+            ) {
               return callback(
                 new UnprocessableEntityException({
                   status: HttpStatus.UNPROCESSABLE_ENTITY,

@@ -200,7 +200,8 @@ export class TaskProgressService {
       engineerId: { not: caslUser.id },
       task: {
         AND: [
-          this.recordScopeWhere.taskWhere(caslUser, 'read'),
+          // Scope by task_progress approve (PM: own_projects, PMO/Super Admin: all).
+          this.recordScopeWhere.taskWhere(caslUser, 'approve'),
           ...(query.projectId ? [{ projectId: query.projectId }] : []),
         ],
       },
@@ -217,8 +218,29 @@ export class TaskProgressService {
       this.prisma.taskProgressUpdate.count({ where }),
     ]);
 
+    const taskIds = [...new Set(rows.map((row) => row.taskId))];
+    const loggedAggregates =
+      taskIds.length === 0
+        ? []
+        : await this.prisma.taskProgressUpdate.groupBy({
+            by: ['taskId'],
+            where: {
+              taskId: { in: taskIds },
+              status: { in: ['Pending', 'Approved'] },
+            },
+            _sum: { hoursSpent: true },
+          });
+    const loggedByTaskId = new Map(
+      loggedAggregates.map((row) => [
+        row.taskId,
+        Number(row._sum.hoursSpent ?? 0),
+      ]),
+    );
+
     return {
-      data: rows.map((row) => this.formatProgressUpdate(row)),
+      data: rows.map((row) =>
+        this.formatProgressUpdate(row, loggedByTaskId.get(row.taskId) ?? 0),
+      ),
       meta: {
         page,
         limit,
@@ -632,10 +654,19 @@ export class TaskProgressService {
 
   private formatProgressUpdate(
     row: Prisma.TaskProgressUpdateGetPayload<{ include: typeof PROGRESS_INCLUDE }>,
+    actualHoursLogged = 0,
   ) {
     const evidenceFiles = this.parseStoredEvidenceFiles(row);
     const effortHours =
       row.task?.effortHours != null ? Number(row.task.effortHours) : null;
+    const planned =
+      effortHours != null && Number.isFinite(effortHours) ? effortHours : null;
+    const effortVarianceHours =
+      planned != null
+        ? Math.round((actualHoursLogged - planned) * 100) / 100
+        : null;
+    const isOverEffort =
+      planned != null && planned > 0 && actualHoursLogged > planned;
 
     return {
       id: row.id,
@@ -659,7 +690,16 @@ export class TaskProgressService {
             id: row.task.id,
             title: row.task.title,
             projectId: row.task.projectId,
-            effortHours: Number.isFinite(effortHours as number) ? effortHours : null,
+            effortHours: planned,
+            actualHoursLogged,
+            effortVarianceHours,
+            isOverEffort,
+            project: row.task.project
+              ? {
+                  id: row.task.project.id,
+                  name: row.task.project.name,
+                }
+              : undefined,
           }
         : undefined,
     };

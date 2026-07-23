@@ -21,13 +21,16 @@ export const ATTACHMENT_ALLOWED_EXTENSIONS = [
   "xlsx",
   "csv",
   "txt",
+  "mpp",
+  "mpx",
+  "xml",
 ] as const;
 
 export const ATTACHMENT_ACCEPT =
-  ".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt";
+  ".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.mpp,.mpx,.xml";
 
 export const ATTACHMENT_ALLOWED_TYPES_LABEL =
-  "JPG, JPEG, PNG, GIF, PDF, DOC, DOCX, XLS, XLSX, CSV, TXT";
+  "JPG, JPEG, PNG, GIF, PDF, DOC, DOCX, XLS, XLSX, CSV, TXT, MPP, MPX, XML";
 
 const MAX_SIZE_MB = ATTACHMENT_MAX_FILE_SIZE_BYTES / (1024 * 1024);
 

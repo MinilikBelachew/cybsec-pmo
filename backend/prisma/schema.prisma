@@ -259,18 +259,19 @@ model Session {
 }
 
 model AuditLog {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  actorId    String?  @map("actor_id") @db.Uuid
-  action     String   @db.VarChar(50)
-  objectType String   @map("object_type") @db.VarChar(100)
-  objectId   String?  @map("object_id") @db.Uuid
-  oldValue   Json?    @map("old_value")
-  newValue   Json?    @map("new_value")
-  ipAddress  String?  @map("ip_address")
-  isExternal Boolean  @default(false) @map("is_external")
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId     String?  @map("actor_id") @db.Uuid
+  action      String   @db.VarChar(50)
+  objectType  String   @map("object_type") @db.VarChar(100)
+  objectId    String?  @map("object_id") @db.Uuid
+  description String?  @db.VarChar(500)
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  ipAddress   String?  @map("ip_address")
+  isExternal  Boolean  @default(false) @map("is_external")
   breakGlassAction Boolean @default(false) @map("break_glass_action")
-  source     String?  @db.VarChar(50)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  source      String?  @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user User? @relation(fields: [actorId], references: [id])
 
@@ -289,6 +290,7 @@ model AuditLogArchive {
   action           String   @db.VarChar(50)
   objectType       String   @map("object_type") @db.VarChar(100)
   objectId         String?  @map("object_id") @db.Uuid
+  description      String?  @db.VarChar(500)
   oldValue         Json?    @map("old_value")
   newValue         Json?    @map("new_value")
   ipAddress        String?  @map("ip_address")

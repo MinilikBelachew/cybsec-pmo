@@ -305,7 +305,7 @@ export function AuditTrailPage() {
         data={tableData}
         getRowId={(row) => row.id}
         manual
-        searchPlaceholder="Search action, actor, object, IP…"
+        searchPlaceholder="Search action, description, actor, object, IP…"
         pageCount={data?.meta.totalPages ?? 0}
         totalRows={data?.meta.total ?? 0}
         pageIndex={pageIndex}

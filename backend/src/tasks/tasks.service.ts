@@ -179,30 +179,60 @@ export class TasksService {
       isOverEffort: boolean;
     }
   > {
-    const aggregate = await this.prisma.taskProgressUpdate.aggregate({
+    const [enriched] = await this.attachEffortVarianceMany([task]);
+    return enriched;
+  }
+
+  private async attachEffortVarianceMany<
+    T extends { id: string; effortHours?: unknown },
+  >(
+    tasks: T[],
+  ): Promise<
+    Array<
+      T & {
+        actualHoursLogged: number;
+        effortVarianceHours: number | null;
+        isOverEffort: boolean;
+      }
+    >
+  > {
+    if (tasks.length === 0) {
+      return [];
+    }
+
+    const aggregates = await this.prisma.taskProgressUpdate.groupBy({
+      by: ['taskId'],
       where: {
-        taskId: task.id,
+        taskId: { in: tasks.map((task) => task.id) },
         status: { in: ['Pending', 'Approved'] },
       },
       _sum: { hoursSpent: true },
     });
 
-    const actualHoursLogged = Number(aggregate._sum.hoursSpent ?? 0);
-    const planned =
-      task.effortHours != null && Number.isFinite(Number(task.effortHours))
-        ? Number(task.effortHours)
-        : null;
-    const effortVarianceHours =
-      planned != null ? Math.round((actualHoursLogged - planned) * 100) / 100 : null;
-    const isOverEffort =
-      planned != null && planned > 0 && actualHoursLogged > planned;
+    const loggedByTaskId = new Map(
+      aggregates.map((row) => [row.taskId, Number(row._sum.hoursSpent ?? 0)]),
+    );
 
-    return {
-      ...task,
-      actualHoursLogged,
-      effortVarianceHours,
-      isOverEffort,
-    };
+    return tasks.map((task) => {
+      const actualHoursLogged = loggedByTaskId.get(task.id) ?? 0;
+      const planned =
+        task.effortHours != null && Number.isFinite(Number(task.effortHours))
+          ? Number(task.effortHours)
+          : null;
+      const effortVarianceHours =
+        planned != null
+          ? Math.round((actualHoursLogged - planned) * 100) / 100
+          : null;
+      const isOverEffort =
+        planned != null && planned > 0 && actualHoursLogged > planned;
+
+      return {
+        ...task,
+        actualHoursLogged,
+        effortVarianceHours,
+        isOverEffort,
+      };
+    });
   }
 
   private formatDateParam(value?: Date | null): string | undefined {
@@ -1020,11 +1050,13 @@ export class TasksService {
       include: TASK_INCLUDE,
     });
 
-    return Promise.all(
+    const formatted = await Promise.all(
       tasks.map(async (task) =>
         this.attachScheduleImpact(this.formatTask(task, viewerRoleCode)),
       ),
     );
+
+    return this.attachEffortVarianceMany(formatted);
   }
 
   async countMany(query: QueryTaskDto, caslUser: CaslUserContext) {
