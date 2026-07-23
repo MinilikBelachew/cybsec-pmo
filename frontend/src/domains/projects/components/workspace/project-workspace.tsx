@@ -93,6 +93,12 @@ import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
 import { ActionPointsPanel } from "./action-points-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
+import {
+  getMethodologyDefaultView,
+  isPrimaryMethodologyView,
+  orderViewsForMethodology,
+  resolveMethodology,
+} from "../../utils/methodology-plan-config";
 import { useRole } from "@/shared/providers/role-provider";
 
 
@@ -450,12 +456,27 @@ export function ProjectWorkspace() {
 
   const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
 
-  const visibleViews = useMemo(
-    () => (canViewProjectAudit ? VIEWS : VIEWS.filter((view) => view.id !== "audit")),
-    [canViewProjectAudit],
-  );
+  const visibleViews = useMemo(() => {
+    const base = canViewProjectAudit
+      ? VIEWS
+      : VIEWS.filter((view) => view.id !== "audit");
+    return orderViewsForMethodology(base, project?.methodology);
+  }, [canViewProjectAudit, project?.methodology]);
+
+  const methodology = resolveMethodology(project?.methodology);
+  const methodologyDefaultView = getMethodologyDefaultView(methodology);
 
   const [activeView, setActiveView] = useState<View>("list");
+  const methodologyAppliedFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!project?.id) return;
+    const key = `${project.id}:${methodology}`;
+    if (methodologyAppliedFor.current === key) return;
+    methodologyAppliedFor.current = key;
+    setActiveView(methodologyDefaultView);
+  }, [project?.id, methodology, methodologyDefaultView]);
+
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
 
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -469,9 +490,9 @@ export function ProjectWorkspace() {
 
   useEffect(() => {
     if (activeView === "audit" && !canViewProjectAudit) {
-      setActiveView("list");
+      setActiveView(methodologyDefaultView);
     }
-  }, [activeView, canViewProjectAudit]);
+  }, [activeView, canViewProjectAudit, methodologyDefaultView]);
 
   const openTaskDetail = (
     taskId: string,
@@ -862,6 +883,13 @@ export function ProjectWorkspace() {
           <span className="text-xs text-slate-400 dark:text-white/40">Team Space</span>
           <span className="text-xs text-slate-400 dark:text-white/20">/</span>
           <span className="text-sm font-semibold text-slate-950 dark:text-white truncate max-w-[150px] sm:max-w-[300px] md:max-w-[500px] inline-block" title={project.name}>{project.name}</span>
+          <Badge
+            variant="outline"
+            className="ms-1 h-5 shrink-0 px-1.5 text-[10px] font-semibold"
+            title="Delivery methodology for this project plan"
+          >
+            {methodology}
+          </Badge>
         </div>
       )}
 
@@ -976,7 +1004,9 @@ export function ProjectWorkspace() {
       )}
       <div className="flex items-center justify-between gap-2 px-3 sm:px-5 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent transition-colors">
         <div className="flex min-w-0 flex-1 items-center overflow-x-auto scrollbar-none">
-          {visibleViews.map(({ id, label, icon: Icon }) => (
+          {visibleViews.map(({ id, label, icon: Icon }) => {
+            const isPrimary = isPrimaryMethodologyView(methodology, id);
+            return (
             <button
               key={id}
               onClick={() => setActiveView(id)}
@@ -985,11 +1015,17 @@ export function ProjectWorkspace() {
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
+              title={
+                isPrimary
+                  ? `Primary ${methodology} plan view`
+                  : undefined
+              }
             >
               <Icon className="size-3.5" />
               {label}
             </button>
-          ))}
+            );
+          })}
         </div>
 
         <button
