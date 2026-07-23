@@ -3,6 +3,7 @@
 import React, { useMemo } from "react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { milestoneSchema, type MilestoneFormValues } from "../../schemas/milestone/milestone.schema";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -17,6 +18,11 @@ import { CalendarIcon } from "lucide-react";
 import { toDateString, formatDateLabel } from "@/shared/utils/date";
 import { EntityAttachmentsSection } from "../documents/entity-attachments-section";
 import type { WorkspaceDocument } from "../../types/project-documents.types";
+import {
+  getMilestoneWeightTotalError,
+  MILESTONE_WEIGHT_TOTAL_MAX,
+  sumMilestoneWeights,
+} from "../../utils/milestone-weight";
 
 interface MilestoneFormProps {
   initialValues: MilestoneFormValues;
@@ -26,6 +32,8 @@ interface MilestoneFormProps {
   isSaving: boolean;
   projectStartDate?: string;
   projectEndDate?: string;
+  /** Weights of other milestones in the project (exclude the one being edited). */
+  otherMilestoneWeights?: Array<number | null | undefined>;
   documents?: WorkspaceDocument[];
   isDocumentsLoading?: boolean;
   onDeleteDocument?: (documentId: string) => void;
@@ -48,6 +56,7 @@ export function MilestoneForm({
   isSaving,
   projectStartDate,
   projectEndDate,
+  otherMilestoneWeights = [],
   documents = [],
   isDocumentsLoading = false,
   onDeleteDocument,
@@ -57,6 +66,10 @@ export function MilestoneForm({
   canAttach = true,
 }: MilestoneFormProps) {
   const [draftFiles, setDraftFiles] = React.useState<File[]>([]);
+
+  const siblingWeightsKey = otherMilestoneWeights
+    .map((w) => (w == null ? "" : String(w)))
+    .join(",");
 
   const schema = useMemo(() => {
     return milestoneSchema
@@ -91,8 +104,21 @@ export function MilestoneForm({
             : "Target date is after project end date",
           path: ["targetDate"],
         }
-      );
-  }, [projectStartDate, projectEndDate]);
+      )
+      .superRefine((data, ctx) => {
+        const message = getMilestoneWeightTotalError(
+          otherMilestoneWeights,
+          data.weight,
+        );
+        if (message) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message,
+            path: ["weight"],
+          });
+        }
+      });
+  }, [projectStartDate, projectEndDate, siblingWeightsKey, otherMilestoneWeights]);
 
   const {
     register,
@@ -103,6 +129,12 @@ export function MilestoneForm({
     resolver: zodResolver(schema) as Resolver<MilestoneFormValues>,
     defaultValues: initialValues,
   });
+
+  const otherTotal = sumMilestoneWeights(otherMilestoneWeights);
+  const remainingWeight = Math.max(
+    0,
+    MILESTONE_WEIGHT_TOTAL_MAX - otherTotal,
+  );
 
   return (
     <form
@@ -188,6 +220,10 @@ export function MilestoneForm({
                   className="h-9 dark:bg-slate-900/50"
                   {...register("weight")}
                 />
+                <p className="text-[10px] text-muted-foreground">
+                  Remaining capacity: {remainingWeight}%
+                  {otherTotal > 0 ? ` (other milestones total ${otherTotal}%)` : ""}
+                </p>
                 <FieldError message={errors.weight?.message} />
               </div>
               <div className="space-y-1.5">

@@ -76,6 +76,10 @@ import {
   type DraftProjectMilestone,
   type ProjectFormMilestonesSectionHandle,
 } from "./project-form-milestones-section";
+import {
+  getMilestoneWeightTotalError,
+  sumMilestoneWeights,
+} from "../../utils/milestone-weight";
 
 interface CreateProjectSheetProps {
   open: boolean;
@@ -359,11 +363,22 @@ export function CreateProjectSheet({
         }
       }
 
+      const unsavedWeight = unsaved.weight ? Number(unsaved.weight) : null;
+      const unsavedTotalError = getMilestoneWeightTotalError(
+        milestoneDrafts.map((d) => d.weight),
+        unsavedWeight,
+      );
+      if (unsavedTotalError) {
+        setMilestoneError(unsavedTotalError);
+        document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+
       const newDraft = {
         clientId: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         title: unsaved.title.trim().replace(/\s+/g, " "),
         targetDate: unsaved.targetDate,
-        weight: unsaved.weight ? Number(unsaved.weight) : null,
+        weight: unsavedWeight,
         status: "Pending",
       };
 
@@ -379,6 +394,18 @@ export function CreateProjectSheet({
     );
     if (milestoneDateError) {
       setMilestoneError(milestoneDateError);
+      document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
+    const milestoneWeightTotal = sumMilestoneWeights(
+      currentMilestoneDrafts.map((d) => d.weight),
+    );
+    if (milestoneWeightTotal > 100) {
+      setMilestoneError(
+        getMilestoneWeightTotalError([], milestoneWeightTotal) ??
+          "Total milestone weight cannot exceed 100%.",
+      );
       document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }

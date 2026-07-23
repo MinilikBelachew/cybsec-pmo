@@ -31,6 +31,9 @@ function getErrorMessage(code: string | null): string | null {
   if (code === "session_timeout") {
     return "Your session ended due to inactivity. Please sign in again.";
   }
+  if (code === "session_expired") {
+    return "Your session has ended. Please sign in again.";
+  }
   return "Could not complete sign-in. Please try again.";
 }
 

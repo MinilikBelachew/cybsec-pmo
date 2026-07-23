@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "@/i18n/routing";
 import { useAppDispatch } from "@/store/hooks";
-import { clearUser } from "../store/auth.slice";
 import {
   useGetSessionPolicyQuery,
   useLogoutMutation,
@@ -11,6 +9,7 @@ import {
   useSessionHeartbeatMutation,
 } from "../api/auth.api";
 import { SessionTimeoutModal } from "../components/session-timeout-modal";
+import { endClientSession } from "../utils/clear-session";
 
 const ACTIVITY_EVENTS = [
   "mousedown",
@@ -29,7 +28,6 @@ export function SessionTimeoutProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
   const dispatch = useAppDispatch();
   const { data: policy, isSuccess: policyLoaded } = useGetSessionPolicyQuery();
   const [refreshSession] = useRefreshSessionMutation();
@@ -60,9 +58,8 @@ export function SessionTimeoutProvider({
       // Clear local state even if server session is already gone
     }
 
-    dispatch(clearUser());
-    router.replace("/login?error=session_timeout");
-  }, [dispatch, logout, router]);
+    endClientSession(dispatch, "session_timeout");
+  }, [dispatch, logout]);
 
   const handleStaySignedIn = useCallback(async () => {
     try {

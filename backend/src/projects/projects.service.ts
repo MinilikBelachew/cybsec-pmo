@@ -106,6 +106,12 @@ export class ProjectsService {
     );
     await this.validateReferences(dto);
 
+    if (dto.milestones?.length) {
+      this.assertMilestoneWeightsDoNotExceedTotal(
+        dto.milestones.map((m) => m.weight),
+      );
+    }
+
     const project = await this.prisma.$transaction(async (tx) => {
       const created = await tx.project.create({
         data: {
@@ -753,6 +759,48 @@ export class ProjectsService {
     }
   }
 
+  private toMilestoneWeightNumber(weight: unknown): number {
+    if (weight == null || weight === '') return 0;
+    const n = Number(weight);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  private assertMilestoneWeightsDoNotExceedTotal(
+    weights: Array<number | null | undefined>,
+  ): void {
+    const total = weights.reduce(
+      (sum, weight) => sum + this.toMilestoneWeightNumber(weight),
+      0,
+    );
+    if (total > 100) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { weight: 'milestoneWeightExceedsTotal' },
+      });
+    }
+  }
+
+  private async assertProjectMilestoneWeightLimit(
+    projectId: string,
+    nextWeight: number | null | undefined,
+    excludeMilestoneId?: string,
+  ): Promise<void> {
+    const siblings = await this.prisma.projectMilestone.findMany({
+      where: {
+        projectId,
+        ...(excludeMilestoneId ? { id: { not: excludeMilestoneId } } : {}),
+      },
+      select: { weight: true },
+    });
+
+    this.assertMilestoneWeightsDoNotExceedTotal([
+      ...siblings.map((m) =>
+        m.weight != null ? Number(m.weight) : null,
+      ),
+      nextWeight,
+    ]);
+  }
+
   async findPhases(projectId: string, caslUser: CaslUserContext) {
     await this.assertProjectInScope(projectId, caslUser, 'read');
 
@@ -765,7 +813,7 @@ export class ProjectsService {
       ...phase,
       milestones: phase.milestones.map((m) => ({
         ...m,
-        weight: m.weight ? Number(m.weight) : null,
+        weight: m.weight != null ? Number(m.weight) : null,
       })),
     }));
   }
@@ -866,7 +914,7 @@ export class ProjectsService {
     });
     return milestones.map((m) => ({
       ...m,
-      weight: m.weight ? Number(m.weight) : null,
+      weight: m.weight != null ? Number(m.weight) : null,
     }));
   }
 
@@ -914,6 +962,8 @@ export class ProjectsService {
       }
     }
 
+    await this.assertProjectMilestoneWeightLimit(projectId, dto.weight);
+
     const milestone = await this.prisma.projectMilestone.create({
       data: {
         projectId,
@@ -926,7 +976,7 @@ export class ProjectsService {
     });
     return {
       ...milestone,
-      weight: milestone.weight ? Number(milestone.weight) : null,
+      weight: milestone.weight != null ? Number(milestone.weight) : null,
     };
   }
 
@@ -956,6 +1006,15 @@ export class ProjectsService {
         });
       }
     }
+
+    if (dto.weight !== undefined) {
+      await this.assertProjectMilestoneWeightLimit(
+        existing.projectId,
+        dto.weight,
+        milestoneId,
+      );
+    }
+
     const milestone = await this.prisma.projectMilestone.update({
       where: { id: milestoneId },
       data: {
@@ -968,7 +1027,7 @@ export class ProjectsService {
     });
     return {
       ...milestone,
-      weight: milestone.weight ? Number(milestone.weight) : null,
+      weight: milestone.weight != null ? Number(milestone.weight) : null,
     };
   }
 

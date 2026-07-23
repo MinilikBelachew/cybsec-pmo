@@ -1,9 +1,11 @@
 import { Suspense } from "react";
 import { LoginForm } from "./login-form";
+import { LoginHistoryGuard } from "./login-history-guard";
 
 export function LoginPage() {
   return (
     <div className="space-y-6">
+      <LoginHistoryGuard />
       <div className="space-y-2 text-center">
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Welcome Back</h1>
         <p className="text-sm text-muted-foreground font-light">
@@ -28,4 +30,3 @@ export function LoginPage() {
     </div>
   );
 }
-

@@ -4,16 +4,14 @@ import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useAuth } from "@/domains/auth";
 import { useStopBreakGlassMutation } from "@/domains/auth/api/auth.api";
-import { logout } from "@/domains/auth/store/auth.slice";
 import { useAppDispatch } from "@/store/hooks";
-import { useRouter } from "@/i18n/routing";
 import { env } from "@/config/env.config";
 import { Button } from "@/shared/ui/button";
+import { endClientSession, clearClientSession } from "@/domains/auth/utils/clear-session";
 
 export function BreakGlassBanner() {
   const { user } = useAuth();
   const dispatch = useAppDispatch();
-  const router = useRouter();
   const [stopBreakGlass, { isLoading }] = useStopBreakGlassMutation();
   const [error, setError] = useState<string | null>(null);
 
@@ -26,20 +24,19 @@ export function BreakGlassBanner() {
 
     try {
       const { redirectTo } = await stopBreakGlass().unwrap();
-      dispatch(logout());
 
       if (redirectTo === "entra") {
+        clearClientSession(dispatch);
         const url = new URL(`${env.apiUrl}/auth/entra/authorize`);
         url.searchParams.set("returnTo", "/dashboard");
         window.location.href = url.toString();
         return;
       }
 
-      router.replace("/login");
+      endClientSession(dispatch);
     } catch {
-      dispatch(logout());
       setError("Could not end break-glass session. You have been signed out.");
-      router.replace("/login");
+      endClientSession(dispatch);
     }
   };
 
