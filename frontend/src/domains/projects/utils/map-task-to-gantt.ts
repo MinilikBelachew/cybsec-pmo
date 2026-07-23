@@ -35,6 +35,10 @@ export interface GanttTaskRow {
   parentTaskId?: string | null;
   depth?: number;
   children?: GanttTaskRow[];
+  effortHours?: number | null;
+  actualHoursLogged?: number;
+  effortVarianceHours?: number | null;
+  isOverEffort?: boolean;
 }
 
 const PRIORITY_MAP: Record<string, GanttPriority> = {
@@ -101,6 +105,10 @@ export function mapTaskToGanttRow(
           parentTaskId: task.id,
           depth: 1,
           children: undefined,
+          effortHours: null,
+          actualHoursLogged: 0,
+          effortVarianceHours: null,
+          isOverEffort: false,
         };
       })
     : undefined;
@@ -131,6 +139,10 @@ export function mapTaskToGanttRow(
     parentTaskId: task.parentTaskId,
     depth: 0,
     children,
+    effortHours: task.effortHours ?? null,
+    actualHoursLogged: task.actualHoursLogged ?? 0,
+    effortVarianceHours: task.effortVarianceHours ?? null,
+    isOverEffort: Boolean(task.isOverEffort),
   };
 }
 

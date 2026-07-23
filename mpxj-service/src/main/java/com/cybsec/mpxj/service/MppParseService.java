@@ -19,6 +19,7 @@ import org.mpxj.ResourceAssignment;
 import org.mpxj.Task;
 import org.mpxj.TimeUnit;
 import org.mpxj.mpp.MPPReader;
+import org.mpxj.mspdi.MSPDIReader;
 import org.mpxj.reader.UniversalProjectReader;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -43,10 +44,16 @@ public class MppParseService {
         MPPReader reader = new MPPReader();
         reader.setReadPresentationData(false);
         project = reader.read(inputStream);
+      } else if (filename.endsWith(".xml")) {
+        // UniversalProjectReader returns null for MSPDI streams (no path sniffing).
+        project = new MSPDIReader().read(inputStream);
       } else {
-        UniversalProjectReader reader = new UniversalProjectReader();
-        project = reader.read(inputStream);
+        project = new UniversalProjectReader().read(inputStream);
       }
+    }
+
+    if (project == null) {
+      throw new IllegalArgumentException("Unable to parse project file: " + filename);
     }
 
     return toDto(project);

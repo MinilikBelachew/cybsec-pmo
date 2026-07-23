@@ -24,6 +24,9 @@ export function isNotableAuditAction(entry: AuditLogEntry): boolean {
 
 export function formatAuditActivityToast(entry: AuditLogEntry): string {
   const actor = entry.user?.displayName ?? "System";
+  if (entry.description?.trim()) {
+    return `${actor} — ${entry.description.trim()}`;
+  }
   const actionLabel = entry.action.replace(/_/g, " ").toLowerCase();
   const objectHint = entry.objectType ? ` · ${entry.objectType}` : "";
   return `${actor} — ${actionLabel}${objectHint}`;

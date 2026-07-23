@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { AuditLogsService } from './audit-logs.service';
 import { PrismaService } from '../database/prisma.service';
 import { resolveStatusChangeAction } from './status-change-audit.util';
+import { generateAuditDescription } from './audit-description.helper';
 import { formatIpWithUserAgent } from '../auth/utils/request-context.util';
 
 const SENSITIVE_KEYS = [
@@ -79,80 +80,118 @@ export class AuditLogsInterceptor implements NestInterceptor {
             next: (response) => {
               observer.next(response);
 
-              try {
-                let finalObjectId = auditTarget.resourceId;
-                let newValue = bodyPayload;
+              void (async () => {
+                try {
+                  let finalObjectId = auditTarget.resourceId;
+                  let newValue: unknown = bodyPayload;
 
-                if (response && typeof response === 'object') {
-                  if (response.id && UUID_REGEX.test(response.id)) {
-                    finalObjectId = response.id;
+                  if (response && typeof response === 'object') {
+                    const extracted = this.extractResponsePayload(
+                      response,
+                      method,
+                    );
+                    if (extracted.objectId) {
+                      finalObjectId = extracted.objectId;
+                    }
+                    if (extracted.newValue !== undefined) {
+                      newValue = extracted.newValue;
+                    }
                   }
+
+                  // Soft-remove team member: DELETE returns void but status becomes Removed
                   if (
-                    method === 'POST' ||
-                    method === 'PATCH' ||
-                    method === 'PUT'
+                    method === 'DELETE' &&
+                    auditTarget.objectType === 'Allocation' &&
+                    oldValue &&
+                    typeof oldValue === 'object'
                   ) {
-                    newValue = this.maskSensitiveFields(response);
+                    newValue = {
+                      ...(oldValue as Record<string, unknown>),
+                      status: 'Removed',
+                    };
                   }
-                }
 
-                let auditAction = auditTarget.action;
-                const statusChange = resolveStatusChangeAction(
-                  auditTarget.objectType,
-                  oldValue,
-                  newValue,
-                );
-                if (statusChange) {
-                  auditAction = statusChange.action;
-                  newValue = statusChange.newValue;
-                }
+                  let auditAction = auditTarget.action;
+                  // Soft deletes / nested creates must keep their CRUD action —
+                  // only real UPDATE/PATCH status transitions get rewritten.
+                  const statusChange =
+                    method === 'PATCH' || method === 'PUT'
+                      ? resolveStatusChangeAction(
+                          auditTarget.objectType,
+                          oldValue,
+                          newValue,
+                        )
+                      : null;
+                  if (statusChange) {
+                    auditAction = statusChange.action;
+                    newValue = statusChange.newValue;
+                  }
 
-                if (isBreakGlass) {
-                  newValue =
-                    newValue && typeof newValue === 'object'
-                      ? { ...newValue, breakGlassAction: true }
-                      : { breakGlassAction: true };
-                }
+                  if (isBreakGlass) {
+                    newValue =
+                      newValue && typeof newValue === 'object'
+                        ? { ...(newValue as object), breakGlassAction: true }
+                        : { breakGlassAction: true };
+                  }
 
-                const safeOldValue = this.toJsonSafe(oldValue);
-                const safeNewValue = this.toJsonSafe(newValue);
+                  const enrichedOld = await this.enrichNames(
+                    auditTarget.objectType,
+                    oldValue,
+                  );
+                  const enrichedNew = await this.enrichNames(
+                    auditTarget.objectType,
+                    newValue,
+                  );
 
-                this.auditLogsService
-                  .create({
-                    action: auditAction,
-                    objectType: auditTarget.objectType,
-                    objectId: finalObjectId,
-                    oldValue: safeOldValue ?? Prisma.DbNull,
-                    newValue: safeNewValue ?? Prisma.DbNull,
-                    ipAddress,
-                    isExternal,
-                    breakGlassAction: isBreakGlass,
-                    source: 'WebAPI',
-                    user: actorId ? { connect: { id: actorId } } : undefined,
-                  })
-                  .catch((err) => {
-                    this.logger.error('Failed to save audit log to DB:', err);
-                  });
-
-                console.log(
-                  JSON.stringify({
-                    timestamp: new Date().toISOString(),
-                    level: 'AUDIT',
-                    actorId,
+                  const safeOldValue = this.toJsonSafe(enrichedOld);
+                  const safeNewValue = this.toJsonSafe(enrichedNew);
+                  const description = generateAuditDescription({
                     action: auditAction,
                     objectType: auditTarget.objectType,
                     objectId: finalObjectId,
                     oldValue: safeOldValue,
                     newValue: safeNewValue,
-                    ipAddress,
-                    isExternal,
-                  }),
-                );
-              } catch (err) {
-                // Never let audit serialization crash the request / process
-                // (e.g. Prisma BigInt sizeBytes on TaskAttachment delete).
-                this.logger.error('Failed to write audit log:', err);
-              }
+                  });
+
+                  this.auditLogsService
+                    .create({
+                      action: auditAction,
+                      objectType: auditTarget.objectType,
+                      objectId: finalObjectId,
+                      description,
+                      oldValue: safeOldValue ?? Prisma.DbNull,
+                      newValue: safeNewValue ?? Prisma.DbNull,
+                      ipAddress,
+                      isExternal,
+                      breakGlassAction: isBreakGlass,
+                      source: 'WebAPI',
+                      user: actorId ? { connect: { id: actorId } } : undefined,
+                    })
+                    .catch((err) => {
+                      this.logger.error('Failed to save audit log to DB:', err);
+                    });
+
+                  console.log(
+                    JSON.stringify({
+                      timestamp: new Date().toISOString(),
+                      level: 'AUDIT',
+                      actorId,
+                      action: auditAction,
+                      objectType: auditTarget.objectType,
+                      objectId: finalObjectId,
+                      description,
+                      oldValue: safeOldValue,
+                      newValue: safeNewValue,
+                      ipAddress,
+                      isExternal,
+                    }),
+                  );
+                } catch (err) {
+                  // Never let audit serialization crash the request / process
+                  // (e.g. Prisma BigInt sizeBytes on TaskAttachment delete).
+                  this.logger.error('Failed to write audit log:', err);
+                }
+              })();
             },
             error: (err) => {
               observer.error(err);
@@ -167,6 +206,55 @@ export class AuditLogsInterceptor implements NestInterceptor {
           next.handle().subscribe(observer);
         });
     });
+  }
+
+  /**
+   * Prefer entity payloads over wrapper DTOs so before/after show the real
+   * ActionPoint / Allocation rather than a project envelope.
+   */
+  private extractResponsePayload(
+    response: Record<string, any>,
+    method: string,
+  ): { objectId: string | null; newValue: unknown | undefined } {
+    if (Array.isArray(response.created) && response.created.length > 0) {
+      const created = response.created.map((row: unknown) =>
+        this.maskSensitiveFields(row),
+      );
+      const firstId =
+        created[0] &&
+        typeof created[0] === 'object' &&
+        typeof (created[0] as { id?: unknown }).id === 'string' &&
+        UUID_REGEX.test((created[0] as { id: string }).id)
+          ? (created[0] as { id: string }).id
+          : null;
+      return {
+        objectId: firstId,
+        newValue: created.length === 1 ? created[0] : created,
+      };
+    }
+
+    if (response.updated && typeof response.updated === 'object') {
+      const updated = this.maskSensitiveFields(response.updated);
+      const id =
+        typeof updated.id === 'string' && UUID_REGEX.test(updated.id)
+          ? updated.id
+          : null;
+      return { objectId: id, newValue: updated };
+    }
+
+    let objectId: string | null = null;
+    if (response.id && UUID_REGEX.test(response.id)) {
+      objectId = response.id;
+    }
+
+    if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
+      return {
+        objectId,
+        newValue: this.maskSensitiveFields(response),
+      };
+    }
+
+    return { objectId, newValue: undefined };
   }
 
   private parseUrlParts(url: string): string[] {
@@ -250,8 +338,10 @@ export class AuditLogsInterceptor implements NestInterceptor {
     method: string,
   ): AuditRouteTarget | null {
     const sub = segmentsAfterUuid[0].toLowerCase();
-    const nestedUuid = segmentsAfterUuid.find((part) => UUID_REGEX.test(part)) ?? null;
+    const nestedUuid =
+      segmentsAfterUuid.find((part) => UUID_REGEX.test(part)) ?? null;
     const hasReview = segmentsAfterUuid.includes('review');
+    const hasBackup = segmentsAfterUuid.includes('backup');
 
     const subEntityByRoot: Record<string, Record<string, string>> = {
       tasks: {
@@ -262,6 +352,9 @@ export class AuditLogsInterceptor implements NestInterceptor {
       projects: {
         milestones: 'ProjectMilestone',
         documents: 'WorkspaceDocument',
+        team: 'Allocation',
+        'action-points': 'ActionPoint',
+        phases: 'ProjectPhase',
       },
     };
 
@@ -273,6 +366,8 @@ export class AuditLogsInterceptor implements NestInterceptor {
     let action: string;
     if (sub === 'progress-updates' && hasReview && method === 'PATCH') {
       action = 'REVIEW_PROGRESS';
+    } else if (sub === 'team' && hasBackup && method === 'PATCH') {
+      action = 'SET_ALLOCATION_BACKUP';
     } else if (sub === 'attachments' && method === 'POST') {
       // Preserve legacy audit action for task files after WorkspaceDocument migration.
       action = 'CREATE_TASK_ATTACHMENT';
@@ -353,8 +448,11 @@ export class AuditLogsInterceptor implements NestInterceptor {
       if (prismaModelName in this.prisma) {
         const record = await (this.prisma as any)[prismaModelName].findUnique({
           where: { id: objectId },
+          include: this.auditIncludeFor(entity),
         });
-        return record ? this.maskSensitiveFields(record) : null;
+        return record
+          ? this.maskSensitiveFields(await this.enrichNames(entity, record))
+          : null;
       }
     } catch (e) {
       this.logger.warn(
@@ -363,6 +461,186 @@ export class AuditLogsInterceptor implements NestInterceptor {
       );
     }
     return null;
+  }
+
+  private auditIncludeFor(entity: string): Record<string, unknown> | undefined {
+    switch (entity) {
+      case 'Allocation':
+        return {
+          employee: { select: { id: true, name: true, email: true } },
+          backupEmployee: { select: { id: true, name: true, email: true } },
+          project: { select: { id: true, name: true } },
+        };
+      case 'ActionPoint':
+        return {
+          owner: { select: { id: true, displayName: true, email: true } },
+          project: { select: { id: true, name: true } },
+        };
+      case 'Task':
+        return {
+          project: { select: { id: true, name: true } },
+        };
+      case 'ProjectPhase':
+      case 'ProjectMilestone':
+        return {
+          project: { select: { id: true, name: true } },
+        };
+      case 'TaskComment':
+        return {
+          task: {
+            select: {
+              id: true,
+              title: true,
+              project: { select: { id: true, name: true } },
+            },
+          },
+        };
+      case 'WorkspaceDocument':
+        return {
+          project: { select: { id: true, name: true } },
+        };
+      case 'TaskProgressUpdate':
+        return {
+          task: {
+            select: {
+              id: true,
+              title: true,
+              project: { select: { id: true, name: true } },
+            },
+          },
+        };
+      case 'TaskDependency':
+        return {
+          predecessor: { select: { id: true, title: true, projectId: true } },
+          successor: { select: { id: true, title: true, projectId: true } },
+        };
+      default:
+        return undefined;
+    }
+  }
+
+  /**
+   * Ensure payloads used for descriptions carry human names (project, employee, owner).
+   */
+  private async enrichNames(entity: string, value: unknown): Promise<unknown> {
+    if (value == null) return value;
+
+    if (Array.isArray(value)) {
+      return Promise.all(value.map((row) => this.enrichNames(entity, row)));
+    }
+
+    if (typeof value !== 'object') return value;
+
+    const record = { ...(value as Record<string, unknown>) };
+
+    if (Array.isArray(record.created)) {
+      record.created = await this.enrichNames(entity, record.created);
+      return record;
+    }
+
+    if (record.updated && typeof record.updated === 'object') {
+      record.updated = await this.enrichNames(entity, record.updated);
+      return record;
+    }
+
+    // Lift nested task.project onto comment/progress rows when useful
+    if (
+      record.task &&
+      typeof record.task === 'object' &&
+      (record.task as { project?: unknown }).project &&
+      !record.project
+    ) {
+      record.project = (record.task as { project: unknown }).project;
+    }
+
+    if (
+      !record.project &&
+      typeof record.projectId === 'string' &&
+      record.projectId
+    ) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: record.projectId },
+        select: { id: true, name: true },
+      });
+      if (project) {
+        record.project = project;
+        record.projectName = project.name;
+      }
+    }
+
+    if (
+      entity === 'Allocation' &&
+      !record.employee &&
+      typeof record.employeeId === 'string'
+    ) {
+      const employee = await this.prisma.employee.findUnique({
+        where: { id: record.employeeId },
+        select: { id: true, name: true, email: true },
+      });
+      if (employee) {
+        record.employee = employee;
+        record.employeeName = employee.name;
+      }
+    }
+
+    if (
+      entity === 'Allocation' &&
+      !record.employee &&
+      typeof record.id === 'string'
+    ) {
+      const allocation = await this.prisma.allocation.findUnique({
+        where: { id: record.id },
+        include: {
+          employee: { select: { id: true, name: true, email: true } },
+          backupEmployee: { select: { id: true, name: true, email: true } },
+          project: { select: { id: true, name: true } },
+        },
+      });
+      if (allocation) {
+        record.employee = allocation.employee;
+        record.employeeName = allocation.employee?.name;
+        record.employeeId = allocation.employeeId;
+        record.project = allocation.project;
+        record.projectId = allocation.projectId;
+        record.projectName = allocation.project?.name;
+        record.role = record.role ?? allocation.role;
+        if (record.backupEmployeeId === undefined) {
+          record.backupEmployeeId = allocation.backupEmployeeId;
+        }
+      }
+    }
+
+    if (
+      entity === 'Allocation' &&
+      !record.backupEmployee &&
+      typeof record.backupEmployeeId === 'string' &&
+      record.backupEmployeeId
+    ) {
+      const backup = await this.prisma.employee.findUnique({
+        where: { id: record.backupEmployeeId },
+        select: { id: true, name: true, email: true },
+      });
+      if (backup) {
+        record.backupEmployee = backup;
+        record.backupEmployeeName = backup.name;
+      }
+    }
+
+    if (
+      entity === 'ActionPoint' &&
+      !record.owner &&
+      typeof record.ownerId === 'string'
+    ) {
+      const owner = await this.prisma.user.findUnique({
+        where: { id: record.ownerId },
+        select: { id: true, displayName: true, email: true },
+      });
+      if (owner) {
+        record.owner = owner;
+      }
+    }
+
+    return record;
   }
 
   private toPrismaModelName(entity: string): string | null {
@@ -375,6 +653,9 @@ export class AuditLogsInterceptor implements NestInterceptor {
       TaskProgressUpdate: 'taskProgressUpdate',
       Project: 'project',
       ProjectMilestone: 'projectMilestone',
+      ProjectPhase: 'projectPhase',
+      Allocation: 'allocation',
+      ActionPoint: 'actionPoint',
       User: 'user',
       File: 'file',
     };

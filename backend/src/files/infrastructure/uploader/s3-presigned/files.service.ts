@@ -49,7 +49,11 @@ export class FilesS3PresignedService {
     }
 
     // Allow images and documents
-    if (!file.fileName.match(/\.(jpg|jpeg|png|gif|pdf|doc|docx)$/i)) {
+    if (
+      !file.fileName.match(
+        /\.(jpg|jpeg|png|gif|pdf|doc|docx|xls|xlsx|csv|txt|mpp|mpx|xml)$/i,
+      )
+    ) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         errors: {

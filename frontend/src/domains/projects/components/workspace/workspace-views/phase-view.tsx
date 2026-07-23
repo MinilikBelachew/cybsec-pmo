@@ -29,6 +29,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { PhaseForm } from "../../roadmap/phase-form";
 import { MilestoneForm } from "../../roadmap/milestone-form";
+import { DocumentAttachmentList } from "../../documents/document-attachment-list";
 import { PhaseFormValues } from "../../../schemas/phase/phase.schema";
 import { MilestoneFormValues } from "../../../schemas/milestone/milestone.schema";
 import {
@@ -44,6 +45,7 @@ import {
   AlertTriangle,
   Trash2,
   Edit2,
+  Paperclip,
 } from "lucide-react";
 import { PhaseStatus } from "../../../types/projects.types";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
@@ -120,6 +122,27 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
       { projectId, category: "Milestone", milestoneId: editingMilestoneId },
       { skip: !editingMilestoneId },
     );
+  const { data: allDocuments = [] } = useGetProjectDocumentsQuery({ projectId });
+
+  const documentsByPhase = useMemo(() => {
+    const map: Record<string, typeof allDocuments> = {};
+    for (const doc of allDocuments) {
+      if (!doc.phaseId) continue;
+      if (!map[doc.phaseId]) map[doc.phaseId] = [];
+      map[doc.phaseId].push(doc);
+    }
+    return map;
+  }, [allDocuments]);
+
+  const documentsByMilestone = useMemo(() => {
+    const map: Record<string, typeof allDocuments> = {};
+    for (const doc of allDocuments) {
+      if (!doc.milestoneId) continue;
+      if (!map[doc.milestoneId]) map[doc.milestoneId] = [];
+      map[doc.milestoneId].push(doc);
+    }
+    return map;
+  }, [allDocuments]);
 
   const isUploadingDocument = isUploadingFile || isCreatingDocument;
 
@@ -615,6 +638,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
           {sortedPhases.map((phase) => {
             const phaseTasks = tasksByPhase[phase.id] || [];
             const phaseMilestones = milestonesByPhase[phase.id] || [];
+            const phaseAttachments = documentsByPhase[phase.id] || [];
             const completedTasksCount = phaseTasks.filter((t) => t.status === "Done" || t.status === "Approved").length;
 
             const dateStr = [
@@ -637,9 +661,18 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                         <h3 className="text-sm font-bold text-foreground leading-snug truncate">
                           {phase.name}
                         </h3>
-                        <Badge className={`text-[9px] font-bold px-1.5 py-0 mt-1.5 border-none shrink-0 ${getStatusBadgeClass(phase.status)}`}>
-                          {phase.status.replace("_", " ")}
-                        </Badge>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <Badge className={`text-[9px] font-bold px-1.5 py-0 border-none shrink-0 ${getStatusBadgeClass(phase.status)}`}>
+                            {phase.status.replace("_", " ")}
+                          </Badge>
+                          {phaseAttachments.length > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                              <Paperclip className="size-3" />
+                              {phaseAttachments.length} file
+                              {phaseAttachments.length === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {(canEditPhases || canApproveProjects) && (
                       <div className="flex items-center gap-1 shrink-0">
@@ -676,6 +709,15 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                         <Calendar className="size-3.5" />
                         {dateStr}
                       </span>
+                    )}
+
+                    {phaseAttachments.length > 0 && (
+                      <div className="rounded-lg border border-border/70 bg-muted/20 p-2 space-y-1.5">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                          Attachments
+                        </p>
+                        <DocumentAttachmentList documents={phaseAttachments} maxVisible={4} dense />
+                      </div>
                     )}
                   </div>
 
@@ -735,7 +777,9 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                       </div>
                     ) : (
                       <div className="space-y-2 overflow-y-auto max-h-56 pr-1">
-                        {phaseMilestones.map((m) => (
+                        {phaseMilestones.map((m) => {
+                          const milestoneAttachments = documentsByMilestone[m.id] || [];
+                          return (
                           <div
                             key={m.id}
                             className="group/milestone relative p-2.5 rounded-lg border border-border bg-muted/10 flex items-start gap-2 pr-14"
@@ -752,6 +796,20 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                               <span className="text-[9px] text-muted-foreground font-medium block mt-0.5">
                                 Target: {new Date(m.targetDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                               </span>
+                              {milestoneAttachments.length > 0 && (
+                                <div className="mt-1.5 space-y-1">
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-medium text-muted-foreground">
+                                    <Paperclip className="size-2.5" />
+                                    {milestoneAttachments.length} file
+                                    {milestoneAttachments.length === 1 ? "" : "s"}
+                                  </span>
+                                  <DocumentAttachmentList
+                                    documents={milestoneAttachments}
+                                    maxVisible={2}
+                                    dense
+                                  />
+                                </div>
+                              )}
                             </div>
                             {(canEditMilestones || canApproveProjects) && (
                             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/milestone:opacity-100 transition-opacity">
@@ -776,7 +834,8 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                             </div>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

@@ -22,6 +22,13 @@ import {
   useGetProjectDocumentsQuery,
 } from "../../api/project-documents.api";
 import type { WorkspaceDocumentCategory } from "../../types/project-documents.types";
+import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_LIMITS_HINT,
+  attachmentValidationToastMessage,
+  formatFileUploadError,
+  validateAttachmentFiles,
+} from "../../utils/attachment-limits";
 
 const CATEGORIES: { value: WorkspaceDocumentCategory; label: string }[] = [
   { value: "Project", label: "Project" },
@@ -87,26 +94,31 @@ export function ProjectDocumentsPanel({
       return;
     }
 
+    const { valid, issues } = validateAttachmentFiles([file]);
+    if (issues.length) {
+      toast.error(attachmentValidationToastMessage(issues));
+    }
+    const next = valid[0];
+    if (!next) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     try {
-      const uploaded = await uploadFile(file).unwrap();
+      const uploaded = await uploadFile(next).unwrap();
       await createDocument({
         projectId,
         storageKey: uploaded.storageKey || uploaded.file.path,
-        filename: uploaded.filename || file.name,
-        mimeType: uploaded.mimeType || file.type,
-        sizeBytes: uploaded.sizeBytes || file.size,
+        filename: uploaded.filename || next.name,
+        mimeType: uploaded.mimeType || next.type,
+        sizeBytes: uploaded.sizeBytes || next.size,
         category: uploadCategory,
         phaseId: uploadCategory === "Phase" ? phaseId : undefined,
         milestoneId: uploadCategory === "Milestone" ? milestoneId : undefined,
       }).unwrap();
       toast.success("Document uploaded");
     } catch (err: unknown) {
-      const apiError = err as { data?: { message?: string; errors?: Record<string, string> } };
-      toast.error(
-        apiError?.data?.message ??
-          Object.values(apiError?.data?.errors ?? {})[0] ??
-          "Failed to upload document",
-      );
+      toast.error(formatFileUploadError(err, "Failed to upload document"));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -265,6 +277,7 @@ export function ProjectDocumentsPanel({
             <input
               ref={fileInputRef}
               type="file"
+              accept={ATTACHMENT_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -283,8 +296,8 @@ export function ProjectDocumentsPanel({
             </Button>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            Task files stay on each task&apos;s Files tab. Phase/milestone files can also be
-            attached while creating them in Manage Roadmap.
+            {ATTACHMENT_LIMITS_HINT}. Task files stay on each task&apos;s Files tab.
+            Phase/milestone files can also be attached while editing them in Manage Roadmap.
           </p>
         </div>
       )}
