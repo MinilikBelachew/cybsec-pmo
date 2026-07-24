@@ -133,6 +133,16 @@ export function formatTaskApiError(
   };
   if (DATE_ERROR_CODES[msg]) return DATE_ERROR_CODES[msg];
 
+  const PHASE_GATE_ERROR_CODES: Record<string, string> = {
+    phaseGateTaskRequired:
+      "Add a mandatory sign-off (phase gate) task to this phase before marking it Completed.",
+    phaseGateTaskIncomplete:
+      "Complete the phase sign-off task (Done or Approved) before completing this phase.",
+    phaseGateRequiresPhase: "A phase sign-off task must belong to a phase.",
+    phaseGateNotAllowedOnSubTask: "Sub-tasks cannot be phase sign-off (gate) tasks.",
+  };
+  if (PHASE_GATE_ERROR_CODES[msg]) return PHASE_GATE_ERROR_CODES[msg];
+
   if (msg === "progressAlreadyAt100CannotSubmitMore") {
     return "Progress is already at 100%. No further submissions are allowed.";
   }

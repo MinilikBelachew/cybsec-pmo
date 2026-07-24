@@ -31,6 +31,7 @@ import { TaskDependenciesService } from './task-dependencies.service';
 import { WorkspaceDocumentsService, TASK_ATTACHMENT_MAX_FILES } from '../workspace-documents/workspace-documents.service';
 import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
 import { RoleEnum } from '../roles/roles.enum';
+import { assignExclusivePhaseGate } from '../projects/phase-gate.util';
 
 const EXTERNAL_ROLES = [RoleEnum.client, RoleEnum.vendor];
 
@@ -280,6 +281,52 @@ export class TasksService {
         },
       });
     }
+  }
+
+  /**
+   * Resolves whether the task should be the phase gate after create/update.
+   * Sub-tasks and tasks without a phase cannot be gates.
+   */
+  private resolveIsPhaseGate(params: {
+    requested?: boolean;
+    phaseId: string | null | undefined;
+    parentTaskId: string | null | undefined;
+    previouslyGate?: boolean;
+  }): boolean {
+    const phaseId = params.phaseId ?? null;
+    const parentTaskId = params.parentTaskId ?? null;
+
+    if (params.requested === true) {
+      if (!phaseId) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { isPhaseGate: 'phaseGateRequiresPhase' },
+          message: 'A phase sign-off task must belong to a phase.',
+        });
+      }
+      if (parentTaskId) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { isPhaseGate: 'phaseGateNotAllowedOnSubTask' },
+          message: 'Sub-tasks cannot be phase sign-off (gate) tasks.',
+        });
+      }
+      return true;
+    }
+
+    if (params.requested === false) {
+      return false;
+    }
+
+    // Unchanged: keep previous gate only if still valid on this phase.
+    if (params.previouslyGate) {
+      if (!phaseId || parentTaskId) {
+        return false;
+      }
+      return true;
+    }
+
+    return false;
   }
 
   private validateStatusTransitionByRole(
@@ -558,22 +605,39 @@ export class TasksService {
       dto.endDate,
     );
 
-    const task = await this.prisma.task.create({
-      data: {
-        projectId: dto.projectId,
-        parentTaskId: dto.parentTaskId ?? null,
-        phaseId: dto.phaseId,
-        title: dto.title,
-        description: dto.description ?? null,
-        priority: (dto.priority as PriorityLevel) ?? PriorityLevel.Medium,
-        ownerId: dto.ownerId ?? null,
-        backupOwnerId: dto.backupOwnerId ?? null,
-        startDate: dto.startDate ?? null,
-        endDate: dto.endDate ?? null,
-        effortHours: dto.effortHours ?? null,
-        status: dto.status ? this.mapStatusToPrisma(dto.status) : TaskStatus.To_Do,
-      },
-      include: TASK_INCLUDE,
+    const isPhaseGate = this.resolveIsPhaseGate({
+      requested: dto.isPhaseGate,
+      phaseId: dto.phaseId,
+      parentTaskId: dto.parentTaskId ?? null,
+    });
+
+    const task = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.task.create({
+        data: {
+          projectId: dto.projectId,
+          parentTaskId: dto.parentTaskId ?? null,
+          phaseId: dto.phaseId,
+          title: dto.title,
+          description: dto.description ?? null,
+          priority: (dto.priority as PriorityLevel) ?? PriorityLevel.Medium,
+          ownerId: dto.ownerId ?? null,
+          backupOwnerId: dto.backupOwnerId ?? null,
+          startDate: dto.startDate ?? null,
+          endDate: dto.endDate ?? null,
+          effortHours: dto.effortHours ?? null,
+          status: dto.status ? this.mapStatusToPrisma(dto.status) : TaskStatus.To_Do,
+          isPhaseGate: false,
+        },
+      });
+
+      if (isPhaseGate) {
+        await assignExclusivePhaseGate(tx, dto.phaseId, created.id);
+      }
+
+      return tx.task.findUniqueOrThrow({
+        where: { id: created.id },
+        include: TASK_INCLUDE,
+      });
     });
 
     const formatted = this.formatTask(task, viewerRoleCode);
@@ -632,6 +696,12 @@ export class TasksService {
     }
 
     const task = await this.prisma.$transaction(async (tx) => {
+      const isPhaseGate = this.resolveIsPhaseGate({
+        requested: dto.isPhaseGate,
+        phaseId: dto.phaseId,
+        parentTaskId: dto.parentTaskId ?? null,
+      });
+
       const created = await tx.task.create({
         data: {
           projectId: dto.projectId,
@@ -645,8 +715,13 @@ export class TasksService {
           endDate: dto.endDate ?? null,
           effortHours: dto.effortHours ?? null,
           status: dto.status ? this.mapStatusToPrisma(dto.status) : TaskStatus.To_Do,
+          isPhaseGate: false,
         },
       });
+
+      if (isPhaseGate) {
+        await assignExclusivePhaseGate(tx, dto.phaseId, created.id);
+      }
 
       for (const sub of subTasks) {
         await tx.task.create({
@@ -850,6 +925,13 @@ export class TasksService {
 
     const impactedSuccessorIds = new Set<string>();
 
+    const isPhaseGate = this.resolveIsPhaseGate({
+      requested: dto.isPhaseGate,
+      phaseId: resolvedPhaseId,
+      parentTaskId,
+      previouslyGate: existing.isPhaseGate,
+    });
+
     const task = await this.prisma.$transaction(async (tx) => {
       await tx.task.update({
         where: { id },
@@ -863,8 +945,13 @@ export class TasksService {
           endDate: dto.endDate !== undefined ? dto.endDate : undefined,
           effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
           status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
+          isPhaseGate: false,
         },
       });
+
+      if (isPhaseGate && resolvedPhaseId) {
+        await assignExclusivePhaseGate(tx, resolvedPhaseId, id);
+      }
 
       for (const sub of subTasks) {
         const parentEffort =
@@ -1304,22 +1391,45 @@ export class TasksService {
       );
     }
 
-    const task = await this.prisma.task.update({
-      where: { id },
-      data: {
-        title: dto.title ?? undefined,
-        description: dto.description ?? undefined,
-        priority: (dto.priority as PriorityLevel) ?? undefined,
-        ownerId: dto.ownerId !== undefined ? dto.ownerId : undefined,
-        backupOwnerId:
-          dto.backupOwnerId !== undefined ? dto.backupOwnerId : undefined,
-        phaseId: dto.phaseId !== undefined ? dto.phaseId : undefined,
-        startDate: dto.startDate !== undefined ? dto.startDate : undefined,
-        endDate: dto.endDate !== undefined ? dto.endDate : undefined,
-        effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
-        status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
-      },
-      include: TASK_INCLUDE,
+    const isPhaseGate = this.resolveIsPhaseGate({
+      requested: dto.isPhaseGate,
+      phaseId,
+      parentTaskId,
+      previouslyGate: existing.isPhaseGate,
+    });
+
+    const task = await this.prisma.$transaction(async (tx) => {
+      await tx.task.update({
+        where: { id },
+        data: {
+          title: dto.title ?? undefined,
+          description: dto.description ?? undefined,
+          priority: (dto.priority as PriorityLevel) ?? undefined,
+          ownerId: dto.ownerId !== undefined ? dto.ownerId : undefined,
+          backupOwnerId:
+            dto.backupOwnerId !== undefined ? dto.backupOwnerId : undefined,
+          phaseId: dto.phaseId !== undefined ? dto.phaseId : undefined,
+          startDate: dto.startDate !== undefined ? dto.startDate : undefined,
+          endDate: dto.endDate !== undefined ? dto.endDate : undefined,
+          effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
+          status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
+          isPhaseGate: false,
+        },
+      });
+
+      if (isPhaseGate && phaseId) {
+        await assignExclusivePhaseGate(tx, phaseId, id);
+      } else if (existing.isPhaseGate && !isPhaseGate) {
+        await tx.task.update({
+          where: { id },
+          data: { isPhaseGate: false },
+        });
+      }
+
+      return tx.task.findUniqueOrThrow({
+        where: { id },
+        include: TASK_INCLUDE,
+      });
     });
 
     await this.dispatchTaskUpdateNotifications(existing, task, actorId);

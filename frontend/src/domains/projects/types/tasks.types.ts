@@ -95,6 +95,7 @@ export interface Task {
   isOverEffort?: boolean;
   status: TaskStatus;
   phaseId: string | null;
+  isPhaseGate?: boolean;
   isOnCriticalPath?: boolean;
   backupOwnerId?: string | null;
   backupOwner?: TaskUserSummary;

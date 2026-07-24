@@ -16,6 +16,9 @@ import { CreatePhaseDto } from './dto/create-phase.dto';
 import { UpdatePhaseDto } from './dto/update-phase.dto';
 import { CreateMilestoneDto } from './dto/create-milestone.dto';
 import { UpdateMilestoneDto } from './dto/update-milestone.dto';
+import {
+  assertPhaseGateReadyToComplete,
+} from './phase-gate.util';
 import { ProjectStatus, TaskStatus, PhaseStatus, Prisma } from '@prisma/client';
 import {
   ApiPriorityLevel,
@@ -860,6 +863,15 @@ export class ProjectsService {
       });
     }
 
+    const nextStatus = dto.status !== undefined ? dto.status : existing.status;
+    if (
+      dto.status !== undefined &&
+      dto.status !== existing.status &&
+      dto.status === PhaseStatus.Completed
+    ) {
+      await assertPhaseGateReadyToComplete(this.prisma, phaseId);
+    }
+
     return this.prisma.projectPhase.update({
       where: { id: phaseId },
       data: {
@@ -868,7 +880,7 @@ export class ProjectsService {
         ...(dto.orderIndex !== undefined && { orderIndex: dto.orderIndex }),
         ...(dto.startDate !== undefined && { startDate: dto.startDate }),
         ...(dto.endDate !== undefined && { endDate: dto.endDate }),
-        ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.status !== undefined && { status: nextStatus }),
       },
     });
   }

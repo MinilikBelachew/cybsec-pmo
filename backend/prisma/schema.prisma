@@ -520,6 +520,8 @@ model Task {
   progressApproved Int           @default(0) @map("progress_approved")
   progressPending  Int           @default(0) @map("progress_pending")
   status           TaskStatus    @default(To_Do)
+  /// When true, this top-level task is the mandatory phase sign-off / gate.
+  isPhaseGate      Boolean       @default(false) @map("is_phase_gate")
   isOnCriticalPath Boolean       @default(false) @map("is_on_critical_path")
   backupOwnerId    String?       @map("backup_owner_id") @db.Uuid
   /// Linked Keka PSA task id (GET/POST /psa/projects/{projectId}/tasks). Used for timesheet push.
@@ -548,6 +550,7 @@ model Task {
   @@index([parentTaskId], map: "idx_tasks_parent")
   @@index([status], map: "idx_tasks_status")
   @@index([phaseId], map: "idx_tasks_phase")
+  @@index([phaseId, isPhaseGate], map: "idx_tasks_phase_gate")
   @@index([backupOwnerId], map: "idx_tasks_backup_owner")
   @@map("tasks")
 }

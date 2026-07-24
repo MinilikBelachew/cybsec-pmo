@@ -13,10 +13,11 @@ import {
   useDeleteMilestoneMutation,
   useGetProjectByIdQuery,
 } from "../../../api/projects.api";
-import { useGetTasksQuery } from "../../../api/tasks.api";
+import { useGetTasksQuery, useUpdateTaskMutation } from "../../../api/tasks.api";
 import { useUploadFileMutation } from "../../../api/files.api";
 import { formatFileUploadError } from "../../../utils/attachment-limits";
 import { formatMilestoneWeightApiError } from "../../../utils/milestone-weight";
+import { formatTaskApiError } from "../../../utils/task-status-permissions";
 import {
   useCreateProjectDocumentMutation,
   useDeleteProjectDocumentMutation,
@@ -26,6 +27,7 @@ import type { WorkspaceDocumentCategory } from "../../../types/project-documents
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent } from "@/shared/ui/card";
+import { FilterSelect } from "@/shared/components/filter-select";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { PhaseForm } from "../../roadmap/phase-form";
@@ -47,6 +49,7 @@ import {
   Trash2,
   Edit2,
   Paperclip,
+  ShieldCheck,
 } from "lucide-react";
 import { PhaseStatus } from "../../../types/projects.types";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
@@ -89,6 +92,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
   const [createMilestone, { isLoading: isCreatingMilestone }] = useCreateMilestoneMutation();
   const [updateMilestone, { isLoading: isUpdatingMilestone }] = useUpdateMilestoneMutation();
   const [deleteMilestone, { isLoading: isDeletingMilestone }] = useDeleteMilestoneMutation();
+  const [updateTask, { isLoading: isUpdatingGate }] = useUpdateTaskMutation();
   const [uploadFile, { isLoading: isUploadingFile }] = useUploadFileMutation();
   const [createDocument, { isLoading: isCreatingDocument }] = useCreateProjectDocumentMutation();
   const [deleteDocument, { isLoading: isDeletingDocument }] = useDeleteProjectDocumentMutation();
@@ -268,7 +272,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
       (p) => (activeForm.type === "add-phase" ? true : p.id !== activeForm.id)
     );
     const sortedPhases = [...otherPhases].map((p) => ({
-      id: p.id,
+      id: p.id, 
       startDate: p.startDate || null,
       endDate: p.endDate || null,
       name: p.name,
@@ -343,7 +347,21 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
       setActiveForm({ type: null });
     } catch (err) {
       console.error("Failed to save phase", err);
-      toast.error("Failed to save phase");
+      toast.error(formatTaskApiError(err, "Failed to save phase"));
+    }
+  };
+
+  const handleSetPhaseGate = async (taskId: string, isPhaseGate: boolean) => {
+    try {
+      await updateTask({ id: taskId, body: { isPhaseGate } }).unwrap();
+      toast.success(
+        isPhaseGate
+          ? "Phase sign-off task set."
+          : "Phase sign-off cleared.",
+      );
+    } catch (err) {
+      console.error("Failed to update phase sign-off", err);
+      toast.error(formatTaskApiError(err, "Failed to update phase sign-off"));
     }
   };
 
@@ -641,6 +659,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
         <div className="p-6 space-y-6">
           {sortedPhases.map((phase) => {
             const phaseTasks = tasksByPhase[phase.id] || [];
+            const gateTask = phaseTasks.find((t) => t.isPhaseGate) ?? null;
             const phaseMilestones = milestonesByPhase[phase.id] || [];
             const phaseAttachments = documentsByPhase[phase.id] || [];
             const completedTasksCount = phaseTasks.filter((t) => t.status === "Done" || t.status === "Approved").length;
@@ -851,6 +870,68 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                       Tasks ({phaseTasks.length})
                     </h4>
 
+                    <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5 space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                          Phase sign-off
+                        </span>
+                      </div>
+                      {gateTask ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onTaskClick(gateTask.id)}
+                            className="min-w-0 flex-1 text-left rounded-md border border-border bg-card px-2.5 py-1.5 hover:bg-muted/40 transition-colors"
+                          >
+                            <span className="text-xs font-bold text-foreground truncate block">
+                              {gateTask.title}
+                            </span>
+                            <span className="text-[9px] text-muted-foreground font-medium">
+                              {gateTask.status.replace(/_/g, " ")}
+                            </span>
+                          </button>
+                          {canEditPhases && (
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              className="shrink-0 h-7 text-[10px]"
+                              disabled={isUpdatingGate}
+                              onClick={() => void handleSetPhaseGate(gateTask.id, false)}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      ) : canEditPhases && phaseTasks.length > 0 ? (
+                        <FilterSelect
+                          value={null}
+                          onValueChange={(taskId) => {
+                            if (taskId) void handleSetPhaseGate(taskId, true);
+                          }}
+                          disabled={isUpdatingGate}
+                          searchable
+                          allowNone={false}
+                          noneLabel="Select sign-off task…"
+                          searchPlaceholder="Search tasks…"
+                          className="h-8 w-full min-w-0 text-xs"
+                          triggerClassName="h-8 w-full min-w-0 text-xs"
+                          options={phaseTasks.map((t) => ({
+                            id: t.id,
+                            label: t.title,
+                            subtitle: t.status.replace(/_/g, " "),
+                          }))}
+                        />
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground leading-relaxed">
+                          {phaseTasks.length === 0
+                            ? "Add a task to this phase, then set it as the sign-off."
+                            : "No sign-off task set for this phase."}
+                        </p>
+                      )}
+                    </div>
+
                     {phaseTasks.length === 0 ? (
                       <div className="flex-1 flex items-center justify-center p-4 border border-dashed border-border rounded-lg bg-muted/10">
                         <span className="text-[10px] text-muted-foreground">No tasks in this phase</span>
@@ -874,6 +955,11 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                                 <Badge className={`text-[8px] font-bold px-1.5 py-0 border-none shrink-0 ${getTaskStatusColor(t.status)}`}>
                                   {t.status.replace("_", " ")}
                                 </Badge>
+                                {t.isPhaseGate && (
+                                  <Badge className="text-[8px] font-bold px-1.5 py-0 border-none shrink-0 bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                                    Sign-off
+                                  </Badge>
+                                )}
                               </div>
                             </div>
 

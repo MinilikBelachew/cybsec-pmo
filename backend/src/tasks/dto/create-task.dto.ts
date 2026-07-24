@@ -8,6 +8,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  IsBoolean,
   MaxLength,
   Validate,
   ValidationArguments,
@@ -110,4 +111,13 @@ export class CreateTaskDto {
   @IsOptional()
   @IsEnum(TaskStatusEnum)
   status?: TaskStatusEnum;
+
+  @ApiPropertyOptional({
+    description:
+      'When true, marks this top-level task as the mandatory phase sign-off / gate (one per phase).',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isPhaseGate?: boolean;
 }
