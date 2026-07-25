@@ -16,6 +16,7 @@ import {
 import { useUploadFileMutation } from "../../api/files.api";
 import { formatFileUploadError } from "../../utils/attachment-limits";
 import { formatMilestoneWeightApiError } from "../../utils/milestone-weight";
+import { formatTaskApiError } from "../../utils/task-status-permissions";
 import {
   useCreateProjectDocumentMutation,
   useDeleteProjectDocumentMutation,
@@ -376,7 +377,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
       setActiveForm({ type: null });
     } catch (err) {
       console.error("Failed to save phase", err);
-      toast.error("Failed to save phase");
+      toast.error(formatTaskApiError(err, "Failed to save phase"));
     }
   };
 
