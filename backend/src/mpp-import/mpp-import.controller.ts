@@ -1,10 +1,14 @@
 import {
   Body,
   Controller,
+  Get,
+  Header,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Request,
+  StreamableFile,
   UnprocessableEntityException,
   UploadedFile,
   UseGuards,
@@ -16,6 +20,8 @@ import {
   ApiConsumes,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiParam,
+  ApiProduces,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -29,6 +35,7 @@ import { RequestWithAbility } from '../casl/casl.guard';
 import { resolveCaslUser } from '../casl/casl-user.util';
 import { PrismaService } from '../database/prisma.service';
 import { CreateMppImportDto } from './dto/create-mpp-import.dto';
+import { CreateMppPortfolioImportDto } from './dto/create-mpp-portfolio-import.dto';
 import { PreviewMppImportDto } from './dto/preview-mpp-import.dto';
 import { MppImportPreviewDto } from './dto/mpp-import-preview.dto';
 import { MppImportResultDto } from './dto/mpp-import-result.dto';
@@ -40,6 +47,31 @@ const UPLOAD_BODY_SCHEMA = {
   required: ['file', 'projectId'],
   properties: {
     projectId: { type: 'string', format: 'uuid' },
+    file: { type: 'string', format: 'binary' },
+  },
+};
+
+const PORTFOLIO_BODY_SCHEMA = {
+  type: 'object',
+  required: ['file'],
+    properties: {
+    objective: { type: 'string' },
+    departmentId: { type: 'string', format: 'uuid' },
+    customerId: { type: 'string', format: 'uuid' },
+    engagementType: { type: 'string' },
+    billingModel: { type: 'string' },
+    priority: { type: 'string' },
+    value: { type: 'number' },
+    currency: { type: 'string' },
+    primaryPmId: { type: 'string', format: 'uuid' },
+    projectsJson: {
+      type: 'string',
+      description: 'JSON array of per-project create fields matched by name',
+    },
+    projects: {
+      type: 'string',
+      description: 'Deprecated — use projectsJson',
+    },
     file: { type: 'string', format: 'binary' },
   },
 };
@@ -113,6 +145,54 @@ export class MppImportController {
       file.originalname,
       file.path,
     );
+  }
+
+  @CheckAbility('create', 'Project')
+  @CheckModulePermission('project_import', 'import')
+  @Post('mpp/portfolio')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: PORTFOLIO_BODY_SCHEMA })
+  @ApiCreatedResponse({ type: MppImportResultDto })
+  @UseInterceptors(FileInterceptor('file'))
+  async importPortfolio(
+    @Request() request: RequestWithAbility,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: CreateMppPortfolioImportDto,
+  ): Promise<MppImportResultDto> {
+    this.assertValidFile(file);
+    const user = await resolveCaslUser(this.prisma, request);
+
+    return this.mppImportService.importPortfolio(
+      user,
+      dto,
+      file.originalname,
+      file.path,
+    );
+  }
+
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('project_export', 'export')
+  @Get('mspdi/export/:projectId')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'projectId', type: String })
+  @ApiProduces('application/xml')
+  @ApiOkResponse({
+    description:
+      'Microsoft Project XML (MSPDI). Binary .mpp is not supported by MPXJ; MSPDI opens in MS Project.',
+  })
+  @Header('Content-Type', 'application/xml')
+  async exportMspdi(
+    @Request() request: RequestWithAbility,
+    @Param('projectId') projectId: string,
+  ): Promise<StreamableFile> {
+    const user = await resolveCaslUser(this.prisma, request);
+    const file = await this.mppImportService.exportMspdi(user, projectId);
+
+    return new StreamableFile(file.buffer, {
+      type: file.contentType,
+      disposition: `attachment; filename="${file.filename}"`,
+    });
   }
 
   private assertValidFile(file: Express.Multer.File): void {

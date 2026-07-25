@@ -20,12 +20,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
+import { useExportTasksQuery } from "@/domains/projects/api/tasks.api";
+import type { TaskDependency } from "@/domains/projects/types/tasks.types";
 import { type ProjectTaskAssignee } from "../../../types/projects.types";
 import {
   API_PRIORITY_OPTIONS,
   getPriorityColors,
   type ApiPriority,
 } from "./task-cell-pickers";
+import {
+  TaskDependenciesPicker,
+  type DepTaskOption,
+} from "./task-predecessors-cell";
 
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
@@ -81,6 +88,7 @@ const STATUS_LABEL: Record<Status, string> = {
 
 interface TableViewProps {
   tasks: Task[];
+  projectId?: string;
   toggleTask: (id: string) => void;
   onTaskClick?: (taskId: string) => void;
   onAddTask?: (status: Status) => void;
@@ -95,10 +103,12 @@ interface TableViewProps {
   onBulkStatus?: (taskIds: string[], status: Status) => Promise<void>;
   onBulkPriority?: (taskIds: string[], priority: ApiPriority) => Promise<void>;
   onBulkDelete?: (taskIds: string[]) => void;
+  dependencies?: TaskDependency[];
 }
 
 export function TableView({
   tasks,
+  projectId,
   toggleTask,
   onTaskClick,
   onDeleteTask,
@@ -110,23 +120,62 @@ export function TableView({
   onBulkStatus,
   onBulkPriority,
   onBulkDelete,
+  dependencies = [],
 }: TableViewProps) {
   const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
   const [bulkActive, setBulkActive] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Task[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const { canEditDependencies } = useModulePermissions();
+
+  const { data: exportTasksForPred = [] } = useExportTasksQuery(
+    { projectId: projectId!, topLevelOnly: false },
+    { skip: !projectId },
+  );
+
+  const dependencyTaskOptions = useMemo((): DepTaskOption[] => {
+    if (exportTasksForPred.length > 0) {
+      const out: DepTaskOption[] = [];
+      const seen = new Set<string>();
+      const push = (id: string, name: string) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        out.push({ id, name });
+      };
+      for (const t of exportTasksForPred) {
+        push(t.id, t.title);
+        for (const s of t.subTasks ?? []) {
+          push(s.id, s.title);
+          for (const ss of s.subTasks ?? []) {
+            push(ss.id, ss.title);
+          }
+        }
+      }
+      return out;
+    }
+    const out: DepTaskOption[] = [];
+    const walk = (t: Task) => {
+      out.push({ id: t.id, name: t.name });
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of tasks) walk(t);
+    return out;
+  }, [exportTasksForPred, tasks]);
 
   useEffect(() => {
-    const withSubs = tasks.filter(
-      (t) => (t.children?.length ?? 0) > 0 || Boolean(t.hasSubtasks),
-    );
-    if (withSubs.length === 0) return;
+    const ids: string[] = [];
+    const walk = (t: Task) => {
+      if ((t.children?.length ?? 0) > 0 || Boolean(t.hasSubtasks)) ids.push(t.id);
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of tasks) walk(t);
+    if (ids.length === 0) return;
     setExpandedParents((prev) => {
       const next = new Set(prev);
       let changed = false;
-      for (const t of withSubs) {
-        if (!next.has(t.id)) {
-          next.add(t.id);
+      for (const id of ids) {
+        if (!next.has(id)) {
+          next.add(id);
           changed = true;
         }
       }
@@ -136,19 +185,21 @@ export function TableView({
 
   const flatRows = useMemo(() => {
     const rows: Task[] = [];
-    for (const task of tasks) {
-      rows.push({ ...task, depth: 0 });
-      const children = task.children ?? [];
-      if (children.length > 0 && expandedParents.has(task.id)) {
-        for (const child of children) {
-          rows.push({
-            ...child,
-            depth: 1,
-            parentTaskId: child.parentTaskId ?? task.id,
-          });
+    const walk = (task: Task, depth: number) => {
+      rows.push({ ...task, depth });
+      if (depth < 2 && (task.children?.length ?? 0) > 0 && expandedParents.has(task.id)) {
+        for (const child of task.children ?? []) {
+          walk(
+            {
+              ...child,
+              parentTaskId: child.parentTaskId ?? task.id,
+            },
+            depth + 1,
+          );
         }
       }
-    }
+    };
+    for (const task of tasks) walk(task, 0);
     return rows;
   }, [tasks, expandedParents]);
 
@@ -318,7 +369,7 @@ export function TableView({
 
           return (
             <div className="flex items-center gap-2" style={{ paddingLeft: depth * 20 }}>
-              {depth === 0 && hasChildren ? (
+              {depth < 2 && hasChildren ? (
                 <button
                   type="button"
                   onClick={(e) => toggleParentExpand(task.id, e)}
@@ -361,7 +412,7 @@ export function TableView({
               >
                 {depth > 0 && (
                   <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Sub
+                    {depth >= 2 ? "Sub²" : "Sub"}
                   </span>
                 )}
                 {task.name}
@@ -369,6 +420,20 @@ export function TableView({
             </div>
           );
         },
+      },
+      {
+        id: "dependencies",
+        header: "Deps",
+        cell: ({ row }) => (
+          <div onClick={(e) => e.stopPropagation()}>
+            <TaskDependenciesPicker
+              taskId={row.original.id}
+              taskOptions={dependencyTaskOptions}
+              dependencies={dependencies}
+              canEdit={canEditDependencies}
+            />
+          </div>
+        ),
       },
       {
         id: "assignee",
@@ -571,6 +636,9 @@ export function TableView({
     onTaskClick,
     onDuplicateTask,
     onDeleteTask,
+    dependencyTaskOptions,
+    dependencies,
+    canEditDependencies,
   ]);
 
   return (

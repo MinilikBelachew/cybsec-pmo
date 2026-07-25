@@ -41,14 +41,49 @@ const TASK_INCLUDE = {
       id: true,
       displayName: true,
       email: true,
-      employees: { select: { id: true } },
+      isExternal: true,
+      employees: {
+        select: {
+          id: true,
+          department: { select: { id: true, name: true, code: true } },
+        },
+      },
     },
   },
-  backupOwner: { select: { id: true, displayName: true, email: true } },
-  parentTask: {
-    select: { id: true, title: true, startDate: true, endDate: true, ownerId: true },
+  backupOwner: {
+    select: {
+      id: true,
+      displayName: true,
+      email: true,
+      isExternal: true,
+      employees: {
+        select: {
+          id: true,
+          department: { select: { id: true, name: true, code: true } },
+        },
+      },
+    },
   },
-  phase: { select: { id: true, name: true } },
+  parentTask: {
+    select: {
+      id: true,
+      title: true,
+      startDate: true,
+      endDate: true,
+      ownerId: true,
+      parentTaskId: true,
+    },
+  },
+  phase: {
+    select: {
+      id: true,
+      name: true,
+      orderIndex: true,
+      startDate: true,
+      endDate: true,
+    },
+  },
+  // Up to 3 levels total: task → sub → sub-sub.
   subTasks: {
     select: {
       id: true,
@@ -58,8 +93,22 @@ const TASK_INCLUDE = {
       owner: { select: { id: true, displayName: true, email: true } },
       startDate: true,
       endDate: true,
+      createdAt: true,
+      subTasks: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          priority: true,
+          owner: { select: { id: true, displayName: true, email: true } },
+          startDate: true,
+          endDate: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' as const },
+      },
     },
-    orderBy: { createdAt: 'asc' as const },
+    orderBy: { createdAt: 'desc' as const },
   },
   comments: {
     include: {
@@ -147,6 +196,19 @@ export class TasksService {
     const { comments, workspaceDocuments, ...rest } = task as any;
     return {
       ...rest,
+      durationDays:
+        rest.durationDays != null && Number.isFinite(Number(rest.durationDays))
+          ? Number(rest.durationDays)
+          : null,
+      baselineDurationDays:
+        rest.baselineDurationDays != null &&
+        Number.isFinite(Number(rest.baselineDurationDays))
+          ? Number(rest.baselineDurationDays)
+          : null,
+      effortHours:
+        rest.effortHours != null && Number.isFinite(Number(rest.effortHours))
+          ? Number(rest.effortHours)
+          : rest.effortHours ?? null,
       comments: this.filterCommentsForRole(comments ?? [], roleCode),
       attachments: (workspaceDocuments ?? []).map((a: any) =>
         this.workspaceDocumentsService.mapAsTaskAttachment(a),
@@ -409,13 +471,34 @@ export class TasksService {
           errors: { parentTask: 'parentTaskMustBeInSameProject' },
         });
       }
+      // Max 3 levels: top → sub → sub-sub. Reject when parent is already a sub-sub.
       if (parent.parentTaskId) {
-        throw new UnprocessableEntityException({
-          status: HttpStatus.UNPROCESSABLE_ENTITY,
-          errors: { parentTask: 'subTasksCannotBeNestedDeeperThanOneLevel' },
+        const grandparent = await this.prisma.task.findUnique({
+          where: { id: parent.parentTaskId },
+          select: { parentTaskId: true },
         });
+        if (grandparent?.parentTaskId) {
+          throw new UnprocessableEntityException({
+            status: HttpStatus.UNPROCESSABLE_ENTITY,
+            errors: { parentTask: 'subTasksCannotBeNestedDeeperThanThreeLevels' },
+          });
+        }
       }
     }
+  }
+
+  /** True when a task at this parent position may still own child tasks (depth < 3). */
+  private async canAttachChildTasks(parentTaskId?: string | null): Promise<boolean> {
+    if (!parentTaskId) {
+      return true;
+    }
+    const parent = await this.prisma.task.findUnique({
+      where: { id: parentTaskId },
+      select: { parentTaskId: true },
+    });
+    // Parent is top-level → new task is depth 2 → may have children.
+    // Parent is already a sub → new task is depth 3 → may not have children.
+    return !parent?.parentTaskId;
   }
 
   
@@ -570,7 +653,17 @@ export class TasksService {
         backupOwnerId: dto.backupOwnerId ?? null,
         startDate: dto.startDate ?? null,
         endDate: dto.endDate ?? null,
+        baselineStart: dto.baselineStart ?? null,
+        baselineEnd: dto.baselineEnd ?? null,
+        actualStart: dto.actualStart ?? null,
+        actualEnd: dto.actualEnd ?? null,
+        durationDays: dto.durationDays ?? null,
+        baselineDurationDays: dto.baselineDurationDays ?? null,
         effortHours: dto.effortHours ?? null,
+        progressApproved:
+          dto.progressApproved != null
+            ? Math.max(0, Math.min(100, Math.round(dto.progressApproved)))
+            : undefined,
         status: dto.status ? this.mapStatusToPrisma(dto.status) : TaskStatus.To_Do,
       },
       include: TASK_INCLUDE,
@@ -624,7 +717,9 @@ export class TasksService {
       });
     }
 
-    const subTasks = dto.parentTaskId ? [] : (dto.subTasks ?? []);
+    const subTasks = (await this.canAttachChildTasks(dto.parentTaskId ?? null))
+      ? (dto.subTasks ?? [])
+      : [];
 
     const uploadedFiles: UploadedFileResult[] = [];
     for (const file of files) {
@@ -643,7 +738,17 @@ export class TasksService {
           ownerId: dto.ownerId ?? null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
+          baselineStart: dto.baselineStart ?? null,
+          baselineEnd: dto.baselineEnd ?? null,
+          actualStart: dto.actualStart ?? null,
+          actualEnd: dto.actualEnd ?? null,
+          durationDays: dto.durationDays ?? null,
+          baselineDurationDays: dto.baselineDurationDays ?? null,
           effortHours: dto.effortHours ?? null,
+          progressApproved:
+            dto.progressApproved != null
+              ? Math.max(0, Math.min(100, Math.round(dto.progressApproved)))
+              : undefined,
           status: dto.status ? this.mapStatusToPrisma(dto.status) : TaskStatus.To_Do,
         },
       });
@@ -761,7 +866,11 @@ export class TasksService {
       }
     }
 
-    const subTasks = existing.parentTaskId ? [] : (dto.subTasks ?? []);
+    const parentTaskIdForNesting =
+      dto.parentTaskId !== undefined ? dto.parentTaskId : existing.parentTaskId;
+    const subTasks = (await this.canAttachChildTasks(parentTaskIdForNesting))
+      ? (dto.subTasks ?? [])
+      : [];
     const removeAttachmentIds = dto.removeAttachmentIds ?? [];
     const addDependencies = dto.addDependencies ?? [];
     const removeDependencyIds = dto.removeDependencyIds ?? [];
@@ -1065,13 +1174,12 @@ export class TasksService {
     });
   }
 
-  async getActiveTaskStats(caslUser: CaslUserContext) {
-    const baseWhere: Prisma.TaskWhereInput = {
-      AND: [
-        this.recordScopeWhere.taskWhere(caslUser, 'read'),
-        { parentTaskId: null },
-      ],
-    };
+  async getTaskStats(query: QueryTaskDto, caslUser: CaslUserContext) {
+    // Stats always count top-level tasks (same unit as board/list columns).
+    const where = this.buildTaskListWhere(
+      { ...query, topLevelOnly: true, page: undefined, limit: undefined },
+      caslUser,
+    );
 
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
@@ -1079,13 +1187,13 @@ export class TasksService {
     const [statusGroups, overdue] = await Promise.all([
       this.prisma.task.groupBy({
         by: ['status'],
-        where: baseWhere,
+        where,
         _count: { _all: true },
       }),
       this.prisma.task.count({
         where: {
           AND: [
-            baseWhere,
+            where,
             {
               endDate: { lt: endOfToday },
               status: { notIn: [TaskStatus.Done, TaskStatus.Approved] },
@@ -1095,21 +1203,31 @@ export class TasksService {
       }),
     ]);
 
-    const byStatus = new Map(
-      statusGroups.map((group) => [group.status, group._count._all]),
-    );
+    const byStatus: Record<string, number> = {
+      To_Do: 0,
+      In_Progress: 0,
+      Submitted_for_Review: 0,
+      Approved: 0,
+      Rework: 0,
+      Done: 0,
+    };
+    for (const group of statusGroups) {
+      byStatus[group.status] = group._count._all;
+    }
 
-    const todo = byStatus.get(TaskStatus.To_Do) ?? 0;
+    const todo = byStatus.To_Do;
     const inProgress =
-      (byStatus.get(TaskStatus.In_Progress) ?? 0) +
-      (byStatus.get(TaskStatus.Submitted_for_Review) ?? 0);
-    const rework = byStatus.get(TaskStatus.Rework) ?? 0;
-    const done =
-      (byStatus.get(TaskStatus.Done) ?? 0) +
-      (byStatus.get(TaskStatus.Approved) ?? 0);
+      byStatus.In_Progress + byStatus.Submitted_for_Review;
+    const rework = byStatus.Rework;
+    const done = byStatus.Done + byStatus.Approved;
     const total = statusGroups.reduce((sum, group) => sum + group._count._all, 0);
 
-    return { total, todo, inProgress, rework, done, overdue };
+    return { total, todo, inProgress, rework, done, overdue, byStatus };
+  }
+
+  /** @deprecated Prefer getTaskStats — kept for any internal callers. */
+  async getActiveTaskStats(caslUser: CaslUserContext) {
+    return this.getTaskStats({}, caslUser);
   }
 
   private buildTaskListWhere(
@@ -1162,6 +1280,7 @@ export class TasksService {
 
     const tasks = await this.prisma.task.findMany({
       where,
+      // Match list + MPP import: createdAt desc = plan order (import creates reverse-plan).
       orderBy: { createdAt: 'desc' },
       include: TASK_INCLUDE,
     });
@@ -1316,7 +1435,22 @@ export class TasksService {
         phaseId: dto.phaseId !== undefined ? dto.phaseId : undefined,
         startDate: dto.startDate !== undefined ? dto.startDate : undefined,
         endDate: dto.endDate !== undefined ? dto.endDate : undefined,
+        baselineStart:
+          dto.baselineStart !== undefined ? dto.baselineStart : undefined,
+        baselineEnd: dto.baselineEnd !== undefined ? dto.baselineEnd : undefined,
+        actualStart: dto.actualStart !== undefined ? dto.actualStart : undefined,
+        actualEnd: dto.actualEnd !== undefined ? dto.actualEnd : undefined,
+        durationDays:
+          dto.durationDays !== undefined ? dto.durationDays : undefined,
+        baselineDurationDays:
+          dto.baselineDurationDays !== undefined
+            ? dto.baselineDurationDays
+            : undefined,
         effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
+        progressApproved:
+          dto.progressApproved !== undefined
+            ? Math.max(0, Math.min(100, Math.round(dto.progressApproved)))
+            : undefined,
         status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
       },
       include: TASK_INCLUDE,

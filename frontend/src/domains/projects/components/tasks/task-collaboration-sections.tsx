@@ -95,7 +95,7 @@ interface TaskCollaborationSectionsProps {
   className?: string;
   layout?: "stacked" | "tabs";
   showAttachments?: boolean;
-  /** When false, hides the Subtasks tab (used for child tasks — one level only). */
+  /** When false, hides the Subtasks tab (depth-3 leaves cannot nest further). */
   showSubTasks?: boolean;
   defaultTab?: TabId;
   subTaskMode?: "immediate" | "draft";

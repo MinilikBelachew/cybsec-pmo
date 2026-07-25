@@ -14,7 +14,12 @@ export type ParsedMppTask = {
   parentUid?: number;
   startDate?: string;
   finishDate?: string;
+  baselineStartDate?: string;
+  baselineFinishDate?: string;
   durationDays?: number;
+  baselineDurationDays?: number;
+  actualStartDate?: string;
+  actualFinishDate?: string;
   percentComplete?: number;
   predecessors: ParsedMppPredecessor[];
 };
@@ -36,6 +41,14 @@ export type ParsedMppProject = {
     name?: string;
     startDate?: string;
     finishDate?: string;
+    baselineStartDate?: string;
+    baselineFinishDate?: string;
+    durationDays?: number;
+    baselineDurationDays?: number;
+    percentComplete?: number;
+    durationVarianceDays?: number;
+    actualStartDate?: string;
+    actualFinishDate?: string;
   };
   tasks: ParsedMppTask[];
   resources: ParsedMppResource[];
@@ -43,12 +56,25 @@ export type ParsedMppProject = {
   warnings: string[];
 };
 
+export type MppPortfolioSegment = {
+  projectName: string;
+  startDate?: string;
+  finishDate?: string;
+  parsed: ParsedMppProject;
+};
+
 export type MppImportResultSummary = {
   tasksCreated: number;
+  tasksUpdated: number;
   dependenciesCreated: number;
+  dependenciesUpdated: number;
+  phasesCreated: number;
+  phasesUpdated: number;
   resourcesMatched: number;
   assignmentsSkipped: number;
   warnings: string[];
+  projectsCreated?: number;
+  projectsUpdated?: number;
 };
 
 export type MppImportPreviewTask = {
@@ -57,22 +83,50 @@ export type MppImportPreviewTask = {
   startDate?: string;
   finishDate?: string;
   durationDays?: number;
+  baselineStartDate?: string;
+  baselineFinishDate?: string;
+  baselineDurationDays?: number;
+  actualStartDate?: string;
+  actualFinishDate?: string;
   percentComplete?: number;
+  phaseName?: string;
   hasParent: boolean;
   predecessorCount: number;
 };
 
+export type MppImportPreviewProject = {
+  name: string;
+  startDate?: string;
+  finishDate?: string;
+  baselineStartDate?: string;
+  baselineFinishDate?: string;
+  durationDays?: number;
+  baselineDurationDays?: number;
+  percentComplete?: number;
+  durationVarianceDays?: number;
+  taskCount: number;
+  phaseCount: number;
+  dependencyCount: number;
+  importMode: 'create' | 'update';
+  resolvedProjectId?: string;
+  tasks: MppImportPreviewTask[];
+};
+
 export type MppImportPreview = {
+  mode: 'single' | 'portfolio';
   projectName?: string;
   startDate?: string;
   finishDate?: string;
   counts: {
     importableTasks: number;
+    phasesFromSummaries: number;
     skippedSummaryTasks: number;
     dependencies: number;
     resourcesMatched: number;
     resourcesUnmatched: number;
+    projects?: number;
   };
+  projects?: MppImportPreviewProject[];
   tasks: MppImportPreviewTask[];
   warnings: string[];
 };

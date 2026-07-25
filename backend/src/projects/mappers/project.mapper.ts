@@ -138,6 +138,33 @@ export function toApiProject(
     priority: project.priority as ApiPriorityLevel,
     startDate: project.startDate.toISOString().slice(0, 10),
     endDate: project.endDate.toISOString().slice(0, 10),
+    baselineStartDate: project.baselineStartDate
+      ? project.baselineStartDate.toISOString().slice(0, 10)
+      : null,
+    baselineEndDate: project.baselineEndDate
+      ? project.baselineEndDate.toISOString().slice(0, 10)
+      : null,
+    durationDays:
+      project.durationDays != null ? Number(project.durationDays) : null,
+    baselineDurationDays:
+      project.baselineDurationDays != null
+        ? Number(project.baselineDurationDays)
+        : null,
+    percentComplete:
+      project.percentComplete != null &&
+      Number.isFinite(Number(project.percentComplete))
+        ? Math.max(0, Math.min(100, Math.round(Number(project.percentComplete))))
+        : null,
+    durationVarianceDays:
+      project.durationVarianceDays != null
+        ? Number(project.durationVarianceDays)
+        : null,
+    actualStartDate: project.actualStartDate
+      ? project.actualStartDate.toISOString().slice(0, 10)
+      : null,
+    actualEndDate: project.actualEndDate
+      ? project.actualEndDate.toISOString().slice(0, 10)
+      : null,
     ...(showFinancials
       ? {
           value: Number(project.value),

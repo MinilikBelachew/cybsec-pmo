@@ -70,9 +70,24 @@ export const tasksApi = api.injectEndpoints({
       },
     }),
 
-    getActiveTaskStats: builder.query<TaskActiveStats, void>({
-      query: () => "/tasks/stats",
-      providesTags: [{ type: "Tasks", id: "STATS" }],
+    getActiveTaskStats: builder.query<TaskActiveStats, GetTasksParams | void>({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        if (params?.projectId) queryParams.append("projectId", params.projectId);
+        if (params?.status) queryParams.append("status", params.status);
+        if (params?.priority) queryParams.append("priority", params.priority);
+        if (params?.search) queryParams.append("search", params.search);
+        if (params?.phaseId) queryParams.append("phaseId", params.phaseId);
+        if (params?.ownerId) queryParams.append("ownerId", params.ownerId);
+        const qs = queryParams.toString();
+        return qs ? `/tasks/stats?${qs}` : "/tasks/stats";
+      },
+      providesTags: (_result, _error, params) => [
+        { type: "Tasks", id: "STATS" },
+        ...(params && typeof params === "object" && params.projectId
+          ? [{ type: "Tasks" as const, id: `STATS_${params.projectId}` }]
+          : []),
+      ],
     }),
 
     exportTasks: builder.query<Task[], GetTasksParams>({
@@ -639,6 +654,7 @@ export const {
   useSubmitTaskProgressUpdateMutation,
   useReviewTaskProgressUpdateMutation,
   useGetTaskDependenciesQuery,
+  useLazyGetTaskDependenciesQuery,
   useValidateTaskDependencyMutation,
   useCreateTaskDependencyMutation,
   useUpdateTaskDependencyMutation,

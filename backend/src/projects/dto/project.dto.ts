@@ -72,6 +72,36 @@ export class ProjectDto {
   @ApiProperty()
   endDate: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  baselineStartDate?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  baselineEndDate?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  durationDays?: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  baselineDurationDays?: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Project % complete from MPP root (0–100)',
+  })
+  percentComplete?: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Current duration − baseline duration (working days)',
+  })
+  durationVarianceDays?: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  actualStartDate?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  actualEndDate?: string | null;
+
   @ApiPropertyOptional()
   value?: number;
 

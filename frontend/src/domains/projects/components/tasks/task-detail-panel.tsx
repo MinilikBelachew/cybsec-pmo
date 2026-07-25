@@ -303,6 +303,9 @@ export function TaskDetailPanel({
   const hasPendingChanges = isDirty || hasDraftChanges;
   const isBusy = isSaving || isSubmitting || isUpdatingStatus;
   const hasParent = !!task?.parentTaskId;
+  /** Subtasks allowed on top-level and first-level parents (max depth 3). */
+  const canHaveSubTasks =
+    !hasParent || !task?.parentTask?.parentTaskId;
 
   const handleEngineerStatusChange = async (newStatus: UpdateTaskFormValues["status"]) => {
     if (!taskId || newStatus === watchedStatus) return;
@@ -784,6 +787,82 @@ export function TaskDetailPanel({
                     <FieldError message={errors.effortHours?.message} />
                   </div>
 
+                  <div className="space-y-2 rounded-xl border border-border/60 bg-muted/15 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Schedule (from MPP)
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <p className="text-muted-foreground">Duration (days)</p>
+                        <p className="font-medium">
+                          {task.durationDays != null ? Number(task.durationDays) : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Baseline duration</p>
+                        <p className="font-medium">
+                          {task.baselineDurationDays != null
+                            ? Number(task.baselineDurationDays)
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Baseline start</p>
+                        <p className="font-medium">
+                          {task.baselineStart
+                            ? new Date(task.baselineStart).toLocaleDateString()
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Baseline end</p>
+                        <p className="font-medium">
+                          {task.baselineEnd
+                            ? new Date(task.baselineEnd).toLocaleDateString()
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Actual start</p>
+                        <p className="font-medium">
+                          {task.actualStart
+                            ? new Date(task.actualStart).toLocaleDateString()
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Actual end</p>
+                        <p className="font-medium">
+                          {task.actualEnd
+                            ? new Date(task.actualEnd).toLocaleDateString()
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Start variance (days)</p>
+                        <p className="font-medium">
+                          {(() => {
+                            if (!task.startDate || !task.baselineStart) return "—";
+                            const a = new Date(task.startDate).setHours(0, 0, 0, 0);
+                            const b = new Date(task.baselineStart).setHours(0, 0, 0, 0);
+                            return Math.round((a - b) / 86_400_000);
+                          })()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Finish variance (days)</p>
+                        <p className="font-medium">
+                          {(() => {
+                            if (!task.endDate || !task.baselineEnd) return "—";
+                            const a = new Date(task.endDate).setHours(0, 0, 0, 0);
+                            const b = new Date(task.baselineEnd).setHours(0, 0, 0, 0);
+                            return Math.round((a - b) / 86_400_000);
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="space-y-4 rounded-xl border border-border/60 bg-muted/15 p-4">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -825,8 +904,8 @@ export function TaskDetailPanel({
                   onOpenSubTask={onOpenSubTask}
                   layout="tabs"
                   showAttachments
-                  showSubTasks={!hasParent}
-                  defaultTab={initialTab ?? (hasParent ? "comments" : "subtasks")}
+                  showSubTasks={canHaveSubTasks}
+                  defaultTab={initialTab ?? (canHaveSubTasks ? "subtasks" : "comments")}
                   className="h-full"
                   subTaskMode="immediate"
                   commentMode="immediate"

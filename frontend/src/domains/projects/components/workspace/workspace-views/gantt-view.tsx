@@ -9,8 +9,12 @@ import {
   type GanttTaskRow,
   type GanttTaskStatus,
 } from "../../../utils/map-task-to-gantt";
+import { comparePlanOrderAsc } from "../../../utils/task-export-fields";
 
 type Status = GanttTaskStatus;
+
+/** Min bar width (px) to fit the task name inside the bar. */
+const LABEL_INSIDE_MIN_PX = 72;
 
 interface GanttViewProps {
   tasks: GanttTaskRow[];
@@ -29,6 +33,22 @@ function toLocalMidnight(dateInput: Date | string | null | undefined): Date | nu
   if (isNaN(d.getTime())) return null;
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function compareGanttPlanOrder(a: GanttTaskRow, b: GanttTaskRow): number {
+  return comparePlanOrderAsc(
+    { createdAt: a.createdAt, startDate: a.rawStartDate, title: a.name },
+    { createdAt: b.createdAt, startDate: b.rawStartDate, title: b.name },
+  );
+}
+
+function isGanttTaskOverdue(task: GanttTaskRow): boolean {
+  if (task.done || task.status === "Done" || task.status === "Approved") return false;
+  const end = toLocalMidnight(task.rawEndDate);
+  if (!end) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return end < today;
 }
 
 const STATUS_CONFIG: Record<Status, { bgClass: string; textClass: string; label: string }> = {
@@ -114,14 +134,19 @@ export function GanttView({
 
   // Expand parents that have children by default (ClickUp-style tree).
   React.useEffect(() => {
-    const withChildren = tasks.filter((t) => (t.children?.length ?? 0) > 0);
-    if (withChildren.length === 0) return;
+    const ids: string[] = [];
+    const walk = (t: GanttTaskRow) => {
+      if ((t.children?.length ?? 0) > 0) ids.push(t.id);
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of tasks) walk(t);
+    if (ids.length === 0) return;
     setExpandedParents((prev) => {
       const next = new Set(prev);
       let changed = false;
-      for (const t of withChildren) {
-        if (!next.has(t.id)) {
-          next.add(t.id);
+      for (const id of ids) {
+        if (!next.has(id)) {
+          next.add(id);
           changed = true;
         }
       }
@@ -131,34 +156,38 @@ export function GanttView({
 
   function visibleTaskRows(phaseTasks: GanttTaskRow[]): GanttTaskRow[] {
     const rows: GanttTaskRow[] = [];
-    for (const task of phaseTasks) {
+    const walk = (task: GanttTaskRow) => {
       rows.push(task);
       if (expandedParents.has(task.id) && task.children?.length) {
-        rows.push(...task.children);
+        for (const child of task.children) walk(child);
       }
-    }
+    };
+    for (const task of phaseTasks) walk(task);
     return rows;
   }
 
-  // Group data by phase
+  // Group data by phase (plan order: phase.orderIndex, then import plan order within phase)
   const groupedData = useMemo(() => {
     const sortedPhases = [...phases].sort((a, b) => {
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
       if (!a.startDate && !b.startDate) return a.name.localeCompare(b.name);
       if (!a.startDate) return 1;
       if (!b.startDate) return -1;
-      
+
       const diff = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
       if (diff !== 0) return diff;
-      
+
       if (!a.endDate && !b.endDate) return a.name.localeCompare(b.name);
       if (!a.endDate) return 1;
       if (!b.endDate) return -1;
-      
+
       return new Date(a.endDate).getTime() - new Date(b.endDate).getTime();
     });
 
     const mapped = sortedPhases.map((phase) => {
-      const phaseTasks = tasks.filter((t) => t.phaseId === phase.id);
+      const phaseTasks = tasks
+        .filter((t) => t.phaseId === phase.id)
+        .sort(compareGanttPlanOrder);
       const phaseMilestones = milestones.filter((m) => m.phaseId === phase.id);
       return {
         id: phase.id,
@@ -169,7 +198,9 @@ export function GanttView({
       };
     });
 
-    const unassignedTasks = tasks.filter((t) => !t.phaseId);
+    const unassignedTasks = tasks
+      .filter((t) => !t.phaseId)
+      .sort(compareGanttPlanOrder);
     const unassignedMilestones = milestones.filter((m) => !m.phaseId);
 
     if (unassignedTasks.length > 0 || unassignedMilestones.length > 0) {
@@ -198,15 +229,13 @@ export function GanttView({
       if (!maxDate || date > maxDate) maxDate = date;
     };
 
-    // Tasks dates (include nested sub-tasks)
-    tasks.forEach((t) => {
-      parseAndCompare(t.rawStartDate);
-      parseAndCompare(t.rawEndDate);
-      t.children?.forEach((c) => {
-        parseAndCompare(c.rawStartDate);
-        parseAndCompare(c.rawEndDate);
-      });
-    });
+    // Tasks dates (include nested sub / sub-sub)
+    const walkDates = (row: GanttTaskRow) => {
+      parseAndCompare(row.rawStartDate);
+      parseAndCompare(row.rawEndDate);
+      row.children?.forEach(walkDates);
+    };
+    tasks.forEach(walkDates);
 
     // Phases dates
     phases.forEach((p) => {
@@ -347,7 +376,7 @@ export function GanttView({
       const isExpanded = openPhases[group.id] !== false;
       if (!isExpanded) continue;
 
-      group.tasks.forEach((task, idx) => {
+      visibleTaskRows(group.tasks).forEach((task, idx) => {
         const dates = getGanttDates(task, idx);
         layout.set(task.id, {
           row,
@@ -361,7 +390,7 @@ export function GanttView({
     }
 
     return { taskLayout: layout, totalTimelineRows: row };
-  }, [groupedData, openPhases, dateRange]);
+  }, [groupedData, openPhases, expandedParents, dateRange]);
 
   const dependencyArrows = useMemo(() => {
     return dependencies
@@ -532,7 +561,7 @@ export function GanttView({
                             className="w-3.5 shrink-0 flex items-center justify-center"
                             style={{ marginLeft: depth * 12 }}
                           >
-                            {hasChildren && depth === 0 ? (
+                            {hasChildren && depth < 2 ? (
                               <button
                                 type="button"
                                 onClick={(e) => toggleParentExpand(task.id, e)}
@@ -563,11 +592,17 @@ export function GanttView({
                           <span className={cn("text-xs truncate flex-1", task.done && "line-through text-muted-foreground")}>
                             {depth > 0 && (
                               <span className="mr-1 text-[9px] font-semibold uppercase text-muted-foreground">
-                                Sub
+                                {depth >= 2 ? "Sub²" : "Sub"}
                               </span>
                             )}
                             {task.name}
                           </span>
+                          {isGanttTaskOverdue(task) && (
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-amber-500"
+                              title="Overdue"
+                            />
+                          )}
                           {task.isOnCriticalPath && (
                             <span
                               className="size-2 shrink-0 rounded-full bg-rose-500"
@@ -661,6 +696,7 @@ export function GanttView({
                       const { startDay, durationDays } =
                         layout ?? getGanttDates(task, idx);
                       const isCritical = layout?.isCritical ?? Boolean(task.isOnCriticalPath);
+                      const overdue = isGanttTaskOverdue(task);
                       const depth = task.depth ?? (task.parentTaskId ? 1 : 0);
                       return (
                         <div
@@ -674,9 +710,10 @@ export function GanttView({
                           {(() => {
                             const config = STATUS_CONFIG[task.status] || STATUS_CONFIG.To_Do;
                             const barWidth = Math.max(durationDays * colW - 4, colW - 4);
+                            const showLabelInside = barWidth > LABEL_INSIDE_MIN_PX;
                             return (
                               <div
-                                className="absolute top-1/2 -translate-y-1/2 flex items-center gap-2 cursor-pointer group/bar z-10"
+                                className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1.5 cursor-pointer group/bar z-10"
                                 onClick={() => onTaskClick?.(task.id)}
                                 style={{
                                   left: startDay * colW + 2,
@@ -687,25 +724,45 @@ export function GanttView({
                                     "relative rounded-md h-5 overflow-hidden flex items-center hover:brightness-95 transition-all shadow-xs border",
                                     config.bgClass,
                                     isCritical && "ring-2 ring-rose-500 border-rose-500",
+                                    overdue &&
+                                      !isCritical &&
+                                      "ring-2 ring-amber-500 border-amber-500 bg-amber-100/90 dark:bg-amber-900/35",
+                                    overdue &&
+                                      isCritical &&
+                                      "outline outline-2 outline-offset-1 outline-amber-500",
                                     depth > 0 && "h-4 opacity-90",
                                   )}
                                   style={{
                                     width: barWidth,
                                   }}
-                                  title={`${task.name} (${config.label})${isCritical ? " — Critical path" : ""}${depth > 0 ? " — Sub-task" : ""}`}
+                                  title={`${task.name} (${config.label})${overdue ? " — Overdue" : ""}${isCritical ? " — Critical path" : ""}${depth > 0 ? " — Sub-task" : ""}`}
                                 >
-                                  {/* Task Name inside the bar if it fits */}
-                                  {barWidth > 85 && (
+                                  {showLabelInside && (
                                     <span
                                       className={cn(
                                         "absolute left-2.5 text-[9px] font-bold truncate z-10 select-none max-w-[85%]",
-                                        config.textClass
+                                        overdue && !isCritical
+                                          ? "text-amber-900 dark:text-amber-100"
+                                          : config.textClass,
                                       )}
                                     >
                                       {task.name}
                                     </span>
                                   )}
                                 </div>
+                                {!showLabelInside && (
+                                  <span
+                                    className={cn(
+                                      "text-[9px] font-bold truncate max-w-[160px] whitespace-nowrap select-none",
+                                      overdue
+                                        ? "text-amber-700 dark:text-amber-300"
+                                        : "text-foreground",
+                                    )}
+                                    title={task.name}
+                                  >
+                                    {task.name}
+                                  </span>
+                                )}
                               </div>
                             );
                           })()}
@@ -800,6 +857,10 @@ export function GanttView({
         <div className="flex items-center gap-1.5">
           <span className="h-3 w-5 rounded border-2 border-rose-500 bg-transparent" />
           <span>Critical path</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-3 w-5 rounded border-2 border-amber-500 bg-amber-100" />
+          <span>Overdue</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-0.5 w-4 bg-slate-400" />

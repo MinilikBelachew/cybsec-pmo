@@ -12,14 +12,15 @@ import {
   useGetCustomersQuery,
   useGetProjectManagersQuery,
 } from "../../api/projects.api";
-import { useLazyExportTasksQuery } from "../../api/tasks.api";
+import { useLazyExportTasksQuery, useLazyGetTaskDependenciesQuery } from "../../api/tasks.api";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { SaveAsTemplateDialog } from "./save-as-template-dialog";
 import { TemplatePickerDialog } from "./template-picker-dialog";
 import { createProjectListColumns } from "./project-list-columns";
-import { exportProjectsToXLSX, convertToCSV, exportProjectsToPDF, exportProjectsToWord, exportProjectsToMPP } from "../../utils/import-export";
+import { exportProjectsToXLSX, convertToCSV, exportProjectsToPDF, exportProjectsToWord, exportProjectsToMspdi } from "../../utils/import-export";
+import type { TaskExportDependency } from "../../utils/task-export-fields";
 import { ExportProjectsDialog } from "./export-projects-dialog";
 import {
   DEFAULT_PROJECT_DEPT_COLOR,
@@ -382,6 +383,8 @@ export function ProjectsList() {
   const [showImport, setShowImport] = useState(false);
   const [showMppImport, setShowMppImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [exportableProjects, setExportableProjects] = useState<{ id: string; name: string }[]>([]);
+  const [loadingExportList, setLoadingExportList] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProcessedProject | null>(null);
 
@@ -398,6 +401,7 @@ export function ProjectsList() {
   const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
   const [triggerExportProjects, { isFetching: isExporting }] = useLazyExportProjectsQuery();
   const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
+  const [triggerExportDependencies] = useLazyGetTaskDependenciesQuery();
 
   const queryParams = useMemo((): GetProjectsParams => {
     const isListView = view === "list";
@@ -454,6 +458,31 @@ export function ProjectsList() {
     return data?.data?.map((p) => ({ id: p.id, name: p.name })) || [];
   }, [data]);
 
+  const openExportDialog = useCallback(async () => {
+    setShowExport(true);
+    setLoadingExportList(true);
+    try {
+      const exportParams: GetProjectsParams = {};
+      const trimmedSearch = debouncedSearch.trim();
+      if (trimmedSearch) exportParams.search = trimmedSearch;
+      if (statusFilter !== "all") exportParams.status = statusFilter;
+      if (priorityFilter !== "all") exportParams.priority = priorityFilter;
+      const all = await triggerExportProjects(exportParams).unwrap();
+      setExportableProjects(all.map((p) => ({ id: p.id, name: p.name })));
+    } catch {
+      setExportableProjects(existingProjects);
+      toast.error("Could not load full project list; showing current page only.");
+    } finally {
+      setLoadingExportList(false);
+    }
+  }, [
+    debouncedSearch,
+    statusFilter,
+    priorityFilter,
+    triggerExportProjects,
+    existingProjects,
+  ]);
+
   const handleDeleteProject = async () => {
     if (!deleteTarget) return;
     try {
@@ -466,7 +495,12 @@ export function ProjectsList() {
     }
   };
 
-  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mpp", selectedTaskFields?: string[]) => {
+  const handleExportData = async (
+    selectedFields: string[],
+    format: "xlsx" | "csv" | "pdf" | "doc" | "mspdi",
+    selectedTaskFields?: string[],
+    selectedProjectIds?: string[],
+  ) => {
     const exportParams: GetProjectsParams = {};
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) exportParams.search = trimmedSearch;
@@ -475,7 +509,11 @@ export function ProjectsList() {
 
     const exportToast = toast.loading(`Preparing portfolio export (${format.toUpperCase()})...`);
     try {
-      const projectsToExport = await triggerExportProjects(exportParams).unwrap();
+      let projectsToExport = await triggerExportProjects(exportParams).unwrap();
+      if (selectedProjectIds && selectedProjectIds.length > 0) {
+        const allow = new Set(selectedProjectIds);
+        projectsToExport = projectsToExport.filter((p) => allow.has(p.id));
+      }
       if (!projectsToExport || projectsToExport.length === 0) {
         toast.dismiss(exportToast);
         toast.error("No projects to export.");
@@ -485,36 +523,86 @@ export function ProjectsList() {
       let blob: Blob;
       let filename: string;
 
-      if (format === "xlsx" || format === "pdf" || format === "doc" || format === "mpp") {
-        toast.loading("Fetching tasks for projects...", { id: exportToast });
-        const tasksPromises = projectsToExport.map((proj) =>
-          triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
-        );
-        const tasksResults = await Promise.all(tasksPromises);
-        const allTasks = tasksResults.flatMap((tasks, index) => {
-          const proj = projectsToExport[index];
-          return tasks.map((t) => ({
-            ...t,
-            projectName: proj.name,
-          }));
-        });
+      toast.loading("Fetching tasks and dependencies...", { id: exportToast });
+      const tasksPromises = projectsToExport.map((proj) =>
+        triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
+      );
+      const depPromises = projectsToExport.map((proj) =>
+        triggerExportDependencies({ projectId: proj.id })
+          .unwrap()
+          .catch(() => [] as TaskExportDependency[]),
+      );
+      const [tasksResults, depResults] = await Promise.all([
+        Promise.all(tasksPromises),
+        Promise.all(depPromises),
+      ]);
+      const allTasks = tasksResults.flatMap((tasks, index) => {
+        const proj = projectsToExport[index];
+        return tasks.map((t) => ({
+          ...t,
+          projectName: proj.name,
+        }));
+      });
+      const allDependencies = depResults.flat() as TaskExportDependency[];
 
-        if (format === "xlsx") {
-          const xlsxBuffer = exportProjectsToXLSX(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
-          blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-          filename = `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`;
-        } else if (format === "pdf") {
-          blob = exportProjectsToPDF(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
-          filename = `projects_export_${new Date().toISOString().split("T")[0]}.pdf`;
-        } else if (format === "doc") {
-          blob = exportProjectsToWord(projectsToExport, departments, customers, managers, selectedFields, allTasks, selectedTaskFields);
-          filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
-        } else {
-          blob = exportProjectsToMPP(projectsToExport, departments, customers, managers, allTasks);
-          filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
-        }
+      if (format === "xlsx") {
+        const xlsxBuffer = exportProjectsToXLSX(
+          projectsToExport,
+          departments,
+          customers,
+          managers,
+          selectedFields,
+          allTasks,
+          selectedTaskFields,
+          allDependencies,
+        );
+        blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        filename = `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`;
+      } else if (format === "pdf") {
+        blob = exportProjectsToPDF(
+          projectsToExport,
+          departments,
+          customers,
+          managers,
+          selectedFields,
+          allTasks,
+          selectedTaskFields,
+          allDependencies,
+        );
+        filename = `projects_export_${new Date().toISOString().split("T")[0]}.pdf`;
+      } else if (format === "doc") {
+        blob = exportProjectsToWord(
+          projectsToExport,
+          departments,
+          customers,
+          managers,
+          selectedFields,
+          allTasks,
+          selectedTaskFields,
+          allDependencies,
+        );
+        filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
+      } else if (format === "mspdi") {
+        blob = exportProjectsToMspdi(
+          projectsToExport,
+          departments,
+          customers,
+          managers,
+          allTasks,
+          allDependencies,
+        );
+        filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
       } else {
-        const csvContent = convertToCSV(projectsToExport, departments, customers, managers, selectedFields);
+        const csvContent = convertToCSV(
+          projectsToExport,
+          departments,
+          customers,
+          managers,
+          selectedFields,
+          allTasks,
+          selectedTaskFields,
+          allDependencies,
+        );
         blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
         filename = `projects_export_${new Date().toISOString().split("T")[0]}.csv`;
       }
@@ -709,7 +797,7 @@ export function ProjectsList() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowExport(true)}
+                  onClick={() => void openExportDialog()}
                   disabled={isExporting}
                   className="h-9 flex-1 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-2.5 text-xs font-semibold shadow-none cursor-pointer sm:flex-none sm:px-3"
                 >
@@ -833,7 +921,8 @@ export function ProjectsList() {
         open={showExport}
         onClose={() => setShowExport(false)}
         onExport={handleExportData}
-        isExporting={isExporting || isExportingTasks}
+        projects={exportableProjects.length > 0 ? exportableProjects : existingProjects}
+        isExporting={isExporting || isExportingTasks || loadingExportList}
       />
       <DeleteDialog
         isOpen={Boolean(deleteTarget)}

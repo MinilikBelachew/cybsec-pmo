@@ -4,6 +4,233 @@ import { taskDatesOutsidePhaseErrors, toTaskDayKey } from "../schemas/task/task-
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import {
+  DEFAULT_TASK_EXPORT_FIELDS,
+  comparePlanOrderAsc,
+  mapTasksToExportRows,
+  pickExportFields,
+  inclusiveDurationDays,
+  signedDayDelta,
+  parsePredecessorsCell,
+  formatResourceName,
+  type TaskExportDependency,
+  type ParsedExcelPredecessor,
+} from "./task-export-fields";
+import {
+  drawPdfReportHeader,
+  drawPdfSectionTitle,
+  drawPdfKeyValueGrid,
+  drawPdfScheduleTable,
+  resolveTaskPdfHeaders,
+} from "./pdf-export-layout";
+
+export {
+  TASK_EXPORT_FIELD_OPTIONS,
+  DEFAULT_TASK_EXPORT_FIELDS,
+  comparePlanOrderAsc,
+  parsePredecessorsCell,
+  planExcelDependencies,
+} from "./task-export-fields";
+export type {
+  TaskExportDependency,
+  ParsedExcelPredecessor,
+  ExcelDependencyPlan,
+} from "./task-export-fields";
+
+/** Default project columns for XLSX / CSV / PDF / Word (schedule + commercial). */
+export const DEFAULT_PROJECT_EXPORT_FIELDS = [
+  "Name",
+  "Objective",
+  "Department",
+  "Customer",
+  "Engagement Type",
+  "Billing Model",
+  "Priority",
+  "Start Date",
+  "End Date",
+  "Duration Days",
+  "Baseline Start",
+  "Baseline End",
+  "Baseline Duration Days",
+  "% Complete",
+  "Duration Variance Days",
+  "Actual Start",
+  "Actual End",
+  "Resource Names",
+  "Value",
+  "Currency",
+  "Primary PM",
+  "Secondary PM",
+  "Status",
+] as const;
+
+/** Schedule columns that must appear on project export even if dialog state is stale. */
+const REQUIRED_PROJECT_SCHEDULE_FIELDS = [
+  "Duration Days",
+  "Baseline Start",
+  "Baseline End",
+  "Baseline Duration Days",
+  "% Complete",
+  "Duration Variance Days",
+  "Actual Start",
+  "Actual End",
+] as const;
+
+/** Always include Resource Names even if dialog selection is stale. */
+const REQUIRED_PROJECT_RESOURCE_FIELD = "Resource Names";
+
+/**
+ * Resolve export headers: honor user selection, but always insert schedule
+ * columns after End Date (fixes stale dialog state after field list updates).
+ */
+export function resolveProjectExportHeaders(selectedFields?: string[]): string[] {
+  const base =
+    selectedFields && selectedFields.length > 0
+      ? [...selectedFields]
+      : [...DEFAULT_PROJECT_EXPORT_FIELDS];
+
+  const have = new Set(base);
+  const missing = REQUIRED_PROJECT_SCHEDULE_FIELDS.filter((f) => !have.has(f));
+  let result = base;
+  if (missing.length > 0) {
+    const endIdx = base.indexOf("End Date");
+    if (endIdx >= 0) {
+      result = [
+        ...base.slice(0, endIdx + 1),
+        ...missing,
+        ...base.slice(endIdx + 1),
+      ];
+    } else {
+      result = [...base, ...missing];
+    }
+  }
+
+  if (!result.includes(REQUIRED_PROJECT_RESOURCE_FIELD)) {
+    const actualEndIdx = result.indexOf("Actual End");
+    if (actualEndIdx >= 0) {
+      result = [
+        ...result.slice(0, actualEndIdx + 1),
+        REQUIRED_PROJECT_RESOURCE_FIELD,
+        ...result.slice(actualEndIdx + 1),
+      ];
+    } else {
+      result = [...result, REQUIRED_PROJECT_RESOURCE_FIELD];
+    }
+  }
+
+  return result;
+}
+
+function toExportDay(value?: string | Date | null): string {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).split("T")[0] || "";
+}
+
+function toExportNumber(value: unknown): string {
+  if (value == null || value === "") return "";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return String(Math.round(n * 10) / 10);
+}
+
+/** Flat project row used by all portfolio exporters. */
+export function mapProjectToExportRow(
+  p: any,
+  departments: Department[],
+  customers: Customer[],
+  managers: ProjectManager[],
+): Record<string, string | number> {
+  const deptName =
+    p.department?.name ||
+    departments.find((d) => d.id === p.departmentId)?.name ||
+    "";
+  const custName =
+    p.customer?.displayName ||
+    customers.find((c) => c.id === p.customerId)?.displayName ||
+    "";
+  const primaryPmName =
+    p.primaryPm?.displayName ||
+    managers.find((m) => m.id === p.primaryPmId)?.displayName ||
+    "";
+  const secondaryPmName =
+    p.secondaryPm?.displayName ||
+    managers.find((m) => m.id === p.secondaryPmId)?.displayName ||
+    "";
+
+  // MSP Resource Names: PMs + active team, formatted Name (Organization).
+  const orgForInternal = deptName || custName;
+  const resourceParts: string[] = [];
+  if (primaryPmName) {
+    resourceParts.push(formatResourceName(primaryPmName, orgForInternal));
+  }
+  if (secondaryPmName) {
+    resourceParts.push(formatResourceName(secondaryPmName, orgForInternal));
+  }
+  const team = Array.isArray(p.allocations)
+    ? p.allocations
+    : Array.isArray(p.team)
+      ? p.team
+      : [];
+  for (const member of team) {
+    const memberName =
+      member?.employee?.displayName ||
+      member?.employee?.name ||
+      member?.displayName ||
+      member?.name ||
+      "";
+    const memberOrg =
+      member?.employee?.department?.name ||
+      member?.department?.name ||
+      orgForInternal;
+    const formatted = formatResourceName(memberName, memberOrg);
+    if (formatted && !resourceParts.includes(formatted)) {
+      resourceParts.push(formatted);
+    }
+  }
+
+  const startDate = toExportDay(p.startDate);
+  const endDate = toExportDay(p.endDate);
+  const baselineStart = toExportDay(p.baselineStartDate);
+  const baselineEnd = toExportDay(p.baselineEndDate);
+  const durationDays = toExportNumber(p.durationDays);
+  const baselineDurationDays = toExportNumber(p.baselineDurationDays);
+  const durationVariance =
+    p.durationVarianceDays != null
+      ? toExportNumber(p.durationVarianceDays)
+      : durationDays !== "" && baselineDurationDays !== ""
+        ? toExportNumber(Number(durationDays) - Number(baselineDurationDays))
+        : "";
+
+  return {
+    Name: p.name || "",
+    Objective: p.objective || "",
+    Department: deptName,
+    Customer: custName,
+    "Engagement Type": p.engagementType || "",
+    "Billing Model": p.billingModel || "",
+    Priority: p.priority || "",
+    "Start Date": startDate,
+    "End Date": endDate,
+    "Duration Days": durationDays,
+    "Baseline Start": baselineStart,
+    "Baseline End": baselineEnd,
+    "Baseline Duration Days": baselineDurationDays,
+    "% Complete":
+      p.percentComplete != null && Number.isFinite(Number(p.percentComplete))
+        ? String(Math.round(Number(p.percentComplete)))
+        : "",
+    "Duration Variance Days": durationVariance,
+    "Actual Start": toExportDay(p.actualStartDate),
+    "Actual End": toExportDay(p.actualEndDate),
+    "Resource Names": resourceParts.join(", "),
+    Value: p.value != null ? p.value : "",
+    Currency: p.currency || "",
+    "Primary PM": primaryPmName,
+    "Secondary PM": secondaryPmName,
+    Status: p.status || "",
+  };
+}
 
 /** Build a local calendar Date from an import day string (avoids UTC day-shift). */
 function importDayToLocalDate(value?: string | null): Date | null {
@@ -80,25 +307,12 @@ export function convertToCSV(
   departments: Department[],
   customers: Customer[],
   managers: ProjectManager[],
-  selectedFields?: string[]
+  selectedFields?: string[],
+  tasks?: any[],
+  selectedTaskFields?: string[],
+  dependencies: TaskExportDependency[] = [],
 ): string {
-  const allHeaders = [
-    "Name",
-    "Objective",
-    "Department",
-    "Customer",
-    "Engagement Type",
-    "Billing Model",
-    "Priority",
-    "Start Date",
-    "End Date",
-    "Value",
-    "Currency",
-    "Primary PM",
-    "Secondary PM",
-    "Status",
-  ];
-  const headers = selectedFields || allHeaders;
+  const headers = resolveProjectExportHeaders(selectedFields);
 
   const escapeCSV = (str: any) => {
     if (str == null) return "";
@@ -110,32 +324,38 @@ export function convertToCSV(
   };
 
   const rows = projects.map((p) => {
-    const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
-    const custName = p.customer?.displayName || customers.find((c) => c.id === p.customerId)?.displayName || "";
-    const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
-    const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
-
-    const allData: Record<string, any> = {
-      "Name": p.name,
-      "Objective": p.objective,
-      "Department": deptName,
-      "Customer": custName,
-      "Engagement Type": p.engagementType,
-      "Billing Model": p.billingModel,
-      "Priority": p.priority,
-      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
-      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
-      "Value": p.value,
-      "Currency": p.currency,
-      "Primary PM": primaryPmName,
-      "Secondary PM": secondaryPmName,
-      "Status": p.status,
-    };
-
+    const allData = mapProjectToExportRow(p, departments, customers, managers);
     return headers.map((field) => escapeCSV(allData[field]));
   });
 
-  return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const sections = [
+    [headers.join(","), ...rows.map((r) => r.join(","))].join("\n"),
+  ];
+
+  if (tasks && tasks.length > 0) {
+    const taskHeaders = [
+      "Project Name",
+      ...(selectedTaskFields?.length ? selectedTaskFields : DEFAULT_TASK_EXPORT_FIELDS),
+    ];
+    const taskRows = mapTasksToExportRows(tasks, {
+      dependencies,
+      projectName: (t) => t.projectName,
+      projectOrganization: (t) =>
+        t.project?.customer?.displayName ||
+        t.customerName ||
+        t.projectOrganization ||
+        null,
+    }).map((row) =>
+      taskHeaders.map((field) => escapeCSV(row[field] ?? "")),
+    );
+    sections.push(
+      ["", "Tasks", taskHeaders.join(","), ...taskRows.map((r) => r.join(","))].join(
+        "\n",
+      ),
+    );
+  }
+
+  return sections.join("\n");
 }
 
 export function exportProjectsToXLSX(
@@ -145,49 +365,13 @@ export function exportProjectsToXLSX(
   managers: ProjectManager[],
   selectedFields?: string[],
   tasks?: any[],
-  selectedTaskFields?: string[]
+  selectedTaskFields?: string[],
+  dependencies: TaskExportDependency[] = [],
 ): ArrayBuffer {
-  const allHeaders = [
-    "Name",
-    "Objective",
-    "Department",
-    "Customer",
-    "Engagement Type",
-    "Billing Model",
-    "Priority",
-    "Start Date",
-    "End Date",
-    "Value",
-    "Currency",
-    "Primary PM",
-    "Secondary PM",
-    "Status",
-  ];
-  const headers = selectedFields || allHeaders;
+  const headers = resolveProjectExportHeaders(selectedFields);
 
   const data = projects.map((p) => {
-    const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
-    const custName = p.customer?.displayName || customers.find((c) => c.id === p.customerId)?.displayName || "";
-    const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
-    const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
-
-    const allData: Record<string, any> = {
-      "Name": p.name || "",
-      "Objective": p.objective || "",
-      "Department": deptName,
-      "Customer": custName,
-      "Engagement Type": p.engagementType || "",
-      "Billing Model": p.billingModel || "",
-      "Priority": p.priority || "",
-      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
-      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
-      "Value": p.value || 0,
-      "Currency": p.currency || "",
-      "Primary PM": primaryPmName,
-      "Secondary PM": secondaryPmName,
-      "Status": p.status || "",
-    };
-
+    const allData = mapProjectToExportRow(p, departments, customers, managers);
     const filtered: Record<string, any> = {};
     headers.forEach((field) => {
       filtered[field] = allData[field];
@@ -200,7 +384,6 @@ export function exportProjectsToXLSX(
   XLSX.utils.book_append_sheet(workbook, worksheet, "Projects");
 
   if (tasks && tasks.length > 0) {
-    // Group tasks by project name
     const tasksByProject: Record<string, any[]> = {};
     tasks.forEach((t) => {
       const projName = t.projectName || "Tasks";
@@ -210,49 +393,25 @@ export function exportProjectsToXLSX(
       tasksByProject[projName].push(t);
     });
 
-    const allTaskHeaders = [
-      "Title",
-      "Description",
-      "Priority",
-      "Status",
-      "Assignee",
-      "Phase",
-      "Start Date",
-      "End Date",
-      "Effort Hours",
-    ];
-    const taskHeaders = selectedTaskFields || allTaskHeaders;
+    const taskHeaders = selectedTaskFields?.length
+      ? selectedTaskFields
+      : DEFAULT_TASK_EXPORT_FIELDS;
 
     Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
-      const tasksData = projTasks.map((t) => {
-        const assigneeName = t.owner?.displayName || t.assigneeName || "";
-        const phaseName = t.phase?.name || t.phaseName || "";
+      const tasksData = mapTasksToExportRows(projTasks, {
+        dependencies,
+        projectName: projName,
+        projectOrganization: (t) =>
+          t.project?.customer?.displayName ||
+          t.customerName ||
+          t.projectOrganization ||
+          null,
+      }).map((row) => pickExportFields(row, taskHeaders));
 
-        const allTaskData: Record<string, any> = {
-          "Title": t.title || "",
-          "Description": t.description || "",
-          "Priority": t.priority || "",
-          "Status": t.status || "",
-          "Assignee": assigneeName,
-          "Phase": phaseName,
-          "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
-          "End Date": t.endDate ? t.endDate.split("T")[0] : "",
-          "Effort Hours": t.effortHours != null ? t.effortHours : 0,
-        };
-
-        const filtered: Record<string, any> = {};
-        taskHeaders.forEach((field) => {
-          filtered[field] = allTaskData[field];
-        });
-        return filtered;
-      });
-
-      // Excel sheet names have a limit of 31 chars and cannot contain certain characters
       const cleanProjName = projName.replace(/[\\/?*:[\]]/g, "").trim().slice(0, 25);
       const sheetName = cleanProjName ? `${cleanProjName} Tasks` : "Tasks";
       const finalSheetName = sheetName.slice(0, 31);
 
-      // Resolve duplicate sheet names if any
       let uniqueSheetName = finalSheetName;
       let counter = 1;
       while (workbook.SheetNames.includes(uniqueSheetName)) {
@@ -636,19 +795,56 @@ export function generateTasksXLSXTemplate(
   const defaultPhase    = phases[0]?.name            || "Phase 1";
 
   const headers = [
-    "Title", "Description", "Priority", "Status",
-    "Assignee", "Phase", "Start Date", "End Date", "Effort Hours",
+    "Title",
+    "Description",
+    "Priority",
+    "Status",
+    "Assignee",
+    "Phase",
+    "Start Date",
+    "End Date",
+    "Duration Days",
+    "Effort Hours",
+    "% Complete",
+    "Baseline Start",
+    "Baseline End",
+    "Baseline Duration Days",
+    "Predecessors",
   ];
   const rows = [
     [
       "Design Authentication UI",
       "Create wireframes and mockup designs for login/signup screens.",
-      "High", "To_Do", defaultAssignee, defaultPhase, "2026-07-01", "2026-07-05", "12",
+      "High",
+      "To_Do",
+      defaultAssignee,
+      defaultPhase,
+      "2026-07-01",
+      "2026-07-05",
+      "5",
+      "12",
+      "0",
+      "2026-07-01",
+      "2026-07-05",
+      "5",
+      "",
     ],
     [
       "Setup NestJS Backend API",
       "Initialize backend application and configure base folders.",
-      "Critical", "In_Progress", defaultAssignee, defaultPhase, "2026-07-01", "2026-07-10", "24",
+      "Critical",
+      "In_Progress",
+      defaultAssignee,
+      defaultPhase,
+      "2026-07-01",
+      "2026-07-10",
+      "8",
+      "24",
+      "40",
+      "2026-07-01",
+      "2026-07-10",
+      "8",
+      "Design Authentication UI (FS)",
     ],
   ];
 
@@ -749,7 +945,7 @@ export function processRawCSVRows(
     const priority = getVal(prioIdx, "Medium");
     const startDate = getVal(startIdx);
     const endDate = getVal(endIdx);
-    const rawValue = getVal(valIdx, "0");
+    const rawValue = getVal(valIdx, "");
     const currency = getVal(curIdx, "USD");
     const primaryPmName = getVal(pmIdx);
     const secondaryPmName = getVal(pm2Idx);
@@ -798,10 +994,14 @@ export function processRawCSVRows(
       }
     }
 
-    // Validate Value
-    const value = parseFloat(rawValue.replace(/[^0-9.-]/g, ""));
-    if (isNaN(value)) {
+    // Budget/value: missing or <= 0 defaults to 1 (API requires a positive amount).
+    let value = parseFloat(rawValue.replace(/[^0-9.-]/g, ""));
+    if (rawValue.trim() && Number.isNaN(value)) {
       errors.push("Invalid value/budget amount.");
+      value = 1;
+    } else if (!rawValue.trim() || Number.isNaN(value) || value <= 0) {
+      warnings.push("Value/budget missing or zero; defaulted to 1.");
+      value = 1;
     }
 
     // Resolve Department
@@ -981,7 +1181,7 @@ export function processRawCSVRows(
       priority: normalizedPriority,
       startDate,
       endDate,
-      value: isNaN(value) ? 0 : value,
+      value: Number.isNaN(value) || value <= 0 ? 1 : value,
       currency: normalizedCurrency,
       primaryPmName,
       secondaryPmName,
@@ -1002,20 +1202,11 @@ export function convertTasksToCSV(
   tasks: Task[],
   phases: ProjectPhase[],
   assignees: ProjectTaskAssignee[],
-  selectedFields?: string[]
+  selectedFields?: string[],
+  dependencies: TaskExportDependency[] = [],
+  projectOrganization?: string | null,
 ): string {
-  const allHeaders = [
-    "Title",
-    "Description",
-    "Priority",
-    "Status",
-    "Assignee",
-    "Phase",
-    "Start Date",
-    "End Date",
-    "Effort Hours"
-  ];
-  const headers = selectedFields || allHeaders;
+  const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
 
   const escapeCSV = (str: any) => {
     if (str == null) return "";
@@ -1026,27 +1217,12 @@ export function convertTasksToCSV(
     return s;
   };
 
-  const rows = tasks.map((t) => {
-    const assigneeName =
-      t.owner?.displayName ||
-      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
-      "";
-    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
-
-    const allData: Record<string, any> = {
-      "Title": t.title || "",
-      "Description": t.description || "",
-      "Priority": t.priority || "",
-      "Status": t.status || "",
-      "Assignee": assigneeName,
-      "Phase": phaseName,
-      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
-      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
-      "Effort Hours": t.effortHours != null ? String(t.effortHours) : "",
-    };
-
-    return headers.map((field) => escapeCSV(allData[field]));
-  });
+  const rows = mapTasksToExportRows(tasks, {
+    dependencies,
+    phases,
+    assignees,
+    projectOrganization,
+  }).map((row) => headers.map((field) => escapeCSV(row[field] ?? "")));
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }
@@ -1055,46 +1231,18 @@ export function exportTasksToXLSX(
   tasks: Task[],
   phases: ProjectPhase[],
   assignees: ProjectTaskAssignee[],
-  selectedFields?: string[]
+  selectedFields?: string[],
+  dependencies: TaskExportDependency[] = [],
+  projectOrganization?: string | null,
 ): ArrayBuffer {
-  const allHeaders = [
-    "Title",
-    "Description",
-    "Priority",
-    "Status",
-    "Assignee",
-    "Phase",
-    "Start Date",
-    "End Date",
-    "Effort Hours",
-  ];
-  const headers = selectedFields || allHeaders;
+  const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
 
-  const data = tasks.map((t) => {
-    const assigneeName =
-      t.owner?.displayName ||
-      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
-      "";
-    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
-
-    const allData: Record<string, any> = {
-      "Title": t.title || "",
-      "Description": t.description || "",
-      "Priority": t.priority || "",
-      "Status": t.status || "",
-      "Assignee": assigneeName,
-      "Phase": phaseName,
-      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
-      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
-      "Effort Hours": t.effortHours != null ? t.effortHours : 0,
-    };
-
-    const filtered: Record<string, any> = {};
-    headers.forEach((field) => {
-      filtered[field] = allData[field];
-    });
-    return filtered;
-  });
+  const data = mapTasksToExportRows(tasks, {
+    dependencies,
+    phases,
+    assignees,
+    projectOrganization,
+  }).map((row) => pickExportFields(row, headers));
 
   const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
   const workbook = XLSX.utils.book_new();
@@ -1112,6 +1260,16 @@ export interface ParsedTaskRow {
   startDate: string;
   endDate: string;
   effortHours: number;
+  /** Optional schedule columns (Excel export round-trip). */
+  durationDays?: number;
+  baselineStart?: string;
+  baselineEnd?: string;
+  baselineDurationDays?: number;
+  actualStart?: string;
+  actualEnd?: string;
+  progressApproved?: number;
+  /** Parsed from Excel "Predecessors" column (applied after all tasks exist). */
+  predecessors?: ParsedExcelPredecessor[];
 
   resolvedAssigneeId?: string | null;
   resolvedPhaseId?: string | null;
@@ -1256,6 +1414,86 @@ export function revalidateParsedTaskRow(
     errors.push("Invalid effort hours.");
   }
 
+  if (
+    updated.durationDays != null &&
+    (!Number.isFinite(Number(updated.durationDays)) || Number(updated.durationDays) <= 0)
+  ) {
+    errors.push("Invalid duration days.");
+  }
+
+  if (
+    updated.baselineDurationDays != null &&
+    (!Number.isFinite(Number(updated.baselineDurationDays)) ||
+      Number(updated.baselineDurationDays) <= 0)
+  ) {
+    errors.push("Invalid baseline duration days.");
+  }
+
+  if (
+    updated.progressApproved != null &&
+    (!Number.isFinite(Number(updated.progressApproved)) ||
+      Number(updated.progressApproved) < 0 ||
+      Number(updated.progressApproved) > 100)
+  ) {
+    errors.push("% Complete must be between 0 and 100.");
+  }
+
+  let normalizedBaselineStart = updated.baselineStart || "";
+  if (updated.baselineStart) {
+    const key = toTaskDayKey(updated.baselineStart);
+    if (key) {
+      normalizedBaselineStart = key;
+    } else {
+      errors.push("Baseline start must be a valid date (YYYY-MM-DD).");
+    }
+  }
+
+  let normalizedBaselineEnd = updated.baselineEnd || "";
+  if (updated.baselineEnd) {
+    const key = toTaskDayKey(updated.baselineEnd);
+    if (key) {
+      normalizedBaselineEnd = key;
+    } else {
+      errors.push("Baseline end must be a valid date (YYYY-MM-DD).");
+    }
+  }
+
+  let normalizedActualStart = updated.actualStart || "";
+  if (updated.actualStart) {
+    const key = toTaskDayKey(updated.actualStart);
+    if (key) {
+      normalizedActualStart = key;
+    } else {
+      errors.push("Actual start must be a valid date (YYYY-MM-DD).");
+    }
+  }
+
+  let normalizedActualEnd = updated.actualEnd || "";
+  if (updated.actualEnd) {
+    const key = toTaskDayKey(updated.actualEnd);
+    if (key) {
+      normalizedActualEnd = key;
+    } else {
+      errors.push("Actual end must be a valid date (YYYY-MM-DD).");
+    }
+  }
+
+  if (
+    normalizedBaselineStart &&
+    normalizedBaselineEnd &&
+    normalizedBaselineStart > normalizedBaselineEnd
+  ) {
+    errors.push("Baseline end must be on or after baseline start.");
+  }
+
+  if (
+    normalizedActualStart &&
+    normalizedActualEnd &&
+    normalizedActualStart > normalizedActualEnd
+  ) {
+    errors.push("Actual end must be on or after actual start.");
+  }
+
   let resolvedAssigneeId = updated.resolvedAssigneeId ?? null;
   if (resolvedAssigneeId) {
     const assigneeExists = assignees.some((assignee) => assignee.userId === resolvedAssigneeId);
@@ -1340,6 +1578,23 @@ export function revalidateParsedTaskRow(
     ...updated,
     startDate: isStartValid ? normalizedStart : updated.startDate,
     endDate: isEndValid ? normalizedEnd : updated.endDate,
+    baselineStart: normalizedBaselineStart || undefined,
+    baselineEnd: normalizedBaselineEnd || undefined,
+    actualStart: normalizedActualStart || undefined,
+    actualEnd: normalizedActualEnd || undefined,
+    durationDays:
+      updated.durationDays != null && Number.isFinite(Number(updated.durationDays))
+        ? Math.round(Number(updated.durationDays) * 10) / 10
+        : undefined,
+    baselineDurationDays:
+      updated.baselineDurationDays != null &&
+      Number.isFinite(Number(updated.baselineDurationDays))
+        ? Math.round(Number(updated.baselineDurationDays) * 10) / 10
+        : undefined,
+    progressApproved:
+      updated.progressApproved != null && Number.isFinite(Number(updated.progressApproved))
+        ? Math.max(0, Math.min(100, Math.round(Number(updated.progressApproved))))
+        : undefined,
     phaseName,
     resolvedAssigneeId,
     resolvedPhaseId,
@@ -1380,6 +1635,28 @@ export function processRawTaskCSVRows(
   const startIdx = getIndex(["start date", "start"]);
   const endIdx = getIndex(["end date", "end"]);
   const effortIdx = getIndex(["effort hours", "effort", "hours"]);
+  const durationIdx = getIndex(["duration days"]);
+  const baselineStartIdx = getIndex(["baseline start", "baseline start date"]);
+  const baselineEndIdx = getIndex(["baseline end", "baseline finish", "baseline end date"]);
+  const baselineDurationIdx = getIndex([
+    "baseline duration days",
+    "baseline duration",
+  ]);
+  const actualStartIdx = getIndex(["actual start", "actual start date"]);
+  const actualEndIdx = getIndex([
+    "actual end",
+    "actual finish",
+    "actual end date",
+    "actual finish date",
+  ]);
+  const progressIdx = getIndex([
+    "% complete",
+    "percent complete",
+    "%complete",
+    "progress",
+    "progress approved",
+  ]);
+  const predecessorsIdx = getIndex(["predecessors", "predecessor", "preds"]);
 
   const titleFrequency: Record<string, number> = {};
   for (const row of rows) {
@@ -1391,6 +1668,12 @@ export function processRawTaskCSVRows(
       .filter(([, count]) => count > 1)
       .map(([title]) => title),
   );
+
+  const parseOptionalNumber = (raw: string): number | undefined => {
+    if (!raw) return undefined;
+    const parsed = parseFloat(raw.replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : NaN;
+  };
 
   return rows.map((row) => {
     const getVal = (idx: number, fallback = "") => (idx !== -1 && row[idx] ? row[idx].trim() : fallback);
@@ -1411,6 +1694,15 @@ export function processRawTaskCSVRows(
       effortHours = isNaN(parsedEffort) ? NaN : parsedEffort;
     }
 
+    const durationDays = parseOptionalNumber(getVal(durationIdx));
+    const baselineDurationDays = parseOptionalNumber(getVal(baselineDurationIdx));
+    const progressApproved = parseOptionalNumber(getVal(progressIdx));
+    const baselineStart = getVal(baselineStartIdx) || undefined;
+    const baselineEnd = getVal(baselineEndIdx) || undefined;
+    const actualStart = getVal(actualStartIdx) || undefined;
+    const actualEnd = getVal(actualEndIdx) || undefined;
+    const predecessors = parsePredecessorsCell(getVal(predecessorsIdx));
+
     const lowerTitle = title.trim().toLowerCase();
     const resolvedTaskId = lowerTitle ? existingTaskMap.get(lowerTitle) : undefined;
     const importMode: "create" | "update" = resolvedTaskId ? "update" : "create";
@@ -1426,6 +1718,14 @@ export function processRawTaskCSVRows(
         startDate,
         endDate,
         effortHours,
+        durationDays,
+        baselineStart,
+        baselineEnd,
+        baselineDurationDays,
+        actualStart,
+        actualEnd,
+        progressApproved,
+        predecessors,
         importMode,
         resolvedTaskId,
         errors: [],
@@ -1439,55 +1739,57 @@ export function processRawTaskCSVRows(
   });
 }
 
+/** Schedule fields for create/update task API (Excel export round-trip). */
+export function scheduleFieldsFromParsedTask(row: ParsedTaskRow): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (row.durationDays != null && Number.isFinite(row.durationDays) && row.durationDays > 0) {
+    body.durationDays = row.durationDays;
+  }
+  if (
+    row.baselineDurationDays != null &&
+    Number.isFinite(row.baselineDurationDays) &&
+    row.baselineDurationDays > 0
+  ) {
+    body.baselineDurationDays = row.baselineDurationDays;
+  }
+  // Send calendar day (YYYY-MM-DD) so Prisma @db.Date does not shift by timezone.
+  if (row.baselineStart) {
+    body.baselineStart = row.baselineStart;
+  }
+  if (row.baselineEnd) {
+    body.baselineEnd = row.baselineEnd;
+  }
+  if (row.actualStart) {
+    body.actualStart = row.actualStart;
+  }
+  if (row.actualEnd) {
+    body.actualEnd = row.actualEnd;
+  }
+  if (row.progressApproved != null && Number.isFinite(row.progressApproved)) {
+    body.progressApproved = row.progressApproved;
+  }
+  return body;
+}
+
 export function exportTasksToPDF(
   tasks: Task[],
   phases: ProjectPhase[],
   assignees: ProjectTaskAssignee[],
-  selectedFields?: string[]
+  selectedFields?: string[],
+  dependencies: TaskExportDependency[] = [],
+  projectOrganization?: string | null,
 ): Blob {
-  const doc = new jsPDF({ orientation: "landscape" });
-
-  const allHeaders = [
-    "Title",
-    "Description",
-    "Priority",
-    "Status",
-    "Assignee",
-    "Phase",
-    "Start Date",
-    "End Date",
-    "Effort Hours",
-  ];
-  const headers = selectedFields || allHeaders;
-
-  const data = tasks.map((t) => {
-    const assigneeName =
-      t.owner?.displayName ||
-      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
-      "";
-    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
-
-    const allData: Record<string, any> = {
-      "Title": t.title || "",
-      "Description": t.description || "",
-      "Priority": t.priority || "",
-      "Status": t.status || "",
-      "Assignee": assigneeName,
-      "Phase": phaseName,
-      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
-      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
-      "Effort Hours": t.effortHours != null ? t.effortHours : 0,
-    };
-
-    return headers.map((field) => String(allData[field] || ""));
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const headers = resolveTaskPdfHeaders(selectedFields);
+  const rows = mapTasksToExportRows(tasks, {
+    dependencies,
+    phases,
+    assignees,
+    projectOrganization,
   });
 
-  autoTable(doc, {
-    head: [headers],
-    body: data,
-    styles: { fontSize: 8 },
-    theme: "striped",
-  });
+  drawPdfReportHeader(doc, "Task Schedule Export");
+  drawPdfScheduleTable(doc, headers, rows, 28);
 
   return doc.output("blob");
 }
@@ -1499,119 +1801,125 @@ export function exportProjectsToPDF(
   managers: ProjectManager[],
   selectedFields?: string[],
   tasks?: any[],
-  selectedTaskFields?: string[]
+  selectedTaskFields?: string[],
+  dependencies: TaskExportDependency[] = [],
 ): Blob {
-  const doc = new jsPDF({ orientation: "landscape" });
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const headers = resolveProjectExportHeaders(selectedFields);
 
-  const allHeaders = [
-    "Name",
-    "Objective",
-    "Department",
-    "Customer",
-    "Engagement Type",
-    "Billing Model",
-    "Priority",
-    "Start Date",
-    "End Date",
-    "Value",
-    "Currency",
-    "Primary PM",
-    "Secondary PM",
-    "Status",
-  ];
-  const headers = selectedFields || allHeaders;
+  const reportTitle =
+    projects.length === 1 && projects[0]?.name
+      ? `Project Schedule — ${projects[0].name}`
+      : "Project Schedule Export";
 
-  const data = projects.map((p) => {
-    const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
-    const custName = p.customer?.displayName || customers.find((c) => c.id === p.customerId)?.displayName || "";
-    const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
-    const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
+  projects.forEach((project, index) => {
+    if (index > 0) doc.addPage("a4", "portrait");
+    drawPdfReportHeader(doc, reportTitle);
 
-    const allData: Record<string, any> = {
-      "Name": p.name || "",
-      "Objective": p.objective || "",
-      "Department": deptName,
-      "Customer": custName,
-      "Engagement Type": p.engagementType || "",
-      "Billing Model": p.billingModel || "",
-      "Priority": p.priority || "",
-      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
-      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
-      "Value": p.value || 0,
-      "Currency": p.currency || "",
-      "Primary PM": primaryPmName,
-      "Secondary PM": secondaryPmName,
-      "Status": p.status || "",
-    };
+    const row = mapProjectToExportRow(
+      project,
+      departments,
+      customers,
+      managers,
+    );
+    let y = 30;
 
-    return headers.map((field) => String(allData[field] || ""));
-  });
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(row.Name || "Project"), 14, y);
+    y += 6;
 
-  doc.setFontSize(14);
-  doc.text("Projects", 14, 15);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Status: ${row.Status || "—"}  ·  Priority: ${row.Priority || "—"}`,
+      14,
+      y,
+    );
+    y += 6;
 
-  autoTable(doc, {
-    head: [headers],
-    body: data,
-    startY: 20,
-    styles: { fontSize: 8 },
-    theme: "striped",
+    const identityFields = [
+      "Objective",
+      "Department",
+      "Customer",
+      "Engagement Type",
+      "Billing Model",
+      "Primary PM",
+      "Secondary PM",
+      "Value",
+      "Currency",
+    ].filter((f) => headers.includes(f));
+
+    const scheduleFields = [
+      "Start Date",
+      "End Date",
+      "Duration Days",
+      "Baseline Start",
+      "Baseline End",
+      "Baseline Duration Days",
+      "% Complete",
+      "Duration Variance Days",
+      "Actual Start",
+      "Actual End",
+    ].filter((f) => headers.includes(f));
+
+    y = drawPdfSectionTitle(doc, "Overview", y);
+    y = drawPdfKeyValueGrid(
+      doc,
+      identityFields.map((f) => [f, String(row[f] ?? "—")]),
+      y,
+    );
+
+    y = drawPdfSectionTitle(doc, "Schedule", y + 4);
+    y = drawPdfKeyValueGrid(
+      doc,
+      scheduleFields.map((f) => [f, String(row[f] ?? "—")]),
+      y,
+    );
+
+    const shown = new Set([
+      "Name",
+      "Status",
+      "Priority",
+      ...identityFields,
+      ...scheduleFields,
+    ]);
+    const extra = headers.filter((f) => !shown.has(f));
+    if (extra.length > 0) {
+      y = drawPdfSectionTitle(doc, "Additional fields", y + 4);
+      drawPdfKeyValueGrid(
+        doc,
+        extra.map((f) => [f, String(row[f] ?? "—")]),
+        y,
+      );
+    }
   });
 
   if (tasks && tasks.length > 0) {
     const tasksByProject: Record<string, any[]> = {};
     tasks.forEach((t) => {
       const projName = t.projectName || "Tasks";
-      if (!tasksByProject[projName]) {
-        tasksByProject[projName] = [];
-      }
+      if (!tasksByProject[projName]) tasksByProject[projName] = [];
       tasksByProject[projName].push(t);
     });
 
-    const allTaskHeaders = [
-      "Title",
-      "Description",
-      "Priority",
-      "Status",
-      "Assignee",
-      "Phase",
-      "Start Date",
-      "End Date",
-      "Effort Hours",
-    ];
-    const taskHeaders = selectedTaskFields || allTaskHeaders;
+    const taskHeaders = resolveTaskPdfHeaders(selectedTaskFields);
 
     Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
-      const tasksData = projTasks.map((t) => {
-        const assigneeName = t.owner?.displayName || t.assigneeName || "";
-        const phaseName = t.phase?.name || t.phaseName || "";
-
-        const allTaskData: Record<string, any> = {
-          "Title": t.title || "",
-          "Description": t.description || "",
-          "Priority": t.priority || "",
-          "Status": t.status || "",
-          "Assignee": assigneeName,
-          "Phase": phaseName,
-          "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
-          "End Date": t.endDate ? t.endDate.split("T")[0] : "",
-          "Effort Hours": t.effortHours != null ? t.effortHours : 0,
-        };
-
-        return taskHeaders.map((field) => String(allTaskData[field] || ""));
+      doc.addPage("a4", "landscape");
+      drawPdfReportHeader(doc, `Task Schedule — ${projName}`);
+      const mapped = mapTasksToExportRows(projTasks, {
+        dependencies,
+        projectName: projName,
+        projectOrganization: (t) =>
+          t.project?.customer?.displayName ||
+          t.customerName ||
+          t.projectOrganization ||
+          null,
       });
-
-      doc.addPage();
-      doc.setFontSize(14);
-      doc.text(`${projName} Tasks`, 14, 15);
-
-      autoTable(doc, {
-        head: [taskHeaders],
-        body: tasksData,
-        startY: 20,
-        styles: { fontSize: 8 },
-        theme: "striped",
-      });
+      drawPdfScheduleTable(doc, taskHeaders, mapped, 28);
     });
   }
 
@@ -1625,31 +1933,20 @@ export function exportProjectsToWord(
   managers: ProjectManager[],
   selectedFields?: string[],
   tasks?: any[],
-  selectedTaskFields?: string[]
+  selectedTaskFields?: string[],
+  dependencies: TaskExportDependency[] = [],
 ): Blob {
-  const allHeaders = [
-    "Name",
-    "Objective",
-    "Department",
-    "Customer",
-    "Engagement Type",
-    "Billing Model",
-    "Priority",
-    "Start Date",
-    "End Date",
-    "Value",
-    "Currency",
-    "Primary PM",
-    "Secondary PM",
-    "Status",
-  ];
-  const headers = selectedFields || allHeaders;
+  const headers = resolveProjectExportHeaders(selectedFields);
+  const reportTitle =
+    projects.length === 1 && projects[0]?.name
+      ? `Project Schedule — ${projects[0].name}`
+      : "Project Schedule Export";
 
   let html = `
     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
     <head>
       <meta charset="utf-8">
-      <title>Project Portfolio Report</title>
+      <title>${reportTitle}</title>
       <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
       <style>
         @page Section1 {
@@ -1673,7 +1970,7 @@ export function exportProjectsToWord(
     </head>
     <body>
       <div class="Section1">
-        <h1>Project Portfolio Report</h1>
+        <h1>${reportTitle}</h1>
         <p class="meta">Exported on: ${new Date().toLocaleDateString()}</p>
         
         <h2>Projects Overview</h2>
@@ -1687,27 +1984,7 @@ export function exportProjectsToWord(
   `;
 
   projects.forEach((p) => {
-    const deptName = p.department?.name || departments.find((d) => d.id === p.departmentId)?.name || "";
-    const custName = p.customer?.displayName || customers.find((c) => c.id === p.customerId)?.displayName || "";
-    const primaryPmName = p.primaryPm?.displayName || managers.find((m) => m.id === p.primaryPmId)?.displayName || "";
-    const secondaryPmName = p.secondaryPm?.displayName || managers.find((m) => m.id === p.secondaryPmId)?.displayName || "";
-
-    const allData: Record<string, any> = {
-      "Name": p.name || "",
-      "Objective": p.objective || "",
-      "Department": deptName,
-      "Customer": custName,
-      "Engagement Type": p.engagementType || "",
-      "Billing Model": p.billingModel || "",
-      "Priority": p.priority || "",
-      "Start Date": p.startDate ? p.startDate.split("T")[0] : "",
-      "End Date": p.endDate ? p.endDate.split("T")[0] : "",
-      "Value": p.value != null ? p.value : "",
-      "Currency": p.currency || "",
-      "Primary PM": primaryPmName,
-      "Secondary PM": secondaryPmName,
-      "Status": p.status || "",
-    };
+    const allData = mapProjectToExportRow(p, departments, customers, managers);
 
     html += `
       <tr>
@@ -1731,52 +2008,36 @@ export function exportProjectsToWord(
       tasksByProject[projName].push(t);
     });
 
-    const allTaskHeaders = [
-      "Title",
-      "Description",
-      "Priority",
-      "Status",
-      "Assignee",
-      "Phase",
-      "Start Date",
-      "End Date",
-      "Effort Hours",
-    ];
-    const taskHeaders = selectedTaskFields || allTaskHeaders;
+    const taskHeaders = selectedTaskFields?.length
+      ? selectedTaskFields
+      : DEFAULT_TASK_EXPORT_FIELDS;
 
-    html += `<h2>Project Tasks Breakdown</h2>`;
+    html += `<h2>Task Schedule</h2>`;
 
     Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
       html += `
-        <h3>${projName} Tasks</h3>
+        <h3>Task Schedule — ${projName}</h3>
         <table>
           <thead>
             <tr>
-              ${taskHeaders.map(h => `<th>${h}</th>`).join("")}
+              ${taskHeaders.map((h) => `<th>${h}</th>`).join("")}
             </tr>
           </thead>
           <tbody>
       `;
 
-      projTasks.forEach((t) => {
-        const assigneeName = t.owner?.displayName || t.assigneeName || "";
-        const phaseName = t.phase?.name || t.phaseName || "";
-
-        const allTaskData: Record<string, any> = {
-          "Title": t.title || "",
-          "Description": t.description || "",
-          "Priority": t.priority || "",
-          "Status": t.status || "",
-          "Assignee": assigneeName,
-          "Phase": phaseName,
-          "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
-          "End Date": t.endDate ? t.endDate.split("T")[0] : "",
-          "Effort Hours": t.effortHours != null ? t.effortHours : 0,
-        };
-
+      mapTasksToExportRows(projTasks, {
+        dependencies,
+        projectName: projName,
+        projectOrganization: (t) =>
+          t.project?.customer?.displayName ||
+          t.customerName ||
+          t.projectOrganization ||
+          null,
+      }).forEach((row) => {
         html += `
           <tr>
-            ${taskHeaders.map(field => `<td>${allTaskData[field] !== undefined ? allTaskData[field] : ""}</td>`).join("")}
+            ${taskHeaders.map((field) => `<td>${row[field] !== undefined ? row[field] : ""}</td>`).join("")}
           </tr>
         `;
       });
@@ -1801,20 +2062,11 @@ export function exportTasksToWord(
   tasks: Task[],
   phases: ProjectPhase[],
   assignees: ProjectTaskAssignee[],
-  selectedFields?: string[]
+  selectedFields?: string[],
+  dependencies: TaskExportDependency[] = [],
+  projectOrganization?: string | null,
 ): Blob {
-  const allHeaders = [
-    "Title",
-    "Description",
-    "Priority",
-    "Status",
-    "Assignee",
-    "Phase",
-    "Start Date",
-    "End Date",
-    "Effort Hours",
-  ];
-  const headers = selectedFields || allHeaders;
+  const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
 
   let html = `
     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -1848,34 +2100,21 @@ export function exportTasksToWord(
         <table>
           <thead>
             <tr>
-              ${headers.map(h => `<th>${h}</th>`).join("")}
+              ${headers.map((h) => `<th>${h}</th>`).join("")}
             </tr>
           </thead>
           <tbody>
   `;
 
-  tasks.forEach((t) => {
-    const assigneeName =
-      t.owner?.displayName ||
-      assignees.find((assignee) => assignee.userId === t.ownerId)?.displayName ||
-      "";
-    const phaseName = t.phase?.name || phases.find((p) => p.id === t.phaseId)?.name || "";
-
-    const allData: Record<string, any> = {
-      "Title": t.title || "",
-      "Description": t.description || "",
-      "Priority": t.priority || "",
-      "Status": t.status || "",
-      "Assignee": assigneeName,
-      "Phase": phaseName,
-      "Start Date": t.startDate ? t.startDate.split("T")[0] : "",
-      "End Date": t.endDate ? t.endDate.split("T")[0] : "",
-      "Effort Hours": t.effortHours != null ? t.effortHours : 0,
-    };
-
+  mapTasksToExportRows(tasks, {
+    dependencies,
+    phases,
+    assignees,
+    projectOrganization,
+  }).forEach((row) => {
     html += `
       <tr>
-        ${headers.map(field => `<td>${allData[field] !== undefined ? allData[field] : ""}</td>`).join("")}
+        ${headers.map((field) => `<td>${row[field] !== undefined ? row[field] : ""}</td>`).join("")}
       </tr>
     `;
   });
@@ -1891,333 +2130,846 @@ export function exportTasksToWord(
   return new Blob([html], { type: "application/msword;charset=utf-8" });
 }
 
-export function exportTasksToMPP(
+type MspdiExportDependency = {
+  predecessorId: string;
+  successorId: string;
+  depType?: string;
+  lagDays?: number;
+};
+
+function decodeXmlEntities(str: string): string {
+  return String(str || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'");
+}
+
+function escMppXml(str: string) {
+  // Decode first to avoid double-encoding (&apos; → &amp;apos;).
+  // Apostrophes/quotes are fine unescaped in XML text nodes.
+  return decodeXmlEntities(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function toMppDateTime(value?: string | null, endOfDay = false): string {
+  if (!value) return "";
+  const day = String(value).split("T")[0];
+  return `${day}T${endOfDay ? "17:00:00" : "08:00:00"}`;
+}
+
+function mapMppPriority(p: string) {
+  const lower = String(p || "").toLowerCase();
+  if (lower === "critical") return 1000;
+  if (lower === "high") return 700;
+  if (lower === "low") return 300;
+  return 500;
+}
+
+function mapMppPercent(task: any): number {
+  if (typeof task.progressApproved === "number") {
+    return Math.max(0, Math.min(100, Math.round(task.progressApproved)));
+  }
+  const lower = String(task.status || "").toLowerCase();
+  if (lower === "done" || lower === "approved") return 100;
+  if (lower === "in_progress") return 50;
+  return 0;
+}
+
+/** MSPDI PredecessorLink Type: 0=FF, 1=FS, 2=SF, 3=SS */
+function mapMppDepType(depType?: string): number {
+  switch (String(depType || "FS").toUpperCase()) {
+    case "FF":
+      return 0;
+    case "SF":
+      return 2;
+    case "SS":
+      return 3;
+    case "FS":
+    default:
+      return 1;
+  }
+}
+
+function mspdiDurationXml(task: any): string {
+  if (task.effortHours != null && Number(task.effortHours) > 0) {
+    const hours = Math.round(Number(task.effortHours));
+    return `<Duration>PT${hours}H0M0S</Duration>`;
+  }
+  if (task.startDate && task.endDate) {
+    const start = new Date(`${String(task.startDate).split("T")[0]}T00:00:00Z`);
+    const end = new Date(`${String(task.endDate).split("T")[0]}T00:00:00Z`);
+    const days = Math.max(
+      1,
+      Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1,
+    );
+    return `<Duration>PT${days * 8}H0M0S</Duration>`;
+  }
+  return "";
+}
+
+function comparePlanOrder(a: any, b: any): number {
+  return comparePlanOrderAsc(a, b);
+}
+
+function avgTopLevelProgress(tasks: any[]): number {
+  if (!tasks.length) return 0;
+  const sum = tasks.reduce(
+    (acc, t) => acc + Math.max(0, Math.min(100, t.progressApproved ?? 0)),
+    0,
+  );
+  return Math.round(sum / tasks.length);
+}
+
+/** Emit a task and all descendants (nested summaries) in plan order. */
+function pushTaskTreeToPlan(
+  emitPlan: Array<{
+    kind: "task";
+    task: any;
+    wbs: string;
+    outlineLevel: number;
+  } | Record<string, unknown>>,
+  task: any,
+  wbs: string,
+  outlineLevel: number,
+  childrenByParent: Record<string, any[]>,
+) {
+  emitPlan.push({ kind: "task", task, wbs, outlineLevel });
+  const children = childrenByParent[task.id] || [];
+  children.forEach((child, index) => {
+    pushTaskTreeToPlan(
+      emitPlan,
+      child,
+      `${wbs}.${index + 1}`,
+      outlineLevel + 1,
+      childrenByParent,
+    );
+  });
+}
+
+function buildPredecessorLinksXml(
+  taskId: string,
+  deps: MspdiExportDependency[],
+  idToUid: Map<string, number>,
+): string {
+  const links = deps.filter((d) => d.successorId === taskId);
+  if (links.length === 0) return "";
+
+  return links
+    .map((dep) => {
+      const predUid = idToUid.get(dep.predecessorId);
+      if (predUid == null) return "";
+      const lagDays = Number(dep.lagDays) || 0;
+      // LinkLag is in tenths of a minute; 1 day = 8h * 60 * 10 = 4800
+      const linkLag = lagDays * 4800;
+      return `      <PredecessorLink>
+        <PredecessorUID>${predUid}</PredecessorUID>
+        <Type>${mapMppDepType(dep.depType)}</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>${linkLag}</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+`;
+    })
+    .join("");
+}
+
+function mspdiBaselineDurationHours(task: any): number | null {
+  if (
+    task.baselineDurationDays != null &&
+    Number.isFinite(Number(task.baselineDurationDays)) &&
+    Number(task.baselineDurationDays) > 0
+  ) {
+    return Math.round(Number(task.baselineDurationDays) * 8);
+  }
+  const days = inclusiveDurationDays(
+    task.baselineStart || task.baselineStartDate,
+    task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
+  );
+  if (days === "") return null;
+  return Number(days) * 8;
+}
+
+function mspdiVarianceXml(task: any): string {
+  const startVar = signedDayDelta(
+    task.startDate,
+    task.baselineStart || task.baselineStartDate,
+  );
+  const finishVar = signedDayDelta(
+    task.endDate,
+    task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
+  );
+  let xml = "";
+  if (startVar !== "") {
+    // StartVariance in tenths of a minute
+    xml += `      <StartVariance>${Number(startVar) * 4800}</StartVariance>\n`;
+  }
+  if (finishVar !== "") {
+    xml += `      <FinishVariance>${Number(finishVar) * 4800}</FinishVariance>\n`;
+  }
+  return xml;
+}
+
+function renderMppHolidayExceptions(
+  holidays: { date: string; name?: string }[],
+): string {
+  if (!holidays.length) return "";
+  return holidays
+    .map((h, index) => {
+      const day = String(h.date).slice(0, 10);
+      return `      <Exception>
+        <EnteredByOccurrences>0</EnteredByOccurrences>
+        <TimePeriod>
+          <FromDate>${day}T00:00:00</FromDate>
+          <ToDate>${day}T23:59:00</ToDate>
+        </TimePeriod>
+        <Occurrences>1</Occurrences>
+        <Name>${escMppXml(h.name || `Holiday ${index + 1}`)}</Name>
+        <Type>1</Type>
+        <DayWorking>0</DayWorking>
+      </Exception>`;
+    })
+    .join("\n");
+}
+
+function renderMppCalendarsXml(
+  holidays: { date: string; name?: string }[] = [],
+): string {
+  const exceptions = renderMppHolidayExceptions(holidays);
+  return `  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Standard</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <BaseCalendarUID>-1</BaseCalendarUID>
+${exceptions ? `      <Exceptions>\n${exceptions}\n      </Exceptions>` : ""}
+    </Calendar>
+  </Calendars>`;
+}
+
+function renderMppTaskXml(opts: {
+  uid: number;
+  wbs: string;
+  outlineLevel: number;
+  name: string;
+  summary: boolean;
+  task?: any;
+  predecessorXml?: string;
+}): string {
+  const { uid, wbs, outlineLevel, name, summary, task, predecessorXml = "" } = opts;
+  const start = task ? toMppDateTime(task.startDate) : "";
+  const finish = task ? toMppDateTime(task.endDate, true) : "";
+  const baselineStart = task
+    ? toMppDateTime(
+        task.baselineStart || task.baselineStartDate || task.startDate,
+      )
+    : "";
+  const baselineFinish = task
+    ? toMppDateTime(
+        task.baselineEnd ||
+          task.baselineFinish ||
+          task.baselineFinishDate ||
+          task.endDate,
+        true,
+      )
+    : "";
+  const percent = task ? mapMppPercent(task) : 0;
+  const durationXml = task ? mspdiDurationXml(task) : "";
+  const workXml = durationXml
+    ? durationXml.replace("<Duration>", "<Work>").replace("</Duration>", "</Work>")
+    : "";
+  const baselineHours = task ? mspdiBaselineDurationHours(task) : null;
+  const actualStart =
+    task && percent > 0
+      ? toMppDateTime(task.actualStart || task.startDate)
+      : "";
+  const actualFinish =
+    task && percent >= 100
+      ? toMppDateTime(task.actualEnd || task.endDate, true)
+      : "";
+
+  // Flat Baseline* fields + nested <Baseline> so Project populates Baseline / Tracking tables.
+  let baselineBlock = "";
+  if (baselineStart || baselineFinish || baselineHours != null) {
+    baselineBlock = `      <Baseline>
+${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFinish ? `        <Finish>${baselineFinish}</Finish>\n` : ""}${baselineHours != null ? `        <Duration>PT${baselineHours}H0M0S</Duration>\n` : ""}      </Baseline>
+`;
+  }
+
+  return `    <Task>
+      <UID>${uid}</UID>
+      <ID>${uid}</ID>
+      <IsNull>0</IsNull>
+      <WBS>${wbs}</WBS>
+      <OutlineNumber>${wbs}</OutlineNumber>
+      <OutlineLevel>${outlineLevel}</OutlineLevel>
+      <Type>${summary ? 1 : 0}</Type>
+      <Name>${escMppXml(name)}</Name>
+      <Summary>${summary ? 1 : 0}</Summary>
+      <Manual>0</Manual>
+      ${start ? `<Start>${start}</Start>` : ""}
+      ${finish ? `<Finish>${finish}</Finish>` : ""}
+      ${durationXml}
+      ${workXml}
+      ${baselineStart ? `<BaselineStart>${baselineStart}</BaselineStart>` : ""}
+      ${baselineFinish ? `<BaselineFinish>${baselineFinish}</BaselineFinish>` : ""}
+      ${baselineHours != null ? `<BaselineDuration>PT${baselineHours}H0M0S</BaselineDuration>` : ""}
+${baselineBlock}${task ? mspdiVarianceXml(task) : ""}      <PercentComplete>${percent}</PercentComplete>
+      <PercentWorkComplete>${percent}</PercentWorkComplete>
+      ${actualStart ? `<ActualStart>${actualStart}</ActualStart>` : ""}
+      ${actualFinish ? `<ActualFinish>${actualFinish}</ActualFinish>` : ""}
+      <Priority>${task ? mapMppPriority(task.priority) : 500}</Priority>
+      <Notes>${escMppXml(task?.description || "")}</Notes>
+${predecessorXml}    </Task>
+`;
+}
+
+/** Close Tasks and append Resources + Assignments so Project shows Resource Names. */
+function appendMspdiResourcesAndAssignments(
+  tasks: any[],
+  idToUid: Map<string, number>,
+): string {
+  const resourcesByKey = new Map<string, { uid: number; name: string }>();
+  const assignmentRows: { taskUid: number; resourceUid: number; task: any }[] =
+    [];
+  let nextResUid = 1;
+
+  const ensureResource = (name: string): number => {
+    const key = name.trim().toLowerCase();
+    const existing = resourcesByKey.get(key);
+    if (existing) return existing.uid;
+    const uid = nextResUid++;
+    resourcesByKey.set(key, { uid, name: name.trim() });
+    return uid;
+  };
+
+  const isPlaceholderResource = (name: string) => {
+    const n = name.trim().toLowerCase();
+    return (
+      !n ||
+      n === "unassigned" ||
+      n === "none" ||
+      n === "n/a" ||
+      n === "na" ||
+      n === "demo"
+    );
+  };
+
+  for (const task of tasks) {
+    const taskUid = idToUid.get(task.id);
+    if (taskUid == null) continue;
+    // Export only matched Cybsec assignees (owner / backup), not unmatched MPP names.
+    const names: string[] = [];
+    const ownerName = task.owner?.displayName?.trim() || "";
+    const backupName = task.backupOwner?.displayName?.trim() || "";
+    const ownerOrg =
+      task.owner?.employees?.[0]?.department?.name ||
+      task.owner?.employees?.department?.name ||
+      "";
+    const backupOrg =
+      task.backupOwner?.employees?.[0]?.department?.name ||
+      task.backupOwner?.employees?.department?.name ||
+      "";
+    if (ownerName && !isPlaceholderResource(ownerName)) {
+      names.push(formatResourceName(ownerName, ownerOrg) || ownerName);
+    }
+    if (backupName && !isPlaceholderResource(backupName)) {
+      names.push(formatResourceName(backupName, backupOrg) || backupName);
+    }
+    for (const name of names) {
+      assignmentRows.push({
+        taskUid,
+        resourceUid: ensureResource(name),
+        task,
+      });
+    }
+  }
+
+  let xml = `  </Tasks>
+  <Resources>
+    <Resource>
+      <UID>0</UID>
+      <ID>0</ID>
+      <Type>1</Type>
+      <IsNull>0</IsNull>
+      <MaxUnits>1.00</MaxUnits>
+      <CalendarUID>1</CalendarUID>
+    </Resource>
+`;
+  for (const resource of [...resourcesByKey.values()].sort(
+    (a, b) => a.uid - b.uid,
+  )) {
+    xml += `    <Resource>
+      <UID>${resource.uid}</UID>
+      <ID>${resource.uid}</ID>
+      <Name>${escMppXml(resource.name)}</Name>
+      <Type>1</Type>
+      <IsNull>0</IsNull>
+      <MaxUnits>1.00</MaxUnits>
+      <CalendarUID>1</CalendarUID>
+    </Resource>
+`;
+  }
+  xml += `  </Resources>
+  <Assignments>
+`;
+  let assignmentUid = 1_048_577;
+  for (const row of assignmentRows) {
+    const start = toMppDateTime(row.task.startDate);
+    const finish = toMppDateTime(row.task.endDate, true);
+    xml += `    <Assignment>
+      <UID>${assignmentUid++}</UID>
+      <ResourceUID>${row.resourceUid}</ResourceUID>
+      <TaskUID>${row.taskUid}</TaskUID>
+      <Units>1</Units>
+      <Work>PT8H0M0S</Work>
+      <RegularWork>PT8H0M0S</RegularWork>
+      <RemainingWork>PT8H0M0S</RemainingWork>
+      ${start ? `<Start>${start}</Start>` : ""}
+      ${finish ? `<Finish>${finish}</Finish>` : ""}
+    </Assignment>
+`;
+  }
+  xml += `  </Assignments>
+</Project>`;
+  return xml;
+}
+
+/**
+ * Export project schedule as MSPDI XML (opens in MS Project).
+ * Phases → outline L1 summaries; tasks keep plan order, % complete, baselines, predecessors.
+ */
+export function exportTasksToMspdi(
   tasks: any[],
   phases: any[],
-  assignees: any[],
-  projectName = "Portfolio Export"
+  _assignees: any[],
+  projectName = "Portfolio Export",
+  dependencies: MspdiExportDependency[] = [],
+  holidays: { date: string; name?: string }[] = [],
 ): Blob {
-  let uid = 1;
+  const idToUid = new Map<string, number>();
 
-  const escXml = (str: string) =>
-    String(str || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
+  const phaseList = [...(phases || [])].sort(
+    (a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0),
+  );
 
-  const mapPriority = (p: string) => {
-    const lower = String(p || "").toLowerCase();
-    if (lower === "critical") return 1000;
-    if (lower === "high") return 700;
-    if (lower === "low") return 300;
-    return 500;
-  };
+  const topLevelTasks = tasks.filter((t) => !t.parentTaskId);
+  const subTasksByParent = tasks
+    .filter((t) => t.parentTaskId)
+    .reduce(
+      (acc, t) => {
+        if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
+        acc[t.parentTaskId].push(t);
+        return acc;
+      },
+      {} as Record<string, any[]>,
+    );
 
-  const mapPercent = (s: string) => {
-    const lower = String(s || "").toLowerCase();
-    if (lower === "done" || lower === "approved") return 100;
-    if (lower === "in_progress") return 50;
-    return 0;
-  };
+  Object.values(subTasksByParent).forEach((list) => list.sort(comparePlanOrder));
 
-  const phaseList = [...phases];
-  const phaseMap = new Map(phaseList.map(p => [p.id || p.name, p]));
-
-  const tasksByPhase: Record<string, any[]> = {};
-
-  const topLevelTasks = tasks.filter(t => !t.parentTaskId);
-  const subTasksByParent = tasks.filter(t => t.parentTaskId).reduce((acc, t) => {
-    if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
-    acc[t.parentTaskId].push(t);
-    return acc;
-  }, {} as Record<string, any[]>);
+  const tasksByPhaseId = new Map<string, any[]>();
+  const unphased: any[] = [];
 
   topLevelTasks.forEach((t) => {
-    const phaseKey = t.phaseId || t.phaseName || "No Phase";
-    if (!tasksByPhase[phaseKey]) tasksByPhase[phaseKey] = [];
-    tasksByPhase[phaseKey].push(t);
+    const phaseId = t.phaseId || t.phase?.id;
+    if (phaseId) {
+      if (!tasksByPhaseId.has(phaseId)) tasksByPhaseId.set(phaseId, []);
+      tasksByPhaseId.get(phaseId)!.push(t);
+    } else {
+      unphased.push(t);
+    }
   });
+
+  tasksByPhaseId.forEach((list) => list.sort(comparePlanOrder));
+  unphased.sort(comparePlanOrder);
+
+  const orderedPhases: { id: string; name: string; phase?: any }[] = phaseList.map(
+    (p) => ({ id: p.id, name: p.name, phase: p }),
+  );
+  for (const phaseId of tasksByPhaseId.keys()) {
+    if (!orderedPhases.some((p) => p.id === phaseId)) {
+      const sample = tasksByPhaseId.get(phaseId)?.[0];
+      orderedPhases.push({
+        id: phaseId,
+        name: sample?.phase?.name || sample?.phaseName || "Phase",
+      });
+    }
+  }
+  if (unphased.length > 0) {
+    orderedPhases.push({ id: "__unphased__", name: "Imported Schedule" });
+  }
+
+  const projectStart =
+    tasks
+      .map((t) => t.startDate)
+      .filter(Boolean)
+      .sort()[0] || phaseList[0]?.startDate;
+  const projectFinish =
+    tasks
+      .map((t) => t.endDate)
+      .filter(Boolean)
+      .sort()
+      .reverse()[0] || phaseList[phaseList.length - 1]?.endDate;
+
+  type EmitItem =
+    | { kind: "phase"; phaseEntry: (typeof orderedPhases)[0]; phaseIndex: number }
+    | {
+        kind: "task";
+        task: any;
+        wbs: string;
+        outlineLevel: number;
+      };
+
+  const emitPlan: EmitItem[] = [];
+  let phaseIndex = 0;
+
+  for (const phaseEntry of orderedPhases) {
+    const phaseTasks =
+      phaseEntry.id === "__unphased__"
+        ? unphased
+        : tasksByPhaseId.get(phaseEntry.id) || [];
+
+    // Keep empty phases from the project phase list; skip empty synthetic unphased.
+    if (phaseTasks.length === 0 && phaseEntry.id === "__unphased__") continue;
+    if (
+      phaseTasks.length === 0 &&
+      !phaseList.some((p) => p.id === phaseEntry.id)
+    ) {
+      continue;
+    }
+
+    phaseIndex += 1;
+    emitPlan.push({ kind: "phase", phaseEntry, phaseIndex });
+
+    let taskIndex = 0;
+    for (const t of phaseTasks) {
+      taskIndex += 1;
+      pushTaskTreeToPlan(
+        emitPlan,
+        t,
+        `${phaseIndex}.${taskIndex}`,
+        2,
+        subTasksByParent,
+      );
+    }
+  }
+
+  // Assign UIDs in outline order first so PredecessorLink can resolve any direction.
+  let uid = 1;
+  for (const item of emitPlan) {
+    if (item.kind === "task") {
+      idToUid.set(item.task.id, uid);
+    }
+    uid += 1;
+  }
 
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
-  <Name>${escXml(projectName)}</Name>
-  <Title>${escXml(projectName)}</Title>
+  <SaveVersion>12</SaveVersion>
+  <Name>${escMppXml(projectName)}</Name>
+  <Title>${escMppXml(projectName)}</Title>
+  <ScheduleFromStart>1</ScheduleFromStart>
+  <NewTasksAreManual>0</NewTasksAreManual>
+  ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
+  ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
+  <CalendarUID>1</CalendarUID>
+  <DefaultStartTime>08:00:00</DefaultStartTime>
+  <DefaultFinishTime>17:00:00</DefaultFinishTime>
+  <MinutesPerDay>480</MinutesPerDay>
+  <MinutesPerWeek>2400</MinutesPerWeek>
+  <DaysPerMonth>20</DaysPerMonth>
+  <DurationFormat>7</DurationFormat>
+  <WorkFormat>2</WorkFormat>
+  <TaskUpdatesResource>1</TaskUpdatesResource>
+${renderMppCalendarsXml(holidays)}
   <Tasks>
 `;
 
-  // Root summary task (UID 0 is the project root in MS Project XML)
-  xml += `    <Task>
-      <UID>0</UID>
-      <ID>0</ID>
-      <IsNull>0</IsNull>
-      <WBS>0</WBS>
-      <OutlineNumber>0</OutlineNumber>
-      <OutlineLevel>0</OutlineLevel>
-      <Type>1</Type>
-      <IsSubproject>0</IsSubproject>
-      <Name>${escXml(projectName)}</Name>
-      <Summary>1</Summary>
-    </Task>
-`;
-
-  let phaseIndex = 0;
-  Object.entries(tasksByPhase).forEach(([phaseKey, phaseTasks]) => {
-    phaseIndex++;
-    const phaseObj = phaseMap.get(phaseKey);
-    const phaseName = phaseObj?.name || phaseKey;
-
-    xml += `    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <IsNull>0</IsNull>
-      <WBS>${phaseIndex}</WBS>
-      <OutlineNumber>${phaseIndex}</OutlineNumber>
-      <OutlineLevel>1</OutlineLevel>
-      <Type>0</Type>
-      <Name>${escXml(phaseName)}</Name>
-      <Summary>1</Summary>
-    </Task>
-`;
-    uid++;
-
-    let taskIndex = 0;
-    phaseTasks.forEach((t) => {
-      taskIndex++;
-      const taskStart = t.startDate ? t.startDate.split("T")[0] + "T08:00:00" : "";
-      const taskEnd = t.endDate ? t.endDate.split("T")[0] + "T17:00:00" : "";
-      const percent = mapPercent(t.status);
-      const priority = mapPriority(t.priority);
-      const subTasks = subTasksByParent[t.id] || t.subTasks || [];
-      const isSummary = subTasks.length > 0 ? 1 : 0;
-
-      xml += `    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <IsNull>0</IsNull>
-      <WBS>${phaseIndex}.${taskIndex}</WBS>
-      <OutlineNumber>${phaseIndex}.${taskIndex}</OutlineNumber>
-      <OutlineLevel>2</OutlineLevel>
-      <Type>0</Type>
-      <Name>${escXml(t.title || "")}</Name>
-      <Summary>${isSummary}</Summary>
-      ${taskStart ? `<Start>${taskStart}</Start>` : ""}
-      ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
-      <PercentComplete>${percent}</PercentComplete>
-      <Priority>${priority}</Priority>
-      <Notes>${escXml(t.description || "")}</Notes>
-    </Task>
-`;
-      uid++;
-
-      let subIndex = 0;
-      subTasks.forEach((st: any) => {
-        subIndex++;
-        const subStart = st.startDate ? st.startDate.split("T")[0] + "T08:00:00" : taskStart;
-        const subEnd = st.endDate ? st.endDate.split("T")[0] + "T17:00:00" : taskEnd;
-        const subPercent = mapPercent(st.status);
-        const subPriority = mapPriority(st.priority);
-
-        xml += `    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <IsNull>0</IsNull>
-      <WBS>${phaseIndex}.${taskIndex}.${subIndex}</WBS>
-      <OutlineNumber>${phaseIndex}.${taskIndex}.${subIndex}</OutlineNumber>
-      <OutlineLevel>3</OutlineLevel>
-      <Type>0</Type>
-      <Name>${escXml(st.title || "")}</Name>
-      <Summary>0</Summary>
-      ${subStart ? `<Start>${subStart}</Start>` : ""}
-      ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
-      <PercentComplete>${subPercent}</PercentComplete>
-      <Priority>${subPriority}</Priority>
-      <Notes>${escXml(st.description || "")}</Notes>
-    </Task>
-`;
-        uid++;
-      });
-    });
+  xml += renderMppTaskXml({
+    uid: 0,
+    wbs: "0",
+    outlineLevel: 0,
+    name: projectName,
+    summary: true,
   });
 
-  xml += `  </Tasks>
-</Project>`;
+  uid = 1;
+  for (const item of emitPlan) {
+    if (item.kind === "phase") {
+      const phaseUid = uid++;
+      const phaseObj = item.phaseEntry.phase;
+      const phaseTasks =
+        item.phaseEntry.id === "__unphased__"
+          ? unphased
+          : tasksByPhaseId.get(item.phaseEntry.id) || [];
+      xml += renderMppTaskXml({
+        uid: phaseUid,
+        wbs: String(item.phaseIndex),
+        outlineLevel: 1,
+        name: item.phaseEntry.name,
+        summary: true,
+        task: phaseObj
+          ? {
+              startDate: phaseObj.startDate,
+              endDate: phaseObj.endDate,
+              baselineStart: phaseObj.startDate,
+              baselineEnd: phaseObj.endDate,
+              progressApproved: avgTopLevelProgress(phaseTasks),
+              priority: "Medium",
+              description: phaseObj.description,
+            }
+          : {
+              progressApproved: avgTopLevelProgress(phaseTasks),
+            },
+      });
+      continue;
+    }
+
+    const currentUid = idToUid.get(item.task.id)!;
+    uid = Math.max(uid, currentUid + 1);
+    const subTasks = subTasksByParent[item.task.id] || [];
+
+    xml += renderMppTaskXml({
+      uid: currentUid,
+      wbs: item.wbs,
+      outlineLevel: item.outlineLevel,
+      name: item.task.title || "",
+      summary: subTasks.length > 0,
+      task: item.task,
+      predecessorXml: buildPredecessorLinksXml(
+        item.task.id,
+        dependencies,
+        idToUid,
+      ),
+    });
+  }
+
+  xml += appendMspdiResourcesAndAssignments(
+    emitPlan
+      .filter(
+        (item): item is { kind: "task"; task: any; wbs: string; outlineLevel: number } =>
+          item.kind === "task",
+      )
+      .map((item) => item.task),
+    idToUid,
+  );
 
   return new Blob([xml], { type: "application/xml;charset=utf-8" });
 }
 
-export function exportProjectsToMPP(
+export function exportProjectsToMspdi(
   projects: any[],
   departments: Department[],
   customers: Customer[],
   managers: ProjectManager[],
-  tasks?: any[]
+  tasks?: any[],
+  dependencies: MspdiExportDependency[] = [],
+  holidays: { date: string; name?: string }[] = [],
 ): Blob {
+  // Multi-project portfolio: one MSPDI file with each project as an L1 summary.
+  // Prefer per-project export from the workspace for full fidelity.
   let uid = 1;
+  const idToUid = new Map<string, number>();
 
-  const escXml = (str: string) =>
-    String(str || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
-
-  const mapPriority = (p: string) => {
-    const lower = String(p || "").toLowerCase();
-    if (lower === "critical") return 1000;
-    if (lower === "high") return 700;
-    if (lower === "low") return 300;
-    return 500;
-  };
-
-  const mapPercent = (s: string) => {
-    const lower = String(s || "").toLowerCase();
-    if (lower === "done" || lower === "approved" || lower === "closed") return 100;
-    if (lower === "in_progress") return 50;
-    return 0;
-  };
+  const projectStart = projects
+    .map((p) => p.startDate)
+    .filter(Boolean)
+    .sort()[0];
+  const projectFinish = projects
+    .map((p) => p.endDate)
+    .filter(Boolean)
+    .sort()
+    .reverse()[0];
 
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
+  <SaveVersion>12</SaveVersion>
   <Name>Portfolio Export</Name>
   <Title>Portfolio Export</Title>
+  <ScheduleFromStart>1</ScheduleFromStart>
+  <NewTasksAreManual>0</NewTasksAreManual>
+  ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
+  ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
+  <CalendarUID>1</CalendarUID>
+  <DefaultStartTime>08:00:00</DefaultStartTime>
+  <DefaultFinishTime>17:00:00</DefaultFinishTime>
+  <MinutesPerDay>480</MinutesPerDay>
+  <MinutesPerWeek>2400</MinutesPerWeek>
+  <DaysPerMonth>20</DaysPerMonth>
+  <DurationFormat>7</DurationFormat>
+  <WorkFormat>2</WorkFormat>
+  <TaskUpdatesResource>1</TaskUpdatesResource>
+${renderMppCalendarsXml(holidays)}
   <Tasks>
-    <Task>
-      <UID>0</UID>
-      <ID>0</ID>
-      <IsNull>0</IsNull>
-      <WBS>0</WBS>
-      <OutlineNumber>0</OutlineNumber>
-      <OutlineLevel>0</OutlineLevel>
-      <Type>1</Type>
-      <IsSubproject>0</IsSubproject>
-      <Name>Portfolio Export</Name>
-      <Summary>1</Summary>
-    </Task>
 `;
+
+  xml += renderMppTaskXml({
+    uid: 0,
+    wbs: "0",
+    outlineLevel: 0,
+    name: "Portfolio Export",
+    summary: true,
+  });
+
+  // Pre-assign task UIDs across the whole portfolio for dependency links.
+  const emitPlan: Array<
+    | { kind: "project"; project: any; projIndex: number }
+    | {
+        kind: "phase";
+        name: string;
+        wbs: string;
+        phase?: any;
+        phaseTasks: any[];
+      }
+    | { kind: "task"; task: any; wbs: string; outlineLevel: number }
+  > = [];
+
+  // Build children map once; reused when emitting nested summaries.
+  const childrenByParentAll: Record<string, any[]> = {};
+  for (const t of tasks || []) {
+    if (!t.parentTaskId) continue;
+    if (!childrenByParentAll[t.parentTaskId]) childrenByParentAll[t.parentTaskId] = [];
+    childrenByParentAll[t.parentTaskId].push(t);
+  }
+  Object.values(childrenByParentAll).forEach((list) => list.sort(comparePlanOrder));
 
   let projIndex = 0;
-  projects.forEach((proj) => {
-    projIndex++;
-    const projStart = proj.startDate ? proj.startDate.split("T")[0] + "T08:00:00" : "";
-    const projEnd = proj.endDate ? proj.endDate.split("T")[0] + "T17:00:00" : "";
+  for (const proj of projects) {
+    projIndex += 1;
+    emitPlan.push({ kind: "project", project: proj, projIndex });
 
-    xml += `    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <IsNull>0</IsNull>
-      <WBS>${projIndex}</WBS>
-      <OutlineNumber>${projIndex}</OutlineNumber>
-      <OutlineLevel>1</OutlineLevel>
-      <Type>0</Type>
-      <Name>${escXml(proj.name || "")}</Name>
-      <Summary>1</Summary>
-      ${projStart ? `<Start>${projStart}</Start>` : ""}
-      ${projEnd ? `<Finish>${projEnd}</Finish>` : ""}
-      <PercentComplete>${mapPercent(proj.status)}</PercentComplete>
-      <Notes>${escXml(proj.objective || "")}</Notes>
-    </Task>
-`;
-    uid++;
+    const projTasks = (tasks || []).filter(
+      (t) => t.projectId === proj.id || t.projectName === proj.name,
+    );
+    const topLevel = projTasks
+      .filter((t) => !t.parentTaskId)
+      .sort(comparePlanOrder);
+    const byPhase = new Map<string, any[]>();
+    for (const t of topLevel) {
+      const key = t.phase?.name || t.phaseName || "No Phase";
+      if (!byPhase.has(key)) byPhase.set(key, []);
+      byPhase.get(key)!.push(t);
+    }
 
-    const projTasks = tasks
-      ? tasks.filter(t => t.projectId === proj.id || t.projectName === proj.name)
-      : [];
-
-    const tasksByPhase: Record<string, any[]> = {};
-    const topLevelTasks = projTasks.filter(t => !t.parentTaskId);
-    const subTasksByParent = projTasks
-      .filter(t => t.parentTaskId)
-      .reduce((acc, t) => {
-        if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
-        acc[t.parentTaskId].push(t);
-        return acc;
-      }, {} as Record<string, any[]>);
-
-    topLevelTasks.forEach((t) => {
-      const phaseKey = t.phase?.name || t.phaseName || "No Phase";
-      if (!tasksByPhase[phaseKey]) tasksByPhase[phaseKey] = [];
-      tasksByPhase[phaseKey].push(t);
+    // Phase order from import orderIndex (not Map insertion / task encounter order).
+    const phaseGroups = [...byPhase.entries()].sort((a, b) => {
+      const aIdx = a[1][0]?.phase?.orderIndex;
+      const bIdx = b[1][0]?.phase?.orderIndex;
+      const aNum = typeof aIdx === "number" ? aIdx : Number.MAX_SAFE_INTEGER;
+      const bNum = typeof bIdx === "number" ? bIdx : Number.MAX_SAFE_INTEGER;
+      if (aNum !== bNum) return aNum - bNum;
+      return a[0].localeCompare(b[0]);
     });
 
     let phaseIndex = 0;
-    Object.entries(tasksByPhase).forEach(([phaseName, phaseTasks]) => {
-      phaseIndex++;
-
-      xml += `    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <IsNull>0</IsNull>
-      <WBS>${projIndex}.${phaseIndex}</WBS>
-      <OutlineNumber>${projIndex}.${phaseIndex}</OutlineNumber>
-      <OutlineLevel>2</OutlineLevel>
-      <Type>0</Type>
-      <Name>${escXml(phaseName)}</Name>
-      <Summary>1</Summary>
-    </Task>
-`;
-      uid++;
-
-      let taskIndex = 0;
-      phaseTasks.forEach((t) => {
-        taskIndex++;
-        const taskStart = t.startDate ? t.startDate.split("T")[0] + "T08:00:00" : projStart;
-        const taskEnd = t.endDate ? t.endDate.split("T")[0] + "T17:00:00" : projEnd;
-        const subTasks = subTasksByParent[t.id] || t.subTasks || [];
-        const isSummary = subTasks.length > 0 ? 1 : 0;
-
-        xml += `    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <IsNull>0</IsNull>
-      <WBS>${projIndex}.${phaseIndex}.${taskIndex}</WBS>
-      <OutlineNumber>${projIndex}.${phaseIndex}.${taskIndex}</OutlineNumber>
-      <OutlineLevel>3</OutlineLevel>
-      <Type>0</Type>
-      <Name>${escXml(t.title || "")}</Name>
-      <Summary>${isSummary}</Summary>
-      ${taskStart ? `<Start>${taskStart}</Start>` : ""}
-      ${taskEnd ? `<Finish>${taskEnd}</Finish>` : ""}
-      <PercentComplete>${mapPercent(t.status)}</PercentComplete>
-      <Priority>${mapPriority(t.priority)}</Priority>
-      <Notes>${escXml(t.description || "")}</Notes>
-    </Task>
-`;
-        uid++;
-
-        let subIndex = 0;
-        subTasks.forEach((st: any) => {
-          subIndex++;
-          const subStart = st.startDate ? st.startDate.split("T")[0] + "T08:00:00" : taskStart;
-          const subEnd = st.endDate ? st.endDate.split("T")[0] + "T17:00:00" : taskEnd;
-
-          xml += `    <Task>
-      <UID>${uid}</UID>
-      <ID>${uid}</ID>
-      <IsNull>0</IsNull>
-      <WBS>${projIndex}.${phaseIndex}.${taskIndex}.${subIndex}</WBS>
-      <OutlineNumber>${projIndex}.${phaseIndex}.${taskIndex}.${subIndex}</OutlineNumber>
-      <OutlineLevel>4</OutlineLevel>
-      <Type>0</Type>
-      <Name>${escXml(st.title || "")}</Name>
-      <Summary>0</Summary>
-      ${subStart ? `<Start>${subStart}</Start>` : ""}
-      ${subEnd ? `<Finish>${subEnd}</Finish>` : ""}
-      <PercentComplete>${mapPercent(st.status)}</PercentComplete>
-      <Priority>${mapPriority(st.priority)}</Priority>
-      <Notes>${escXml(st.description || "")}</Notes>
-    </Task>
-`;
-          uid++;
-        });
+    for (const [phaseName, phaseTasks] of phaseGroups) {
+      phaseTasks.sort(comparePlanOrder);
+      phaseIndex += 1;
+      emitPlan.push({
+        kind: "phase",
+        name: phaseName,
+        wbs: `${projIndex}.${phaseIndex}`,
+        phase: phaseTasks[0]?.phase,
+        phaseTasks,
       });
-    });
-  });
+      let taskIndex = 0;
+      const childrenByParent: Record<string, any[]> = {};
+      for (const t of projTasks) {
+        if (!t.parentTaskId) continue;
+        if (!childrenByParent[t.parentTaskId]) childrenByParent[t.parentTaskId] = [];
+        childrenByParent[t.parentTaskId].push(t);
+      }
+      Object.values(childrenByParent).forEach((list) => list.sort(comparePlanOrder));
 
-  xml += `  </Tasks>
-</Project>`;
+      for (const t of phaseTasks) {
+        taskIndex += 1;
+        pushTaskTreeToPlan(
+          emitPlan,
+          t,
+          `${projIndex}.${phaseIndex}.${taskIndex}`,
+          3,
+          childrenByParent,
+        );
+      }
+    }
+  }
+
+  for (const item of emitPlan) {
+    if (item.kind === "task") idToUid.set(item.task.id, uid);
+    uid += 1;
+  }
+
+  uid = 1;
+  for (const item of emitPlan) {
+    if (item.kind === "project") {
+      xml += renderMppTaskXml({
+        uid: uid++,
+        wbs: String(item.projIndex),
+        outlineLevel: 1,
+        name: item.project.name || "",
+        summary: true,
+        task: {
+          startDate: item.project.startDate,
+          endDate: item.project.endDate,
+          progressApproved: 0,
+          description: item.project.objective,
+        },
+      });
+      continue;
+    }
+    if (item.kind === "phase") {
+      xml += renderMppTaskXml({
+        uid: uid++,
+        wbs: item.wbs,
+        outlineLevel: 2,
+        name: item.name,
+        summary: true,
+        task: item.phase
+          ? {
+              startDate: item.phase.startDate,
+              endDate: item.phase.endDate,
+              baselineStart: item.phase.startDate,
+              baselineEnd: item.phase.endDate,
+              progressApproved: avgTopLevelProgress(item.phaseTasks),
+            }
+          : {
+              progressApproved: avgTopLevelProgress(item.phaseTasks),
+            },
+      });
+      continue;
+    }
+
+    const currentUid = idToUid.get(item.task.id)!;
+    uid = Math.max(uid, currentUid + 1);
+    const hasChildren = (childrenByParentAll[item.task.id] || []).length > 0;
+    xml += renderMppTaskXml({
+      uid: currentUid,
+      wbs: item.wbs,
+      outlineLevel: item.outlineLevel,
+      name: item.task.title || "",
+      summary: hasChildren,
+      task: item.task,
+      predecessorXml: buildPredecessorLinksXml(
+        item.task.id,
+        dependencies,
+        idToUid,
+      ),
+    });
+  }
+
+  xml += appendMspdiResourcesAndAssignments(
+    emitPlan
+      .filter(
+        (item): item is { kind: "task"; task: any; wbs: string; outlineLevel: number } =>
+          item.kind === "task",
+      )
+      .map((item) => item.task),
+    idToUid,
+  );
 
   return new Blob([xml], { type: "application/xml;charset=utf-8" });
 }

@@ -10,6 +10,8 @@ import java.io.InputStream;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import org.mpxj.Duration;
+import org.mpxj.ProjectCalendar;
+import org.mpxj.ProjectCalendarException;
 import org.mpxj.ProjectFile;
 import org.mpxj.ProjectProperties;
 import org.mpxj.Relation;
@@ -94,7 +96,19 @@ public class MppParseService {
       parsedTask.setSummary(task.getSummary());
       parsedTask.setStartDate(formatDate(task.getStart()));
       parsedTask.setFinishDate(formatDate(task.getFinish()));
+      parsedTask.setBaselineStartDate(formatDate(firstNonNull(
+          task.getBaselineStart(),
+          task.getBaselineStart(0))));
+      parsedTask.setBaselineFinishDate(formatDate(firstNonNull(
+          task.getBaselineFinish(),
+          task.getBaselineFinish(0))));
       parsedTask.setDurationDays(toDurationDays(task.getDuration(), projectProperties));
+      parsedTask.setBaselineDurationDays(
+          toDurationDays(
+              firstNonNull(task.getBaselineDuration(), task.getBaselineDuration(0)),
+              projectProperties));
+      parsedTask.setActualStartDate(formatDate(task.getActualStart()));
+      parsedTask.setActualFinishDate(formatDate(task.getActualFinish()));
       parsedTask.setPercentComplete(toPercent(task.getPercentageComplete()));
 
       Task parent = task.getParentTask();
@@ -120,6 +134,27 @@ public class MppParseService {
       }
 
       dto.getTasks().add(parsedTask);
+    }
+
+    // Prefer outline-0 project summary for schedule/baseline at project level.
+    ParsedTaskDto projectSummary = null;
+    for (ParsedTaskDto task : dto.getTasks()) {
+      if (task.isSummary() && task.getOutlineLevel() != null && task.getOutlineLevel() == 0) {
+        projectSummary = task;
+        break;
+      }
+    }
+    if (projectSummary != null) {
+      if (projectSummary.getStartDate() != null) {
+        properties.setStartDate(projectSummary.getStartDate());
+      }
+      if (projectSummary.getFinishDate() != null) {
+        properties.setFinishDate(projectSummary.getFinishDate());
+      }
+      properties.setBaselineStartDate(projectSummary.getBaselineStartDate());
+      properties.setBaselineFinishDate(projectSummary.getBaselineFinishDate());
+      properties.setDurationDays(projectSummary.getDurationDays());
+      properties.setBaselineDurationDays(projectSummary.getBaselineDurationDays());
     }
 
     for (Resource resource : project.getResources()) {
@@ -162,6 +197,21 @@ public class MppParseService {
       dto.getAssignments().add(parsedAssignment);
     }
 
+    int exceptionDays = 0;
+    for (org.mpxj.ProjectCalendar calendar : project.getCalendars()) {
+      if (calendar == null || calendar.getCalendarExceptions() == null) {
+        continue;
+      }
+      exceptionDays += calendar.getCalendarExceptions().size();
+    }
+    if (exceptionDays > 0) {
+      dto.getWarnings()
+          .add(
+              "File contains "
+                  + exceptionDays
+                  + " calendar exception day(s). Project holidays are managed via Keka HR calendars in Cybsec (not overwritten from MPP).");
+    }
+
     return dto;
   }
 
@@ -172,7 +222,7 @@ public class MppParseService {
     return value.toLocalDate().format(ISO_DATE);
   }
 
-  private Integer toDurationDays(Duration duration, ProjectProperties properties) {
+  private Double toDurationDays(Duration duration, ProjectProperties properties) {
     if (duration == null) {
       return null;
     }
@@ -183,7 +233,8 @@ public class MppParseService {
     if (days <= 0) {
       return null;
     }
-    return (int) Math.round(days);
+    // One decimal place matches MSP display (e.g. 66.1 / 115.1).
+    return Math.round(days * 10.0) / 10.0;
   }
 
   private Integer toPercent(Number value) {
@@ -207,6 +258,19 @@ public class MppParseService {
       return 100;
     }
     return (int) Math.round(units.doubleValue() * 100);
+  }
+
+  @SafeVarargs
+  private final <T> T firstNonNull(T... values) {
+    if (values == null) {
+      return null;
+    }
+    for (T value : values) {
+      if (value != null) {
+        return value;
+      }
+    }
+    return null;
   }
 
   private String mapRelationType(RelationType type) {

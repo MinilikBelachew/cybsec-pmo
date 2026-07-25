@@ -12,6 +12,7 @@ export * from "./api/project-templates.api";
 export * from "./api/action-points.api";
 export * from "./api/tasks.api";
 export * from "./api/files.api";
+export * from "./api/mpp-import.api";
 export * from "./api/project-documents.api";
 export type {
   WorkspaceDocument,

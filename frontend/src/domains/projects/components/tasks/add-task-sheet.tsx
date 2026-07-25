@@ -273,6 +273,8 @@ export function AddTaskSheet({
   const { data: parentTask } = useGetTaskByIdQuery(parentTaskId ?? "", {
     skip: !parentTaskId,
   });
+  /** Draft nested children allowed when new task will be depth 1 or 2 (not 3). */
+  const canDraftSubTasks = !parentTaskId || !parentTask?.parentTaskId;
   const defaultDates = defaultTaskDateRange();
 
   const {
@@ -488,7 +490,7 @@ export function AddTaskSheet({
   useEffect(() => {
     if (!open) return;
     resetDrafts();
-    setSideTab(parentTaskId ? "comments" : "subtasks");
+    setSideTab(canDraftSubTasks ? "subtasks" : "comments");
     const dates = defaultTaskDateRange();
     reset({
       projectId,
@@ -504,7 +506,7 @@ export function AddTaskSheet({
       endDate: defaultEndDate ? new Date(defaultEndDate) : dates.endDate,
       effortHours: undefined,
     });
-  }, [open, projectId, parentTaskId, defaultStatus, defaultPhaseId, defaultStartDate, defaultEndDate, reset]);
+  }, [open, projectId, parentTaskId, canDraftSubTasks, defaultStatus, defaultPhaseId, defaultStartDate, defaultEndDate, reset]);
 
   const handleClose = () => {
     resetDrafts();
@@ -584,12 +586,12 @@ export function AddTaskSheet({
             body: comment.body,
             isInternal: comment.isInternal,
           })),
-          subTasks: parentTaskId
-            ? []
-            : draftSubTasks.map((sub) => ({
+          subTasks: canDraftSubTasks
+            ? draftSubTasks.map((sub) => ({
                 title: sub.title,
                 description: sub.description ?? null,
-              })),
+              }))
+            : [],
           checklistItems: draftChecklist.map((item) => ({
             title: item.title,
           })),
@@ -977,7 +979,7 @@ export function AddTaskSheet({
             </div>
             <div className={cn(TASK_SHEET_COLUMN_CLASS, "bg-muted/20")}>
               <div className="flex shrink-0 border-b border-border">
-                {!parentTaskId && (
+                {canDraftSubTasks && (
                   <button
                     type="button"
                     onClick={() => setSideTab("subtasks")}
@@ -1054,7 +1056,7 @@ export function AddTaskSheet({
               </div>
 
               <div className="flex-1 overflow-y-auto p-5">
-                {sideTab === "subtasks" && (
+                {sideTab === "subtasks" && canDraftSubTasks && (
                   <div className="space-y-3">
                     <div className="space-y-3 rounded-xl border border-border bg-background p-4">
                       <Input

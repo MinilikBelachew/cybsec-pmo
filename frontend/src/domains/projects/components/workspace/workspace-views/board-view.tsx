@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useRef, useCallback, useMemo, type ReactNode, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import { cn } from "@/shared/utils/cn";
 import {
@@ -14,10 +14,18 @@ import {
   Search,
 } from "lucide-react";
 import type { ProjectTaskAssignee } from "@/domains/projects/types/projects.types";
+import type { TaskDependency, TaskPriority } from "@/domains/projects/types/tasks.types";
+import {
+  usePaginatedStatusTasks,
+  type StatusColumnFilters,
+} from "@/domains/projects/hooks/use-paginated-status-tasks";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
+import { useExportTasksQuery } from "@/domains/projects/api/tasks.api";
 import { defaultTaskDateRange } from "../../../schemas/task/task-date-fields";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Button } from "@/shared/ui/button";
 import { BoardTaskDatePicker } from "./board-task-date-picker";
+import { TaskDependenciesPicker, type DepTaskOption } from "./task-predecessors-cell";
 import { filterStatusOptionsForRole } from "../../tasks/task-progress-section";
 import { EmployeeTooltip } from "../../shared/employee-tooltip";
 import {
@@ -198,7 +206,11 @@ export type BoardQuickCreatePayload = {
 };
 
 interface BoardViewProps {
-  tasks: Task[];
+  projectId: string;
+  search?: string;
+  priority?: TaskPriority;
+  /** Server totals per status (top-level). Falls back to loaded length if omitted. */
+  statusCounts?: Partial<Record<Status, number>>;
   toggleTask: (id: string) => void;
   onCreateTask?: (status: Status, payload: BoardQuickCreatePayload) => Promise<void>;
   onRenameTask?: (taskId: string, title: string) => Promise<void>;
@@ -215,10 +227,222 @@ interface BoardViewProps {
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   onSetDueDate?: (taskId: string, date: string | null) => void;
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
+  dependencies?: TaskDependency[];
+}
+
+function BoardStatusColumn({
+  col,
+  filters,
+  statusCount,
+  dragOverCol,
+  dragOverTask,
+  dragging,
+  onColDragOver,
+  onColDrop,
+  onTaskDragOver,
+  onTaskDrop,
+  onDragStart,
+  onDragEnd,
+  addingInColumn,
+  setAddingInColumn,
+  onCreateTask,
+  onRenameTask,
+  onAssignTask,
+  onUpdateTaskDates,
+  canAssignTask,
+  canEditDates,
+  currentUserId,
+  assignees,
+  onTaskClick,
+  canApproveTask,
+  onMoveTask,
+  onUpdateTaskPriority,
+  dependencies = [],
+  dependencyTaskOptions = [],
+  canEditDependencies = false,
+}: {
+  col: ColumnDef;
+  filters: StatusColumnFilters;
+  statusCount?: number;
+  dragOverCol: Status | null;
+  dragOverTask: string | null;
+  dragging: string | null;
+  onColDragOver: (e: React.DragEvent, colId: Status) => void;
+  onColDrop: (e: React.DragEvent, colId: Status) => void;
+  onTaskDragOver: (e: React.DragEvent, taskId: string, colId: Status) => void;
+  onTaskDrop: (e: React.DragEvent, beforeTaskId: string, colId: Status) => void;
+  onDragStart: (e: React.DragEvent, taskId: string, fromStatus: Status) => void;
+  onDragEnd: () => void;
+  addingInColumn: Status | null;
+  setAddingInColumn: (s: Status | null) => void;
+  onCreateTask?: BoardViewProps["onCreateTask"];
+  onRenameTask?: BoardViewProps["onRenameTask"];
+  onAssignTask?: BoardViewProps["onAssignTask"];
+  onUpdateTaskDates?: BoardViewProps["onUpdateTaskDates"];
+  canAssignTask?: boolean;
+  canEditDates?: boolean;
+  currentUserId?: string;
+  assignees?: ProjectTaskAssignee[];
+  onTaskClick?: (taskId: string) => void;
+  canApproveTask?: boolean;
+  onMoveTask?: (taskId: string, toStatus: Status) => void;
+  onUpdateTaskPriority?: BoardViewProps["onUpdateTaskPriority"];
+  dependencies?: TaskDependency[];
+  dependencyTaskOptions?: DepTaskOption[];
+  canEditDependencies?: boolean;
+}) {
+  const { tasks, total, hasNextPage, isLoading, isFetching, loadMore } =
+    usePaginatedStatusTasks(col.id, filters, { pageSize: 20 });
+
+  const displayCount = typeof statusCount === "number" ? statusCount : total;
+  const isOver = dragOverCol === col.id && dragOverTask === null;
+  const overLimit = col.wipLimit !== undefined && displayCount > col.wipLimit;
+
+  const enriched = useMemo(
+    () =>
+      tasks.map((t) => {
+        const children = t.children ?? [];
+        const subtasksTotal = children.length;
+        const subtasksDone = children.filter(
+          (c) => c.done || c.status === "Done" || c.status === "Approved",
+        ).length;
+        return {
+          ...t,
+          ...(BOARD_EXTRAS[t.id] ?? {}),
+          hasSubtasks: children.length > 0 || t.hasSubtasks,
+          subtasksTotal,
+          subtasksDone,
+          children,
+        } as Task;
+      }),
+    [tasks],
+  );
+
+  return (
+    <div
+      className="flex flex-col w-[280px] shrink-0 h-full min-h-0"
+      onDragOver={(e) => onColDragOver(e, col.id)}
+      onDrop={(e) => onColDrop(e, col.id)}
+    >
+      <div
+        className={cn(
+          "flex flex-col flex-1 min-h-0 rounded-2xl px-2.5 pt-2.5 pb-2 transition-colors duration-150",
+          isOver ? col.columnBgDrag : col.columnBg,
+        )}
+      >
+        <div className="flex items-center gap-2 px-0.5 pb-2.5">
+          <span
+            className={cn(
+              "inline-flex items-center rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide",
+              col.pillBg,
+              col.pillText,
+            )}
+          >
+            {col.shortLabel}
+          </span>
+          <span
+            className={cn(
+              "text-sm font-semibold tabular-nums",
+              overLimit ? "text-rose-500" : col.countText,
+            )}
+            title={
+              col.wipLimit != null
+                ? overLimit
+                  ? `${displayCount} tasks (over WIP limit of ${col.wipLimit})`
+                  : `${displayCount} tasks (WIP limit ${col.wipLimit})`
+                : `${displayCount} tasks`
+            }
+          >
+            {displayCount}
+            {col.wipLimit != null && overLimit ? (
+              <span className="ml-1 text-[10px] font-bold opacity-80">
+                WIP {col.wipLimit}
+              </span>
+            ) : null}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center min-h-[72px] text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+            </div>
+          ) : (
+            enriched.map((task) => (
+              <div key={task.id}>
+                {dragOverTask === task.id && (
+                  <div className="h-0.5 rounded-full bg-primary mb-1.5 mx-1" />
+                )}
+                <BoardCard
+                  task={task}
+                  isDragging={dragging === task.id}
+                  onTaskClick={onTaskClick}
+                  onMoveTask={onMoveTask}
+                  canApproveTask={canApproveTask}
+                  onRenameTask={onRenameTask}
+                  onAssignTask={onAssignTask}
+                  onUpdateTaskDates={onUpdateTaskDates}
+                  canAssignTask={canAssignTask}
+                  canEditDates={canEditDates}
+                  currentUserId={currentUserId}
+                  assignees={assignees}
+                  onUpdateTaskPriority={onUpdateTaskPriority}
+                  dependencies={dependencies}
+                  dependencyTaskOptions={dependencyTaskOptions}
+                  canEditDependencies={canEditDependencies}
+                  onDragStart={(e) => onDragStart(e, task.id, col.id)}
+                  onDragEnd={onDragEnd}
+                  onDragOver={(e) => onTaskDragOver(e, task.id, col.id)}
+                  onDrop={(e) => onTaskDrop(e, task.id, col.id)}
+                />
+              </div>
+            ))
+          )}
+
+          {!isLoading && enriched.length === 0 && (
+            <div className="flex items-center justify-center rounded-xl min-h-[72px]">
+              <p className="text-[11px] text-muted-foreground/40">Drop tasks here</p>
+            </div>
+          )}
+
+          {hasNextPage && (
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={isFetching}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border/60 py-2 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50"
+            >
+              {isFetching ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : null}
+              Load more
+              {typeof statusCount === "number" && statusCount > enriched.length
+                ? ` (${statusCount - enriched.length} left)`
+                : ""}
+            </button>
+          )}
+
+          {onCreateTask && (
+            <ColumnInlineAddTask
+              status={col.id}
+              isActive={addingInColumn === col.id}
+              onOpen={() => setAddingInColumn(col.id)}
+              onClose={() => setAddingInColumn(null)}
+              onCreateTask={onCreateTask}
+              assignees={assignees ?? []}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function BoardView({
-  tasks: externalTasks,
+  projectId,
+  search,
+  priority,
+  statusCounts,
   toggleTask,
   onCreateTask,
   onRenameTask,
@@ -235,29 +459,49 @@ export function BoardView({
   onMoveTask,
   onSetDueDate,
   onUpdateTaskPriority,
+  dependencies = [],
 }: BoardViewProps) {
+  // Remove unused callback noise for column props that BoardCard does not use yet.
+  void toggleTask;
+  void onDeleteTask;
+  void onDuplicateTask;
+  void onSetDueDate;
+
+  const { canEditDependencies } = useModulePermissions();
+  const { data: exportTasksForPred = [] } = useExportTasksQuery(
+    { projectId, topLevelOnly: false },
+    { skip: !projectId },
+  );
+
+  const dependencyTaskOptions = useMemo((): DepTaskOption[] => {
+    const out: DepTaskOption[] = [];
+    const seen = new Set<string>();
+    const push = (id: string, name: string) => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      out.push({ id, name });
+    };
+    for (const t of exportTasksForPred) {
+      push(t.id, t.title);
+      for (const s of t.subTasks ?? []) {
+        push(s.id, s.title);
+        for (const ss of s.subTasks ?? []) {
+          push(ss.id, ss.title);
+        }
+      }
+    }
+    return out;
+  }, [exportTasksForPred]);
+
   const [addingInColumn, setAddingInColumn] = useState<Status | null>(null);
 
-  const tasks = useMemo(
-    () =>
-      externalTasks.map((t) => {
-        const children = t.children ?? [];
-        const subtasksTotal = children.length || t.subtasksTotal || 0;
-        const subtasksDone =
-          children.length > 0
-            ? children.filter((c) => c.done || c.status === "Done" || c.status === "Approved")
-                .length
-            : t.subtasksDone;
-        return {
-          ...t,
-          ...(BOARD_EXTRAS[t.id] ?? {}),
-          hasSubtasks: children.length > 0 || t.hasSubtasks,
-          subtasksTotal,
-          subtasksDone,
-          children,
-        };
-      }),
-    [externalTasks],
+  const filters = useMemo(
+    (): StatusColumnFilters => ({
+      projectId,
+      search,
+      priority,
+    }),
+    [projectId, search, priority],
   );
 
   const dragTaskId = useRef<string | null>(null);
@@ -323,92 +567,40 @@ export function BoardView({
 
   return (
     <div className="flex gap-3 p-4 h-full overflow-x-auto overflow-y-hidden items-stretch bg-white dark:bg-background">
-      {COLUMNS.map((col) => {
-        const colTasks = tasks.filter((t) => t.status === col.id);
-        const isOver = dragOverCol === col.id && dragOverTask === null;
-        const overLimit = col.wipLimit !== undefined && colTasks.length > col.wipLimit;
-
-        return (
-          <div
-            key={col.id}
-            className="flex flex-col w-[280px] shrink-0 h-full min-h-0"
-            onDragOver={(e) => handleColDragOver(e, col.id)}
-            onDrop={(e) => handleColDrop(e, col.id)}
-          >
-            <div
-              className={cn(
-                "flex flex-col flex-1 min-h-0 rounded-2xl px-2.5 pt-2.5 pb-2 transition-colors duration-150",
-                isOver ? col.columnBgDrag : col.columnBg
-              )}
-            >
-              <div className="flex items-center gap-2 px-0.5 pb-2.5">
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide",
-                    col.pillBg,
-                    col.pillText
-                  )}
-                >
-                  {col.shortLabel}
-                </span>
-                <span
-                  className={cn(
-                    "text-sm font-semibold tabular-nums",
-                    overLimit ? "text-rose-500" : col.countText
-                  )}
-                >
-                  {colTasks.length}
-                  {col.wipLimit ? `/${col.wipLimit}` : ""}
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
-                {colTasks.map((task) => (
-                  <div key={task.id}>
-                    {dragOverTask === task.id && <div className="h-0.5 rounded-full bg-primary mb-1.5 mx-1" />}
-                    <BoardCard
-                      task={task}
-                      isDragging={dragging === task.id}
-                      onTaskClick={onTaskClick}
-                      onMoveTask={onMoveTask}
-                      canApproveTask={canApproveTask}
-                      onRenameTask={onRenameTask}
-                      onAssignTask={onAssignTask}
-                      onUpdateTaskDates={onUpdateTaskDates}
-                      canAssignTask={canAssignTask}
-                      canEditDates={canEditDates}
-                      currentUserId={currentUserId}
-                      assignees={assignees}
-                      onUpdateTaskPriority={onUpdateTaskPriority}
-                      onDragStart={(e) => handleDragStart(e, task.id, col.id)}
-                      onDragEnd={handleDragEnd}
-                      onDragOver={(e) => handleTaskDragOver(e, task.id, col.id)}
-                      onDrop={(e) => handleTaskDrop(e, task.id, col.id)}
-                    />
-                  </div>
-                ))}
-
-                {colTasks.length === 0 && (
-                  <div className="flex items-center justify-center rounded-xl min-h-[72px]">
-                    <p className="text-[11px] text-muted-foreground/40">Drop tasks here</p>
-                  </div>
-                )}
-
-                {onCreateTask && (
-                  <ColumnInlineAddTask
-                    status={col.id}
-                    isActive={addingInColumn === col.id}
-                    onOpen={() => setAddingInColumn(col.id)}
-                    onClose={() => setAddingInColumn(null)}
-                    onCreateTask={onCreateTask}
-                    assignees={assignees}
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      {COLUMNS.map((col) => (
+        <BoardStatusColumn
+          key={col.id}
+          col={col}
+          filters={filters}
+          statusCount={statusCounts?.[col.id]}
+          dragOverCol={dragOverCol}
+          dragOverTask={dragOverTask}
+          dragging={dragging}
+          onColDragOver={handleColDragOver}
+          onColDrop={handleColDrop}
+          onTaskDragOver={handleTaskDragOver}
+          onTaskDrop={handleTaskDrop}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          addingInColumn={addingInColumn}
+          setAddingInColumn={setAddingInColumn}
+          onCreateTask={onCreateTask}
+          onRenameTask={onRenameTask}
+          onAssignTask={onAssignTask}
+          onUpdateTaskDates={onUpdateTaskDates}
+          canAssignTask={canAssignTask}
+          canEditDates={canEditDates}
+          currentUserId={currentUserId}
+          assignees={assignees}
+          onTaskClick={onTaskClick}
+          canApproveTask={canApproveTask}
+          onMoveTask={onMoveTask}
+          onUpdateTaskPriority={onUpdateTaskPriority}
+          dependencies={dependencies}
+          dependencyTaskOptions={dependencyTaskOptions}
+          canEditDependencies={canEditDependencies}
+        />
+      ))}
     </div>
   );
 }
@@ -449,7 +641,7 @@ function ColumnInlineAddTask({
     setShowErrors(false);
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     if (!isActive) return;
     resetForm();
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
@@ -714,6 +906,9 @@ interface BoardCardProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
+  dependencies?: TaskDependency[];
+  dependencyTaskOptions?: DepTaskOption[];
+  canEditDependencies?: boolean;
 }
 
 function BoardCardMeta({
@@ -726,6 +921,9 @@ function BoardCardMeta({
   assignees = [],
   onUpdateTaskPriority,
   compact = false,
+  dependencies = [],
+  dependencyTaskOptions = [],
+  canEditDependencies = false,
 }: {
   task: Task;
   onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
@@ -736,6 +934,9 @@ function BoardCardMeta({
   assignees?: ProjectTaskAssignee[];
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
   compact?: boolean;
+  dependencies?: TaskDependency[];
+  dependencyTaskOptions?: DepTaskOption[];
+  canEditDependencies?: boolean;
 }) {
   const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
   const dueSoon =
@@ -813,6 +1014,13 @@ function BoardCardMeta({
       ) : (
         assigneeAvatar
       )}
+
+      <TaskDependenciesPicker
+        taskId={task.id}
+        taskOptions={dependencyTaskOptions}
+        dependencies={dependencies}
+        canEdit={canEditDependencies}
+      />
 
       {canEditDates && onUpdateTaskDates ? (
         <BoardTaskDatePicker
@@ -900,6 +1108,9 @@ function BoardSubtaskCard({
   currentUserId,
   assignees = [],
   onUpdateTaskPriority,
+  dependencies = [],
+  dependencyTaskOptions = [],
+  canEditDependencies = false,
 }: {
   task: Task;
   onTaskClick?: (id: string) => void;
@@ -910,6 +1121,9 @@ function BoardSubtaskCard({
   currentUserId?: string;
   assignees?: ProjectTaskAssignee[];
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
+  dependencies?: TaskDependency[];
+  dependencyTaskOptions?: DepTaskOption[];
+  canEditDependencies?: boolean;
 }) {
   return (
     <div
@@ -942,6 +1156,9 @@ function BoardSubtaskCard({
           assignees={assignees}
           onUpdateTaskPriority={onUpdateTaskPriority}
           compact
+          dependencies={dependencies}
+          dependencyTaskOptions={dependencyTaskOptions}
+          canEditDependencies={canEditDependencies}
         />
       </div>
     </div>
@@ -966,6 +1183,9 @@ function BoardCard({
   onDragOver,
   onDrop,
   onUpdateTaskPriority,
+  dependencies = [],
+  dependencyTaskOptions = [],
+  canEditDependencies = false,
 }: BoardCardProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(task.name);
@@ -1130,6 +1350,9 @@ function BoardCard({
           currentUserId={currentUserId}
           assignees={assignees}
           onUpdateTaskPriority={onUpdateTaskPriority}
+          dependencies={dependencies}
+          dependencyTaskOptions={dependencyTaskOptions}
+          canEditDependencies={canEditDependencies}
         />
 
         {hasSubs && (
@@ -1166,6 +1389,9 @@ function BoardCard({
                     currentUserId={currentUserId}
                     assignees={assignees}
                     onUpdateTaskPriority={onUpdateTaskPriority}
+                    dependencies={dependencies}
+                    dependencyTaskOptions={dependencyTaskOptions}
+                    canEditDependencies={canEditDependencies}
                   />
                 ))}
               </div>

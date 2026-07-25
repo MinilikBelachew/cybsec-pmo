@@ -18,7 +18,7 @@ import {
   useLazyGetProjectTaskAssigneesQuery,
   useLazyExportProjectsQuery,
 } from "../../api/projects.api";
-import { useCreateTaskMutation, useUpdateTaskMutation, useLazyGetTasksQuery } from "../../api/tasks.api";
+import { useCreateTaskMutation, useUpdateTaskMutation, useLazyGetTasksQuery, useCreateTaskDependencyMutation, useUpdateTaskDependencyMutation, useLazyGetTaskDependenciesQuery } from "../../api/tasks.api";
 import {
   processRawCSVRows,
   ParsedProjectRow,
@@ -36,6 +36,8 @@ import {
   resolvePhaseImportMatch,
   resolveMilestoneImportMatch,
   revalidateParsedTaskRow,
+  scheduleFieldsFromParsedTask,
+  planExcelDependencies,
 } from "../../utils/import-export";
 import type { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import { Button } from "@/shared/ui/button";
@@ -109,6 +111,9 @@ export function ImportProjectsDialog({
   const [createTask] = useCreateTaskMutation();
   const [updateTask] = useUpdateTaskMutation();
   const [triggerGetTasks] = useLazyGetTasksQuery();
+  const [createTaskDependency] = useCreateTaskDependencyMutation();
+  const [updateTaskDependency] = useUpdateTaskDependencyMutation();
+  const [triggerGetDependencies] = useLazyGetTaskDependenciesQuery();
 
   const hasExtraData = (projName: string) =>
     (parsedPhases[projName]?.length || 0) > 0 ||
@@ -579,7 +584,7 @@ export function ImportProjectsDialog({
               priority: projRow.priority as any,
               startDate: new Date(projRow.startDate).toISOString(),
               endDate: new Date(projRow.endDate).toISOString(),
-              value: projRow.value,
+              value: projRow.value > 0 ? projRow.value : 1,
               currency: projRow.currency as any,
               primaryPmId: projRow.resolvedPrimaryPmId!,
               secondaryPmId: projRow.resolvedSecondaryPmId || undefined,
@@ -600,7 +605,7 @@ export function ImportProjectsDialog({
             priority: projRow.priority as any,
             startDate: new Date(projRow.startDate).toISOString(),
             endDate: new Date(projRow.endDate).toISOString(),
-            value: projRow.value,
+            value: projRow.value > 0 ? projRow.value : 1,
             currency: projRow.currency as any,
             primaryPmId: projRow.resolvedPrimaryPmId!,
             secondaryPmId: projRow.resolvedSecondaryPmId || undefined,
@@ -735,6 +740,9 @@ export function ImportProjectsDialog({
         // Create/Update Tasks
         if (projectTasks.length > 0) {
           setImportStatusText(`Importing tasks for: ${projRow.name}`);
+          const titleToId = new Map<string, string>(existingTaskMap);
+          const importedTaskRows: ParsedTaskRow[] = [];
+
           for (const taskRow of projectTasks) {
             if (taskRow.errors.length > 0) continue;
             try {
@@ -753,7 +761,7 @@ export function ImportProjectsDialog({
               const lowerTitle = taskRow.title.trim().toLowerCase();
               const resolvedTaskId =
                 taskRow.resolvedTaskId ||
-                (lowerTitle ? existingTaskMap.get(lowerTitle) : undefined);
+                (lowerTitle ? titleToId.get(lowerTitle) : undefined);
               const ownerId = resolveOwnerId(taskRow);
 
               if (resolvedTaskId) {
@@ -769,11 +777,14 @@ export function ImportProjectsDialog({
                     startDate: taskRow.startDate ? new Date(taskRow.startDate).toISOString() : undefined,
                     endDate: taskRow.endDate ? new Date(taskRow.endDate).toISOString() : undefined,
                     effortHours: taskRow.effortHours || undefined,
+                    ...scheduleFieldsFromParsedTask(taskRow),
                   },
                 }).unwrap();
+                titleToId.set(lowerTitle, resolvedTaskId);
+                importedTaskRows.push(taskRow);
                 successTasksUpdated++;
               } else {
-                await createTask({
+                const created = await createTask({
                   projectId,
                   title: taskRow.title,
                   description: taskRow.description || undefined,
@@ -784,12 +795,64 @@ export function ImportProjectsDialog({
                   startDate: taskRow.startDate ? new Date(taskRow.startDate).toISOString() : undefined,
                   endDate: taskRow.endDate ? new Date(taskRow.endDate).toISOString() : undefined,
                   effortHours: taskRow.effortHours || undefined,
+                  ...scheduleFieldsFromParsedTask(taskRow),
                 }).unwrap();
+                titleToId.set(lowerTitle, created.id);
+                importedTaskRows.push(taskRow);
                 successTasksCreated++;
               }
             } catch (err) {
               console.error(`Failed to import task "${taskRow.title}" for "${projRow.name}":`, err);
             }
+          }
+
+          const { plans, warnings: depWarnings } = planExcelDependencies(
+            importedTaskRows,
+            titleToId,
+          );
+          if (plans.length > 0) {
+            setImportStatusText(`Importing predecessors for: ${projRow.name}`);
+            let existingByPair = new Map<string, string>();
+            try {
+              const existingDeps = await triggerGetDependencies({ projectId }).unwrap();
+              existingByPair = new Map(
+                existingDeps.map((d) => [`${d.predecessorId}|${d.successorId}`, d.id]),
+              );
+            } catch (err) {
+              console.error("Failed to load dependencies during project Excel import", err);
+            }
+
+            for (const plan of plans) {
+              const pairKey = `${plan.predecessorId}|${plan.successorId}`;
+              try {
+                const existingId = existingByPair.get(pairKey);
+                if (existingId) {
+                  await updateTaskDependency({
+                    id: existingId,
+                    body: { depType: plan.depType, lagDays: plan.lagDays },
+                  }).unwrap();
+                } else {
+                  await createTaskDependency({
+                    predecessorId: plan.predecessorId,
+                    successorId: plan.successorId,
+                    depType: plan.depType,
+                    lagDays: plan.lagDays,
+                  }).unwrap();
+                  existingByPair.set(pairKey, "new");
+                }
+              } catch (err) {
+                console.error(
+                  `Failed dependency "${plan.predecessorTitle}" → "${plan.successorTitle}"`,
+                  err,
+                );
+                depWarnings.push(
+                  `Failed dependency "${plan.predecessorTitle}" → "${plan.successorTitle}".`,
+                );
+              }
+            }
+          }
+          for (const warning of depWarnings.slice(0, 5)) {
+            console.warn(warning);
           }
         }
 

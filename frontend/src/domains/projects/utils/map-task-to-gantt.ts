@@ -1,5 +1,6 @@
-import type { Task } from "../types/tasks.types";
+import type { Task, TaskSubTask } from "../types/tasks.types";
 import { assigneeAvatarColor } from "../components/workspace/workspace-views/task-cell-pickers";
+import { comparePlanOrderAsc } from "./task-export-fields";
 
 export type GanttPriority = "high" | "medium" | "low" | "critical";
 
@@ -10,6 +11,9 @@ export type GanttTaskStatus =
   | "Approved"
   | "Rework"
   | "Done";
+
+/** Max task nesting depth: top (0) → sub (1) → sub-sub (2). */
+export const MAX_TASK_NEST_DEPTH = 2;
 
 export interface GanttTaskRow {
   id: string;
@@ -35,6 +39,8 @@ export interface GanttTaskRow {
   parentTaskId?: string | null;
   depth?: number;
   children?: GanttTaskRow[];
+  /** Used for plan-order sorting (import creates reverse-plan timestamps). */
+  createdAt?: string;
   effortHours?: number | null;
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
@@ -55,6 +61,68 @@ type MapTaskToGanttOptions = {
   groupColor?: string;
 };
 
+function mapSubTaskToGanttRow(
+  sub: TaskSubTask,
+  parentId: string,
+  depth: number,
+  phase: {
+    phaseId?: string | null;
+    phaseName?: string;
+    phaseColor?: string;
+  },
+): GanttTaskRow {
+  const subInitials = sub.owner?.displayName
+    ? sub.owner.displayName
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()
+    : "UA";
+
+  const nested =
+    depth < MAX_TASK_NEST_DEPTH && sub.subTasks?.length
+      ? [...sub.subTasks]
+          .sort(comparePlanOrderAsc)
+          .map((child) => mapSubTaskToGanttRow(child, sub.id, depth + 1, phase))
+      : undefined;
+
+  return {
+    id: sub.id,
+    name: sub.title,
+    assigneeInitials: subInitials,
+    assigneeName: sub.owner?.displayName ?? null,
+    assigneeId: sub.owner?.id ?? null,
+    assigneeColor: sub.owner?.id
+      ? assigneeAvatarColor(sub.owner.id)
+      : "bg-slate-500",
+    dueDate: sub.endDate
+      ? new Date(sub.endDate).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        })
+      : "No due date",
+    priority: PRIORITY_MAP[sub.priority ?? ""] ?? "medium",
+    status: (sub.status as GanttTaskStatus) ?? "To_Do",
+    comments: 0,
+    hasSubtasks: Boolean(nested?.length),
+    done: sub.status === "Done" || sub.status === "Approved",
+    phaseId: phase.phaseId,
+    phaseName: phase.phaseName,
+    phaseColor: phase.phaseColor,
+    rawStartDate: sub.startDate ?? null,
+    rawEndDate: sub.endDate ?? null,
+    owner: sub.owner,
+    parentTaskId: parentId,
+    depth,
+    children: nested,
+    createdAt: sub.createdAt,
+    effortHours: null,
+    actualHoursLogged: 0,
+    effortVarianceHours: null,
+    isOverEffort: false,
+  };
+}
+
 export function mapTaskToGanttRow(
   task: Task,
   options?: MapTaskToGanttOptions,
@@ -67,50 +135,16 @@ export function mapTaskToGanttRow(
         .toUpperCase()
     : "UA";
 
+  const phase = {
+    phaseId: options?.groupId ?? task.phaseId,
+    phaseName: options?.groupName ?? task.phase?.name ?? "Unassigned",
+    phaseColor: options?.groupColor ?? "#64748b",
+  };
+
   const children: GanttTaskRow[] | undefined = task.subTasks?.length
-    ? task.subTasks.map((sub) => {
-        const subInitials = sub.owner?.displayName
-          ? sub.owner.displayName
-              .split(" ")
-              .map((w) => w[0])
-              .join("")
-              .toUpperCase()
-          : "UA";
-        return {
-          id: sub.id,
-          name: sub.title,
-          assigneeInitials: subInitials,
-          assigneeName: sub.owner?.displayName ?? null,
-          assigneeId: sub.owner?.id ?? null,
-          assigneeColor: sub.owner?.id
-            ? assigneeAvatarColor(sub.owner.id)
-            : "bg-slate-500",
-          dueDate: sub.endDate
-            ? new Date(sub.endDate).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-              })
-            : "No due date",
-          priority: PRIORITY_MAP[sub.priority ?? ""] ?? "medium",
-          status: (sub.status as GanttTaskStatus) ?? "To_Do",
-          comments: 0,
-          hasSubtasks: false,
-          done: sub.status === "Done" || sub.status === "Approved",
-          phaseId: options?.groupId ?? task.phaseId,
-          phaseName: options?.groupName ?? task.phase?.name ?? "Unassigned",
-          phaseColor: options?.groupColor ?? "#64748b",
-          rawStartDate: sub.startDate ?? null,
-          rawEndDate: sub.endDate ?? null,
-          owner: sub.owner,
-          parentTaskId: task.id,
-          depth: 1,
-          children: undefined,
-          effortHours: null,
-          actualHoursLogged: 0,
-          effortVarianceHours: null,
-          isOverEffort: false,
-        };
-      })
+    ? [...task.subTasks]
+        .sort(comparePlanOrderAsc)
+        .map((sub) => mapSubTaskToGanttRow(sub, task.id, 1, phase))
     : undefined;
 
   return {
@@ -128,9 +162,9 @@ export function mapTaskToGanttRow(
     comments: task.comments?.length ?? 0,
     hasSubtasks: Boolean(task.subTasks?.length),
     done: task.status === "Done" || task.status === "Approved",
-    phaseId: options?.groupId ?? task.phaseId,
-    phaseName: options?.groupName ?? task.phase?.name ?? "Unassigned",
-    phaseColor: options?.groupColor ?? "#64748b",
+    phaseId: phase.phaseId,
+    phaseName: phase.phaseName,
+    phaseColor: phase.phaseColor,
     rawStartDate: task.startDate,
     rawEndDate: task.endDate,
     isOnCriticalPath: Boolean(task.isOnCriticalPath),
@@ -139,6 +173,7 @@ export function mapTaskToGanttRow(
     parentTaskId: task.parentTaskId,
     depth: 0,
     children,
+    createdAt: task.createdAt,
     effortHours: task.effortHours ?? null,
     actualHoursLogged: task.actualHoursLogged ?? 0,
     effortVarianceHours: task.effortVarianceHours ?? null,

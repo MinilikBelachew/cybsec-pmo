@@ -7,7 +7,14 @@ import {
   useGetPhasesQuery,
   useGetProjectTaskAssigneesQuery,
 } from "../../api/projects.api";
-import { useCreateTaskMutation, useUpdateTaskMutation, useLazyGetTasksQuery } from "../../api/tasks.api";
+import {
+  useCreateTaskMutation,
+  useUpdateTaskMutation,
+  useLazyGetTasksQuery,
+  useCreateTaskDependencyMutation,
+  useUpdateTaskDependencyMutation,
+  useLazyGetTaskDependenciesQuery,
+} from "../../api/tasks.api";
 import { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import {
   parseXLSXSheet,
@@ -15,6 +22,8 @@ import {
   detectTaskCsvImportKind,
   revalidateParsedTaskRow,
   generateTasksXLSXTemplate,
+  scheduleFieldsFromParsedTask,
+  planExcelDependencies,
   ParsedTaskRow,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
@@ -162,6 +171,9 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   const [createTask] = useCreateTaskMutation();
   const [updateTask] = useUpdateTaskMutation();
   const [triggerGetTasks] = useLazyGetTasksQuery();
+  const [createTaskDependency] = useCreateTaskDependencyMutation();
+  const [updateTaskDependency] = useUpdateTaskDependencyMutation();
+  const [triggerGetDependencies] = useLazyGetTaskDependenciesQuery();
 
   const downloadSampleXLSX = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -220,11 +232,25 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           return;
         }
 
-        // Fetch existing tasks for update-matching
+        // Fetch existing tasks for update-matching (include nested titles)
         let existingTasks: { id: string; title: string }[] = [];
         try {
-          const result = await triggerGetTasks({ projectId, limit: 1000, topLevelOnly: false }).unwrap();
-          existingTasks = result.data.map((t) => ({ id: t.id, title: t.title }));
+          const result = await triggerGetTasks({
+            projectId,
+            limit: 1000,
+            topLevelOnly: false,
+          }).unwrap();
+          const catalog: { id: string; title: string }[] = [];
+          const walk = (task: {
+            id: string;
+            title: string;
+            subTasks?: { id: string; title: string; subTasks?: any[] }[];
+          }) => {
+            catalog.push({ id: task.id, title: task.title });
+            for (const child of task.subTasks ?? []) walk(child);
+          };
+          for (const task of result.data) walk(task);
+          existingTasks = catalog;
         } catch {
           // Non-fatal — missing existing tasks means all rows will be treated as creates
         }
@@ -304,12 +330,21 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     let successCreated = 0;
     let successUpdated = 0;
     let failCount = 0;
+    let depsCreated = 0;
+    let depsUpdated = 0;
+    let depsFailed = 0;
+    const depWarnings: string[] = [];
 
+    const titleToId = new Map<string, string>();
+    for (const existing of existingTaskCatalog) {
+      titleToId.set(existing.title.trim().toLowerCase(), existing.id);
+    }
+
+    const taskPassTotal = Math.max(validRows.length, 1);
     for (let i = 0; i < validRows.length; i++) {
       const row = validRows[i];
       try {
         if (row.importMode === "update" && row.resolvedTaskId) {
-          // Update existing task
           await updateTask({
             id: row.resolvedTaskId,
             body: {
@@ -322,12 +357,13 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
               startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
               endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
               effortHours: row.effortHours || undefined,
+              ...scheduleFieldsFromParsedTask(row),
             },
           }).unwrap();
+          titleToId.set(row.title.trim().toLowerCase(), row.resolvedTaskId);
           successUpdated++;
         } else {
-          // Create new task
-          await createTask({
+          const created = await createTask({
             projectId,
             title: row.title,
             description: row.description || undefined,
@@ -338,25 +374,88 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
             startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
             endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
             effortHours: row.effortHours || undefined,
+            ...scheduleFieldsFromParsedTask(row),
           }).unwrap();
+          titleToId.set(row.title.trim().toLowerCase(), created.id);
           successCreated++;
         }
       } catch (err) {
         console.error(`Failed to import task: ${row.title}`, err);
         failCount++;
       }
-      setImportProgress(Math.round(((i + 1) / validRows.length) * 100));
+      setImportProgress(Math.round(((i + 1) / taskPassTotal) * 85));
+    }
+
+    const { plans, warnings } = planExcelDependencies(validRows, titleToId);
+    depWarnings.push(...warnings);
+
+    if (plans.length > 0) {
+      let existingByPair = new Map<string, string>();
+      try {
+        const existingDeps = await triggerGetDependencies({ projectId }).unwrap();
+        existingByPair = new Map(
+          existingDeps.map((d) => [`${d.predecessorId}|${d.successorId}`, d.id]),
+        );
+      } catch (err) {
+        console.error("Failed to load existing dependencies for Excel import", err);
+      }
+
+      for (let i = 0; i < plans.length; i++) {
+        const plan = plans[i];
+        const pairKey = `${plan.predecessorId}|${plan.successorId}`;
+        try {
+          const existingId = existingByPair.get(pairKey);
+          if (existingId) {
+            await updateTaskDependency({
+              id: existingId,
+              body: { depType: plan.depType, lagDays: plan.lagDays },
+            }).unwrap();
+            depsUpdated++;
+          } else {
+            await createTaskDependency({
+              predecessorId: plan.predecessorId,
+              successorId: plan.successorId,
+              depType: plan.depType,
+              lagDays: plan.lagDays,
+            }).unwrap();
+            existingByPair.set(pairKey, "new");
+            depsCreated++;
+          }
+        } catch (err) {
+          console.error(
+            `Failed to import dependency ${plan.predecessorTitle} → ${plan.successorTitle}`,
+            err,
+          );
+          depsFailed++;
+          depWarnings.push(
+            `Failed dependency "${plan.predecessorTitle}" → "${plan.successorTitle}".`,
+          );
+        }
+        setImportProgress(85 + Math.round(((i + 1) / plans.length) * 15));
+      }
+    } else {
+      setImportProgress(100);
     }
 
     const parts: string[] = [];
     if (successCreated > 0) parts.push(`${successCreated} created`);
     if (successUpdated > 0) parts.push(`${successUpdated} updated`);
+    if (depsCreated > 0) parts.push(`${depsCreated} deps created`);
+    if (depsUpdated > 0) parts.push(`${depsUpdated} deps updated`);
     if (parts.length > 0) {
       toast.success(`Tasks imported: ${parts.join(" · ")}`);
       refetch();
     }
     if (failCount > 0) {
       toast.error(`Failed to import ${failCount} task${failCount === 1 ? "" : "s"}.`);
+    }
+    if (depsFailed > 0 || depWarnings.length > 0) {
+      const preview = depWarnings.slice(0, 3).join(" ");
+      toast.error(
+        depsFailed > 0
+          ? `${depsFailed} predecessor link(s) failed.${preview ? ` ${preview}` : ""}`
+          : preview || "Some predecessor links were skipped.",
+      );
     }
 
     setIsImporting(false);

@@ -8,6 +8,9 @@ Internal HTTP service that converts Microsoft Project files (`.mpp`, `.mpx`, MSP
 |--------|------|-------------|
 | `GET` | `/health` | Liveness check |
 | `POST` | `/parse` | Multipart field `file` → parsed schedule JSON |
+| `POST` | `/export/mspdi` | JSON schedule payload → MSPDI Microsoft Project XML |
+
+> **Note:** MPXJ cannot write proprietary binary `.mpp` files. Export produces **MSPDI `.xml`**, which Microsoft Project opens natively (same interchange format used for round-trip).
 
 ## Local build
 

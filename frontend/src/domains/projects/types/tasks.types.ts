@@ -74,7 +74,10 @@ export interface TaskSubTask {
   priority?: string;
   startDate?: string | null;
   endDate?: string | null;
+  createdAt?: string;
   owner?: TaskUserSummary;
+  /** Nested sub-sub-tasks (max depth 3 overall). */
+  subTasks?: TaskSubTask[];
 }
 
 export interface Task {
@@ -87,6 +90,13 @@ export interface Task {
   ownerId: string | null;
   startDate: string | null;
   endDate: string | null;
+  baselineStart?: string | null;
+  baselineEnd?: string | null;
+  /** MSP working-day duration (may be fractional). */
+  durationDays?: number | null;
+  baselineDurationDays?: number | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
   effortHours: number | null;
   progressApproved: number;
   progressPending: number;
@@ -109,6 +119,7 @@ export interface Task {
     startDate?: string | null;
     endDate?: string | null;
     ownerId?: string | null;
+    parentTaskId?: string | null;
   };
   phase?: { id: string; name: string } | null;
   subTasks?: TaskSubTask[];
@@ -200,6 +211,8 @@ export interface TaskActiveStats {
   rework: number;
   done: number;
   overdue: number;
+  /** Per-status counts for top-level tasks (option B board/list columns). */
+  byStatus?: Partial<Record<TaskStatus, number>>;
 }
 
 export interface GetTasksParams {

@@ -20,65 +20,121 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/shared/ui/dropdown-menu";
+import {
+  TASK_EXPORT_FIELD_OPTIONS,
+  DEFAULT_TASK_EXPORT_FIELDS,
+  DEFAULT_PROJECT_EXPORT_FIELDS,
+} from "../../utils/import-export";
+
 export interface ExportProjectsDialogProps {
   open: boolean;
   onClose: () => void;
+  /** Projects available to include in the export (id + name). */
+  projects?: { id: string; name: string }[];
   onExport: (
     selectedFields: string[],
-    format: "xlsx" | "csv" | "pdf" | "doc" | "mpp",
-    selectedTaskFields?: string[]
+    format: "xlsx" | "csv" | "pdf" | "doc" | "mspdi",
+    selectedTaskFields?: string[],
+    selectedProjectIds?: string[],
   ) => Promise<void>;
   isExporting?: boolean;
 }
 
-const PROJECT_FIELDS = [
-  { id: "Name", label: "Project Name", desc: "The official name of the project" },
-  { id: "Objective", label: "Objective", desc: "Scope, details, and objectives" },
-  { id: "Department", label: "Department", desc: "Associated department or team" },
-  { id: "Customer", label: "Customer", desc: "The client or account name" },
-  { id: "Engagement Type", label: "Engagement Type", desc: "Staff Augmentation, Managed Services, or Fixed Price" },
-  { id: "Billing Model", label: "Billing Model", desc: "Billing arrangement (T&M, Retainer, etc.)" },
-  { id: "Priority", label: "Priority", desc: "Urgency level (Critical, High, Medium, Low)" },
-  { id: "Start Date", label: "Start Date", desc: "The scheduled kickoff date" },
-  { id: "End Date", label: "End Date", desc: "The scheduled target delivery date" },
-  { id: "Value", label: "Value", desc: "Budget or total commercial value" },
-  { id: "Currency", label: "Currency", desc: "Currency code (USD, EUR, SAR, AED)" },
-  { id: "Primary PM", label: "Primary PM", desc: "Lead Project Manager assigned" },
-  { id: "Secondary PM", label: "Secondary PM", desc: "Secondary/Backup Project Manager" },
-  { id: "Status", label: "Status", desc: "Current project delivery status" },
-];
+const PROJECT_FIELD_META: Record<string, { label: string; desc: string }> = {
+  Name: { label: "Project Name", desc: "The official name of the project" },
+  Objective: { label: "Objective", desc: "Scope, details, and objectives" },
+  Department: { label: "Department", desc: "Associated department or team" },
+  Customer: { label: "Customer", desc: "The client or account name" },
+  "Engagement Type": {
+    label: "Engagement Type",
+    desc: "Staff Augmentation, Managed Services, or Fixed Price",
+  },
+  "Billing Model": {
+    label: "Billing Model",
+    desc: "Billing arrangement (T&M, Retainer, etc.)",
+  },
+  Priority: { label: "Priority", desc: "Urgency level (Critical, High, Medium, Low)" },
+  "Start Date": { label: "Start Date", desc: "Current scheduled start" },
+  "End Date": { label: "End Date", desc: "Current scheduled finish" },
+  "Duration Days": { label: "Duration Days", desc: "Current working-day duration" },
+  "Baseline Start": { label: "Baseline Start", desc: "Frozen original start" },
+  "Baseline End": { label: "Baseline End", desc: "Frozen original finish" },
+  "Baseline Duration Days": {
+    label: "Baseline Duration Days",
+    desc: "Frozen original duration",
+  },
+  "% Complete": {
+    label: "% Complete",
+    desc: "Project percent complete from schedule",
+  },
+  "Duration Variance Days": {
+    label: "Duration Variance Days",
+    desc: "Current duration − baseline duration",
+  },
+  "Actual Start": { label: "Actual Start", desc: "When work actually started" },
+  "Actual End": { label: "Actual End", desc: "When work actually finished" },
+  "Resource Names": {
+    label: "Resource Names",
+    desc: "MSP-style Name (Organization) for PMs and team",
+  },
+  Value: { label: "Value", desc: "Budget or total commercial value" },
+  Currency: { label: "Currency", desc: "Currency code (USD, EUR, SAR, AED)" },
+  "Primary PM": { label: "Primary PM", desc: "Lead Project Manager assigned" },
+  "Secondary PM": {
+    label: "Secondary PM",
+    desc: "Secondary/Backup Project Manager",
+  },
+  Status: { label: "Status", desc: "Current project delivery status" },
+};
 
-const TASK_FIELDS = [
-  { id: "Title", label: "Title", desc: "The name/summary of the task" },
-  { id: "Description", label: "Description", desc: "Detailed description of requirements" },
-  { id: "Priority", label: "Priority", desc: "Urgency (Critical, High, Medium, Low)" },
-  { id: "Status", label: "Status", desc: "Current state (To Do, In Progress, Done, etc.)" },
-  { id: "Assignee", label: "Assignee", desc: "Team member currently owning the task" },
-  { id: "Phase", label: "Phase", desc: "Project phase or roadmap stage" },
-  { id: "Start Date", label: "Start Date", desc: "Scheduled start date" },
-  { id: "End Date", label: "End Date", desc: "Scheduled due date" },
-  { id: "Effort Hours", label: "Effort Hours", desc: "Hours allocated or logged for this task" },
-];
+const PROJECT_FIELDS = DEFAULT_PROJECT_EXPORT_FIELDS.map((id) => ({
+  id,
+  label: PROJECT_FIELD_META[id]?.label ?? id,
+  desc: PROJECT_FIELD_META[id]?.desc ?? "",
+}));
+
+const TASK_FIELDS = TASK_EXPORT_FIELD_OPTIONS.map((f) => ({
+  id: f.id,
+  label: f.label,
+  desc: f.desc,
+}));
 
 export function ExportProjectsDialog({
   open,
   onClose,
   onExport,
+  projects = [],
   isExporting = false,
 }: ExportProjectsDialogProps) {
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
-  const [selectedFields, setSelectedFields] = useState<string[]>(
-    PROJECT_FIELDS.map((f) => f.id)
-  );
-  const [selectedTaskFields, setSelectedTaskFields] = useState<string[]>(
-    TASK_FIELDS.map((f) => f.id)
-  );
-  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf" | "doc" | "mpp">("xlsx");
+  const [projectPickSearch, setProjectPickSearch] = useState("");
+  const [selectedFields, setSelectedFields] = useState<string[]>([
+    ...DEFAULT_PROJECT_EXPORT_FIELDS,
+  ]);
+  const [selectedTaskFields, setSelectedTaskFields] = useState<string[]>([
+    ...DEFAULT_TASK_EXPORT_FIELDS,
+  ]);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf" | "doc" | "mspdi">("xlsx");
 
-  const [activePanel, setActivePanel] = useState<"projects" | "tasks" | null>("projects");
+  const [activePanel, setActivePanel] = useState<"pick" | "projects" | "tasks" | null>("pick");
+  const isPickExpanded = activePanel === "pick";
   const isProjectsExpanded = activePanel === "projects";
   const isTasksExpanded = activePanel === "tasks";
+
+  // When dialog opens, select all projects and refresh field list (picks up new schedule columns).
+  React.useEffect(() => {
+    if (!open) return;
+    setSelectedProjectIds(projects.map((p) => p.id));
+    setSelectedFields([...DEFAULT_PROJECT_EXPORT_FIELDS]);
+  }, [open, projects]);
+
+  const filteredPickProjects = useMemo(() => {
+    const q = projectPickSearch.toLowerCase().trim();
+    if (!q) return projects;
+    return projects.filter((p) => p.name.toLowerCase().includes(q));
+  }, [projects, projectPickSearch]);
 
   const filteredProjectFields = useMemo(() => {
     const q = projectSearchQuery.toLowerCase().trim();
@@ -114,12 +170,26 @@ export function ExportProjectsDialog({
     );
   };
 
+  const handleToggleProject = (id: string) => {
+    setSelectedProjectIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
   const handleSelectAllProjects = () => {
     setSelectedFields(PROJECT_FIELDS.map((f) => f.id));
   };
 
   const handleSelectNoneProjects = () => {
     setSelectedFields([]);
+  };
+
+  const handleSelectAllPick = () => {
+    setSelectedProjectIds(projects.map((p) => p.id));
+  };
+
+  const handleSelectNonePick = () => {
+    setSelectedProjectIds([]);
   };
 
   const handleSelectAllTasks = () => {
@@ -132,7 +202,8 @@ export function ExportProjectsDialog({
 
   const handleExportClick = async () => {
     if (selectedFields.length === 0) return;
-    await onExport(selectedFields, exportFormat, selectedTaskFields);
+    if (projects.length > 0 && selectedProjectIds.length === 0) return;
+    await onExport(selectedFields, exportFormat, selectedTaskFields, selectedProjectIds);
     onClose();
   };
 
@@ -149,10 +220,10 @@ export function ExportProjectsDialog({
               </div>
               <div>
                 <DialogPrimitive.Title className="text-sm font-bold text-foreground">
-                  Export Portfolio Data
+                  Export Project Schedule
                 </DialogPrimitive.Title>
                 <DialogPrimitive.Description className="text-[10px] text-muted-foreground">
-                  Select fields and format to export.
+                  Choose projects, fields, and format to export.
                 </DialogPrimitive.Description>
               </div>
             </div>
@@ -166,6 +237,110 @@ export function ExportProjectsDialog({
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* Projects to include */}
+            {projects.length > 0 && (
+              <div className="border border-border/60 rounded-xl overflow-hidden bg-muted/5 transition-all">
+                <button
+                  type="button"
+                  onClick={() => setActivePanel(activePanel === "pick" ? null : "pick")}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-muted/15 hover:bg-muted/30 transition-all font-bold text-xs text-foreground text-left cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>Projects</span>
+                    <span className="text-[10px] font-normal text-muted-foreground">
+                      ({selectedProjectIds.length} of {projects.length} selected)
+                    </span>
+                  </div>
+                  <ChevronDown
+                    className={cn(
+                      "size-4 text-muted-foreground transition-transform duration-200",
+                      isPickExpanded && "rotate-180"
+                    )}
+                  />
+                </button>
+                {isPickExpanded && (
+                  <div className="p-4 border-t border-border/60 space-y-3 bg-background">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Search projects..."
+                          value={projectPickSearch}
+                          onChange={(e) => setProjectPickSearch(e.target.value)}
+                          className="w-full h-8 ps-8 pr-8 rounded-lg bg-muted/40 border border-border/60 text-xs outline-none focus:ring-1 focus:ring-primary/30 focus:bg-muted/60 transition-all text-foreground"
+                        />
+                        {projectPickSearch && (
+                          <button
+                            onClick={() => setProjectPickSearch("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-end gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllPick}
+                          className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-[9px] text-muted-foreground/60">|</span>
+                        <button
+                          type="button"
+                          onClick={handleSelectNonePick}
+                          className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border border-border/50 rounded-xl p-3 bg-muted/15 max-h-[220px] overflow-y-auto">
+                      {filteredPickProjects.length === 0 ? (
+                        <p className="col-span-2 text-center text-[10px] text-muted-foreground italic py-6">
+                          No projects match your search.
+                        </p>
+                      ) : (
+                        filteredPickProjects.map((p) => {
+                          const isChecked = selectedProjectIds.includes(p.id);
+                          return (
+                            <div
+                              key={p.id}
+                              role="checkbox"
+                              aria-checked={isChecked}
+                              tabIndex={0}
+                              onClick={() => handleToggleProject(p.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === " " || e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleToggleProject(p.id);
+                                }
+                              }}
+                              className={cn(
+                                "flex items-start gap-2.5 p-2 rounded-lg border border-transparent transition-all hover:bg-muted/50 cursor-pointer select-none focus-visible:outline-none focus-visible:bg-muted/50 focus-visible:ring-1 focus-visible:ring-primary/30",
+                                isChecked && "bg-primary/[0.02]"
+                              )}
+                            >
+                              <div className="pointer-events-none mt-0.5">
+                                <Checkbox checked={isChecked} />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-foreground leading-snug truncate">
+                                  {p.name}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Project Columns Accordion */}
             <div className="border border-border/60 rounded-xl overflow-hidden bg-muted/5 transition-all">
               <button
@@ -396,7 +571,7 @@ export function ExportProjectsDialog({
                       { value: "csv", label: "CSV (.csv)" },
                       { value: "pdf", label: "PDF (.pdf)" },
                       { value: "doc", label: "Word (.doc)" },
-                      { value: "mpp", label: "Microsoft Project (.xml)" },
+                      { value: "mspdi", label: "MS Project XML (MSPDI)" },
                     ].find(o => o.value === exportFormat)?.label ?? exportFormat.toUpperCase())}
                   </span>
                   <ChevronDown className="size-3.5 opacity-60" />
@@ -408,7 +583,7 @@ export function ExportProjectsDialog({
                       { value: "csv", label: "CSV (.csv)", desc: "Plain text table" },
                       { value: "pdf", label: "PDF (.pdf)", desc: "Print-ready document" },
                       { value: "doc", label: "Word (.doc)", desc: "Landscape layout report" },
-                      { value: "mpp", label: "Microsoft Project (.xml)", desc: "Open in MS Project via File > Open" },
+                      { value: "mspdi", label: "MS Project XML (MSPDI)", desc: "Open in MS Project via File > Open" },
                     ].map((opt) => (
                       <DropdownMenuItem
                         key={opt.value}
@@ -443,7 +618,11 @@ export function ExportProjectsDialog({
               <Button
                 type="button"
                 onClick={handleExportClick}
-                disabled={isExporting || selectedFields.length === 0}
+                disabled={
+                  isExporting ||
+                  selectedFields.length === 0 ||
+                  (projects.length > 0 && selectedProjectIds.length === 0)
+                }
                 className="h-8 rounded-lg text-xs font-semibold gap-1.5 cursor-pointer bg-primary text-primary-foreground hover:opacity-90"
               >
                 {isExporting ? (
@@ -454,7 +633,7 @@ export function ExportProjectsDialog({
                 ) : (
                   <>
                     <Download className="size-3.5" />
-                    Export Portfolio
+                    Export Schedule
                   </>
                 )}
               </Button>

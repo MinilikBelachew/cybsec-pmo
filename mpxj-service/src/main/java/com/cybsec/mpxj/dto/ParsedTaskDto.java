@@ -13,7 +13,13 @@ public class ParsedTaskDto {
   private Integer parentUid;
   private String startDate;
   private String finishDate;
-  private Integer durationDays;
+  private String baselineStartDate;
+  private String baselineFinishDate;
+  /** Working days; may be fractional (e.g. 66.1). */
+  private Double durationDays;
+  private Double baselineDurationDays;
+  private String actualStartDate;
+  private String actualFinishDate;
   private Integer percentComplete;
   private List<ParsedPredecessorDto> predecessors = new ArrayList<>();
 
@@ -89,12 +95,52 @@ public class ParsedTaskDto {
     this.finishDate = finishDate;
   }
 
-  public Integer getDurationDays() {
+  public String getBaselineStartDate() {
+    return baselineStartDate;
+  }
+
+  public void setBaselineStartDate(String baselineStartDate) {
+    this.baselineStartDate = baselineStartDate;
+  }
+
+  public String getBaselineFinishDate() {
+    return baselineFinishDate;
+  }
+
+  public void setBaselineFinishDate(String baselineFinishDate) {
+    this.baselineFinishDate = baselineFinishDate;
+  }
+
+  public Double getDurationDays() {
     return durationDays;
   }
 
-  public void setDurationDays(Integer durationDays) {
+  public void setDurationDays(Double durationDays) {
     this.durationDays = durationDays;
+  }
+
+  public Double getBaselineDurationDays() {
+    return baselineDurationDays;
+  }
+
+  public void setBaselineDurationDays(Double baselineDurationDays) {
+    this.baselineDurationDays = baselineDurationDays;
+  }
+
+  public String getActualStartDate() {
+    return actualStartDate;
+  }
+
+  public void setActualStartDate(String actualStartDate) {
+    this.actualStartDate = actualStartDate;
+  }
+
+  public String getActualFinishDate() {
+    return actualFinishDate;
+  }
+
+  public void setActualFinishDate(String actualFinishDate) {
+    this.actualFinishDate = actualFinishDate;
   }
 
   public Integer getPercentComplete() {

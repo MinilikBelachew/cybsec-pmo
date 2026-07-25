@@ -384,6 +384,13 @@ model Project {
   endDate           DateTime       @map("end_date") @db.Date
   baselineStartDate DateTime?      @map("baseline_start_date") @db.Date
   baselineEndDate   DateTime?      @map("baseline_end_date") @db.Date
+  /// MSP working-day duration (supports fractional days e.g. 115.1).
+  durationDays           Decimal? @map("duration_days") @db.Decimal(8, 2)
+  baselineDurationDays   Decimal? @map("baseline_duration_days") @db.Decimal(8, 2)
+  /// Project % complete from MPP root (0–100).
+  percentComplete        Int?     @map("percent_complete")
+  /// Current duration − baseline duration (working days).
+  durationVarianceDays   Decimal? @map("duration_variance_days") @db.Decimal(8, 2)
   actualStartDate   DateTime?      @map("actual_start_date") @db.Date
   actualEndDate     DateTime?      @map("actual_end_date") @db.Date
   value             Decimal?       @db.Decimal(15, 2)
@@ -508,12 +515,17 @@ model Task {
   phaseId          String?       @map("phase_id") @db.Uuid
   title            String        @db.VarChar(255)
   description      String?
+  /// MSP Resource Names display string for round-trip (e.g. "J. Smith (PartnerCo), A. Lee (CyberKnight)").
+  resourceNames    String?       @map("resource_names") @db.VarChar(1000)
   priority         PriorityLevel @default(Medium)
   ownerId          String?       @map("owner_id") @db.Uuid
   startDate        DateTime?     @map("start_date") @db.Date
   endDate          DateTime?     @map("end_date") @db.Date
   baselineStart    DateTime?     @map("baseline_start") @db.Date
   baselineEnd      DateTime?     @map("baseline_end") @db.Date
+  /// MSP working-day duration (supports fractional days e.g. 66.1).
+  durationDays           Decimal? @map("duration_days") @db.Decimal(8, 2)
+  baselineDurationDays   Decimal? @map("baseline_duration_days") @db.Decimal(8, 2)
   actualStart      DateTime?     @map("actual_start") @db.Date
   actualEnd        DateTime?     @map("actual_end") @db.Date
   effortHours      Int?          @map("effort_hours")

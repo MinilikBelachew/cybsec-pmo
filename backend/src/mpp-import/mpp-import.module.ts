@@ -6,7 +6,9 @@ import { diskStorage } from 'multer';
 import { randomStringGenerator } from '@nestjs/common/utils/random-string-generator.util';
 import { extname } from 'path';
 import { PrismaModule } from '../database/prisma.module';
+import { ProjectsModule } from '../projects/projects.module';
 import { AllConfigType } from '../config/config.type';
+import { MspdiExportBuilder } from './mspdi-export.builder';
 import { MppImportController } from './mpp-import.controller';
 import { MppImportService } from './mpp-import.service';
 import { MppParserClient } from './mpp-parser.client';
@@ -15,6 +17,7 @@ import { MppImportMapper } from './mpp-import.mapper';
 @Module({
   imports: [
     PrismaModule,
+    ProjectsModule,
     MulterModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -42,7 +45,12 @@ import { MppImportMapper } from './mpp-import.mapper';
     }),
   ],
   controllers: [MppImportController],
-  providers: [MppImportService, MppParserClient, MppImportMapper],
+  providers: [
+    MppImportService,
+    MppParserClient,
+    MppImportMapper,
+    MspdiExportBuilder,
+  ],
   exports: [MppImportService],
 })
 export class MppImportModule {}

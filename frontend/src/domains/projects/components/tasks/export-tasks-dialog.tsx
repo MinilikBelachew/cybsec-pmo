@@ -20,24 +20,20 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/shared/ui/dropdown-menu";
+import { TASK_EXPORT_FIELD_OPTIONS, DEFAULT_TASK_EXPORT_FIELDS } from "../../utils/task-export-fields";
+
 export interface ExportTasksDialogProps {
   open: boolean;
   onClose: () => void;
-  onExport: (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mpp") => Promise<void>;
+  onExport: (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mspdi") => Promise<void>;
   isExporting?: boolean;
 }
 
-const TASK_FIELDS = [
-  { id: "Title", label: "Title", desc: "The name/summary of the task" },
-  { id: "Description", label: "Description", desc: "Detailed description of requirements" },
-  { id: "Priority", label: "Priority", desc: "Urgency (Critical, High, Medium, Low)" },
-  { id: "Status", label: "Status", desc: "Current state (To Do, In Progress, Done, etc.)" },
-  { id: "Assignee", label: "Assignee", desc: "Team member currently owning the task" },
-  { id: "Phase", label: "Phase", desc: "Project phase or roadmap stage" },
-  { id: "Start Date", label: "Start Date", desc: "Scheduled start date" },
-  { id: "End Date", label: "End Date", desc: "Scheduled due date" },
-  { id: "Effort Hours", label: "Effort Hours", desc: "Hours allocated or logged for this task" },
-];
+const TASK_FIELDS = TASK_EXPORT_FIELD_OPTIONS.map((f) => ({
+  id: f.id,
+  label: f.label,
+  desc: f.desc,
+}));
 
 export function ExportTasksDialog({
   open,
@@ -46,10 +42,10 @@ export function ExportTasksDialog({
   isExporting = false,
 }: ExportTasksDialogProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedFields, setSelectedFields] = useState<string[]>(
-    TASK_FIELDS.map((f) => f.id)
-  );
-  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf" | "doc" | "mpp">("xlsx");
+  const [selectedFields, setSelectedFields] = useState<string[]>([
+    ...DEFAULT_TASK_EXPORT_FIELDS,
+  ]);
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "csv" | "pdf" | "doc" | "mspdi">("xlsx");
 
   const filteredFields = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -218,7 +214,7 @@ export function ExportTasksDialog({
                     { value: "csv", label: "CSV (.csv)" },
                     { value: "pdf", label: "PDF (.pdf)" },
                     { value: "doc", label: "Word (.doc)" },
-                    { value: "mpp", label: "Microsoft Project (.xml)" },
+                    { value: "mspdi", label: "MS Project XML (MSPDI)" },
                   ].find(o => o.value === exportFormat)?.label ?? exportFormat.toUpperCase())}
                 </span>
                 <ChevronDown className="size-3.5 opacity-60" />
@@ -230,7 +226,7 @@ export function ExportTasksDialog({
                     { value: "csv", label: "CSV (.csv)", desc: "Plain text table" },
                     { value: "pdf", label: "PDF (.pdf)", desc: "Print-ready document" },
                     { value: "doc", label: "Word (.doc)", desc: "Landscape layout report" },
-                    { value: "mpp", label: "Microsoft Project (.xml)", desc: "Open in MS Project via File > Open" },
+                    { value: "mspdi", label: "MS Project XML (MSPDI)", desc: "MSPDI schedule — opens in MS Project (File > Open)" },
                   ].map((opt) => (
                     <DropdownMenuItem
                       key={opt.value}

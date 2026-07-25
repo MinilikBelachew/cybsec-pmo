@@ -4,11 +4,14 @@ import {
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
   Validate,
   ValidationArguments,
   ValidatorConstraint,
@@ -105,6 +108,61 @@ export class CreateTaskDto {
   @IsPositive()
   @IsNotEmpty()
   effortHours: number;
+
+  @ApiPropertyOptional({
+    example: 5.5,
+    description: 'MSP working-day duration (fractional allowed)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  durationDays?: number;
+
+  @ApiPropertyOptional({ example: '2026-06-01' })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  baselineStart?: Date;
+
+  @ApiPropertyOptional({ example: '2026-06-15' })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  baselineEnd?: Date;
+
+  @ApiPropertyOptional({ example: '2026-06-02' })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  actualStart?: Date;
+
+  @ApiPropertyOptional({ example: '2026-06-16' })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  actualEnd?: Date;
+
+  @ApiPropertyOptional({
+    example: 5.5,
+    description: 'Baseline working-day duration (fractional allowed)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  baselineDurationDays?: number;
+
+  @ApiPropertyOptional({
+    example: 40,
+    description: 'Approved percent complete (0–100)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  progressApproved?: number;
 
   @ApiPropertyOptional({ enum: TaskStatusEnum, default: TaskStatusEnum.To_Do })
   @IsOptional()

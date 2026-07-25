@@ -153,8 +153,11 @@ export class TasksController {
   @CheckAbility('read', 'Task')
   @Get('stats')
   @HttpCode(HttpStatus.OK)
-  getActiveTaskStats(@Request() request: AuthRequest) {
-    return this.tasksService.getActiveTaskStats(request.caslUser!);
+  getActiveTaskStats(
+    @Query() query: QueryTaskDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.tasksService.getTaskStats(query, request.caslUser!);
   }
 
   @CheckAbility('read', 'Task')

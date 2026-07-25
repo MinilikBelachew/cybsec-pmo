@@ -7,6 +7,7 @@ import { useRouter } from "@/i18n/routing";
 import {
   useGetProjectByIdQuery,
   useGetTasksQuery,
+  useGetActiveTaskStatsQuery,
   useLazyExportTasksQuery,
   useUpdateTaskMutation,
   useDeleteTaskMutation,
@@ -19,6 +20,7 @@ import {
   useGetTaskDependenciesQuery,
   useApplyLeaveBackupMutation,
   useGetProjectLeaveImpactsQuery,
+  useExportMspdiMutation,
 } from "@/domains/projects";
 import type { GetTasksParams, TaskPriority } from "@/domains/projects/types/tasks.types";
 import {
@@ -41,6 +43,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import {
   ChevronDown,
+  ChevronLeft,
   Plus,
   Star,
   List,
@@ -84,7 +87,7 @@ import { getPriorityColors } from "./workspace-views/task-cell-pickers";
 import { AddTaskSheet } from "../tasks/add-task-sheet";
 import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
-import { exportTasksToXLSX, convertTasksToCSV, exportTasksToPDF, exportTasksToWord, exportTasksToMPP } from "../../utils/import-export";
+import { exportTasksToXLSX, convertTasksToCSV, exportTasksToPDF, exportTasksToWord } from "../../utils/import-export";
 import { ExportTasksDialog } from "../tasks/export-tasks-dialog";
 import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
@@ -178,6 +181,8 @@ const PRIORITY_FILTER_TO_API: Record<string, TaskPriority | undefined> = {
   MEDIUM: "Medium",
   LOW: "Low",
 };
+
+const TASKS_PAGE_SIZE = 50;
 
 const STATUS_FILTER_OPTIONS: { value: string; label: string; description: string; dot: string }[] = [
   { value: "ALL", label: "All Statuses", description: "Any status level", dot: "bg-muted-foreground" },
@@ -302,12 +307,18 @@ export function ProjectWorkspace() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
+  const [tasksPage, setTasksPage] = useState(1);
   const debouncedSearch = useDebounce(searchQuery, 300);
+
+  useEffect(() => {
+    setTasksPage(1);
+  }, [debouncedSearch, statusFilter, priorityFilter, id]);
 
   const taskQueryParams = useMemo((): GetTasksParams => {
     const params: GetTasksParams = {
       projectId: id,
-      limit: 50,
+      page: tasksPage,
+      limit: TASKS_PAGE_SIZE,
     };
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) {
@@ -321,11 +332,41 @@ export function ProjectWorkspace() {
       params.priority = priority;
     }
     return params;
-  }, [id, debouncedSearch, statusFilter, priorityFilter]);
+  }, [id, debouncedSearch, statusFilter, priorityFilter, tasksPage]);
+
+  const statsQueryParams = useMemo((): GetTasksParams => {
+    const params: GetTasksParams = { projectId: id };
+    const trimmedSearch = debouncedSearch.trim();
+    if (trimmedSearch) params.search = trimmedSearch;
+    const priority = PRIORITY_FILTER_TO_API[priorityFilter];
+    if (priority) params.priority = priority;
+    return params;
+  }, [id, debouncedSearch, priorityFilter]);
 
   const { data: tasksResponse, isLoading: isTasksLoading, refetch: refetchTasks } =
-    useGetTasksQuery(taskQueryParams, { pollingInterval: TASKS_POLLING_INTERVAL_MS });
-  
+    useGetTasksQuery(taskQueryParams, {
+      pollingInterval: TASKS_POLLING_INTERVAL_MS,
+      // Board/list status columns fetch their own pages; shared query still feeds
+      // gantt/calendar/table and phase-grouped list.
+    });
+
+  const { data: projectTaskStats } = useGetActiveTaskStatsQuery(statsQueryParams, {
+    skip: !id,
+  });
+
+  const statusCounts = useMemo(() => {
+    const by = projectTaskStats?.byStatus;
+    if (!by) return undefined;
+    return by as Partial<
+      Record<
+        "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done",
+        number
+      >
+    >;
+  }, [projectTaskStats]);
+
+  const tasksTotal = tasksResponse?.meta?.total ?? tasksResponse?.data?.length ?? 0;
+  const tasksTotalPages = Math.max(1, Math.ceil(tasksTotal / TASKS_PAGE_SIZE));
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask, { isLoading: isDeletingTask }] = useDeleteTaskMutation();
   const [bulkTasks, { isLoading: isBulkDeleting }] = useBulkTasksMutation();
@@ -334,6 +375,8 @@ export function ProjectWorkspace() {
   const [createTask] = useCreateTaskMutation();
   const [createTaskBundle] = useCreateTaskBundleMutation();
   const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
+  const [exportMspdi, { isLoading: isExportingMspdi }] = useExportMspdiMutation();
+  const isExporting = isExportingTasks || isExportingMspdi;
 
   const [deleteTaskConfirm, setDeleteTaskConfirm] = useState<{
     isOpen: boolean;
@@ -377,52 +420,87 @@ export function ProjectWorkspace() {
       });
   }, [milestones]);
 
-  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mpp") => {
+  const handleExportData = async (selectedFields: string[], format: "xlsx" | "csv" | "pdf" | "doc" | "mspdi") => {
     const exportToast = toast.loading(`Preparing tasks export (${format.toUpperCase()})...`);
     try {
-      const exportParams: GetTasksParams = {
-        projectId: id,
-        topLevelOnly: false,
-      };
-      const trimmedSearch = debouncedSearch.trim();
-      if (trimmedSearch) {
-        exportParams.search = trimmedSearch;
-      }
-      if (statusFilter !== "ALL") {
-        exportParams.status = statusFilter;
-      }
-      const priority = PRIORITY_FILTER_TO_API[priorityFilter];
-      if (priority) {
-        exportParams.priority = priority;
-      }
-
-      const tasksToExport = await triggerExportTasks(exportParams).unwrap();
-      if (!tasksToExport || tasksToExport.length === 0) {
-        toast.dismiss(exportToast);
-        toast.error("No tasks to export.");
-        return;
-      }
-
       let blob: Blob;
       let filename: string;
 
-      if (format === "xlsx") {
-        const xlsxBuffer = exportTasksToXLSX(tasksToExport, phases, assignees, selectedFields);
-        blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-        filename = `${project?.name || "project"}_tasks.xlsx`;
-      } else if (format === "csv") {
-        const csvContent = convertTasksToCSV(tasksToExport, phases, assignees, selectedFields);
-        blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-        filename = `${project?.name || "project"}_tasks.csv`;
-      } else if (format === "pdf") {
-        blob = exportTasksToPDF(tasksToExport, phases, assignees, selectedFields);
-        filename = `${project?.name || "project"}_tasks.pdf`;
-      } else if (format === "doc") {
-        blob = exportTasksToWord(tasksToExport, phases, assignees, selectedFields);
-        filename = `${project?.name || "project"}_tasks.doc`;
+      if (format === "mspdi") {
+        // Server-side Microsoft Project XML (MSPDI) via mpp-import + mpxj-service.
+        blob = await exportMspdi({ projectId: id }).unwrap();
+        filename = `${project?.name || "project"}_schedule.xml`;
       } else {
-        blob = exportTasksToMPP(tasksToExport, phases, assignees, project?.name || "Project");
-        filename = `${project?.name || "project"}_tasks.xml`;
+        const exportParams: GetTasksParams = {
+          projectId: id,
+          topLevelOnly: false,
+        };
+        const trimmedSearch = debouncedSearch.trim();
+        if (trimmedSearch) {
+          exportParams.search = trimmedSearch;
+        }
+        if (statusFilter !== "ALL") {
+          exportParams.status = statusFilter;
+        }
+        const priority = PRIORITY_FILTER_TO_API[priorityFilter];
+        if (priority) {
+          exportParams.priority = priority;
+        }
+
+        const tasksToExport = await triggerExportTasks(exportParams).unwrap();
+        if (!tasksToExport || tasksToExport.length === 0) {
+          toast.dismiss(exportToast);
+          toast.error("No tasks to export.");
+          return;
+        }
+
+        const projectOrganization =
+          project?.customer?.displayName || project?.department?.name || null;
+        const dependencies = taskDependencies ?? [];
+
+        if (format === "xlsx") {
+          const xlsxBuffer = exportTasksToXLSX(
+            tasksToExport,
+            phases,
+            assignees,
+            selectedFields,
+            dependencies,
+            projectOrganization,
+          );
+          blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+          filename = `${project?.name || "project"}_tasks.xlsx`;
+        } else if (format === "csv") {
+          const csvContent = convertTasksToCSV(
+            tasksToExport,
+            phases,
+            assignees,
+            selectedFields,
+            dependencies,
+            projectOrganization,
+          );
+          blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+          filename = `${project?.name || "project"}_tasks.csv`;
+        } else if (format === "pdf") {
+          blob = exportTasksToPDF(
+            tasksToExport,
+            phases,
+            assignees,
+            selectedFields,
+            dependencies,
+            projectOrganization,
+          );
+          filename = `${project?.name || "project"}_tasks.pdf`;
+        } else {
+          blob = exportTasksToWord(
+            tasksToExport,
+            phases,
+            assignees,
+            selectedFields,
+            dependencies,
+            projectOrganization,
+          );
+          filename = `${project?.name || "project"}_tasks.doc`;
+        }
       }
 
       const url = URL.createObjectURL(blob);
@@ -448,11 +526,17 @@ export function ProjectWorkspace() {
   );
 
   const overallProgressPercent = useMemo(() => {
+    if (
+      project?.percentComplete != null &&
+      Number.isFinite(Number(project.percentComplete))
+    ) {
+      return Math.max(0, Math.min(100, Math.round(Number(project.percentComplete))));
+    }
     const rows = tasksResponse?.data ?? [];
     if (rows.length === 0) return 0;
     const sum = rows.reduce((acc, task) => acc + (task.progressApproved ?? 0), 0);
     return Math.round(sum / rows.length);
-  }, [tasksResponse]);
+  }, [project?.percentComplete, tasksResponse]);
 
   const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
 
@@ -556,9 +640,15 @@ export function ProjectWorkspace() {
   };
 
   const toggleTask = async (taskId: string) => {
-    const target =
-      tasks.find((t) => t.id === taskId) ??
-      tasks.flatMap((t) => t.children ?? []).find((c) => c.id === taskId);
+    const findRow = (rows: typeof tasks): (typeof tasks)[number] | undefined => {
+      for (const row of rows) {
+        if (row.id === taskId) return row;
+        const nested = row.children ? findRow(row.children) : undefined;
+        if (nested) return nested;
+      }
+      return undefined;
+    };
+    const target = findRow(tasks);
     if (!target) return;
     const newStatus = target.status === "Done" || target.status === "Approved" ? "To_Do" : "Done";
     const isOwner = user?.id === target.assigneeId;
@@ -675,15 +765,15 @@ export function ProjectWorkspace() {
         : 1;
 
     try {
-      // DEF-P1-048 — copy nested sub-tasks with the parent (bundle creates them atomically).
-      // Creating a sub-task copy must not nest further (bundle ignores subTasks when parentTaskId is set).
-      const subTasks =
-        original.parentTaskId
-          ? []
-          : (original.subTasks ?? []).map((sub) => ({
-              title: `${sub.title} (Copy)`,
-              description: null as string | null,
-            }));
+      // Copy nested children when the duplicate itself may still own children (depth < 3).
+      const canCopyNestedSubs =
+        !original.parentTaskId || !original.parentTask?.parentTaskId;
+      const subTasks = canCopyNestedSubs
+        ? (original.subTasks ?? []).map((sub) => ({
+            title: `${sub.title} (Copy)`,
+            description: null as string | null,
+          }))
+        : [];
 
       await createTaskBundle({
         payload: {
@@ -940,7 +1030,17 @@ export function ProjectWorkspace() {
               <p className="text-[10px] text-muted-foreground">
                 {leaveImpactSummary
                   ? `${leaveImpactSummary.count} leave conflict${leaveImpactSummary.count === 1 ? "" : "s"} · projected slip up to ~${leaveImpactSummary.maxSlip} day(s)`
-                  : "Average approved progress across tasks"}
+                  : project?.percentComplete != null
+                    ? "From imported project schedule"
+                    : "Average approved progress across tasks"}
+                {project?.durationVarianceDays != null && (
+                  <>
+                    {" · "}
+                    duration variance{" "}
+                    {Number(project.durationVarianceDays) > 0 ? "+" : ""}
+                    {Number(project.durationVarianceDays)}d
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -1101,10 +1201,10 @@ export function ProjectWorkspace() {
                 variant="outline"
                 size="sm"
                 onClick={() => setShowExport(true)}
-                disabled={isExportingTasks}
+                disabled={isExporting}
                 className="h-9 flex-1 gap-1.5 rounded-xl border-slate-200/60 px-2.5 text-xs font-semibold hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5 sm:flex-none sm:px-3"
               >
-                {isExportingTasks ? (
+                {isExporting ? (
                   <Loader2 className="size-4 shrink-0 animate-spin" />
                 ) : (
                   <Download className="size-4 shrink-0" />
@@ -1154,10 +1254,15 @@ export function ProjectWorkspace() {
         </div>
       </div>
       )}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {activeView === "list" && (
+          <div className="flex-1 min-h-0 overflow-hidden">
           <ListView
             tasks={tasks}
+            projectId={id}
+            search={debouncedSearch}
+            priorityFilter={PRIORITY_FILTER_TO_API[priorityFilter]}
+            statusCounts={statusCounts}
             openGroups={openGroups}
             toggleGroup={toggleGroup}
             toggleTask={toggleTask}
@@ -1190,11 +1295,16 @@ export function ProjectWorkspace() {
             onBulkPriority={canManageTasks ? handleBulkPriority : undefined}
             onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
           />
+          </div>
         )}
 
         {activeView === "board" && (
+          <div className="flex-1 min-h-0 overflow-hidden">
           <BoardView
-            tasks={tasks}
+            projectId={id}
+            search={debouncedSearch}
+            priority={PRIORITY_FILTER_TO_API[priorityFilter]}
+            statusCounts={statusCounts}
             toggleTask={toggleTask}
             onTaskClick={openTaskDetail}
             canApproveTask={canReviewProgress}
@@ -1211,62 +1321,109 @@ export function ProjectWorkspace() {
             onMoveTask={handleMoveTask}
             onSetDueDate={handleSetDueDate}
             onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
-          />
-        )}
-
-        {activeView === "calendar" && (
-          <CalendarView
-            tasks={tasks}
-            onTaskClick={openTaskDetail}
-            onAddTask={canCreateTask ? handleAddTaskOnDate : undefined}
-            onDeleteTask={handleDeleteTask}
-            onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
-            onMoveTask={handleMoveTask}
-            onSetDueDate={handleSetDueDate}
-            toggleTask={toggleTask}
-          />
-        )}
-
-        {activeView === "gantt" && (
-          <GanttView
-            tasks={tasks}
             dependencies={taskDependencies}
-            toggleTask={toggleTask}
-            ganttZoom={ganttZoom}
-            setGanttZoom={setGanttZoom}
-            phases={phases}
-            milestones={milestones}
-            onTaskClick={openTaskDetail}
           />
+          </div>
         )}
 
-        {activeView === "table" && (
-          <TableView
-            tasks={tasks}
-            toggleTask={toggleTask}
-            onTaskClick={openTaskDetail}
-            onAddTask={
-              canCreateTask
-                ? (status) => {
-                    setParentTaskId(null);
-                    setNewTaskStatus(status);
-                    setIsSheetOpen(true);
-                  }
-                : undefined
-            }
-            onDeleteTask={handleDeleteTask}
-            onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
-            onMoveTask={handleMoveTask}
-            onSetDueDate={handleSetDueDate}
-            assignees={assignees}
-            canAssignTask={canAssignTask}
-            canBulkEdit={canManageTasks}
-            onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
-            onBulkStatus={canManageTasks ? handleBulkStatus : undefined}
-            onBulkPriority={canManageTasks ? handleBulkPriority : undefined}
-            onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
-          />
+        {(activeView === "table" ||
+          activeView === "gantt" ||
+          activeView === "calendar") && (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {activeView === "calendar" && (
+              <CalendarView
+                tasks={tasks}
+                onTaskClick={openTaskDetail}
+                onAddTask={canCreateTask ? handleAddTaskOnDate : undefined}
+                onDeleteTask={handleDeleteTask}
+                onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
+                onMoveTask={handleMoveTask}
+                onSetDueDate={handleSetDueDate}
+                toggleTask={toggleTask}
+              />
+            )}
+
+            {activeView === "gantt" && (
+              <GanttView
+                tasks={tasks}
+                dependencies={taskDependencies}
+                toggleTask={toggleTask}
+                ganttZoom={ganttZoom}
+                setGanttZoom={setGanttZoom}
+                phases={phases}
+                milestones={milestones}
+                onTaskClick={openTaskDetail}
+              />
+            )}
+
+            {activeView === "table" && (
+              <TableView
+                tasks={tasks}
+                projectId={id}
+                toggleTask={toggleTask}
+                onTaskClick={openTaskDetail}
+                onAddTask={
+                  canCreateTask
+                    ? (status) => {
+                        setParentTaskId(null);
+                        setNewTaskStatus(status);
+                        setIsSheetOpen(true);
+                      }
+                    : undefined
+                }
+                onDeleteTask={handleDeleteTask}
+                onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
+                onMoveTask={handleMoveTask}
+                onSetDueDate={handleSetDueDate}
+                assignees={assignees}
+                canAssignTask={canAssignTask}
+                canBulkEdit={canManageTasks}
+                onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
+                onBulkStatus={canManageTasks ? handleBulkStatus : undefined}
+                onBulkPriority={canManageTasks ? handleBulkPriority : undefined}
+                onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
+                dependencies={taskDependencies}
+              />
+            )}
+          </div>
         )}
+
+        {(activeView === "table" ||
+          activeView === "gantt" ||
+          activeView === "calendar") &&
+          tasksTotal > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-4 py-2 shrink-0">
+              <span className="text-xs text-muted-foreground">
+                Page {tasksPage} of {tasksTotalPages}
+                <span className="mx-1.5 text-muted-foreground/40">·</span>
+                {tasksTotal} top-level task{tasksTotal === 1 ? "" : "s"}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs gap-1"
+                  disabled={tasksPage <= 1}
+                  onClick={() => setTasksPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="size-3.5" />
+                  Prev
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs gap-1"
+                  disabled={tasksPage >= tasksTotalPages}
+                  onClick={() => setTasksPage((p) => p + 1)}
+                >
+                  Next
+                  <ChevronRight className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
 
         {activeView === "phases" && (
           <PhaseView
@@ -1400,13 +1557,14 @@ export function ProjectWorkspace() {
         onClose={() => setIsMppImportOpen(false)}
         onCompleted={() => refetchTasks()}
         projectId={id}
+        projectName={project?.name}
       />
 
       <ExportTasksDialog
         open={showExport}
         onClose={() => setShowExport(false)}
         onExport={handleExportData}
-        isExporting={isExportingTasks}
+        isExporting={isExporting}
       />
     </div>
   );

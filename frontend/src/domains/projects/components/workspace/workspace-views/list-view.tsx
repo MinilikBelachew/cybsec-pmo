@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, ListChecks, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, ListChecks, Loader2, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { Button } from "@/shared/ui/button";
 import {
@@ -10,6 +10,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import type { TaskPriority } from "@/domains/projects/types/tasks.types";
+import {
+  usePaginatedStatusTasks,
+  type StatusColumnFilters,
+} from "@/domains/projects/hooks/use-paginated-status-tasks";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
+import { useExportTasksQuery } from "@/domains/projects/api/tasks.api";
+import { TaskDependenciesPicker } from "./task-predecessors-cell";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -37,6 +45,8 @@ interface Task {
   /** DEF-P1-047 — nested under predecessor in the tree */
   treeKind?: "subtask" | "dependency";
   depType?: string;
+  /** Plan-order sort key (MPP Order / ID column). */
+  createdAt?: string;
   effortHours?: number | null;
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
@@ -73,6 +83,11 @@ import {
 
 interface ListViewProps {
   tasks: Task[];
+  /** When set with filters, status groups use option-B per-status pagination. */
+  projectId?: string;
+  search?: string;
+  priorityFilter?: TaskPriority;
+  statusCounts?: Partial<Record<Status, number>>;
   openGroups: Set<Status>;
   toggleGroup: (status: Status) => void;
   toggleTask: (taskId: string) => void;
@@ -136,6 +151,10 @@ const STATUS_LABEL: Record<Status, string> = {
 
 export function ListView({
   tasks,
+  projectId,
+  search,
+  priorityFilter,
+  statusCounts,
   openGroups,
   toggleGroup,
   toggleTask,
@@ -166,13 +185,50 @@ export function ListView({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
+  const { canEditDependencies } = useModulePermissions();
+
+  /** Full project task set for predecessor picker options. */
+  const { data: exportTasksForPred = [] } = useExportTasksQuery(
+    { projectId: projectId!, topLevelOnly: false },
+    { skip: !projectId },
+  );
+
+  const predecessorTaskOptions = React.useMemo(() => {
+    if (exportTasksForPred.length > 0) {
+      const out: { id: string; name: string }[] = [];
+      const seen = new Set<string>();
+      const push = (id: string, name: string) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        out.push({ id, name });
+      };
+      for (const t of exportTasksForPred) {
+        push(t.id, t.title);
+        for (const s of t.subTasks ?? []) {
+          push(s.id, s.title);
+          for (const ss of s.subTasks ?? []) {
+            push(ss.id, ss.title);
+          }
+        }
+      }
+      return out;
+    }
+    const out: { id: string; name: string }[] = [];
+    const walk = (t: Task) => {
+      out.push({ id: t.id, name: t.name });
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of tasks) walk(t);
+    return out;
+  }, [exportTasksForPred, tasks]);
 
   const taskById = React.useMemo(() => {
     const map = new Map<string, Task>();
-    for (const t of tasks) {
+    const walk = (t: Task) => {
       map.set(t.id, t);
-      for (const c of t.children ?? []) map.set(c.id, c);
-    }
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of tasks) walk(t);
     return map;
   }, [tasks]);
 
@@ -232,14 +288,17 @@ export function ListView({
     return map;
   }, [dependencies, taskById]);
 
-  function nestedRowsFor(task: Task): Task[] {
+  function nestedRowsFor(task: Task, childDepth: number): Task[] {
     const subs = (task.children ?? []).map((c) => ({
       ...c,
       treeKind: "subtask" as const,
-      depth: 1,
+      depth: childDepth,
     }));
+    // Dependency links only under top-level rows (avoid noise under deep nests).
+    if (childDepth > 1) {
+      return subs;
+    }
     const deps = dependentsByPredecessor.get(task.id) ?? [];
-    // Prefer sub-tasks first, then dependency-linked tasks (skip ones already listed as sub-tasks).
     const subIds = new Set(subs.map((s) => s.id));
     return [...subs, ...deps.filter((d) => !subIds.has(d.id))];
   }
@@ -263,15 +322,15 @@ export function ListView({
 
   const allSelectableIds = React.useMemo(() => {
     const ids: string[] = [];
-    for (const t of tasks) {
+    const walk = (t: Task) => {
       ids.push(t.id);
-      for (const c of t.children ?? []) {
-        ids.push(c.id);
-      }
-    }
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of tasks) walk(t);
     return ids;
   }, [tasks]);
-  const showBulkSelect = canBulkEdit && bulkMode;
+  // Checkboxes only while Select mode is on (not always visible).
+  const showBulkSelect = Boolean(canBulkEdit && bulkMode);
   const allSelected =
     showBulkSelect &&
     allSelectableIds.length > 0 &&
@@ -281,6 +340,7 @@ export function ListView({
   const exitBulkMode = () => {
     setBulkMode(false);
     setSelectedIds(new Set());
+    setBulkPredDraft("");
   };
 
   const toggleBulkMode = () => {
@@ -352,19 +412,23 @@ export function ListView({
 
   // Expand parents that have sub-tasks or dependents so the tree is visible by default.
   React.useEffect(() => {
-    const withNest = tasks.filter(
-      (t) =>
+    const idsToExpand: string[] = [];
+    const walk = (t: Task) => {
+      const hasNest =
         (t.children?.length ?? 0) > 0 ||
-        t.hasSubtasks ||
-        (dependentsByPredecessor.get(t.id)?.length ?? 0) > 0,
-    );
-    if (withNest.length === 0) return;
+        Boolean(t.hasSubtasks) ||
+        (dependentsByPredecessor.get(t.id)?.length ?? 0) > 0;
+      if (hasNest) idsToExpand.push(t.id);
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of tasks) walk(t);
+    if (idsToExpand.length === 0) return;
     setExpandedParents((prev) => {
       const next = new Set(prev);
       let changed = false;
-      for (const t of withNest) {
-        if (!next.has(t.id)) {
-          next.add(t.id);
+      for (const id of idsToExpand) {
+        if (!next.has(id)) {
+          next.add(id);
           changed = true;
         }
       }
@@ -453,6 +517,9 @@ export function ListView({
       <div className="flex-1 text-[11px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider text-left">
         Name
       </div>
+      <div className="shrink-0 w-8 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Deps
+      </div>
       <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Assignee
       </div>
@@ -504,7 +571,7 @@ export function ListView({
         }
       : null;
 
-    const nested = depth === 0 ? nestedRowsFor(task) : [];
+    const nested = depth < 2 ? nestedRowsFor(task, depth + 1) : [];
     const hasChildren = nested.length > 0 || Boolean(task.children?.length || task.hasSubtasks);
     const isExpanded = expandedParents.has(task.id);
     const indentPx = depth * 20;
@@ -541,7 +608,7 @@ export function ListView({
           className="w-4 shrink-0 flex items-center justify-center"
           style={{ marginLeft: indentPx }}
         >
-          {hasChildren && depth === 0 ? (
+          {hasChildren && depth < 2 ? (
             <button
               type="button"
               onClick={(e) => toggleParentExpand(task.id, e)}
@@ -591,11 +658,30 @@ export function ListView({
                 isDependencyRow ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground",
               )}
             >
-              {isDependencyRow ? `Dep${task.depType ? ` ${task.depType}` : ""}` : "Sub"}
+              {isDependencyRow
+                ? `Dep${task.depType ? ` ${task.depType}` : ""}`
+                : depth >= 2
+                  ? "Sub²"
+                  : "Sub"}
             </span>
           )}
           {task.name}
         </button>
+        <div
+          className="shrink-0 w-8 flex items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isDependencyRow ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : (
+            <TaskDependenciesPicker
+              taskId={task.id}
+              taskOptions={predecessorTaskOptions}
+              dependencies={dependencies}
+              canEdit={canEditDependencies}
+            />
+          )}
+        </div>
         <div className="shrink-0 w-28 flex items-center justify-center">
           {canAssignTask && onAssignTask ? (
             <TaskAssigneePicker
@@ -996,10 +1082,12 @@ export function ListView({
                         {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
                         <div className="w-4 shrink-0" />
                         <div className="w-4 shrink-0" />
+                        <div className="w-8 shrink-0" />
                         <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                         <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
                           Add Task to Phase
                         </span>
+                        <div className="w-36 shrink-0" />
                       </div>
                     )}
                   </>
@@ -1007,6 +1095,28 @@ export function ListView({
               </div>
             );
           })
+        ) : projectId ? (
+          (["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"] as Status[]).map(
+            (status) => (
+              <ListStatusSection
+                key={status}
+                status={status}
+                filters={{
+                  projectId,
+                  search,
+                  priority: priorityFilter,
+                }}
+                statusCount={statusCounts?.[status]}
+                isOpen={openGroups.has(status)}
+                onToggle={() => toggleGroup(status)}
+                getStatusBadge={getStatusBadge}
+                renderColumnHeaders={renderColumnHeaders}
+                renderTaskRow={renderTaskRow}
+                onAddTask={onAddTask}
+                showBulkSelect={showBulkSelect}
+              />
+            ),
+          )
         ) : (
           (["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"] as Status[]).map((status) => {
             const groupTasks = tasks.filter((t) => t.status === status);
@@ -1055,6 +1165,107 @@ export function ListView({
           })
         )}
       </div>
+    </div>
+  );
+}
+
+function ListStatusSection({
+  status,
+  filters,
+  statusCount,
+  isOpen,
+  onToggle,
+  getStatusBadge,
+  renderColumnHeaders,
+  renderTaskRow,
+  onAddTask,
+  showBulkSelect,
+}: {
+  status: Status;
+  filters: StatusColumnFilters;
+  statusCount?: number;
+  isOpen: boolean;
+  onToggle: () => void;
+  getStatusBadge: (status: Status, isHeader?: boolean) => React.ReactNode;
+  renderColumnHeaders: () => React.ReactNode;
+  renderTaskRow: (task: Task, depth?: number) => React.ReactNode;
+  onAddTask?: (status: Status, phaseId?: string | null) => void;
+  showBulkSelect: boolean;
+}) {
+  const { tasks, total, hasNextPage, isLoading, isFetching, loadMore } =
+    usePaginatedStatusTasks(status, filters, {
+      pageSize: 20,
+      skip: !isOpen,
+    });
+
+  const displayCount =
+    typeof statusCount === "number" ? statusCount : isOpen ? total : 0;
+  const groupTasks = tasks as unknown as Task[];
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-background border-b border-border/30 sticky top-0 z-10">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 flex-1 text-left"
+        >
+          {isOpen ? (
+            <ChevronDown className="size-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 text-muted-foreground" />
+          )}
+          {getStatusBadge(status, true)}
+          <span className="text-xs text-muted-foreground font-semibold ml-1">
+            {displayCount}
+          </span>
+        </button>
+      </div>
+
+      {isOpen && (
+        <>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+            </div>
+          ) : (
+            <>
+              {groupTasks.length > 0 ? renderColumnHeaders() : null}
+              {groupTasks.map((task) => renderTaskRow(task))}
+              {hasNextPage && (
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={isFetching}
+                  className="flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border-b border-border/30 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-colors disabled:opacity-50"
+                >
+                  {isFetching ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : null}
+                  Load more
+                  {typeof statusCount === "number" && statusCount > groupTasks.length
+                    ? ` (${statusCount - groupTasks.length} left)`
+                    : ""}
+                </button>
+              )}
+            </>
+          )}
+          {onAddTask && (
+            <div
+              onClick={() => onAddTask(status)}
+              className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+            >
+              {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
+              <div className="w-4 shrink-0" />
+              <div className="w-4 shrink-0" />
+              <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
+                Add Task
+              </span>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

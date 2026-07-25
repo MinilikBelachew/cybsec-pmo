@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Workspace Import MPP test fixture (single project — NOT a portfolio).
+
+  How to test:
+  1) Open any existing project in Cybsec (name does not need to match).
+  2) Project workspace → Import MPP → select this file → Confirm.
+  3) Expect: 2 phases, 6 tasks, 5 FS dependencies (see chain below).
+  4) Re-import the same file → tasks should UPDATE (not double).
+
+  Structure (L1 = phases, L2 = tasks — no project-name L1):
+    Phase 1 — Prep
+      Kickoff Meeting
+      Scope Freeze          ← after Kickoff
+    Phase 2 — Build
+      Build Module A       ← after Scope Freeze
+      Build Module B       ← after Scope Freeze  (parallel with A)
+      Integration Test     ← after A and B
+      Project Sign-Off     ← after Integration Test
+
+  Dependency chain (FS):
+    Kickoff → Scope Freeze → Build Module A ─┐
+                         └→ Build Module B ─┴→ Integration Test → Project Sign-Off
+-->
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Name>Workspace MPP Import Test</Name>
+  <Title>Workspace MPP Import Test</Title>
+  <Company>Cybsec PMO</Company>
+  <Author>Fixture</Author>
+  <CreationDate>2026-07-24T09:00:00</CreationDate>
+  <LastSaved>2026-07-24T09:00:00</LastSaved>
+  <ScheduleFromStart>1</ScheduleFromStart>
+  <StartDate>2026-08-03T08:00:00</StartDate>
+  <FinishDate>2026-09-11T17:00:00</FinishDate>
+  <CalendarUID>1</CalendarUID>
+  <DefaultStartTime>08:00:00</DefaultStartTime>
+  <DefaultFinishTime>17:00:00</DefaultFinishTime>
+  <MinutesPerDay>480</MinutesPerDay>
+  <MinutesPerWeek>2400</MinutesPerWeek>
+  <DaysPerMonth>20</DaysPerMonth>
+  <CurrencyCode>USD</CurrencyCode>
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Standard</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <BaseCalendarUID>-1</BaseCalendarUID>
+      <WeekDays>
+        <WeekDay><DayType>1</DayType><DayWorking>0</DayWorking></WeekDay>
+        <WeekDay><DayType>2</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>3</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>4</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>5</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>6</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>7</DayType><DayWorking>0</DayWorking></WeekDay>
+      </WeekDays>
+    </Calendar>
+  </Calendars>
+  <Tasks>
+    <!-- Phase 1 -->
+    <Task>
+      <UID>1</UID>
+      <ID>1</ID>
+      <Name>Phase 1 — Prep</Name>
+      <Type>1</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+      <WBS>1</WBS>
+      <Summary>1</Summary>
+      <Critical>0</Critical>
+      <Priority>500</Priority>
+      <Start>2026-08-03T08:00:00</Start>
+      <Finish>2026-08-07T17:00:00</Finish>
+      <Duration>PT40H0M0S</Duration>
+      <Manual>0</Manual>
+      <PercentComplete>100</PercentComplete>
+      <Milestone>0</Milestone>
+    </Task>
+    <Task>
+      <UID>2</UID>
+      <ID>2</ID>
+      <Name>Kickoff Meeting</Name>
+      <Type>0</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.1</OutlineNumber>
+      <WBS>1.1</WBS>
+      <Summary>0</Summary>
+      <Critical>1</Critical>
+      <Priority>500</Priority>
+      <Start>2026-08-03T08:00:00</Start>
+      <Finish>2026-08-03T17:00:00</Finish>
+      <Duration>PT8H0M0S</Duration>
+      <Baseline>
+        <Start>2026-08-01T08:00:00</Start>
+        <Finish>2026-08-01T17:00:00</Finish>
+        <Duration>PT8H0M0S</Duration>
+      </Baseline>
+      <Manual>0</Manual>
+      <PercentComplete>100</PercentComplete>
+      <Milestone>0</Milestone>
+    </Task>
+    <Task>
+      <UID>3</UID>
+      <ID>3</ID>
+      <Name>Scope Freeze</Name>
+      <Type>0</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.2</OutlineNumber>
+      <WBS>1.2</WBS>
+      <Summary>0</Summary>
+      <Critical>1</Critical>
+      <Priority>500</Priority>
+      <Start>2026-08-04T08:00:00</Start>
+      <Finish>2026-08-07T17:00:00</Finish>
+      <Duration>PT32H0M0S</Duration>
+      <Manual>0</Manual>
+      <PercentComplete>100</PercentComplete>
+      <Milestone>0</Milestone>
+      <PredecessorLink>
+        <PredecessorUID>2</PredecessorUID>
+        <Type>1</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>0</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Phase 2 -->
+    <Task>
+      <UID>4</UID>
+      <ID>4</ID>
+      <Name>Phase 2 — Build</Name>
+      <Type>1</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+      <WBS>2</WBS>
+      <Summary>1</Summary>
+      <Critical>0</Critical>
+      <Priority>500</Priority>
+      <Start>2026-08-10T08:00:00</Start>
+      <Finish>2026-09-11T17:00:00</Finish>
+      <Duration>PT200H0M0S</Duration>
+      <Manual>0</Manual>
+      <PercentComplete>0</PercentComplete>
+      <Milestone>0</Milestone>
+    </Task>
+    <Task>
+      <UID>5</UID>
+      <ID>5</ID>
+      <Name>Build Module A</Name>
+      <Type>0</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.1</OutlineNumber>
+      <WBS>2.1</WBS>
+      <Summary>0</Summary>
+      <Critical>1</Critical>
+      <Priority>500</Priority>
+      <Start>2026-08-10T08:00:00</Start>
+      <Finish>2026-08-21T17:00:00</Finish>
+      <Duration>PT80H0M0S</Duration>
+      <Baseline>
+        <Start>2026-08-10T08:00:00</Start>
+        <Finish>2026-08-14T17:00:00</Finish>
+        <Duration>PT40H0M0S</Duration>
+      </Baseline>
+      <Manual>0</Manual>
+      <PercentComplete>50</PercentComplete>
+      <Milestone>0</Milestone>
+      <PredecessorLink>
+        <PredecessorUID>3</PredecessorUID>
+        <Type>1</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>0</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+    </Task>
+    <Task>
+      <UID>6</UID>
+      <ID>6</ID>
+      <Name>Build Module B</Name>
+      <Type>0</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.2</OutlineNumber>
+      <WBS>2.2</WBS>
+      <Summary>0</Summary>
+      <Critical>1</Critical>
+      <Priority>500</Priority>
+      <Start>2026-08-10T08:00:00</Start>
+      <Finish>2026-08-28T17:00:00</Finish>
+      <Duration>PT120H0M0S</Duration>
+      <Manual>0</Manual>
+      <PercentComplete>0</PercentComplete>
+      <Milestone>0</Milestone>
+      <PredecessorLink>
+        <PredecessorUID>3</PredecessorUID>
+        <Type>1</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>0</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+    </Task>
+    <Task>
+      <UID>7</UID>
+      <ID>7</ID>
+      <Name>Integration Test</Name>
+      <Type>0</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.3</OutlineNumber>
+      <WBS>2.3</WBS>
+      <Summary>0</Summary>
+      <Critical>1</Critical>
+      <Priority>500</Priority>
+      <Start>2026-08-31T08:00:00</Start>
+      <Finish>2026-09-04T17:00:00</Finish>
+      <Duration>PT40H0M0S</Duration>
+      <Manual>0</Manual>
+      <PercentComplete>0</PercentComplete>
+      <Milestone>0</Milestone>
+      <PredecessorLink>
+        <PredecessorUID>5</PredecessorUID>
+        <Type>1</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>0</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+      <PredecessorLink>
+        <PredecessorUID>6</PredecessorUID>
+        <Type>1</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>0</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+    </Task>
+    <Task>
+      <UID>8</UID>
+      <ID>8</ID>
+      <Name>Project Sign-Off</Name>
+      <Type>0</Type>
+      <IsNull>0</IsNull>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.4</OutlineNumber>
+      <WBS>2.4</WBS>
+      <Summary>0</Summary>
+      <Critical>1</Critical>
+      <Priority>500</Priority>
+      <Start>2026-09-07T08:00:00</Start>
+      <Finish>2026-09-11T17:00:00</Finish>
+      <Duration>PT40H0M0S</Duration>
+      <Manual>0</Manual>
+      <PercentComplete>0</PercentComplete>
+      <Milestone>0</Milestone>
+      <PredecessorLink>
+        <PredecessorUID>7</PredecessorUID>
+        <Type>1</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>0</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+    </Task>
+  </Tasks>
+  <Resources/>
+  <Assignments/>
+</Project>

@@ -52,6 +52,16 @@ export interface Project {
   priority: PriorityLevel;
   startDate: string;
   endDate: string;
+  baselineStartDate?: string | null;
+  baselineEndDate?: string | null;
+  durationDays?: number | null;
+  baselineDurationDays?: number | null;
+  /** Project % complete from MPP root (0–100). */
+  percentComplete?: number | null;
+  /** Current duration − baseline duration (working days). */
+  durationVarianceDays?: number | null;
+  actualStartDate?: string | null;
+  actualEndDate?: string | null;
   value?: number;
   currency?: CurrencyCode;
   primaryPmId: string;

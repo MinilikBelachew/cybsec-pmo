@@ -1,22 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!--
-  Cybsec PMO UAT fixture — MSPDI (Project XML).
+  Cybsec PMO UAT fixture — MSPDI (Project XML), single project.
+  For multi-project import use uat-sample-portfolio-5.xml (5 projects in one file).
+  Re-import this file into the same project to verify task upsert (DEF-P1-030).
   Import via Projects → Import MPP (accepts .xml).
 
-  Structure (order matters for DEF-P1-025/059/060/061):
-  1. Phase 1 — Discovery          (summary)
-     1.1 Kickoff
-     1.2 Requirements Workshop
-  2. Phase 2 — Design             (summary)
-     2.1 Architecture Design
-     2.2 Security Review
-  3. Phase 3 — Delivery           (summary)
-     3.1 Implementation
-     3.2 UAT
-     3.3 Project Sign-OFF
-
-  Dependencies (FS):
-  Kickoff → Requirements → Architecture → Security → Implementation → UAT → Sign-OFF
+  Structure:
+  1. Phase 1 — Discovery (summary)
+  2. Phase 2 — Design (summary)
+  3. Phase 3 — Delivery (summary)
 -->
 <Project xmlns="http://schemas.microsoft.com/project">
   <Name>UAT Sample CyberSec Engagement</Name>

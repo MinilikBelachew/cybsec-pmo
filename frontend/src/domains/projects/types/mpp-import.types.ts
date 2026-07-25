@@ -1,8 +1,14 @@
 export type MppImportResultSummary = {
   tasksCreated: number;
+  tasksUpdated: number;
   dependenciesCreated: number;
+  dependenciesUpdated: number;
+  phasesCreated: number;
+  phasesUpdated: number;
   resourcesMatched: number;
   assignmentsSkipped: number;
+  projectsCreated?: number;
+  projectsUpdated?: number;
   warnings: string[];
 };
 
@@ -13,21 +19,68 @@ export type MppImportPreviewTask = {
   finishDate?: string;
   durationDays?: number;
   percentComplete?: number;
+  phaseName?: string;
   hasParent: boolean;
   predecessorCount: number;
 };
 
+export type MppImportPreviewProject = {
+  name: string;
+  startDate?: string;
+  finishDate?: string;
+  baselineStartDate?: string;
+  baselineFinishDate?: string;
+  durationDays?: number;
+  baselineDurationDays?: number;
+  percentComplete?: number;
+  durationVarianceDays?: number;
+  taskCount: number;
+  phaseCount: number;
+  dependencyCount: number;
+  importMode: "create" | "update";
+  resolvedProjectId?: string;
+  tasks: MppImportPreviewTask[];
+};
+
 export type MppImportPreview = {
+  mode: "single" | "portfolio";
   projectName?: string;
   startDate?: string;
   finishDate?: string;
   counts: {
     importableTasks: number;
+    phasesFromSummaries: number;
     skippedSummaryTasks: number;
     dependencies: number;
     resourcesMatched: number;
     resourcesUnmatched: number;
+    projects?: number;
   };
+  projects?: MppImportPreviewProject[];
   tasks: MppImportPreviewTask[];
   warnings: string[];
+};
+
+export type MppPortfolioImportDefaults = {
+  objective?: string;
+  departmentId?: string;
+  customerId?: string;
+  engagementType?: string;
+  billingModel?: string;
+  priority?: string;
+  value?: number;
+  currency?: string;
+  primaryPmId?: string;
+  projects?: Array<{
+    name: string;
+    objective?: string;
+    departmentId?: string;
+    customerId?: string;
+    engagementType?: string;
+    billingModel?: string;
+    priority?: string;
+    value?: number;
+    currency?: string;
+    primaryPmId?: string;
+  }>;
 };
