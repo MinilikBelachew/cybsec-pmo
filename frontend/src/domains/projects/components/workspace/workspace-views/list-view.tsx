@@ -340,7 +340,6 @@ export function ListView({
   const exitBulkMode = () => {
     setBulkMode(false);
     setSelectedIds(new Set());
-    setBulkPredDraft("");
   };
 
   const toggleBulkMode = () => {

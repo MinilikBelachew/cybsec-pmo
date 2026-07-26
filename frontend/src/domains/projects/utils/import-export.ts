@@ -2558,18 +2558,15 @@ export function exportTasksToMspdi(
   );
 
   const topLevelTasks = tasks.filter((t) => !t.parentTaskId);
-  const subTasksByParent = tasks
-    .filter((t) => t.parentTaskId)
-    .reduce(
-      (acc, t) => {
-        if (!acc[t.parentTaskId]) acc[t.parentTaskId] = [];
-        acc[t.parentTaskId].push(t);
-        return acc;
-      },
-      {} as Record<string, any[]>,
-    );
-
-  Object.values(subTasksByParent).forEach((list) => list.sort(comparePlanOrder));
+  const subTasksByParent: Record<string, any[]> = {};
+  for (const t of tasks) {
+    if (!t.parentTaskId) continue;
+    if (!subTasksByParent[t.parentTaskId]) subTasksByParent[t.parentTaskId] = [];
+    subTasksByParent[t.parentTaskId].push(t);
+  }
+  for (const list of Object.values(subTasksByParent)) {
+    list.sort(comparePlanOrder);
+  }
 
   const tasksByPhaseId = new Map<string, any[]>();
   const unphased: any[] = [];
@@ -2835,7 +2832,9 @@ ${renderMppCalendarsXml(holidays)}
     if (!childrenByParentAll[t.parentTaskId]) childrenByParentAll[t.parentTaskId] = [];
     childrenByParentAll[t.parentTaskId].push(t);
   }
-  Object.values(childrenByParentAll).forEach((list) => list.sort(comparePlanOrder));
+  for (const list of Object.values(childrenByParentAll)) {
+    list.sort(comparePlanOrder);
+  }
 
   let projIndex = 0;
   for (const proj of projects) {
@@ -2883,7 +2882,9 @@ ${renderMppCalendarsXml(holidays)}
         if (!childrenByParent[t.parentTaskId]) childrenByParent[t.parentTaskId] = [];
         childrenByParent[t.parentTaskId].push(t);
       }
-      Object.values(childrenByParent).forEach((list) => list.sort(comparePlanOrder));
+      for (const list of Object.values(childrenByParent)) {
+        list.sort(comparePlanOrder);
+      }
 
       for (const t of phaseTasks) {
         taskIndex += 1;

@@ -44,12 +44,12 @@ import {
   convertToCSV,
   exportProjectsToPDF,
   exportProjectsToWord,
-  exportProjectsToMPP,
+  exportProjectsToMspdi,
   exportTasksToXLSX,
   convertTasksToCSV,
   exportTasksToPDF,
   exportTasksToWord,
-  exportTasksToMPP,
+  exportTasksToMspdi,
 } from "@/domains/projects/utils/import-export";
 
 import { KpiRow } from "./dashboard-kpi-row";
@@ -132,7 +132,7 @@ export function DashboardHome() {
 
   const handleExportProjects = async (
     selectedFields: string[],
-    format: "xlsx" | "csv" | "pdf" | "doc" | "mpp",
+    format: "xlsx" | "csv" | "pdf" | "doc" | "mspdi",
     selectedTaskFields?: string[]
   ) => {
     const exportToast = toast.loading(`Preparing portfolio export (${format.toUpperCase()})...`);
@@ -147,7 +147,7 @@ export function DashboardHome() {
       let blob: Blob;
       let filename: string;
 
-      if (format === "xlsx" || format === "pdf" || format === "doc" || format === "mpp") {
+      if (format === "xlsx" || format === "pdf" || format === "doc" || format === "mspdi") {
         toast.loading("Fetching tasks for projects...", { id: exportToast });
         const tasksPromises = projectsToExport.map((proj) =>
           triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
@@ -198,7 +198,7 @@ export function DashboardHome() {
           );
           filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
         } else {
-          blob = exportProjectsToMPP(projectsToExport, departments, customers, managers, allTasks);
+          blob = exportProjectsToMspdi(projectsToExport, departments, customers, managers, allTasks);
           filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
         }
       } else {
@@ -226,7 +226,7 @@ export function DashboardHome() {
 
   const handleExportTasks = async (
     selectedFields: string[],
-    format: "xlsx" | "csv" | "pdf" | "doc" | "mpp"
+    format: "xlsx" | "csv" | "pdf" | "doc" | "mspdi"
   ) => {
     const exportToast = toast.loading(`Preparing tasks export (${format.toUpperCase()})...`);
     try {
@@ -261,8 +261,8 @@ export function DashboardHome() {
         blob = exportTasksToWord(tasksToExport, [], [], selectedFields);
         filename = `my_tasks_${new Date().toISOString().split("T")[0]}.doc`;
       } else {
-        blob = exportTasksToMPP(tasksToExport, [], [], "My Tasks");
-        filename = `my_tasks_${new Date().toISOString().split("T")[0]}.mpp`;
+        blob = exportTasksToMspdi(tasksToExport, [], [], "My Tasks");
+        filename = `my_tasks_${new Date().toISOString().split("T")[0]}.xml`;
       }
 
       const url = URL.createObjectURL(blob);
