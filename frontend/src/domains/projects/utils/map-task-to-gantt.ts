@@ -1,6 +1,26 @@
 import type { Task, TaskSubTask } from "../types/tasks.types";
 import { assigneeAvatarColor } from "../components/workspace/workspace-views/task-cell-pickers";
-import { comparePlanOrderAsc } from "./task-export-fields";
+import {
+  comparePlanOrderAsc,
+  signedDayDelta,
+} from "./task-export-fields";
+
+function shortDay(value?: string | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Finish variance days: actual end (else plan end) − baseline end. */
+export function resolveScheduleVarianceDays(task: {
+  baselineEnd?: string | null;
+  actualEnd?: string | null;
+  endDate?: string | null;
+}): number | null {
+  const delta = signedDayDelta(task.actualEnd || task.endDate, task.baselineEnd);
+  return delta === "" ? null : delta;
+}
 
 export type GanttPriority = "high" | "medium" | "low" | "critical";
 
@@ -45,6 +65,12 @@ export interface GanttTaskRow {
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
   isOverEffort?: boolean;
+  /** Baseline finish (short label) for schedule variance columns. */
+  baselineEndLabel?: string | null;
+  /** Actual finish (short label); empty when not recorded. */
+  actualEndLabel?: string | null;
+  /** Days late (+) / early (−) vs baseline finish. */
+  scheduleVarianceDays?: number | null;
 }
 
 const PRIORITY_MAP: Record<string, GanttPriority> = {
@@ -120,6 +146,9 @@ function mapSubTaskToGanttRow(
     actualHoursLogged: 0,
     effortVarianceHours: null,
     isOverEffort: false,
+    baselineEndLabel: null,
+    actualEndLabel: null,
+    scheduleVarianceDays: null,
   };
 }
 
@@ -178,6 +207,9 @@ export function mapTaskToGanttRow(
     actualHoursLogged: task.actualHoursLogged ?? 0,
     effortVarianceHours: task.effortVarianceHours ?? null,
     isOverEffort: Boolean(task.isOverEffort),
+    baselineEndLabel: shortDay(task.baselineEnd ?? null),
+    actualEndLabel: shortDay(task.actualEnd ?? null),
+    scheduleVarianceDays: resolveScheduleVarianceDays(task),
   };
 }
 

@@ -51,6 +51,9 @@ interface Task {
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
   isOverEffort?: boolean;
+  baselineEndLabel?: string | null;
+  actualEndLabel?: string | null;
+  scheduleVarianceDays?: number | null;
 }
 
 function formatDueDate(dateStr?: string | null) {
@@ -537,6 +540,15 @@ export function ListView({
       <div className="shrink-0 w-20 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Variance
       </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Base
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Actual
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Sched
+      </div>
       <div className="shrink-0 w-32 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Status
       </div>
@@ -801,6 +813,33 @@ export function ListView({
           {task.effortVarianceHours == null || task.effortHours == null
             ? "—"
             : `${task.effortVarianceHours > 0 ? "+" : ""}${task.effortVarianceHours}h${task.isOverEffort ? " ⚠" : ""}`}
+        </div>
+        <div
+          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Baseline end"
+        >
+          {task.baselineEndLabel || "—"}
+        </div>
+        <div
+          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Actual end"
+        >
+          {task.actualEndLabel || "—"}
+        </div>
+        <div
+          className={cn(
+            "shrink-0 w-16 flex items-center justify-center text-xs font-medium tabular-nums",
+            (task.scheduleVarianceDays ?? 0) > 0
+              ? "text-amber-700 dark:text-amber-300"
+              : (task.scheduleVarianceDays ?? 0) < 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-muted-foreground",
+          )}
+          title="Schedule variance vs baseline end (days)"
+        >
+          {task.scheduleVarianceDays == null
+            ? "—"
+            : `${task.scheduleVarianceDays > 0 ? "+" : ""}${task.scheduleVarianceDays}d`}
         </div>
         <div className="shrink-0 w-32 flex items-center justify-center">
           {onMoveTask ? (

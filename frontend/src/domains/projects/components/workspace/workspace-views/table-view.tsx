@@ -55,6 +55,9 @@ interface Task {
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
   isOverEffort?: boolean;
+  baselineEndLabel?: string | null;
+  actualEndLabel?: string | null;
+  scheduleVarianceDays?: number | null;
 }
 
 const STATUS_PILL: Record<Status, string> = {
@@ -578,6 +581,51 @@ export function TableView({
               {sign}
               {variance}h
               {row.original.isOverEffort ? " ⚠" : ""}
+            </span>
+          );
+        },
+      },
+      {
+        id: "baselineEnd",
+        header: "Base",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground" title="Baseline end">
+            {row.original.baselineEndLabel || "—"}
+          </span>
+        ),
+      },
+      {
+        id: "actualEnd",
+        header: "Actual",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground" title="Actual end">
+            {row.original.actualEndLabel || "—"}
+          </span>
+        ),
+      },
+      {
+        id: "scheduleVariance",
+        header: "Sched",
+        cell: ({ row }) => {
+          const variance = row.original.scheduleVarianceDays;
+          if (variance == null) {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
+          const sign = variance > 0 ? "+" : "";
+          return (
+            <span
+              className={cn(
+                "text-xs font-medium tabular-nums",
+                variance > 0
+                  ? "text-amber-700 dark:text-amber-300"
+                  : variance < 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground",
+              )}
+              title="Schedule variance vs baseline end (days)"
+            >
+              {sign}
+              {variance}d
             </span>
           );
         },
