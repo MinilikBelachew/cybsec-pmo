@@ -779,7 +779,7 @@ export function ProjectsList() {
                   className="h-9 flex-1 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-2.5 text-xs font-semibold shadow-none cursor-pointer sm:flex-none sm:px-3"
                 >
                   <Upload className="size-3.5 shrink-0" />
-                  Import
+                  Import XLSX
                 </Button>
               )}
               {canImportProjects && (
