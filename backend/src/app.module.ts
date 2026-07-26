@@ -45,6 +45,7 @@ import { ResourcesModule } from './resources/resources.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
 import { ReportsModule } from './reports/reports.module';
 import kekaConfig from './integrations/keka/config/keka.config';
+import { MeetingsModule } from './meetings/meetings.module';
 
 @Module({
   imports: [
@@ -134,6 +135,7 @@ import kekaConfig from './integrations/keka/config/keka.config';
     ResourcesModule,
     TimesheetsModule,
     ReportsModule,
+    MeetingsModule,
     ScheduleModule.forRoot(),
   ],
 })

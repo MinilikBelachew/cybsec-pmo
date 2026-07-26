@@ -1,5 +1,6 @@
 export * from "./types/projects.types";
 export * from "./types/tasks.types";
+export * from "./types/meetings.types";
 export * from "./types/files.types";
 export * from "./schemas/project/create-project.schema";
 export * from "./schemas/task/create-task.schema";
@@ -12,6 +13,7 @@ export * from "./api/action-points.api";
 export * from "./api/tasks.api";
 export * from "./api/files.api";
 export * from "./api/project-documents.api";
+export * from "./api/meetings.api";
 export type {
   WorkspaceDocument,
   WorkspaceDocumentCategory,

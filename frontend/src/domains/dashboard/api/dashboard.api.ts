@@ -20,26 +20,42 @@ import type {
   AuditLogFeedItem,
 } from "../types/dashboard.types";
 
+export type DashboardFilters = {
+  departmentId?: string;
+  status?: string;
+  primaryPmId?: string;
+  from?: string;
+  to?: string;
+};
+
+const dashboardUrl = (path: string, filters?: DashboardFilters) => {
+  const query = new URLSearchParams();
+  Object.entries(filters ?? {}).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  return `${path}${query.toString() ? `?${query}` : ""}`;
+};
+
 export const dashboardApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    getDashboardStats: builder.query<DashboardStats, void>({
-      query: () => "/dashboard/stats",
+    getDashboardStats: builder.query<DashboardStats, DashboardFilters | void>({
+      query: (filters) => dashboardUrl("/dashboard/stats", filters || undefined),
       providesTags: ["Projects", "Tasks"],
     }),
-    getDashboardProjectHealth: builder.query<ProjectHealthItem[], void>({
-      query: () => "/dashboard/project-health",
+    getDashboardProjectHealth: builder.query<ProjectHealthItem[], DashboardFilters | void>({
+      query: (filters) => dashboardUrl("/dashboard/project-health", filters || undefined),
       providesTags: ["Projects"],
     }),
-    getDashboardMilestones: builder.query<MilestoneItem[], void>({
-      query: () => "/dashboard/milestones",
+    getDashboardMilestones: builder.query<MilestoneItem[], DashboardFilters | void>({
+      query: (filters) => dashboardUrl("/dashboard/milestones", filters || undefined),
       providesTags: ["Projects", "Tasks"],
     }),
-    getDashboardResources: builder.query<ResourceUtilizationResponse, void>({
-      query: () => "/dashboard/resources",
+    getDashboardResources: builder.query<ResourceUtilizationResponse, DashboardFilters | void>({
+      query: (filters) => dashboardUrl("/dashboard/resources", filters || undefined),
       providesTags: ["Users", "Tasks"],
     }),
-    getDashboardBurnRate: builder.query<BurnRateResponse, void>({
-      query: () => "/dashboard/burn-rate",
+    getDashboardBurnRate: builder.query<BurnRateResponse, DashboardFilters | void>({
+      query: (filters) => dashboardUrl("/dashboard/burn-rate", filters || undefined),
       providesTags: ["Projects"],
     }),
     getDashboardAuditFeed: builder.query<AuditLogFeedItem[], void>({

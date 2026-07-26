@@ -2,13 +2,13 @@
 
 import { cn } from "@/shared/utils/cn";
 
-const RISKS = [
-  { id: "R1", label: "Credential leak",     likelihood: 3, impact: 4, owner: "SOC Team" },
-  { id: "R2", label: "Zoho Sync Delay",     likelihood: 2, impact: 3, owner: "Integrations" },
-  { id: "R3", label: "Resource Bottleneck", likelihood: 2, impact: 4, owner: "PMO Lead" },
-  { id: "R4", label: "Scope creep",         likelihood: 4, impact: 3, owner: "Proj Manager" },
-  { id: "R5", label: "Compliance gap",      likelihood: 1, impact: 4, owner: "GRC Auditor" },
-];
+export type DashboardRisk = {
+  id: string;
+  label: string;
+  likelihood: number;
+  impact: number;
+  owner: string;
+};
 
 function cellColor(l: number, imp: number) {
   const score = l * imp;
@@ -24,7 +24,7 @@ function riskColor(l: number, imp: number) {
   return "bg-emerald-500 text-white";
 }
 
-export function RiskMatrix() {
+export function RiskMatrix({ risks }: { risks: DashboardRisk[] }) {
 
   return (
     <div className="p-4 rounded-xl bg-card/70 backdrop-blur-md border border-border/40 space-y-3 h-full flex flex-col justify-between">
@@ -50,7 +50,7 @@ export function RiskMatrix() {
             {[4, 3, 2, 1].map((l) => (
               <div key={l} className="flex gap-1">
                 {[1, 2, 3, 4].map((imp) => {
-                  const risksHere = RISKS.filter((r) => r.likelihood === l && r.impact === imp);
+                  const risksHere = risks.filter((r) => r.likelihood === l && r.impact === imp);
                   return (
                     <div
                       key={imp}
@@ -82,7 +82,9 @@ export function RiskMatrix() {
       </div>
 
       <div className="space-y-1.5 border-t border-border/40 pt-2 shrink-0">
-        {RISKS.slice(0, 4).map((r) => (
+        {risks.length === 0 ? (
+          <p className="py-3 text-center text-xs text-muted-foreground">No risk data</p>
+        ) : risks.slice(0, 4).map((r) => (
           <div key={r.id} className="flex items-center gap-2">
             <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0", riskColor(r.likelihood, r.impact))}>
               {r.id}

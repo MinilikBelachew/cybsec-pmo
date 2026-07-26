@@ -1,13 +1,33 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bull';
 import { PrismaModule } from '../database/prisma.module';
 import { CaslModule } from '../casl/casl.module';
+import { MailerModule } from '../mailer/mailer.module';
 import { ReportsController } from './reports.controller';
 import { UtilisationService } from './utilisation.service';
+import { HealthRulesService } from './health/health-rules.service';
+import { DataQualityService } from './data-quality/data-quality.service';
+import { GeneratedReportsService } from './generated-reports.service';
+import { ReportSchedulesService } from './report-schedules.service';
+import { ReportsProcessor } from './reports.processor';
+import { REPORTS_QUEUE } from './reports.constants';
 
 @Module({
-  imports: [PrismaModule, CaslModule],
+  imports: [
+    PrismaModule,
+    CaslModule,
+    MailerModule,
+    BullModule.registerQueue({ name: REPORTS_QUEUE }),
+  ],
   controllers: [ReportsController],
-  providers: [UtilisationService],
-  exports: [UtilisationService],
+  providers: [
+    UtilisationService,
+    HealthRulesService,
+    DataQualityService,
+    GeneratedReportsService,
+    ReportSchedulesService,
+    ReportsProcessor,
+  ],
+  exports: [UtilisationService, HealthRulesService, DataQualityService],
 })
 export class ReportsModule {}

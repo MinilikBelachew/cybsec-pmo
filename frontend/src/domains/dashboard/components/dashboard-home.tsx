@@ -81,6 +81,17 @@ export function DashboardHome() {
   const router = useRouter();
   const [tab, setTab] = useState<DashboardTab>(layout.defaultTab);
   const [showBudget, setShowBudget] = useState(layout.showPortfolioBudget);
+  const [departmentId, setDepartmentId] = useState("");
+  const [status, setStatus] = useState("");
+  const [primaryPmId, setPrimaryPmId] = useState("");
+  const dashboardFilters = useMemo(
+    () => ({
+      ...(departmentId ? { departmentId } : {}),
+      ...(status ? { status } : {}),
+      ...(primaryPmId ? { primaryPmId } : {}),
+    }),
+    [departmentId, status, primaryPmId],
+  );
 
   useEffect(() => {
     setTab(layout.defaultTab);
@@ -93,28 +104,41 @@ export function DashboardHome() {
     }
   }, [layout.isTasksOnly, router]);
 
-  const { data: stats, refetch: refetchStats } = useGetDashboardStatsQuery(undefined, {
+  const { data: stats, refetch: refetchStats } = useGetDashboardStatsQuery(dashboardFilters, {
     skip: !layout.canLoadStats,
   });
   const { data: health, refetch: refetchHealth } = useGetDashboardProjectHealthQuery(
-    undefined,
+    dashboardFilters,
     { skip: !layout.canLoadProjectHealth },
   );
   const { data: milestones, refetch: refetchMilestones } = useGetDashboardMilestonesQuery(
-    undefined,
+    dashboardFilters,
     { skip: !layout.canLoadMilestones },
   );
   const { data: resources, refetch: refetchResources } = useGetDashboardResourcesQuery(
-    undefined,
+    dashboardFilters,
     { skip: !layout.canLoadResources },
   );
   const { data: burnRate, refetch: refetchBurnRate } = useGetDashboardBurnRateQuery(
-    undefined,
+    dashboardFilters,
     { skip: !layout.canLoadBurnRate },
   );
   const { data: auditFeed, refetch: refetchAuditFeed } = useGetDashboardAuditFeedQuery(
     undefined,
     { skip: !layout.canLoadAuditFeed },
+  );
+  const dashboardRisks = useMemo(
+    () =>
+      (health ?? [])
+        .filter((project) => project.risks > 0)
+        .map((project) => ({
+          id: project.id.slice(0, 5).toUpperCase(),
+          label: `${project.name}: ${project.risks} open risk item${project.risks === 1 ? "" : "s"}`,
+          likelihood: Math.min(4, Math.max(1, project.risks)),
+          impact: project.status === "delayed" ? 4 : project.status === "at-risk" ? 3 : 2,
+          owner: project.pm,
+        })),
+    [health],
   );
 
   const { canExportProjects, canViewTasks } = useModulePermissions();
@@ -123,9 +147,9 @@ export function DashboardHome() {
   const [showExportProjects, setShowExportProjects] = useState(false);
   const [showExportTasks, setShowExportTasks] = useState(false);
 
-  const { data: departments = [] } = useGetDepartmentsQuery(undefined, { skip: !canExportProjects });
+  const { data: departments = [] } = useGetDepartmentsQuery(undefined, { skip: !layout.canLoadProjectHealth });
   const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !canExportProjects });
-  const { data: managers = [] } = useGetProjectManagersQuery(undefined, { skip: !canExportProjects });
+  const { data: managers = [] } = useGetProjectManagersQuery(undefined, { skip: !layout.canLoadProjectHealth });
 
   const [triggerExportProjects, { isLoading: isExportingProjects }] = useLazyExportProjectsQuery();
   const [triggerExportTasks, { isLoading: isExportingTasks }] = useLazyExportTasksQuery();
@@ -333,7 +357,13 @@ export function DashboardHome() {
           )}
           {(canExportProjects || canExportTasks) && <span className="text-muted-foreground/30">|</span>}
           <span className="flex items-center gap-1">
-            <Clock className="size-3" /> Updated just now
+            <Clock className="size-3" />
+            <Badge variant="secondary" className="h-5 text-[10px] capitalize">
+              {stats?.dataFreshness.source ?? "live"}
+            </Badge>
+            {stats?.dataFreshness.asOf
+              ? `As of ${new Date(stats.dataFreshness.asOf).toLocaleTimeString()}`
+              : "Refreshing"}
           </span>
           <button
             type="button"
@@ -344,6 +374,24 @@ export function DashboardHome() {
           </button>
         </div>
       </div>
+
+      {layout.canLoadProjectHealth && (
+        <div className="flex flex-wrap gap-3 rounded-xl border border-border/40 bg-card/70 p-3">
+          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className="h-9 min-w-44 rounded-lg border bg-background px-3 text-xs">
+            <option value="">All departments</option>
+            {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 min-w-40 rounded-lg border bg-background px-3 text-xs">
+            <option value="">All statuses</option>
+            <option value="Active">Active</option><option value="At_Risk">At risk</option><option value="On_Hold">On hold</option><option value="Closed">Closed</option>
+          </select>
+          <select value={primaryPmId} onChange={(e) => setPrimaryPmId(e.target.value)} className="h-9 min-w-44 rounded-lg border bg-background px-3 text-xs">
+            <option value="">All project managers</option>
+            {managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.displayName ?? manager.email}</option>)}
+          </select>
+          {(departmentId || status || primaryPmId) && <Button variant="outline" size="sm" onClick={() => { setDepartmentId(""); setStatus(""); setPrimaryPmId(""); }}>Clear filters</Button>}
+        </div>
+      )}
 
       <div className="flex flex-col items-start justify-between gap-4 rounded-xl border border-border/40 bg-background/80 p-4 backdrop-blur-md md:flex-row md:items-center">
         <div>
@@ -476,7 +524,7 @@ export function DashboardHome() {
               {layout.showAuditFeed && <AuditFeed data={auditFeed || []} />}
             </div>
             <div className="space-y-4 lg:col-span-2">
-              {layout.showRiskMatrix && <RiskMatrix />}
+              {layout.showRiskMatrix && <RiskMatrix risks={dashboardRisks} />}
               {layout.showSimulation && (
                 <ProjectSimulationPanel projects={health || []} />
               )}

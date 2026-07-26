@@ -5,15 +5,16 @@ import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAuth } from "@/domains/auth";
-import { Users, Settings, ShieldAlert, Archive, Briefcase } from "lucide-react";
+import { Users, Settings, ShieldAlert, Archive, Briefcase, Activity } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
 import { BreakGlassSection } from "./break-glass-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
 import { AllocationPoliciesSection } from "./allocation-policies-section";
+import { HealthRulesSection } from "./health-rules-section";
 
-type SettingsTab = "profile" | "users" | "security" | "audit" | "allocation";
+type SettingsTab = "profile" | "users" | "security" | "audit" | "allocation" | "health";
 
 export function SettingsPage() {
   const ability = useAppAbility();
@@ -21,6 +22,9 @@ export function SettingsPage() {
   const canManageUsers = ability?.can("read", "User") ?? false;
   const canManageSecurity =
     user?.backendRoleCode === "super_admin" ||
+    (ability?.can("manage", "Settings") ?? false);
+  const canManageHealthRules =
+    (ability?.can("manage", "Report") ?? false) ||
     (ability?.can("manage", "Settings") ?? false);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(
@@ -41,7 +45,7 @@ export function SettingsPage() {
         title="Settings & Administration"
       />
 
-      <div className="flex border-b border-border gap-2">
+      <div className="flex overflow-x-auto border-b border-border gap-2">
         <button
           type="button"
           onClick={() => setActiveTab("profile")}
@@ -83,6 +87,21 @@ export function SettingsPage() {
           >
             <Briefcase className="size-4" />
             Resource policies
+          </button>
+        )}
+        {canManageHealthRules && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("health")}
+            className={cn(
+              "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex shrink-0 items-center gap-2",
+              activeTab === "health"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Activity className="size-4" />
+            Health rules
           </button>
         )}
         
@@ -147,6 +166,7 @@ export function SettingsPage() {
           onError={notifyError}
         />
       )}
+      {activeTab === "health" && canManageHealthRules && <HealthRulesSection />}
     </div>
   );
 }

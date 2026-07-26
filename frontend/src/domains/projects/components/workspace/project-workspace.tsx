@@ -65,6 +65,7 @@ import {
   FolderOpen,
   Milestone,
   CheckSquare,
+  MessageSquareText,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -92,6 +93,7 @@ import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
 import { ActionPointsPanel } from "./action-points-panel";
+import { MeetingsPanel } from "./meetings-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
 import { useRole } from "@/shared/providers/role-provider";
 
@@ -109,6 +111,7 @@ type View =
   | "team"
   | "docs"
   | "actions"
+  | "meetings"
   | "audit";
 
 interface Task {
@@ -162,6 +165,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "team", label: "Team", icon: Users2 },
   { id: "docs", label: "Documents", icon: FolderOpen },
   { id: "actions", label: "Action points", icon: CheckSquare },
+  { id: "meetings", label: "Meetings & MoM", icon: MessageSquareText },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -990,7 +994,7 @@ export function ProjectWorkspace() {
           )}
         </button>
       </div>
-      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && (
+      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && activeView !== "meetings" && (
       <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Search & Filters */}
         <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1256,6 +1260,10 @@ export function ProjectWorkspace() {
             projectStartDate={project.startDate}
             projectEndDate={project.endDate}
           />
+        )}
+
+        {activeView === "meetings" && (
+          <MeetingsPanel projectId={id} canEdit={canEditProjects} />
         )}
 
         {activeView === "audit" && canViewProjectAudit && (
