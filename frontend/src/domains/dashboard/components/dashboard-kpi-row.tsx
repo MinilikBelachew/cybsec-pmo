@@ -2,7 +2,7 @@
 
 import { cn } from "@/shared/utils/cn";
 import { Activity, Clock, TrendingUp, FileText, Users } from "lucide-react";
-import type { ResourceUtilizationResponse } from "../api/dashboard.api";
+import type { DashboardStats, ResourceUtilizationResponse } from "../api/dashboard.api";
 import { CARD_THEMES, MiniTrendChart } from "./dashboard-charts";
 
 const KPI_LABELS: Record<string, string> = {
@@ -22,6 +22,7 @@ const KPI_LABELS: Record<string, string> = {
   pendingTimesheets: "Pending Timesheets",
   billableHours: "Billable Hours",
   totalProjects: "Total Projects",
+  collectionPct: "Collection",
   
   tasksMilestones: "Tasks & Milestones",
   plannedTimeline: "Planned Timeline",
@@ -47,7 +48,7 @@ export function KpiRow({
   showFinancials = true,
 }: {
   variant: "portfolio" | "execution" | "people";
-  stats: any;
+  stats?: DashboardStats;
   resources?: ResourceUtilizationResponse;
   showFinancials?: boolean;
 }) {
@@ -82,7 +83,7 @@ export function KpiRow({
             ? { id: "p3", labelKey: "budgetAdherence", value: pStats.totalValue > 0 ? `${Math.round((pStats.totalSpent / pStats.totalValue) * 100)}%` : "0%", subKey: "plannedVsActual", spark: [85,87,88,89,90,91,pStats.totalValue > 0 ? Math.round((pStats.totalSpent / pStats.totalValue) * 100) : 0], icon: TrendingUp, theme: CARD_THEMES.emerald }
             : { id: "p3", labelKey: "totalProjects", value: `${pStats.total}`, subKey: "acrossProjects", spark: [1,2,3,4,5,6,pStats.total], icon: TrendingUp, theme: CARD_THEMES.emerald },
           { id: "p4", labelKey: "scopeChanges",       value: `${pStats.atRisk}`,   subKey: "activeChangeRequests", spark: [6,5,4,4,3,3,pStats.atRisk],       icon: FileText, theme: CARD_THEMES.rose },
-          { id: "p5", labelKey: "avgResolutionTime",  value: "2.8d", subKey: "issuesRisks", spark: [5,4.8,4.5,4.2,3.8,3.5,2.8], icon: Users, theme: CARD_THEMES.sky },
+          { id: "p5", labelKey: "collectionPct", value: stats ? `${stats.collectionPct ?? 0}%` : "—", subKey: "acrossProjects", spark: sparkFrom(stats?.collectionPct), icon: Users, theme: CARD_THEMES.sky },
         ];
       case "execution":
         return [
@@ -90,7 +91,7 @@ export function KpiRow({
           { id: "e2", labelKey: "openTasks",          value: `${tStats.open}`, subKey: "acrossProjects", spark: [155,150,148,145,143,142,tStats.open], icon: FileText, theme: CARD_THEMES.emerald },
           { id: "e3", labelKey: "overdueTasks",       value: `${tStats.overdue}`, subKey: "needAttention", spark: [35,32,30,28,26,24,tStats.overdue], icon: Clock, theme: CARD_THEMES.rose },
           { id: "e4", labelKey: "activeRisks",        value: `${rStats.activeCount}`, subKey: "highSeverity", spark: [10,9,9,8,7,7,rStats.activeCount], icon: Users, theme: CARD_THEMES.amber },
-          { id: "e5", labelKey: "issueResTime",       value: "2.1d", subKey: "avgCloseTime", spark: [3.2,3.0,2.8,2.6,2.4,2.2,2.1], icon: Activity, theme: CARD_THEMES.sky },
+          { id: "e5", labelKey: "pendingTimesheets", value: stats ? `${stats.pendingTimesheets ?? 0}` : "—", subKey: "needAttention", spark: sparkFrom(stats?.pendingTimesheets), icon: Activity, theme: CARD_THEMES.sky },
         ];
       case "people":
         return [

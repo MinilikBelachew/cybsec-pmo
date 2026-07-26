@@ -435,6 +435,7 @@ model Project {
   kpiSnapshots          KpiSnapshot[]
   generatedReports      GeneratedReport[]
   reportSchedules       ReportSchedule[]
+  dataQualityFlags      DataQualityFlag[]
   meetings              Meeting[]
   externalAccessGrants  ExternalAccessGrant[]
   workspaceThreads      WorkspaceThread[]
@@ -1296,6 +1297,7 @@ model HealthRuleConfig {
   dimension      String   @db.VarChar(50)
   greenThreshold Decimal  @map("green_threshold") @db.Decimal(10, 4)
   amberThreshold Decimal  @map("amber_threshold") @db.Decimal(10, 4)
+  redThreshold   Decimal? @map("red_threshold") @db.Decimal(10, 4)
   unit           String?  @db.VarChar(20)
   version        String   @db.VarChar(20)
   isActive       Boolean  @default(true) @map("is_active")
@@ -1309,13 +1311,15 @@ model HealthRuleConfig {
 }
 
 model KpiSnapshot {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId   String   @map("project_id") @db.Uuid
-  kpiFamily   String   @map("kpi_family") @db.VarChar(50)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  kpiFamily   String    @map("kpi_family") @db.VarChar(50)
   value       Json
-  ragStatus   String   @map("rag_status") @db.VarChar(10)
-  ruleVersion String   @map("rule_version") @db.VarChar(20)
-  capturedAt  DateTime @default(now()) @map("captured_at") @db.Timestamptz
+  ragStatus   String    @map("rag_status") @db.VarChar(10)
+  ruleVersion String    @map("rule_version") @db.VarChar(20)
+  periodStart DateTime? @map("period_start") @db.Date
+  periodEnd   DateTime? @map("period_end") @db.Date
+  capturedAt  DateTime  @default(now()) @map("captured_at") @db.Timestamptz
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -1358,6 +1362,7 @@ model ReportSchedule {
   isActive       Boolean   @default(true) @map("is_active")
   lastRun        DateTime? @map("last_run") @db.Timestamptz
   nextRun        DateTime? @map("next_run") @db.Timestamptz
+  lastError      String?   @map("last_error")
   createdBy      String    @map("created_by") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
@@ -1388,16 +1393,20 @@ model DataQualityFlag {
   flagType    String    @map("flag_type") @db.VarChar(50)
   objectType  String    @map("object_type") @db.VarChar(50)
   objectId    String    @map("object_id") @db.Uuid
+  projectId   String?   @map("project_id") @db.Uuid
+  severity    String    @default("medium") @db.VarChar(20)
   description String
   isResolved  Boolean   @default(false) @map("is_resolved")
   resolvedBy  String?   @map("resolved_by") @db.Uuid
   flaggedAt   DateTime  @default(now()) @map("flagged_at") @db.Timestamptz
   resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz
 
-  resolver User? @relation(fields: [resolvedBy], references: [id])
+  resolver User?    @relation(fields: [resolvedBy], references: [id])
+  project  Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([flagType], map: "idx_dq_flags_type")
   @@index([isResolved], map: "idx_dq_flags_resolved")
+  @@index([projectId], map: "idx_dq_flags_project")
   @@map("data_quality_flags")
 }
 
@@ -1453,14 +1462,17 @@ model MeetingItem {
 }
 
 model MomDocument {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  meetingId  String    @map("meeting_id") @db.Uuid
-  version    Int       @default(1)
-  status     String    @default("Draft") @db.VarChar(20)
-  s3Key      String?   @map("s3_key") @db.VarChar(512)
-  reviewedBy String?   @map("reviewed_by") @db.Uuid
-  reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  meetingId   String    @map("meeting_id") @db.Uuid
+  version     Int       @default(1)
+  status      String    @default("Draft") @db.VarChar(20)
+  contentJson Json?     @map("content_json")
+  s3Key       String?   @map("s3_key") @db.VarChar(512)
+  s3PdfKey    String?   @map("s3_pdf_key") @db.VarChar(512)
+  s3DocxKey   String?   @map("s3_docx_key") @db.VarChar(512)
+  reviewedBy  String?   @map("reviewed_by") @db.Uuid
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   meeting  Meeting @relation(fields: [meetingId], references: [id])
   reviewer User?   @relation(fields: [reviewedBy], references: [id])

@@ -22,6 +22,12 @@ export interface DashboardStats {
   resources: {
     total: number;
   };
+  pendingTimesheets: number;
+  collectionPct: number;
+  dataFreshness: {
+    source: "live" | "snapshot";
+    asOf: string;
+  };
 }
 
 export interface ProjectHealthItem {

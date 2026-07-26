@@ -11,6 +11,14 @@ import {
 } from './dashboard-permissions.util';
 import { RECORD_SCOPE_ALL } from '../casl/record-scope.registry';
 
+export type DashboardFilters = {
+  departmentId?: string;
+  status?: string;
+  primaryPmId?: string;
+  from?: string;
+  to?: string;
+};
+
 @Injectable()
 export class DashboardService {
   constructor(
@@ -23,16 +31,33 @@ export class DashboardService {
     return this.permissionsCache.getByRoleId(user.roleId);
   }
 
-  private async scopedProjectIds(caslUser: CaslUserContext): Promise<string[]> {
-    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
+  private filteredProjectWhere(
+    caslUser: CaslUserContext,
+    filters: DashboardFilters = {},
+  ): Prisma.ProjectWhereInput {
+    const conditions: Prisma.ProjectWhereInput[] = [
+      this.recordScopeWhere.projectWhere(caslUser, 'read'),
+    ];
+    if (filters.departmentId) conditions.push({ departmentId: filters.departmentId });
+    if (filters.primaryPmId) conditions.push({ primaryPmId: filters.primaryPmId });
+    if (filters.status) conditions.push({ status: filters.status as ProjectStatus });
+    if (filters.from) conditions.push({ endDate: { gte: new Date(filters.from) } });
+    if (filters.to) conditions.push({ startDate: { lte: new Date(filters.to) } });
+    return { AND: conditions };
+  }
+
+  private async scopedProjectIds(
+    caslUser: CaslUserContext,
+    filters: DashboardFilters = {},
+  ): Promise<string[]> {
     const projects = await this.prisma.project.findMany({
-      where: projectScope,
+      where: this.filteredProjectWhere(caslUser, filters),
       select: { id: true },
     });
     return projects.map((project) => project.id);
   }
 
-  async getStats(caslUser: CaslUserContext) {
+  async getStats(caslUser: CaslUserContext, filters: DashboardFilters = {}) {
     const permissions = this.permissionsFor(caslUser);
     const showFinancials = canViewDashboardFinancials(permissions);
     const showProjects = canViewDashboardProjects(permissions);
@@ -45,11 +70,11 @@ export class DashboardService {
     let completedProjects = 0;
     let totalValue = 0;
     let totalSpent = 0;
+    let projectIds: string[] = [];
 
     if (showProjects) {
-      const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
       const projects = await this.prisma.project.findMany({
-        where: projectScope,
+        where: this.filteredProjectWhere(caslUser, filters),
         select: {
           id: true,
           status: true,
@@ -67,7 +92,7 @@ export class DashboardService {
 
       if (showFinancials) {
         totalValue = projects.reduce((sum, p) => sum + Number(p.value ?? 0), 0);
-        const projectIds = projects.map((p) => p.id);
+        projectIds = projects.map((p) => p.id);
 
         if (projectIds.length > 0) {
           const [employeeCosts, lineItems] = await Promise.all([
@@ -86,10 +111,18 @@ export class DashboardService {
           totalSpent = empSum > 0 ? empSum : itemSum;
         }
       }
+      if (!showFinancials) projectIds = projects.map((p) => p.id);
     }
 
     const tasks = await this.prisma.task.findMany({
-      where: taskScope,
+      where: {
+        AND: [
+          taskScope,
+          ...(showProjects
+            ? [{ projectId: { in: projectIds } } as Prisma.TaskWhereInput]
+            : []),
+        ],
+      },
       select: {
         id: true,
         status: true,
@@ -124,8 +157,29 @@ export class DashboardService {
     ).length;
 
     const totalResources = showProjects
-      ? await this.countScopedEmployees(caslUser)
+      ? await this.countScopedEmployees(caslUser, filters)
       : 0;
+
+    const [pendingTimesheets, invoices] = projectIds.length
+      ? await Promise.all([
+          this.prisma.timesheet.count({
+            where: { projectId: { in: projectIds }, status: 'Submitted' },
+          }),
+          this.prisma.invoice.findMany({
+            where: { projectId: { in: projectIds } },
+            select: { amount: true, status: true, collectionDate: true },
+          }),
+        ])
+      : [0, []];
+    const invoiceTotal = invoices.reduce((sum, invoice) => sum + Number(invoice.amount), 0);
+    const invoiceCollected = invoices
+      .filter((invoice) =>
+        invoice.collectionDate != null ||
+        ['paid', 'collected'].includes(invoice.status.toLowerCase()),
+      )
+      .reduce((sum, invoice) => sum + Number(invoice.amount), 0);
+    const collectionPct =
+      invoiceTotal > 0 ? Math.round((invoiceCollected / invoiceTotal) * 100) : 0;
 
     const projectsPayload: Record<string, number> = {
       total: totalProjects,
@@ -156,16 +210,17 @@ export class DashboardService {
       resources: {
         total: totalResources,
       },
+      pendingTimesheets,
+      collectionPct,
+      dataFreshness: { source: 'live' as const, asOf: new Date().toISOString() },
     };
   }
 
-  async getProjectHealth(caslUser: CaslUserContext) {
+  async getProjectHealth(caslUser: CaslUserContext, filters: DashboardFilters = {}) {
     const permissions = this.permissionsFor(caslUser);
     const showFinancials = canViewDashboardFinancials(permissions);
-    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
-
     const projects = await this.prisma.project.findMany({
-      where: projectScope,
+      where: this.filteredProjectWhere(caslUser, filters),
       orderBy: { createdAt: 'desc' },
       take: 6,
       select: {
@@ -303,12 +358,10 @@ export class DashboardService {
     });
   }
 
-  async getMilestones(caslUser: CaslUserContext) {
-    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
-
+  async getMilestones(caslUser: CaslUserContext, filters: DashboardFilters = {}) {
     const milestones = await this.prisma.projectMilestone.findMany({
       where: {
-        project: projectScope,
+        project: this.filteredProjectWhere(caslUser, filters),
       },
       orderBy: { targetDate: 'asc' },
       take: 10,
@@ -345,9 +398,9 @@ export class DashboardService {
     });
   }
 
-  async getResources(caslUser: CaslUserContext) {
+  async getResources(caslUser: CaslUserContext, filters: DashboardFilters = {}) {
     const taskScope = this.recordScopeWhere.taskWhere(caslUser, 'read');
-    const projectIds = await this.scopedProjectIds(caslUser);
+    const projectIds = await this.scopedProjectIds(caslUser, filters);
 
     const allocations = projectIds.length
       ? await this.prisma.allocation.findMany({
@@ -459,11 +512,9 @@ export class DashboardService {
     };
   }
 
-  async getBurnRate(caslUser: CaslUserContext) {
-    const projectScope = this.recordScopeWhere.projectWhere(caslUser, 'read');
-
+  async getBurnRate(caslUser: CaslUserContext, filters: DashboardFilters = {}) {
     const projects = await this.prisma.project.findMany({
-      where: projectScope,
+      where: this.filteredProjectWhere(caslUser, filters),
       select: {
         id: true,
         value: true,
@@ -655,8 +706,11 @@ export class DashboardService {
     });
   }
 
-  private async countScopedEmployees(caslUser: CaslUserContext): Promise<number> {
-    const projectIds = await this.scopedProjectIds(caslUser);
+  private async countScopedEmployees(
+    caslUser: CaslUserContext,
+    filters: DashboardFilters = {},
+  ): Promise<number> {
+    const projectIds = await this.scopedProjectIds(caslUser, filters);
     if (!projectIds.length) {
       return 0;
     }
