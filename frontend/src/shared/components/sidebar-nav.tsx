@@ -34,7 +34,7 @@ export function SidebarNav() {
   // Use simple states initialized to defaults to match server rendering and avoid hydration mismatch
   const [collapsed, setCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(["execution"]);
-  const [pinnedIds, setPinnedIds] = useState<string[]>(["tasks"]);
+  const [pinnedIds, setPinnedIds] = useState<string[]>(["tasks", "log-hours"]);
 
   // On mount, load states from localStorage and set mounted flag
   useEffect(() => {
@@ -115,7 +115,11 @@ export function SidebarNav() {
 
   const NavContent = ({ mobile = false }: { mobile?: boolean }) => {
     const isCollapsedLayout = collapsed && !mobile;
-    const visibleSections = getVisibleSections(ability, permissionsLoaded);
+    const visibleSections = getVisibleSections(
+      ability,
+      permissionsLoaded,
+      user?.backendRoleCode,
+    );
 
     const navHrefs = React.useMemo(() => {
       const hrefs: string[] = [];

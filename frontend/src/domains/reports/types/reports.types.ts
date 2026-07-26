@@ -1,12 +1,16 @@
 export type UtilisationStatus = "over" | "optimal" | "under";
 
-export type ReconcileStatus = "matched" | "pending" | "mismatch";
+export type ReconcileStatus = "matched" | "pending" | "mismatch" | "unavailable";
+
+export type ReconcileSource = "keka-live" | "local-push-ack";
 
 export interface UtilisationReconcile {
   approvedHours: number;
   kekaSyncedHours: number;
+  kekaRemoteHours: number;
   deltaHours: number;
   status: ReconcileStatus;
+  source: ReconcileSource;
 }
 
 export interface UtilisationEmployeeRow {
@@ -62,6 +66,7 @@ export interface UtilisationReportResponse {
   page: number;
   limit: number;
   total: number;
+  reconcileSource?: ReconcileSource;
 }
 
 export type UtilisationSortField = "name" | "billableUtilisation" | "approvedHours";

@@ -43,7 +43,8 @@ export function mapTeamDirectoryMember(member: ApiTeamDirectoryMember): TeamDire
       endDate: assignment.endDate,
       status: assignment.status === "Active" ? "active" : "completed",
     })),
-    leaveHistory: member.leaveHistory.map(mapLeaveRange),
+    upcomingLeave: (member.upcomingLeave ?? []).map(mapLeaveRange),
+    leaveHistory: (member.leaveHistory ?? []).map(mapLeaveRange),
   };
 }
 
@@ -58,9 +59,29 @@ function mapLeaveRange(leave: TeamLeaveRange) {
   };
 }
 
-export function formatLeaveLabel(leave: TeamLeaveRange): string {
+export function formatLeaveLabel(leave: Pick<TeamLeaveRange, "from" | "to" | "days">): string {
   if (leave.from === leave.to) {
     return `${leave.from} (${leave.days}d)`;
   }
   return `${leave.from} – ${leave.to} (${leave.days}d)`;
+}
+
+/** Compact line for Directory cards / table (approved upcoming only). */
+export function formatUpcomingLeaveSummary(
+  leave: Array<Pick<TeamLeaveRange, "from" | "to" | "status">>,
+): string | null {
+  const upcoming = leave.filter((entry) => entry.status === "approved");
+  if (upcoming.length === 0) {
+    return null;
+  }
+
+  const first = upcoming[0];
+  const range =
+    first.from === first.to ? first.from : `${first.from} – ${first.to}`;
+
+  if (upcoming.length === 1) {
+    return `On leave: ${range}`;
+  }
+
+  return `On leave: ${range} +${upcoming.length - 1} more`;
 }

@@ -12,6 +12,7 @@ import { LeaveBackupService } from './leave-backup.service';
 import { LeaveBackupScheduler } from './leave-backup.scheduler';
 import { LeaveBackupProcessor } from './leave-backup.processor';
 import { LEAVE_BACKUP_QUEUE } from './leave-backup.constants';
+import { HolidaysService } from './holidays.service';
 
 @Module({
   imports: [
@@ -29,7 +30,13 @@ import { LEAVE_BACKUP_QUEUE } from './leave-backup.constants';
     LeaveBackupService,
     LeaveBackupScheduler,
     LeaveBackupProcessor,
+    HolidaysService,
   ],
-  exports: [TeamDirectoryService, AllocationApprovalService, LeaveBackupService],
+  exports: [
+    TeamDirectoryService,
+    AllocationApprovalService,
+    LeaveBackupService,
+    HolidaysService,
+  ],
 })
 export class ResourcesModule {}

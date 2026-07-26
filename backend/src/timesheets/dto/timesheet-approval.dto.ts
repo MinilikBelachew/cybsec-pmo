@@ -54,6 +54,15 @@ export class TimesheetSubmissionEntryDto {
   @ApiProperty()
   hours: number;
 
+  @ApiProperty()
+  regularHours: number;
+
+  @ApiProperty()
+  overtimeHours: number;
+
+  @ApiProperty()
+  isBillable: boolean;
+
   @ApiPropertyOptional({ nullable: true })
   description: string | null;
 
@@ -91,6 +100,9 @@ export class TimesheetSubmissionRowDto {
 
   @ApiProperty()
   billableHours: number;
+
+  @ApiProperty()
+  overtimeHours: number;
 
   @ApiProperty({ enum: ['pending', 'approved', 'rejected'] })
   status: 'pending' | 'approved' | 'rejected';

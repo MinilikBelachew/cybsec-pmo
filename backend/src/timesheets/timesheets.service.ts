@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpStatus,
@@ -6,7 +7,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProjectStatus, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
@@ -26,8 +27,10 @@ import {
   TimesheetWeekSummaryCardDto,
 } from './dto/timesheet-response.dto';
 import {
+  TIMESHEET_BLOCKED_TASK_STATUSES,
   TIMESHEET_DAILY_MAX_HOURS,
   TIMESHEET_DAILY_THRESHOLD_HOURS,
+  TIMESHEET_LOGGABLE_PROJECT_STATUSES,
   TIMESHEET_STATUS,
 } from './timesheets.constants';
 import {
@@ -41,8 +44,8 @@ import {
 } from './utils/week.util';
 
 const TIMESHEET_INCLUDE = {
-  project: { select: { id: true, name: true } },
-  task: { select: { id: true, title: true } },
+  project: { select: { id: true, name: true, status: true } },
+  task: { select: { id: true, title: true, status: true } },
   approvals: {
     orderBy: { decidedAt: 'desc' as const },
     take: 5,
@@ -56,6 +59,12 @@ type TimesheetRow = Prisma.TimesheetGetPayload<{
   include: typeof TIMESHEET_INCLUDE;
 }>;
 
+const LOGGABLE_PROJECT_STATUSES =
+  TIMESHEET_LOGGABLE_PROJECT_STATUSES as readonly ProjectStatus[];
+
+const BLOCKED_TASK_STATUSES =
+  TIMESHEET_BLOCKED_TASK_STATUSES as readonly TaskStatus[];
+
 @Injectable()
 export class TimesheetsService {
   constructor(
@@ -63,57 +72,112 @@ export class TimesheetsService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  async getContext(userId: string): Promise<TimesheetContextDto> {
+  async getContext(
+    userId: string,
+    asOfInput?: string,
+  ): Promise<TimesheetContextDto> {
     const employee = await this.requireEmployee(userId);
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    const asOf = asOfInput ? parseDateOnly(asOfInput) : new Date();
+    asOf.setUTCHours(0, 0, 0, 0);
 
     const allocations = await this.prisma.allocation.findMany({
       where: {
         employeeId: employee.id,
         status: 'Active',
-        startDate: { lte: today },
-        OR: [{ endDate: null }, { endDate: { gte: today } }],
+        startDate: { lte: asOf },
+        OR: [{ endDate: null }, { endDate: { gte: asOf } }],
+        project: {
+          status: { in: [...LOGGABLE_PROJECT_STATUSES] },
+        },
       },
       include: {
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, status: true } },
       },
       orderBy: { project: { name: 'asc' } },
     });
 
-    const projectIds = [...new Set(allocations.map((row) => row.projectId))];
-    const tasks = projectIds.length
-      ? await this.prisma.task.findMany({
-          where: {
-            projectId: { in: projectIds },
-            parentTaskId: null,
-          },
-          select: { id: true, title: true, projectId: true },
-          orderBy: { title: 'asc' },
-        })
-      : [];
+    // Also allow logging against projects where the user owns a top-level task
+    // (task assignment alone should expose the project in Log Hours).
+    const ownedTasks = await this.prisma.task.findMany({
+      where: {
+        ownerId: userId,
+        parentTaskId: null,
+        status: { notIn: [...BLOCKED_TASK_STATUSES] },
+        project: {
+          status: { in: [...LOGGABLE_PROJECT_STATUSES] },
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        projectId: true,
+        project: { select: { id: true, name: true, status: true } },
+      },
+      orderBy: { title: 'asc' },
+    });
 
-    const tasksByProject = new Map<string, { id: string; title: string }[]>();
-    for (const task of tasks) {
-      const list = tasksByProject.get(task.projectId) ?? [];
-      list.push({ id: task.id, title: task.title });
-      tasksByProject.set(task.projectId, list);
+    const projectMap = new Map<
+      string,
+      { id: string; name: string; taskIds: Set<string>; tasks: { id: string; title: string }[] }
+    >();
+
+    for (const allocation of allocations) {
+      if (!projectMap.has(allocation.projectId)) {
+        projectMap.set(allocation.projectId, {
+          id: allocation.project.id,
+          name: allocation.project.name,
+          taskIds: new Set(),
+          tasks: [],
+        });
+      }
     }
 
-    const seenProjects = new Set<string>();
-    const projects = allocations
-      .filter((allocation) => {
-        if (seenProjects.has(allocation.projectId)) {
-          return false;
+    for (const task of ownedTasks) {
+      let entry = projectMap.get(task.projectId);
+      if (!entry) {
+        entry = {
+          id: task.project.id,
+          name: task.project.name,
+          taskIds: new Set(),
+          tasks: [],
+        };
+        projectMap.set(task.projectId, entry);
+      }
+      if (!entry.taskIds.has(task.id)) {
+        entry.taskIds.add(task.id);
+        entry.tasks.push({ id: task.id, title: task.title });
+      }
+    }
+
+    const projectIds = [...projectMap.keys()];
+    if (projectIds.length) {
+      const projectTasks = await this.prisma.task.findMany({
+        where: {
+          projectId: { in: projectIds },
+          parentTaskId: null,
+          status: { notIn: [...BLOCKED_TASK_STATUSES] },
+        },
+        select: { id: true, title: true, projectId: true },
+        orderBy: { title: 'asc' },
+      });
+
+      for (const task of projectTasks) {
+        const entry = projectMap.get(task.projectId);
+        if (!entry || entry.taskIds.has(task.id)) {
+          continue;
         }
-        seenProjects.add(allocation.projectId);
-        return true;
-      })
-      .map((allocation) => ({
-        id: allocation.project.id,
-        name: allocation.project.name,
-        tasks: tasksByProject.get(allocation.projectId) ?? [],
-      }));
+        entry.taskIds.add(task.id);
+        entry.tasks.push({ id: task.id, title: task.title });
+      }
+    }
+
+    const projects = [...projectMap.values()]
+      .map(({ id, name, tasks }) => ({
+        id,
+        name,
+        tasks: tasks.sort((a, b) => a.title.localeCompare(b.title)),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     return {
       employeeId: employee.id,
@@ -148,7 +212,8 @@ export class TimesheetsService {
 
     const mappedEntries = entries.map((row) => this.mapEntry(row));
     const days = this.buildDaySummaries(weekStart, mappedEntries);
-    const { totalHours, billableHours } = this.sumHours(mappedEntries);
+    const { totalHours, billableHours, overtimeHours } =
+      this.sumHours(mappedEntries);
     const recentWeeks = await this.buildRecentWeekSummaries(
       employee.id,
       weekStart,
@@ -160,6 +225,7 @@ export class TimesheetsService {
       weekLabel: formatWeekLabel(weekStart, weekEnd),
       totalHours,
       billableHours,
+      overtimeHours,
       days,
       entries: mappedEntries,
       recentWeeks,
@@ -172,10 +238,27 @@ export class TimesheetsService {
   ): Promise<TimesheetEntryDto> {
     const employee = await this.requireEmployee(userId);
     const workDate = parseDateOnly(dto.workDate);
+    const todayKey = formatDateOnly(new Date());
+    if (formatDateOnly(workDate) > todayKey) {
+      throw new BadRequestException(
+        'You cannot log hours for a future date.',
+      );
+    }
+    const { regularHours, overtimeHours } = this.resolveHourSplit(dto);
 
-    await this.assertProjectAccess(employee.id, dto.projectId, workDate);
+    await this.assertProjectAccess(
+      employee.id,
+      dto.projectId,
+      workDate,
+      userId,
+    );
     await this.assertTaskBelongsToProject(dto.taskId, dto.projectId);
-    await this.assertDailyCapacity(employee.id, workDate, dto.hours);
+    await this.assertProjectAndTaskLoggable(dto.projectId, dto.taskId);
+    await this.assertDailyCapacity(
+      employee.id,
+      workDate,
+      regularHours + overtimeHours,
+    );
 
     try {
       const created = await this.prisma.timesheet.create({
@@ -184,8 +267,8 @@ export class TimesheetsService {
           projectId: dto.projectId,
           taskId: dto.taskId,
           workDate,
-          regularHours: dto.hours,
-          overtimeHours: 0,
+          regularHours,
+          overtimeHours,
           notes: dto.notes?.trim() || null,
           isBillable: dto.isBillable ?? true,
           status: TIMESHEET_STATUS.DRAFT,
@@ -199,10 +282,9 @@ export class TimesheetsService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException({
-          status: HttpStatus.CONFLICT,
-          errors: { taskId: 'duplicateTaskEntryForDay' },
-        });
+        throw new ConflictException(
+          'You already logged hours for this task on this day. Edit the existing entry instead.',
+        );
       }
       throw error;
     }
@@ -217,20 +299,47 @@ export class TimesheetsService {
     const existing = await this.requireOwnedEntry(entryId, employee.id);
 
     if (!this.isEditable(existing.status)) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { status: 'entryNotEditable' },
-      });
+      throw new ForbiddenException(
+        'This entry cannot be changed while it is submitted or approved.',
+      );
     }
 
-    const nextHours =
-      dto.hours ?? this.entryTotalHours(existing.regularHours, existing.overtimeHours);
+    await this.assertProjectAndTaskLoggable(
+      existing.projectId,
+      existing.taskId,
+    );
 
-    if (dto.hours !== undefined) {
+    const hoursChanging =
+      dto.hours !== undefined ||
+      dto.regularHours !== undefined ||
+      dto.overtimeHours !== undefined;
+
+    const { regularHours, overtimeHours } = hoursChanging
+      ? this.resolveHourSplit({
+          hours: dto.hours,
+          regularHours:
+            dto.regularHours !== undefined
+              ? dto.regularHours
+              : dto.hours !== undefined
+                ? undefined
+                : Number(existing.regularHours),
+          overtimeHours:
+            dto.overtimeHours !== undefined
+              ? dto.overtimeHours
+              : dto.hours !== undefined
+                ? undefined
+                : Number(existing.overtimeHours),
+        })
+      : {
+          regularHours: Number(existing.regularHours),
+          overtimeHours: Number(existing.overtimeHours),
+        };
+
+    if (hoursChanging) {
       await this.assertDailyCapacity(
         employee.id,
         existing.workDate,
-        dto.hours,
+        regularHours + overtimeHours,
         existing.id,
       );
     }
@@ -238,8 +347,8 @@ export class TimesheetsService {
     const updated = await this.prisma.timesheet.update({
       where: { id: existing.id },
       data: {
-        regularHours: nextHours,
-        overtimeHours: 0,
+        regularHours,
+        overtimeHours,
         notes:
           dto.notes !== undefined ? dto.notes.trim() || null : existing.notes,
         isBillable: dto.isBillable ?? existing.isBillable,
@@ -259,10 +368,9 @@ export class TimesheetsService {
     const existing = await this.requireOwnedEntry(entryId, employee.id);
 
     if (!this.isEditable(existing.status)) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { status: 'entryNotEditable' },
-      });
+      throw new ForbiddenException(
+        'This entry cannot be changed while it is submitted or approved.',
+      );
     }
 
     await this.prisma.timesheet.delete({ where: { id: existing.id } });
@@ -289,11 +397,12 @@ export class TimesheetsService {
     });
 
     if (drafts.length === 0) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { week: 'noDraftEntriesToSubmit' },
-      });
+      throw new UnprocessableEntityException(
+        'There are no draft entries to submit for this week.',
+      );
     }
+
+    this.assertEntriesLoggableForSubmit(drafts);
 
     await this.prisma.timesheet.updateMany({
       where: {
@@ -347,11 +456,12 @@ export class TimesheetsService {
     });
 
     if (rejected.length === 0) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { week: 'noRejectedEntriesToResubmit' },
-      });
+      throw new UnprocessableEntityException(
+        'There are no rejected entries to resubmit for this week.',
+      );
     }
+
+    this.assertEntriesLoggableForSubmit(rejected);
 
     await this.prisma.timesheet.updateMany({
       where: {
@@ -417,10 +527,9 @@ export class TimesheetsService {
     });
 
     if (!employee) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { employee: 'employeeProfileNotFound' },
-      });
+      throw new UnprocessableEntityException(
+        'No active employee profile is linked to your account.',
+      );
     }
 
     return employee;
@@ -432,10 +541,7 @@ export class TimesheetsService {
     });
 
     if (!entry) {
-      throw new NotFoundException({
-        status: HttpStatus.NOT_FOUND,
-        errors: { timesheet: 'entryNotFound' },
-      });
+      throw new NotFoundException('Timesheet entry not found.');
     }
 
     return entry;
@@ -445,6 +551,7 @@ export class TimesheetsService {
     employeeId: string,
     projectId: string,
     workDate: Date,
+    userId: string,
   ) {
     const allocation = await this.prisma.allocation.findFirst({
       where: {
@@ -456,11 +563,23 @@ export class TimesheetsService {
       },
     });
 
-    if (!allocation) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { projectId: 'projectNotAllocated' },
-      });
+    if (allocation) {
+      return;
+    }
+
+    const ownedTask = await this.prisma.task.findFirst({
+      where: {
+        projectId,
+        ownerId: userId,
+        parentTaskId: null,
+      },
+      select: { id: true },
+    });
+
+    if (!ownedTask) {
+      throw new ForbiddenException(
+        'You are not allocated to this project on the selected date.',
+      );
     }
   }
 
@@ -471,10 +590,88 @@ export class TimesheetsService {
     });
 
     if (!task) {
+      throw new UnprocessableEntityException(
+        'The selected task does not belong to this project.',
+      );
+    }
+  }
+
+  /**
+   * Block logging / editing against closed or inactive projects and Done tasks.
+   */
+  private async assertProjectAndTaskLoggable(
+    projectId: string,
+    taskId: string,
+  ): Promise<void> {
+    const [project, task] = await Promise.all([
+      this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true, name: true, status: true },
+      }),
+      this.prisma.task.findUnique({
+        where: { id: taskId },
+        select: { id: true, title: true, status: true, projectId: true },
+      }),
+    ]);
+
+    if (!project) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { projectId: 'projectNotFound' },
+      });
+    }
+
+    if (!task || task.projectId !== projectId) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         errors: { taskId: 'taskNotInProject' },
       });
+    }
+
+    if (!LOGGABLE_PROJECT_STATUSES.includes(project.status)) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          projectId: `Cannot log hours on project "${project.name}" because its status is not Active or At Risk.`,
+        },
+      });
+    }
+
+    if (BLOCKED_TASK_STATUSES.includes(task.status)) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          taskId: `Cannot log hours on task "${task.title}" because it is Done.`,
+        },
+      });
+    }
+  }
+
+  /** Re-check drafts/rejected rows before submit/resubmit. */
+  private assertEntriesLoggableForSubmit(entries: TimesheetRow[]): void {
+    for (const entry of entries) {
+      const projectStatus = entry.project.status;
+      const taskStatus = entry.task.status;
+      const projectName = entry.project.name;
+      const taskTitle = entry.task.title;
+
+      if (!LOGGABLE_PROJECT_STATUSES.includes(projectStatus)) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: {
+            week: `Cannot submit hours for project "${projectName}" because its status is not Active or At Risk.`,
+          },
+        });
+      }
+
+      if (BLOCKED_TASK_STATUSES.includes(taskStatus)) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: {
+            week: `Cannot submit hours for task "${taskTitle}" because it is Done.`,
+          },
+        });
+      }
     }
   }
 
@@ -500,10 +697,9 @@ export class TimesheetsService {
     const nextTotal = existingTotal + additionalHours;
 
     if (nextTotal > TIMESHEET_DAILY_MAX_HOURS) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: { hours: 'dailyHoursExceeded' },
-      });
+      throw new UnprocessableEntityException(
+        'Adding this entry would exceed the 24-hour daily limit for this date.',
+      );
     }
   }
 
@@ -521,6 +717,56 @@ export class TimesheetsService {
     return Number(regularHours) + Number(overtimeHours);
   }
 
+  private resolveHourSplit(dto: {
+    hours?: number;
+    regularHours?: number;
+    overtimeHours?: number;
+  }): { regularHours: number; overtimeHours: number } {
+    const hasSplit =
+      dto.regularHours !== undefined || dto.overtimeHours !== undefined;
+
+    let regularHours: number;
+    let overtimeHours: number;
+
+    if (hasSplit) {
+      regularHours = Number(dto.regularHours ?? 0);
+      overtimeHours = Number(dto.overtimeHours ?? 0);
+    } else if (dto.hours !== undefined) {
+      regularHours = Number(dto.hours);
+      overtimeHours = 0;
+    } else {
+      throw new BadRequestException('Enter regular or overtime hours.');
+    }
+
+    if (
+      !Number.isFinite(regularHours) ||
+      !Number.isFinite(overtimeHours) ||
+      regularHours < 0 ||
+      overtimeHours < 0
+    ) {
+      throw new BadRequestException(
+        'Hours must be valid non-negative numbers.',
+      );
+    }
+
+    const total = regularHours + overtimeHours;
+    if (total <= 0) {
+      throw new BadRequestException(
+        'Total hours must be greater than zero.',
+      );
+    }
+    if (total > TIMESHEET_DAILY_MAX_HOURS) {
+      throw new BadRequestException(
+        'A single entry cannot exceed 24 hours.',
+      );
+    }
+
+    return {
+      regularHours: Math.round(regularHours * 100) / 100,
+      overtimeHours: Math.round(overtimeHours * 100) / 100,
+    };
+  }
+
   private mapEntry(row: TimesheetRow): TimesheetEntryDto {
     const rejection = row.approvals.find(
       (approval) => approval.decision === 'Rejected',
@@ -528,6 +774,8 @@ export class TimesheetsService {
     const approval = row.approvals.find(
       (approval) => approval.decision === 'Approved',
     );
+    const regularHours = Number(row.regularHours);
+    const overtimeHours = Number(row.overtimeHours);
 
     return {
       id: row.id,
@@ -536,7 +784,9 @@ export class TimesheetsService {
       projectName: row.project.name,
       taskId: row.task.id,
       taskName: row.task.title,
-      hours: this.entryTotalHours(row.regularHours, row.overtimeHours),
+      hours: this.entryTotalHours(regularHours, overtimeHours),
+      regularHours,
+      overtimeHours,
       notes: row.notes,
       isBillable: row.isBillable,
       status: row.status,
@@ -572,12 +822,13 @@ export class TimesheetsService {
     return entries.reduce(
       (acc, entry) => {
         acc.totalHours += entry.hours;
+        acc.overtimeHours += entry.overtimeHours;
         if (entry.isBillable) {
           acc.billableHours += entry.hours;
         }
         return acc;
       },
-      { totalHours: 0, billableHours: 0 },
+      { totalHours: 0, billableHours: 0, overtimeHours: 0 },
     );
   }
 
@@ -611,20 +862,22 @@ export class TimesheetsService {
 
       const mapped = rows.map((row) => ({
         hours: this.entryTotalHours(row.regularHours, row.overtimeHours),
+        overtimeHours: Number(row.overtimeHours),
         isBillable: row.isBillable,
         status: row.status,
         updatedAt: row.updatedAt,
       }));
 
-      const { totalHours, billableHours } = mapped.reduce(
+      const { totalHours, billableHours, overtimeHours } = mapped.reduce(
         (acc, row) => {
           acc.totalHours += row.hours;
+          acc.overtimeHours += row.overtimeHours;
           if (row.isBillable) {
             acc.billableHours += row.hours;
           }
           return acc;
         },
-        { totalHours: 0, billableHours: 0 },
+        { totalHours: 0, billableHours: 0, overtimeHours: 0 },
       );
 
       const statuses = new Set(mapped.map((row) => row.status));
@@ -649,6 +902,7 @@ export class TimesheetsService {
         weekLabel: formatWeekLabel(weekStart, weekEnd),
         totalHours,
         billableHours,
+        overtimeHours,
         status,
         submittedAt: submittedAt ? submittedAt.toISOString() : null,
         approvedBy: null,

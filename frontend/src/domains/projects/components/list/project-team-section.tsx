@@ -20,10 +20,8 @@ import {
 } from "@/domains/projects";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
 import {
-  formatAllocationDateLabel,
   formatAllocationDateRange,
   formatDateValue,
-  isAllocationNotStartedYet,
 } from "@/domains/projects/utils/allocation-date.utils";
 import { useGetAllocationPolicyQuery, useGetDesignationOptionsQuery } from "@/domains/resources/api/resources.api";
 import {
@@ -34,6 +32,7 @@ import {
 } from "@/domains/resources/utils/allocation-policy.utils";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
+import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { EmployeeAvatar } from "@/shared/components/employee-avatar";
@@ -50,6 +49,7 @@ interface ProjectTeamSectionProps {
   pendingMembers: PendingTeamMember[];
   onPendingMembersChange: (members: PendingTeamMember[]) => void;
   canEdit?: boolean;
+  /** @deprecated Department staffing policy now controls candidate filtering. */
   filterByDepartment?: boolean;
   variant?: "form" | "workspace";
 }
@@ -59,6 +59,7 @@ interface DraftMemberConfig {
   allocationMode: AllocationMode;
   hoursPerWeek: string;
   percentPerWeek: string;
+  overrideReason?: string;
 }
 
 interface ExistingMemberEditDraft {
@@ -68,10 +69,12 @@ interface ExistingMemberEditDraft {
   percentPerWeek: string;
   startDate: string;
   endDate: string;
+  overrideReason: string;
 }
 
 const DEFAULT_HOURS = "20";
 const DEFAULT_PERCENT = "50";
+const OVERRIDE_REASON_MIN = 10;
 
 function availabilityLabel(candidate: TeamCandidate): string {
   if (candidate.isOverAllocated) return "Over-allocated";
@@ -148,6 +151,9 @@ function buildPendingMember(
     endDate: formatDateValue(endDate),
     remainingHours: candidate.remainingHours,
     isOverAllocated: wouldExceed,
+    ...(wouldExceed && config.overrideReason?.trim()
+      ? { overrideReason: config.overrideReason.trim() }
+      : {}),
   };
 }
 
@@ -170,10 +176,25 @@ function buildDraftMembers(
   return members;
 }
 
-function toAllocationBody(member: Pick<PendingTeamMember, "role" | "allocationMode" | "hoursPerWeek" | "percentPerWeek">) {
-  return member.allocationMode === "percent"
-    ? { role: member.role, percent: member.percentPerWeek }
-    : { role: member.role, hours: member.hoursPerWeek };
+function toAllocationBody(
+  member: Pick<
+    PendingTeamMember,
+    | "role"
+    | "allocationMode"
+    | "hoursPerWeek"
+    | "percentPerWeek"
+    | "overrideReason"
+    | "isOverAllocated"
+  >,
+) {
+  return {
+    ...(member.allocationMode === "percent"
+      ? { role: member.role, percent: member.percentPerWeek }
+      : { role: member.role, hours: member.hoursPerWeek }),
+    ...(member.isOverAllocated && member.overrideReason?.trim()
+      ? { overrideReason: member.overrideReason.trim() }
+      : {}),
+  };
 }
 
 function AllocationModeToggle({
@@ -232,19 +253,25 @@ export const ProjectTeamSection = forwardRef<
     pendingMembers,
     onPendingMembersChange,
     canEdit = true,
-    filterByDepartment = false,
+    filterByDepartment: _filterByDepartment = false,
     variant = "form",
   },
   ref,
 ) {
+  void _filterByDepartment;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [checkedCandidatesMap, setCheckedCandidatesMap] = useState<Record<string, TeamCandidate>>({});
   const [draftConfig, setDraftConfig] = useState<Record<string, DraftMemberConfig>>({});
   const [searchVal, setSearchVal] = useState("");
+  const [bulkOverrideReason, setBulkOverrideReason] = useState("");
   const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<ExistingMemberEditDraft | null>(null);
   const [alignDialogOpen, setAlignDialogOpen] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState<{
+    allocationId: string;
+    employeeName: string;
+  } | null>(null);
   const debouncedSearch = useDebounce(searchVal, 300);
 
   const { data: existingTeam = [], refetch: refetchTeam } = useGetProjectTeamQuery(
@@ -294,31 +321,41 @@ export const ProjectTeamSection = forwardRef<
     [allocationDateIssues?.issues],
   );
 
+  const { data: allocationPolicy } = useGetAllocationPolicyQuery();
+  const { data: designationOptionsData } = useGetDesignationOptionsQuery();
+  const designationOptions = designationOptionsData?.options ?? [];
+  const { data: departments = [] } = useGetDepartmentsQuery();
+  const thresholdMode = allocationPolicy?.thresholdMode ?? "warn";
+  const departmentStaffingMode = allocationPolicy?.departmentStaffingMode ?? "off";
+  const staffingBlocksCandidates = departmentStaffingMode === "block";
+  const staffingWarnsCandidates = departmentStaffingMode === "warn";
+
+  const projectDepartmentCode = useMemo(() => {
+    if (!departmentId) return "";
+    return departments.find((dept) => dept.id === departmentId)?.code ?? "";
+  }, [departmentId, departments]);
+
+  const needsDepartmentForCandidates =
+    staffingBlocksCandidates && !projectId && !departmentId;
+
   const candidateQuery = useMemo(
     () => ({
-      departmentId: filterByDepartment && departmentId ? departmentId : undefined,
+      // Used by the API to resolve project department for staffing rules
+      // (create flow) or ignored when projectId already carries the department.
+      departmentId: departmentId || undefined,
       projectId: projectId ?? undefined,
       search: debouncedSearch || undefined,
       ...(hasPlanningWindow
         ? { startDate: planningStart, endDate: planningEnd }
         : {}),
     }),
-    [departmentId, filterByDepartment, projectId, debouncedSearch, planningStart, planningEnd, hasPlanningWindow],
+    [departmentId, projectId, debouncedSearch, planningStart, planningEnd, hasPlanningWindow],
   );
 
   const { data: candidates = [], isLoading: loadingCandidates } =
-    useGetTeamCandidatesQuery(candidateQuery, { skip: !hasPlanningWindow });
-
-  const { data: allocationPolicy } = useGetAllocationPolicyQuery();
-  const { data: designationOptionsData } = useGetDesignationOptionsQuery();
-  const designationOptions = designationOptionsData?.options ?? [];
-  const { data: departments = [] } = useGetDepartmentsQuery();
-  const thresholdMode = allocationPolicy?.thresholdMode ?? "warn";
-
-  const projectDepartmentCode = useMemo(() => {
-    if (!departmentId) return "";
-    return departments.find((dept) => dept.id === departmentId)?.code ?? "";
-  }, [departmentId, departments]);
+    useGetTeamCandidatesQuery(candidateQuery, {
+      skip: !hasPlanningWindow || needsDepartmentForCandidates,
+    });
 
   const assignedEmployeeIds = useMemo(() => {
     const ids = new Set<string>();
@@ -327,20 +364,34 @@ export const ProjectTeamSection = forwardRef<
     return ids;
   }, [existingTeam, pendingMembers]);
 
-  const availableCandidates = candidates.filter(
-    (candidate) => !assignedEmployeeIds.has(candidate.employeeId),
-  );
+  const availableCandidates = candidates.filter((candidate) => {
+    if (assignedEmployeeIds.has(candidate.employeeId)) return false;
+    // Only block mode hides cross-department employees from the picker.
+    if (staffingBlocksCandidates && !candidate.departmentStaffingAllowed) {
+      return false;
+    }
+    return true;
+  });
 
   const backupOptions = useMemo(
     () =>
-      candidates.map((candidate) => ({
-        id: candidate.employeeId,
-        name: candidate.name,
-        profileImageUrl: candidate.profileImageUrl,
-        subtitle: `${candidate.department.name} · ${candidate.designation}`,
+      existingTeam.map((member) => ({
+        id: member.employeeId,
+        name: member.employee.name,
+        profileImageUrl: member.employee.profileImageUrl,
+        subtitle: `${member.employee.department.name} · ${member.employee.designation}`,
       })),
-    [candidates],
+    [existingTeam],
   );
+
+  const allocationIssuesByMemberId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const issue of allocationDateIssues?.issues ?? []) {
+      const existing = map.get(issue.allocationId) ?? [];
+      map.set(issue.allocationId, [...existing, ...issue.messages]);
+    }
+    return map;
+  }, [allocationDateIssues?.issues]);
 
   const checkedCandidates = useMemo(
     () => Object.values(checkedCandidatesMap),
@@ -350,10 +401,18 @@ export const ProjectTeamSection = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      collectMembersToSave: () =>
-        buildDraftMembers(checkedCandidates, draftConfig, startDate, endDate),
+      collectMembersToSave: () => {
+        const configs: Record<string, DraftMemberConfig> = {};
+        for (const [employeeId, config] of Object.entries(draftConfig)) {
+          configs[employeeId] = {
+            ...config,
+            overrideReason: bulkOverrideReason.trim() || config.overrideReason,
+          };
+        }
+        return buildDraftMembers(checkedCandidates, configs, startDate, endDate);
+      },
     }),
-    [checkedCandidates, draftConfig, startDate, endDate],
+    [bulkOverrideReason, checkedCandidates, draftConfig, startDate, endDate],
   );
 
   const toggleCandidate = (candidate: TeamCandidate, checked: boolean) => {
@@ -405,13 +464,30 @@ export const ProjectTeamSection = forwardRef<
   };
 
   const handleAddSelected = async () => {
+    const configs: Record<string, DraftMemberConfig> = {};
+    for (const [employeeId, config] of Object.entries(draftConfig)) {
+      configs[employeeId] = {
+        ...config,
+        overrideReason: bulkOverrideReason.trim() || config.overrideReason,
+      };
+    }
     const draftMembers = buildDraftMembers(
       checkedCandidates,
-      draftConfig,
+      configs,
       startDate,
       endDate,
     );
     if (draftMembers.length === 0) return;
+
+    const needsOverride =
+      thresholdMode !== "block" &&
+      draftMembers.some((member) => member.isOverAllocated);
+    if (needsOverride && bulkOverrideReason.trim().length < OVERRIDE_REASON_MIN) {
+      toast.error(
+        `Over-allocation requires an override reason (at least ${OVERRIDE_REASON_MIN} characters).`,
+      );
+      return;
+    }
 
     if (projectId) {
       try {
@@ -434,13 +510,16 @@ export const ProjectTeamSection = forwardRef<
         setCheckedIds([]);
         setCheckedCandidatesMap({});
         setDraftConfig({});
+        setBulkOverrideReason("");
         setPickerOpen(false);
         refetchTeam();
       } catch (err: unknown) {
         const apiError = err as {
-          data?: { errors?: { allocation?: string }; message?: string };
+          data?: { errors?: { allocation?: string; overrideReason?: string }; message?: string };
         };
-        const allocationError = apiError?.data?.errors?.allocation;
+        const allocationError =
+          apiError?.data?.errors?.overrideReason ??
+          apiError?.data?.errors?.allocation;
         toast.error(
           allocationError ?? apiError?.data?.message ?? "Failed to add team members.",
         );
@@ -452,6 +531,7 @@ export const ProjectTeamSection = forwardRef<
     setCheckedIds([]);
     setCheckedCandidatesMap({});
     setDraftConfig({});
+    setBulkOverrideReason("");
     setPickerOpen(false);
   };
 
@@ -461,7 +541,12 @@ export const ProjectTeamSection = forwardRef<
 
   const handleUpdatePending = (
     employeeId: string,
-    patch: Partial<Pick<PendingTeamMember, "role" | "allocationMode" | "hoursPerWeek" | "percentPerWeek">>,
+    patch: Partial<
+      Pick<
+        PendingTeamMember,
+        "role" | "allocationMode" | "hoursPerWeek" | "percentPerWeek" | "overrideReason"
+      >
+    >,
   ) => {
     onPendingMembersChange(
       pendingMembers.map((member) => {
@@ -491,8 +576,14 @@ export const ProjectTeamSection = forwardRef<
       setEditingAllocationId(null);
       setEditDraft(null);
     }
-    await removeMember({ projectId, allocationId }).unwrap();
-    refetchTeam();
+    try {
+      await removeMember({ projectId, allocationId }).unwrap();
+      toast.success("Team member removed.");
+      setRemoveConfirm(null);
+      refetchTeam();
+    } catch {
+      toast.error("Failed to remove team member.");
+    }
   };
 
   const startEditingExisting = (member: ProjectAllocation) => {
@@ -504,6 +595,7 @@ export const ProjectTeamSection = forwardRef<
       percentPerWeek: String(member.percent ?? DEFAULT_PERCENT),
       startDate: member.startDate,
       endDate: member.endDate ?? "",
+      overrideReason: member.overrideReason ?? "",
     });
   };
 
@@ -559,6 +651,16 @@ export const ProjectTeamSection = forwardRef<
       toast.error("Allocation end date must be on or after the start date.");
       return;
     }
+    if (
+      thresholdMode !== "block" &&
+      editWouldOverAllocate(member) &&
+      editDraft.overrideReason.trim().length < OVERRIDE_REASON_MIN
+    ) {
+      toast.error(
+        `Over-allocation requires an override reason (at least ${OVERRIDE_REASON_MIN} characters).`,
+      );
+      return;
+    }
 
     try {
       const result = await updateProjectTeamMember({
@@ -571,6 +673,9 @@ export const ProjectTeamSection = forwardRef<
             : { hours }),
           startDate: editDraft.startDate,
           endDate: editDraft.endDate || null,
+          ...(editWouldOverAllocate(member)
+            ? { overrideReason: editDraft.overrideReason.trim() }
+            : {}),
         },
       }).unwrap();
 
@@ -700,6 +805,26 @@ export const ProjectTeamSection = forwardRef<
     );
   };
 
+  const memberHasDesignationMismatch = (member: ProjectAllocation) => {
+    if (!allocationPolicy || !member.role.trim()) return false;
+    return hasDesignationMismatch(
+      allocationPolicy,
+      member.role,
+      member.employee.designation,
+    );
+  };
+
+  const memberHasDepartmentMismatch = (member: ProjectAllocation) => {
+    if (!allocationPolicy || allocationPolicy.departmentStaffingMode === "off") {
+      return false;
+    }
+    return hasDepartmentStaffingMismatch(
+      allocationPolicy,
+      projectDepartmentCode,
+      member.employee.department.code,
+    );
+  };
+
   const hasBlockedOverAllocation =
     thresholdMode === "block" &&
     checkedCandidates.some((candidate) => draftWouldOverAllocate(candidate));
@@ -722,6 +847,10 @@ export const ProjectTeamSection = forwardRef<
       ),
     );
 
+  const needsOverrideReason =
+    thresholdMode !== "block" &&
+    checkedCandidates.some((candidate) => draftWouldOverAllocate(candidate));
+
   const canAddSelected =
     checkedCandidates.length > 0 &&
     checkedCandidates.every((candidate) => {
@@ -736,7 +865,8 @@ export const ProjectTeamSection = forwardRef<
     }) &&
     !hasBlockedOverAllocation &&
     !hasBlockedDesignation &&
-    !hasBlockedDepartment;
+    !hasBlockedDepartment &&
+    (!needsOverrideReason || bulkOverrideReason.trim().length >= OVERRIDE_REASON_MIN);
 
   const renderAllocationInput = (
     mode: AllocationMode,
@@ -795,6 +925,39 @@ export const ProjectTeamSection = forwardRef<
         </p>
       )}
 
+      {hasPlanningWindow && needsDepartmentForCandidates && canEdit && (
+        <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          Select a project department above to load team members allowed by the blocking
+          department staffing policy.
+        </p>
+      )}
+
+      {hasPlanningWindow &&
+        staffingBlocksCandidates &&
+        (projectId || departmentId) &&
+        canEdit && (
+          <p className="text-[11px] text-muted-foreground">
+            Team picker only lists employees allowed by the blocking department staffing policy
+            {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+              ? " (project department plus allow-listed departments)"
+              : " (same department only)"}
+            .
+          </p>
+        )}
+
+      {hasPlanningWindow &&
+        staffingWarnsCandidates &&
+        (projectId || departmentId) &&
+        canEdit && (
+          <p className="text-[11px] text-muted-foreground">
+            All employees are listed. Cross-department selections show a warning based on{" "}
+            {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+              ? "the allow-list matrix (project department plus allowed departments)"
+              : "same-department-only rules"}
+            .
+          </p>
+        )}
+
       {projectId && hasPlanningWindow && allocationIssueMessages.length > 0 && (
         <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 dark:border-amber-900/40 dark:bg-amber-950/30">
           <div className="flex items-start gap-2">
@@ -831,20 +994,17 @@ export const ProjectTeamSection = forwardRef<
           </p>
           {existingTeam.map((member) => {
             const isEditing = editingAllocationId === member.id && editDraft != null;
-            const memberDateWarnings: string[] = [];
-            if (
-              hasPlanningWindow &&
-              member.status === "Active" &&
-              isAllocationNotStartedYet(member.startDate)
-            ) {
-              memberDateWarnings.push(
-                `Cannot log hours until ${formatAllocationDateLabel(member.startDate)}.`,
-              );
-            }
+            const memberAllocationWarnings =
+              allocationIssuesByMemberId.get(member.id) ?? [];
+            const designationMismatch = memberHasDesignationMismatch(member);
+            const departmentMismatch = memberHasDepartmentMismatch(member);
             const blockedEditSave =
               isEditing &&
               allocationPolicy != null &&
               ((thresholdMode === "block" && editWouldOverAllocate(member)) ||
+                (thresholdMode !== "block" &&
+                  editWouldOverAllocate(member) &&
+                  (editDraft?.overrideReason.trim().length ?? 0) < OVERRIDE_REASON_MIN) ||
                 isPolicyBlocked(
                   allocationPolicy.designationMismatchMode,
                   editHasDesignationMismatch(member),
@@ -946,10 +1106,31 @@ export const ProjectTeamSection = forwardRef<
                         />
                       </div>
                     </div>
-                    {editWouldOverAllocate(member) && (
-                      <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                    {editWouldOverAllocate(member) && thresholdMode !== "block" && (
+                      <div className="space-y-1.5">
+                        <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3" />
+                          Over-allocation requires an authorised override reason.
+                        </p>
+                        <textarea
+                          value={editDraft.overrideReason}
+                          onChange={(event) =>
+                            setEditDraft((prev) =>
+                              prev
+                                ? { ...prev, overrideReason: event.target.value }
+                                : prev,
+                            )
+                          }
+                          rows={2}
+                          placeholder="Why is this over-allocation authorised? (min 10 characters)"
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                        />
+                      </div>
+                    )}
+                    {editWouldOverAllocate(member) && thresholdMode === "block" && (
+                      <p className="flex items-center gap-1 text-[11px] text-rose-600">
                         <AlertTriangle className="size-3" />
-                        May over-allocate
+                        Over-allocation is blocked by policy.
                       </p>
                     )}
                     {editHasDesignationMismatch(member) && allocationPolicy && (
@@ -975,15 +1156,26 @@ export const ProjectTeamSection = forwardRef<
                         Assignment blocked by allocation policy.
                       </p>
                     )}
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={blockedEditSave || isUpdatingMember}
-                      onClick={() => handleSaveExisting(member)}
-                    >
-                      {isUpdatingMember && <Loader2 className="mr-2 size-4 animate-spin" />}
-                      Save changes
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isUpdatingMember}
+                        onClick={cancelEditingExisting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={blockedEditSave || isUpdatingMember}
+                        onClick={() => handleSaveExisting(member)}
+                      >
+                        {isUpdatingMember && <Loader2 className="mr-2 size-4 animate-spin" />}
+                        Save changes
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-start justify-between gap-3">
@@ -1018,7 +1210,7 @@ export const ProjectTeamSection = forwardRef<
                         <Calendar className="size-3 shrink-0" />
                         {formatAllocationDateRange(member.startDate, member.endDate)}
                       </p>
-                      {memberDateWarnings.map((warning) => (
+                      {memberAllocationWarnings.map((warning) => (
                         <p
                           key={warning}
                           className="mt-1 flex items-center gap-1 text-[11px] text-amber-600"
@@ -1027,6 +1219,33 @@ export const ProjectTeamSection = forwardRef<
                           {warning}
                         </p>
                       ))}
+                      {member.isOverAllocated && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3 shrink-0" />
+                          {thresholdMode === "block"
+                            ? "Over-allocated (blocked by policy)."
+                            : thresholdMode === "approve"
+                              ? "Over-allocated — pending staffing approval."
+                              : "Over-allocated for weekly capacity."}
+                        </p>
+                      )}
+                      {designationMismatch && allocationPolicy && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3 shrink-0" />
+                          {getDesignationMismatchMessage(
+                            allocationPolicy,
+                            member.employee.name,
+                            member.role,
+                            member.employee.designation,
+                          ) ?? "Role not allowed for this designation"}
+                        </p>
+                      )}
+                      {departmentMismatch && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                          <AlertTriangle className="size-3 shrink-0" />
+                          Employee department differs from project department
+                        </p>
+                      )}
                       {member.upcomingLeave.length > 0 && (
                         <p className="mt-1 text-[11px] text-amber-600">
                           On leave: {formatLeaveRanges(member.upcomingLeave)}
@@ -1073,7 +1292,12 @@ export const ProjectTeamSection = forwardRef<
                           size="icon"
                           className="text-rose-500 hover:text-rose-600"
                           disabled={isRemoving}
-                          onClick={() => handleRemoveExisting(member.id)}
+                          onClick={() =>
+                            setRemoveConfirm({
+                              allocationId: member.id,
+                              employeeName: member.employee.name,
+                            })
+                          }
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -1104,7 +1328,13 @@ export const ProjectTeamSection = forwardRef<
             >
               <PopoverTrigger
                 type="button"
-                disabled={!hasPlanningWindow || loadingCandidates || (availableCandidates.length === 0 && !searchVal)}
+                data-testid="project-team-add"
+                disabled={
+                  !hasPlanningWindow ||
+                  needsDepartmentForCandidates ||
+                  loadingCandidates ||
+                  (availableCandidates.length === 0 && !searchVal)
+                }
                 className={cn(
                   "flex w-full min-h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm dark:border-white/[0.08] dark:bg-zinc-950",
                   "hover:border-slate-300 dark:hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-50",
@@ -1113,13 +1343,15 @@ export const ProjectTeamSection = forwardRef<
                 <span className="text-muted-foreground">
                   {!hasPlanningWindow
                     ? "Set project dates first"
-                    : loadingCandidates
-                      ? "Loading employees..."
-                      : (availableCandidates.length === 0 && !searchVal)
-                        ? "No available employees"
-                        : checkedCandidates.length > 0
-                          ? `${checkedCandidates.length} selected — configure allocation below`
-                          : "Select employees..."}
+                    : needsDepartmentForCandidates
+                      ? "Select project department first"
+                      : loadingCandidates
+                        ? "Loading employees..."
+                        : (availableCandidates.length === 0 && !searchVal)
+                          ? "No available employees"
+                          : checkedCandidates.length > 0
+                            ? `${checkedCandidates.length} selected — configure allocation below`
+                            : "Select employees..."}
                 </span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </PopoverTrigger>
@@ -1193,10 +1425,13 @@ export const ProjectTeamSection = forwardRef<
                                 On leave: {formatLeaveRanges(candidate.upcomingLeave)}
                               </p>
                             )}
-                            {allocationPolicy?.departmentStaffingMode !== "off" &&
+                            {staffingWarnsCandidates &&
                               !candidate.departmentStaffingAllowed && (
-                                <p className="mt-1 text-[11px] text-amber-600">
-                                  Outside allowed project department
+                                <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+                                  <AlertTriangle className="size-3 shrink-0" />
+                                  {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+                                    ? "Not in the project department or allow-listed departments"
+                                    : "Not in the selected project department"}
                                 </p>
                               )}
                           </div>
@@ -1269,7 +1504,9 @@ export const ProjectTeamSection = forwardRef<
                         {departmentMismatch && (
                           <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
                             <AlertTriangle className="size-3" />
-                            Cross-department assignment
+                            {allocationPolicy?.departmentStaffingRules.rule === "allow_list"
+                              ? "Not in the project department or allow-listed departments"
+                              : "Not in the selected project department"}
                           </p>
                         )}
                         </div>
@@ -1317,6 +1554,20 @@ export const ProjectTeamSection = forwardRef<
                     Over-capacity selections will be submitted for staffing approval.
                   </p>
                 )}
+              {needsOverrideReason && (
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-foreground">
+                    Override reason (required)
+                  </label>
+                  <textarea
+                    value={bulkOverrideReason}
+                    onChange={(event) => setBulkOverrideReason(event.target.value)}
+                    rows={2}
+                    placeholder="Why is over-allocation authorised? (min 10 characters)"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                  />
+                </div>
+              )}
               {hasBlockedDesignation && (
                 <p className="flex items-center gap-1 text-[11px] text-rose-600">
                   <AlertTriangle className="size-3" />
@@ -1383,10 +1634,25 @@ export const ProjectTeamSection = forwardRef<
                     {member.remainingHours}h/week remaining before assignment
                   </p>
                   {member.isOverAllocated && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
-                      <AlertTriangle className="size-3" />
-                      This assignment may over-allocate this resource.
-                    </p>
+                    <div className="mt-1 space-y-1.5">
+                      <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                        <AlertTriangle className="size-3" />
+                        This assignment may over-allocate this resource.
+                      </p>
+                      {canEdit && (
+                        <textarea
+                          value={member.overrideReason ?? ""}
+                          onChange={(event) =>
+                            handleUpdatePending(member.employeeId, {
+                              overrideReason: event.target.value,
+                            })
+                          }
+                          rows={2}
+                          placeholder="Override reason (min 10 characters)"
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                        />
+                      )}
+                    </div>
                   )}
                     </div>
                   </div>
@@ -1464,6 +1730,23 @@ export const ProjectTeamSection = forwardRef<
         projectLabel="this project"
         preview={allocationDateIssues?.alignPreview ?? []}
         issueMessages={alignDialogIssueMessages}
+      />
+
+      <DeleteDialog
+        isOpen={removeConfirm != null}
+        onClose={() => setRemoveConfirm(null)}
+        onConfirm={() => {
+          if (removeConfirm) {
+            void handleRemoveExisting(removeConfirm.allocationId);
+          }
+        }}
+        title="Remove team member"
+        description={
+          removeConfirm
+            ? `Remove ${removeConfirm.employeeName} from this project team? Their allocation will end and assigned tasks may need reassignment.`
+            : ""
+        }
+        isDeleting={isRemoving}
       />
     </div>
   );

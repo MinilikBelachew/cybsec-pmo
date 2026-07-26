@@ -3,6 +3,8 @@ import type {
   AllocationPolicy,
   AllocationApprovalListResponse,
   DesignationOptionsResponse,
+  EmployeeAttendanceListResponse,
+  EmployeeAttendanceSortField,
   TeamDirectoryResponse,
   TeamDirectorySortField,
   TeamLeaveListResponse,
@@ -14,7 +16,12 @@ import type {
   TimesheetApprovalDecision,
   TimesheetSyncFailure,
   UtilizationStatus,
+  HolidayCalendarResponse,
 } from "../types/resources.types";
+import type {
+  AdminDepartmentListResponse,
+  QueryAdminDepartmentsParams,
+} from "@/domains/admin-directory/types/admin-directory.types";
 
 export type QueryTeamDirectoryParams = {
   departmentId?: string;
@@ -36,6 +43,18 @@ export type QueryTeamLeaveParams = {
   limit?: number;
 };
 
+export type QueryEmployeeAttendanceParams = {
+  employeeId: string;
+  search?: string;
+  dayType?: number;
+  fromDate?: string;
+  toDate?: string;
+  sortBy?: EmployeeAttendanceSortField;
+  sortOrder?: "asc" | "desc";
+  page?: number;
+  limit?: number;
+};
+
 function appendQueryParams(
   queryParams: URLSearchParams,
   params: Record<string, string | number | undefined>,
@@ -49,6 +68,53 @@ function appendQueryParams(
 
 export const resourcesApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    getAdminDepartments: builder.query<
+      AdminDepartmentListResponse,
+      QueryAdminDepartmentsParams | void
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        const p = params ?? {};
+        appendQueryParams(queryParams, {
+          search: p.search,
+          sortBy: p.sortBy,
+          sortOrder: p.sortOrder,
+          page: p.page,
+          limit: p.limit,
+          ...(p.isActive === undefined
+            ? {}
+            : { isActive: p.isActive ? "true" : "false" }),
+        });
+        const qs = queryParams.toString();
+        return `/resources/departments${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: [{ type: "Departments", id: "ADMIN_LIST" }],
+    }),
+
+    getAdminEmployees: builder.query<
+      TeamDirectoryResponse,
+      QueryTeamDirectoryParams | void
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        const p = params ?? {};
+        appendQueryParams(queryParams, {
+          departmentId: p.departmentId,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          search: p.search,
+          utilizationStatus: p.utilizationStatus,
+          sortBy: p.sortBy,
+          sortOrder: p.sortOrder,
+          page: p.page,
+          limit: p.limit,
+        });
+        const qs = queryParams.toString();
+        return `/resources/employees${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: [{ type: "TeamDirectory", id: "ADMIN_LIST" }],
+    }),
+
     getTeamDirectory: builder.query<TeamDirectoryResponse, QueryTeamDirectoryParams | void>({
       query: (params) => {
         const queryParams = new URLSearchParams();
@@ -85,6 +151,30 @@ export const resourcesApi = api.injectEndpoints({
         return `/resources/team/leave${qs ? `?${qs}` : ""}`;
       },
       providesTags: [{ type: "TeamDirectory", id: "LEAVE" }],
+    }),
+
+    getEmployeeAttendance: builder.query<
+      EmployeeAttendanceListResponse,
+      QueryEmployeeAttendanceParams
+    >({
+      query: ({ employeeId, ...params }) => {
+        const queryParams = new URLSearchParams();
+        appendQueryParams(queryParams, {
+          search: params.search,
+          dayType: params.dayType,
+          fromDate: params.fromDate,
+          toDate: params.toDate,
+          sortBy: params.sortBy,
+          sortOrder: params.sortOrder,
+          page: params.page,
+          limit: params.limit,
+        });
+        const qs = queryParams.toString();
+        return `/resources/team/${employeeId}/attendance${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: (_result, _error, arg) => [
+        { type: "TeamDirectory", id: `ATTENDANCE-${arg.employeeId}` },
+      ],
     }),
 
     getAllocationPolicy: builder.query<AllocationPolicy, void>({
@@ -146,8 +236,19 @@ export const resourcesApi = api.injectEndpoints({
       ],
     }),
 
-    getTimesheetContext: builder.query<TimesheetContext, void>({
-      query: () => "/timesheets/context",
+    getTimesheetContext: builder.query<
+      TimesheetContext,
+      { asOf?: string } | void
+    >({
+      query: (params) => {
+        const asOf = params && "asOf" in params ? params.asOf : undefined;
+        const queryParams = new URLSearchParams();
+        if (asOf) {
+          queryParams.append("asOf", asOf);
+        }
+        const qs = queryParams.toString();
+        return `/timesheets/context${qs ? `?${qs}` : ""}`;
+      },
       providesTags: ["Timesheets"],
     }),
 
@@ -170,7 +271,8 @@ export const resourcesApi = api.injectEndpoints({
         projectId: string;
         taskId: string;
         workDate: string;
-        hours: number;
+        regularHours: number;
+        overtimeHours?: number;
         notes?: string;
         isBillable?: boolean;
       }
@@ -217,7 +319,13 @@ export const resourcesApi = api.injectEndpoints({
 
     updateTimesheetEntry: builder.mutation<
       TimesheetWeekEntry,
-      { id: string; hours?: number; notes?: string; isBillable?: boolean }
+      {
+        id: string;
+        regularHours?: number;
+        overtimeHours?: number;
+        notes?: string;
+        isBillable?: boolean;
+      }
     >({
       query: ({ id, ...body }) => ({
         url: `/timesheets/${id}`,
@@ -275,6 +383,23 @@ export const resourcesApi = api.injectEndpoints({
       providesTags: ["TimesheetSyncFailures"],
     }),
 
+    getHolidayCalendars: builder.query<
+      HolidayCalendarResponse,
+      { year?: number; calendarId?: string } | void
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        const p = params ?? {};
+        appendQueryParams(queryParams, {
+          year: p.year,
+          calendarId: p.calendarId,
+        });
+        const qs = queryParams.toString();
+        return `/resources/holidays${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: ["HolidayCalendars"],
+    }),
+
     retryTimesheetSync: builder.mutation<
       { success: boolean; ref: string | null },
       { timesheetId: string }
@@ -290,8 +415,11 @@ export const resourcesApi = api.injectEndpoints({
 });
 
 export const {
+  useGetAdminDepartmentsQuery,
+  useGetAdminEmployeesQuery,
   useGetTeamDirectoryQuery,
   useGetTeamLeaveQuery,
+  useGetEmployeeAttendanceQuery,
   useGetAllocationPolicyQuery,
   useGetDesignationOptionsQuery,
   useGetAllocationApprovalsQuery,
@@ -309,4 +437,5 @@ export const {
   useRejectTimesheetSubmissionMutation,
   useGetTimesheetSyncFailuresQuery,
   useRetryTimesheetSyncMutation,
+  useGetHolidayCalendarsQuery,
 } = resourcesApi;

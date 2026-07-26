@@ -40,6 +40,10 @@ export const RECONCILE_STATUS_CONFIG: Record<
     label: "Mismatch",
     text: "text-rose-600 dark:text-rose-400",
   },
+  unavailable: {
+    label: "No Keka link",
+    text: "text-muted-foreground",
+  },
 };
 
 export function initials(name: string): string {

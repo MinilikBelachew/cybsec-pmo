@@ -7,6 +7,7 @@ import { cn } from "@/shared/utils/cn";
 import { formatAllocationDateRange } from "@/domains/projects/utils/allocation-date.utils";
 import type { TeamDirectoryMember } from "../types/resources.types";
 import { UTILIZATION_CONFIG } from "../utils/resource-ui.config";
+import { formatUpcomingLeaveSummary } from "../utils/team-directory.mapper";
 
 type CreateTeamDirectoryColumnsOptions = {
   onSelect: (member: TeamDirectoryMember) => void;
@@ -26,40 +27,58 @@ export function createTeamDirectoryColumns({
           <button
             type="button"
             onClick={() => onSelect(member)}
-            className="flex min-w-0 items-center gap-2.5 text-left"
+            className="flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden text-left"
           >
             <EmployeeAvatar
               name={member.name}
               employeeId={member.id}
               profileImageUrl={member.avatarUrl}
               size="sm"
+              className="shrink-0"
             />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold hover:text-primary">{member.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{member.designation}</p>
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <p className="truncate text-sm font-semibold hover:text-primary" title={member.name}>
+                {member.name}
+              </p>
+              <p
+                className="truncate text-xs text-muted-foreground"
+                title={member.designation}
+              >
+                {member.designation}
+              </p>
             </div>
           </button>
         );
       },
-      meta: { label: "Name" },
-    },
-    {
-      id: "designation",
-      accessorKey: "designation",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Designation" />,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">{row.original.designation}</span>
-      ),
-      meta: { label: "Designation" },
+      meta: { className: "w-[22%] max-w-0 overflow-hidden", label: "Name" },
     },
     {
       id: "department",
       accessorKey: "department",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
       cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">{row.original.department}</span>
+        <span
+          className="block truncate text-sm text-muted-foreground"
+          title={row.original.department}
+        >
+          {row.original.department}
+        </span>
       ),
-      meta: { label: "Department" },
+      meta: { className: "w-[12%] max-w-0 overflow-hidden", label: "Department" },
+    },
+    {
+      id: "designation",
+      accessorKey: "designation",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Designation" />,
+      cell: ({ row }) => (
+        <span
+          className="block truncate text-sm text-muted-foreground"
+          title={row.original.designation}
+        >
+          {row.original.designation}
+        </span>
+      ),
+      meta: { className: "w-[16%] max-w-0 overflow-hidden", label: "Designation" },
     },
     {
       id: "utilization",
@@ -69,30 +88,28 @@ export function createTeamDirectoryColumns({
         const member = row.original;
         const util = UTILIZATION_CONFIG[member.utilStatus];
         return (
-          <div className="min-w-[120px] space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-semibold">{member.utilization}%</span>
-              <span
-                className={cn(
-                  "rounded-md border px-1.5 py-0.5 text-[10px] font-semibold",
-                  util.bg,
-                  util.text,
-                  util.border,
-                )}
-              >
-                {util.label}
-              </span>
-            </div>
+          <div className="min-w-[100px] space-y-1">
+            <span className="text-sm font-semibold">{member.utilization}%</span>
             <div className="h-1 overflow-hidden rounded-full bg-muted">
               <div
                 className={cn("h-full rounded-full", util.bar)}
                 style={{ width: `${Math.min(member.utilization, 100)}%` }}
               />
             </div>
+            <span
+              className={cn(
+                "inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold",
+                util.bg,
+                util.text,
+                util.border,
+              )}
+            >
+              {util.label}
+            </span>
           </div>
         );
       },
-      meta: { label: "Utilization" },
+      meta: { className: "overflow-hidden", label: "Utilization" },
     },
     {
       id: "allocatedHours",
@@ -111,6 +128,27 @@ export function createTeamDirectoryColumns({
         <span className="text-sm">{row.original.remainingHours}h/wk</span>
       ),
       meta: { label: "Remaining" },
+    },
+    {
+      id: "upcomingLeave",
+      accessorFn: (row) => row.upcomingLeave.length,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Leave" />,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const label = formatUpcomingLeaveSummary(row.original.upcomingLeave);
+        if (!label) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        return (
+          <span
+            className="line-clamp-2 text-xs font-medium text-amber-700 dark:text-amber-400"
+            title={label}
+          >
+            {label.replace(/^On leave:\s*/, "")}
+          </span>
+        );
+      },
+      meta: { label: "Leave" },
     },
     {
       id: "projects",
@@ -150,18 +188,6 @@ export function createTeamDirectoryColumns({
         );
       },
       meta: { label: "Allocations" },
-    },
-    {
-      id: "kekaEmployeeId",
-      accessorKey: "kekaEmployeeId",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Keka ID" />,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <span className="font-mono text-xs text-muted-foreground">
-          {row.original.kekaEmployeeId}
-        </span>
-      ),
-      meta: { label: "Keka ID" },
     },
   ];
 }

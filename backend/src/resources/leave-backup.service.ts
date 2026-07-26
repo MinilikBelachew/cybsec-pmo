@@ -80,7 +80,8 @@ type ImpactCandidate = {
     userId: string | null;
     leaveRecords: Array<{
       id: string;
-      leaveDate: Date;
+      fromDate: Date;
+      toDate: Date;
       leaveType: string;
       isApproved: boolean;
       kekaStatus: number | null;
@@ -366,7 +367,7 @@ export class LeaveBackupService {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       include: {
-        leaveRecords: { orderBy: { leaveDate: 'asc' } },
+        leaveRecords: { orderBy: { fromDate: 'asc' } },
         allocations: {
           where: {
             projectId: task.projectId,
@@ -495,7 +496,7 @@ export class LeaveBackupService {
       const employee = await this.prisma.employee.findUnique({
         where: { id: employeeId },
         include: {
-          leaveRecords: { orderBy: { leaveDate: 'asc' } },
+          leaveRecords: { orderBy: { fromDate: 'asc' } },
           allocations: {
             where: {
               projectId,

@@ -8,7 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CaslUserContext } from '../casl/casl.types';
-import { AllocationPushService } from '../keka/sync/allocation-push.service';
+import { AllocationPushService } from '../integrations/keka/sync/allocation-push.service';
 import {
   buildAvailabilitySummary,
   sumOverlappingAllocationHours,
@@ -109,10 +109,9 @@ export class AllocationApprovalService {
     const allocation = await this.getPendingAllocation(allocationId, caslUser);
 
     if (allocation.requestedBy === actorId) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { allocation: 'cannotApproveOwnRequest' },
-      });
+      throw new ForbiddenException(
+        'You cannot approve a staffing request that you submitted yourself.',
+      );
     }
 
     const updated = await this.prisma.allocation.update({
@@ -140,10 +139,9 @@ export class AllocationApprovalService {
     const allocation = await this.getPendingAllocation(allocationId, caslUser);
 
     if (allocation.requestedBy === actorId) {
-      throw new ForbiddenException({
-        status: HttpStatus.FORBIDDEN,
-        errors: { allocation: 'cannotRejectOwnRequest' },
-      });
+      throw new ForbiddenException(
+        'You cannot reject a staffing request that you submitted yourself.',
+      );
     }
 
     const updated = await this.prisma.allocation.update({
@@ -243,6 +241,7 @@ export class AllocationApprovalService {
         name: allocation.requester.displayName,
       },
       requestedAt: allocation.requestedAt.toISOString(),
+      overrideReason: allocation.overrideReason ?? null,
     };
   }
 }

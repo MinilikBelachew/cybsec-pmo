@@ -28,6 +28,7 @@ export const TEAM_DIRECTORY_MEMBERS: TeamDirectoryMember[] = [
         status: "active",
       },
     ],
+    upcomingLeave: [],
     leaveHistory: [],
   },
   {
@@ -67,6 +68,7 @@ export const TEAM_DIRECTORY_MEMBERS: TeamDirectoryMember[] = [
         status: "active",
       },
     ],
+    upcomingLeave: [],
     leaveHistory: [
       {
         id: "leave-001",
@@ -108,6 +110,7 @@ export const TEAM_DIRECTORY_MEMBERS: TeamDirectoryMember[] = [
         status: "active",
       },
     ],
+    upcomingLeave: [],
     leaveHistory: [
       {
         id: "leave-002",
@@ -148,6 +151,7 @@ export const TEAM_DIRECTORY_MEMBERS: TeamDirectoryMember[] = [
         status: "active",
       },
     ],
+    upcomingLeave: [],
     leaveHistory: [
       {
         id: "leave-003",

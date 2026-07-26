@@ -1,6 +1,7 @@
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { formatWeekLabel, getWeekEnd, getWeekStart, parseDateOnly } from './utils/week.util';
+import { timesheetNotificationSourceObjectId } from './utils/timesheet-notification-source-id.util';
 
 export async function notifyTimesheetSubmitted(
   notificationsService: NotificationsService,
@@ -32,7 +33,9 @@ export async function notifyTimesheetSubmitted(
       entryCount: options.entryCount,
     },
     sourceObjectType: 'Timesheet',
-    sourceObjectId: `${options.weekStart}:${options.actorId}`,
+    sourceObjectId: timesheetNotificationSourceObjectId(
+      `submitted:${options.weekStart}:${options.actorId}`,
+    ),
     actorId: options.actorId,
   });
 }
@@ -68,7 +71,9 @@ export async function notifyTimesheetApproved(
       comment: options.comment ?? null,
     },
     sourceObjectType: 'Timesheet',
-    sourceObjectId: options.weekStart,
+    sourceObjectId: timesheetNotificationSourceObjectId(
+      `approved:${options.weekStart}:${options.recipientUserId}`,
+    ),
     actorId: options.actorId,
   });
 }
@@ -101,7 +106,9 @@ export async function notifyTimesheetRejected(
       feedback: options.comment,
     },
     sourceObjectType: 'Timesheet',
-    sourceObjectId: options.weekStart,
+    sourceObjectId: timesheetNotificationSourceObjectId(
+      `rejected:${options.weekStart}:${options.recipientUserId}`,
+    ),
     actorId: options.actorId,
   });
 }
@@ -164,6 +171,8 @@ export async function notifyTimesheetEscalated(
       entryCount: options.entryCount,
     },
     sourceObjectType: 'TimesheetEscalation',
-    sourceObjectId: `${options.employeeId}:${options.weekStart}`,
+    sourceObjectId: timesheetNotificationSourceObjectId(
+      `escalated:${options.employeeId}:${options.weekStart}`,
+    ),
   });
 }

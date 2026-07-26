@@ -710,6 +710,8 @@ model Allocation {
   approvedBy       String?   @map("approved_by") @db.Uuid
   requestedBy      String?   @map("requested_by") @db.Uuid
   requestedAt      DateTime? @map("requested_at") @db.Timestamptz
+  /// Required when over-allocation is allowed under warn/approve policy.
+  overrideReason   String?   @map("override_reason") @db.Text
   rejectionComment String?   @map("rejection_comment")
   kekaSyncedAt     DateTime? @map("keka_synced_at") @db.Timestamptz
   kekaSyncRef      String?   @map("keka_sync_ref") @db.VarChar(100)
@@ -730,23 +732,30 @@ model Allocation {
   @@map("allocations")
 }
 
+/// One row per Keka leave request (fromDate–toDate), not per calendar day.
 model LeaveRecord {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeId  String   @map("employee_id") @db.Uuid
-  leaveDate   DateTime @map("leave_date") @db.Date
-  leaveType   String   @map("leave_type") @db.VarChar(50)
-  isApproved  Boolean  @default(false) @map("is_approved")
-  kekaStatus  Int?     @map("keka_status")
-  fromSession Int?     @map("from_session")
-  toSession   Int?     @map("to_session")
-  kekaRef     String?  @map("keka_ref") @db.VarChar(100)
-  syncedAt    DateTime @map("synced_at") @db.Timestamptz
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId         String    @map("employee_id") @db.Uuid
+  /// Keka leave request id — unique upsert key.
+  kekaRef            String    @unique @map("keka_ref") @db.VarChar(100)
+  fromDate           DateTime  @map("from_date") @db.Date
+  toDate             DateTime  @map("to_date") @db.Date
+  fromSession        Int?      @map("from_session")
+  toSession          Int?      @map("to_session")
+  leaveType          String    @map("leave_type") @db.VarChar(50)
+  isApproved         Boolean   @default(false) @map("is_approved")
+  kekaStatus         Int?      @map("keka_status")
+  note               String?   @db.Text
+  requestedOn        DateTime? @map("requested_on") @db.Timestamptz
+  cancelRejectReason String?   @map("cancel_reject_reason") @db.Text
+  lastActionTakenOn  DateTime? @map("last_action_taken_on") @db.Timestamptz
+  selection          Json?
+  syncedAt           DateTime  @map("synced_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
-  @@unique([employeeId, leaveDate], map: "uq_leave_employee_date")
   @@index([employeeId], map: "idx_leave_employee")
-  @@index([leaveDate], map: "idx_leave_date")
+  @@index([fromDate, toDate], map: "idx_leave_date_range")
   @@map("leave_records")
 }
 
@@ -1909,6 +1918,10 @@ model Customer {
   primaryEmail       String?    @unique @map("primary_email") @db.VarChar(255)
   primaryPhone       String?    @map("primary_phone") @db.VarChar(50)
   zohoContactId      String?    @unique @map("zoho_contact_id") @db.VarChar(100)
+  /// Linked Keka PSA client id (GET/POST /psa/clients).
+  kekaClientId       String?    @unique @map("keka_client_id") @db.VarChar(100)
+  kekaClientCode     String?    @map("keka_client_code") @db.VarChar(100)
+  kekaSyncedAt       DateTime?  @map("keka_synced_at") @db.Timestamptz
   accountManagerId   String?    @map("account_manager_id") @db.Uuid
   status             String     @default("Active") @db.VarChar(20)
   notes              String?
@@ -1928,6 +1941,7 @@ model Customer {
   @@index([zohoContactId], map: "idx_customers_zoho")
   @@index([status], map: "idx_customers_status")
   @@index([type], map: "idx_customers_type")
+  @@index([kekaClientCode], map: "idx_customers_keka_code")
   @@map("customers")
 }
 

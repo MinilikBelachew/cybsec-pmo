@@ -20,6 +20,7 @@ import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import {
   CreateTimesheetEntryDto,
+  QueryTimesheetContextDto,
   QueryTimesheetWeekDto,
   SubmitTimesheetWeekDto,
   UpdateTimesheetEntryDto,
@@ -62,9 +63,10 @@ export class TimesheetsController {
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: TimesheetContextDto })
   getContext(
+    @Query() query: QueryTimesheetContextDto,
     @Request() request: RequestWithAbility,
   ): Promise<TimesheetContextDto> {
-    return this.timesheetsService.getContext(request.user!.id);
+    return this.timesheetsService.getContext(request.user!.id, query.asOf);
   }
 
   @CheckAbility('update', 'Timesheet')

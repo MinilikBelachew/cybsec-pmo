@@ -5,28 +5,30 @@ import {
   GanttChartSquare,
   // FileStack,
   ClipboardList,
-  // Users,
-  // Clock,
-  // CheckCircle,
-  // AlertTriangle,
-  // Bug,
-  // Wallet,
-  // TrendingUp,
-  // Receipt,
-  // FileText,
-  // Calendar,
-  // BarChart3,
-  // PieChart,
-  // FileText,
-  // Globe,
-  // Store,
+  Users,
+  Clock,
+  CheckCircle,
+  AlertTriangle,
+  Bug,
+  Wallet,
+  TrendingUp,
+  Receipt,
+  FileText,
+  Calendar,
+  BarChart3,
+  PieChart,
+  Globe,
+  Store,
   KeyRound,
   Bell,
   ShieldCheck,
   ListChecks,
+  Plug,
   ClipboardCheck,
   // Sparkles,
+  BookUser,
   type LucideIcon,
+  FileStack,
 } from "lucide-react";
 import type { AppAbility } from "@/domains/auth/casl/define-ability";
 import type { CaslAction } from "@/domains/auth/casl/casl.constants";
@@ -43,6 +45,8 @@ export type NavChild = {
   href: string;
   badge?: string;
   permission?: NavPermission;
+  /** When set, only these role codes can see the item (in addition to permission). */
+  roles?: string[];
 };
 
 export type NavSection = {
@@ -52,6 +56,7 @@ export type NavSection = {
   href?: string;
   children?: NavChild[];
   permission?: NavPermission;
+  roles?: string[];
 };
 
 export const sidebarNav: NavSection[] = [
@@ -95,52 +100,58 @@ export const sidebarNav: NavSection[] = [
         href: "/dashboard/gantt",
         permission: { action: "read", subject: "Project" },
       },
-      // {
-      //   id: "documents",
-      //   label: "Document Vault",
-      //   icon: FileStack,
-      //   href: "/dashboard/documents",
-      //   permission: { action: "read", subject: "Document" },
-      // },
+      {
+        id: "documents",
+        label: "Document Vault",
+        icon: FileStack,
+        href: "/dashboard/documents",
+        permission: { action: "read", subject: "Document" },
+      },
     ],
   },
-  // Phase 2 — Resource & Time
-  // {
-  //   id: "resources",
-  //   label: "Resource & Time",
-  //   icon: Users,
-  //   permission: { action: "read", subject: "Team" },
-  //   children: [
-  //     {
-  //       id: "team-dir",
-  //       label: "Team Directory",
-  //       icon: Users,
-  //       href: "/dashboard/team",
-  //       permission: { action: "read", subject: "Team" },
-  //     },
-  //     {
-  //       id: "staffing-approvals",
-  //       label: "Staffing Approvals",
-  //       icon: CheckCircle,
-  //       href: "/dashboard/team/approvals",
-  //       permission: { action: "approve", subject: "Team" },
-  //     },
-  //     {
-  //       id: "log-hours",
-  //       label: "Log Hours",
-  //       icon: Clock,
-  //       href: "/dashboard/timesheets/log",
-  //       permission: { action: "update", subject: "Timesheet" },
-  //     },
-  //     {
-  //       id: "approvals",
-  //       label: "Approval Queue",
-  //       icon: CheckCircle,
-  //       href: "/dashboard/timesheets/approvals",
-  //       permission: { action: "approve", subject: "Timesheet" },
-  //     },
-  //   ],
-  // },
+  {
+    id: "resources",
+    label: "Resource & Time",
+    icon: Users,
+    permission: { action: "read", subject: "Team" },
+    children: [
+      {
+        id: "team-dir",
+        label: "Team Directory",
+        icon: Users,
+        href: "/dashboard/team",
+        permission: { action: "read", subject: "Team" },
+      },
+      {
+        id: "resource-calendar",
+        label: "Calendar",
+        icon: Calendar,
+        href: "/dashboard/calendar",
+        permission: { action: "read", subject: "Team" },
+      },
+      {
+        id: "staffing-approvals",
+        label: "Staffing Approvals",
+        icon: CheckCircle,
+        href: "/dashboard/team/approvals",
+        permission: { action: "approve", subject: "Team" },
+      },
+      {
+        id: "log-hours",
+        label: "Log Hours",
+        icon: Clock,
+        href: "/dashboard/timesheets/log",
+        permission: { action: "update", subject: "Timesheet" },
+      },
+      {
+        id: "approvals",
+        label: "Approval Queue",
+        icon: CheckCircle,
+        href: "/dashboard/timesheets/approvals",
+        permission: { action: "approve", subject: "Timesheet" },
+      },
+    ],
+  },
   // {
   //   id: "risk",
   //   label: "Risk & Issues",
@@ -192,29 +203,28 @@ export const sidebarNav: NavSection[] = [
   //     },
   //   ],
   // },
-  // Phase 2 — Reports
-  // {
-  //   id: "reports",
-  //   label: "Reports",
-  //   icon: FileText,
-  //   permission: { action: "read", subject: "Report" },
-  //   children: [
-  //     {
-  //       id: "report-library",
-  //       label: "Report Library",
-  //       icon: FileText,
-  //       href: "/dashboard/reports",
-  //       permission: { action: "read", subject: "Report" },
-  //     },
-  //     {
-  //       id: "utilization",
-  //       label: "Utilization",
-  //       icon: PieChart,
-  //       href: "/dashboard/reports/utilization",
-  //       permission: { action: "read", subject: "Report" },
-  //     },
-  //   ],
-  // },
+  {
+    id: "reports",
+    label: "Reports",
+    icon: FileText,
+    permission: { action: "read", subject: "Report" },
+    children: [
+      {
+        id: "report-library",
+        label: "Report Library",
+        icon: FileText,
+        href: "/dashboard/reports",
+        permission: { action: "read", subject: "Report" },
+      },
+      {
+        id: "utilization",
+        label: "Utilization",
+        icon: PieChart,
+        href: "/dashboard/reports/utilization",
+        permission: { action: "read", subject: "Report" },
+      },
+    ],
+  },
   // {
   //   id: "external",
   //   label: "External Access",
@@ -243,6 +253,28 @@ export const sidebarNav: NavSection[] = [
     icon: ClipboardList,
     href: "/dashboard/audit",
     permission: { action: "read", subject: "AuditLog" },
+  },
+  {
+    id: "integrations",
+    label: "Integrations",
+    icon: Plug,
+    permission: { action: "read", subject: "Integration" },
+    children: [
+      {
+        id: "integrations-hub",
+        label: "Overview",
+        icon: Plug,
+        href: "/dashboard/integrations",
+        permission: { action: "read", subject: "Integration" },
+      },
+      {
+        id: "integrations-keka",
+        label: "Keka",
+        icon: Users,
+        href: "/dashboard/integrations/keka",
+        permission: { action: "read", subject: "Integration" },
+      },
+    ],
   },
   {
     id: "roles-permissions",
@@ -274,6 +306,14 @@ export const sidebarNav: NavSection[] = [
     permission: { action: "read", subject: "Notification" },
   },
   {
+    id: "admin-directory",
+    label: "People & Org",
+    icon: BookUser,
+    href: "/dashboard/admin-directory",
+    permission: { action: "read", subject: "User" },
+    roles: ["super_admin", "it_admin"],
+  },
+  {
     id: "settings",
     label: "Settings",
     icon: KeyRound,
@@ -292,7 +332,12 @@ export const sidebarNav: NavSection[] = [
 function canSee(
   ability: AppAbility | null,
   permission?: NavPermission,
+  roles?: string[],
+  roleCode?: string | null,
 ): boolean {
+  if (roles?.length) {
+    if (!roleCode || !roles.includes(roleCode)) return false;
+  }
   if (!permission) return true;
   if (!ability) return false;
   return ability.can(permission.action, permission.subject);
@@ -301,6 +346,7 @@ function canSee(
 export function getVisibleSections(
   ability: AppAbility | null,
   permissionsLoaded = false,
+  roleCode?: string | null,
 ): NavSection[] {
   if (!permissionsLoaded) {
     return sidebarNav;
@@ -310,16 +356,20 @@ export function getVisibleSections(
     .map((section) => {
       if (section.children) {
         const children = section.children.filter((child) =>
-          canSee(ability, child.permission ?? section.permission),
+          canSee(
+            ability,
+            child.permission ?? section.permission,
+            child.roles ?? section.roles,
+            roleCode,
+          ),
         );
         if (children.length === 0) return null;
-        if (!canSee(ability, section.permission) && children.length === 0) {
-          return null;
-        }
         return { ...section, children };
       }
 
-      if (!canSee(ability, section.permission)) return null;
+      if (!canSee(ability, section.permission, section.roles, roleCode)) {
+        return null;
+      }
       return section;
     })
     .filter((section): section is NavSection => section !== null);

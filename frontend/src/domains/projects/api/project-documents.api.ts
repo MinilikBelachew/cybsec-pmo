@@ -30,6 +30,8 @@ export const projectDocumentsApi = api.injectEndpoints({
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
         { type: "WorkspaceDocuments", id: projectId },
+        { type: "WorkspaceDocuments", id: "VAULT_LIST" },
+        { type: "WorkspaceDocuments", id: "VAULT_STATS" },
         { type: "Tasks", id: "LIST" },
       ],
     }),
@@ -44,6 +46,8 @@ export const projectDocumentsApi = api.injectEndpoints({
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
         { type: "WorkspaceDocuments", id: projectId },
+        { type: "WorkspaceDocuments", id: "VAULT_LIST" },
+        { type: "WorkspaceDocuments", id: "VAULT_STATS" },
         { type: "Tasks", id: "LIST" },
       ],
     }),

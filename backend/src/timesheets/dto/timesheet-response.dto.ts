@@ -72,6 +72,12 @@ export class TimesheetEntryDto {
   @ApiProperty()
   hours: number;
 
+  @ApiProperty({ description: 'Regular (non-OT) hours' })
+  regularHours: number;
+
+  @ApiProperty({ description: 'Overtime hours' })
+  overtimeHours: number;
+
   @ApiPropertyOptional({ nullable: true })
   notes: string | null;
 
@@ -101,6 +107,9 @@ export class TimesheetWeekSummaryCardDto {
   @ApiProperty()
   billableHours: number;
 
+  @ApiProperty()
+  overtimeHours: number;
+
   @ApiProperty({ enum: ['draft', 'submitted', 'approved', 'mixed'] })
   status: 'draft' | 'submitted' | 'approved' | 'mixed';
 
@@ -126,6 +135,9 @@ export class TimesheetWeekResponseDto {
 
   @ApiProperty()
   billableHours: number;
+
+  @ApiProperty()
+  overtimeHours: number;
 
   @ApiProperty({ type: [TimesheetDaySummaryDto] })
   days: TimesheetDaySummaryDto[];

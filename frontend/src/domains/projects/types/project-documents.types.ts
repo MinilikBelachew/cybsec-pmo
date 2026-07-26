@@ -31,6 +31,7 @@ export interface WorkspaceDocument {
   createdAt: string;
   url: string | null;
   uploader: WorkspaceDocumentUploader;
+  project?: { id: string; name: string } | null;
   phase?: { id: string; name: string } | null;
   milestone?: { id: string; title: string } | null;
   task?: { id: string; title: string } | null;

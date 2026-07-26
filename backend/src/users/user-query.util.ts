@@ -41,6 +41,13 @@ export function buildUserWhere(
     });
   }
 
+  if (
+    query.filters?.isActive === true ||
+    query.filters?.isActive === false
+  ) {
+    filters.push({ isActive: query.filters.isActive });
+  }
+
   if (!filters.length) {
     return {};
   }

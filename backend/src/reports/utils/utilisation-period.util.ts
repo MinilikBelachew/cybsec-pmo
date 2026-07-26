@@ -39,19 +39,27 @@ export function countWorkingDays(start: Date, end: Date): number {
 }
 
 export function countApprovedLeaveDays(
-  leaveDates: Date[],
+  leaveRanges: Array<{ fromDate: Date; toDate: Date }>,
   rangeStart: Date,
   rangeEnd: Date,
 ): number {
-  const start = stripDate(rangeStart).getTime();
-  const end = stripDate(rangeEnd).getTime();
+  const start = stripDate(rangeStart);
+  const end = stripDate(rangeEnd);
   const seen = new Set<string>();
 
-  for (const leaveDate of leaveDates) {
-    const day = stripDate(leaveDate);
-    const dayTime = day.getTime();
-    if (dayTime >= start && dayTime <= end && isWeekday(day)) {
-      seen.add(formatDateOnly(day));
+  for (const range of leaveRanges) {
+    const leaveStart = stripDate(range.fromDate);
+    const leaveEnd = stripDate(range.toDate);
+    const overlapStart = leaveStart > start ? leaveStart : start;
+    const overlapEnd = leaveEnd < end ? leaveEnd : end;
+    if (overlapStart > overlapEnd) {
+      continue;
+    }
+
+    for (const day of eachDayInRange(overlapStart, overlapEnd)) {
+      if (isWeekday(day)) {
+        seen.add(formatDateOnly(day));
+      }
     }
   }
 

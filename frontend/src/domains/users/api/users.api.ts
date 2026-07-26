@@ -14,6 +14,9 @@ function buildUsersQuery(params: GetUsersParams) {
   if (params.search) searchParams.set("search", params.search);
   if (params.sortBy) searchParams.set("sortBy", params.sortBy);
   if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
+  if (params.filters && Object.keys(params.filters).length > 0) {
+    searchParams.set("filters", JSON.stringify(params.filters));
+  }
   const query = searchParams.toString();
   return query ? `/users?${query}` : "/users";
 }

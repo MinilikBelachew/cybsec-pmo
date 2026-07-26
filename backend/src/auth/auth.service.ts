@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import ms from 'ms';
 import crypto from 'crypto';
+import https from 'https';
 import { randomStringGenerator } from '@nestjs/common/utils/random-string-generator.util';
 import { JwtService } from '@nestjs/jwt';
 import { NullableType } from '../utils/types/nullable.type';
@@ -43,6 +44,10 @@ type CreateSessionOptions = {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly entraJwksAgent = new https.Agent({
+    family: 4,
+    keepAlive: true,
+  });
 
   constructor(
     private jwtService: JwtService,
@@ -196,12 +201,45 @@ export class AuthService {
     clientId: string,
     expectedNonce?: string,
   ): Promise<jwt.JwtPayload> {
+    const decoded = jwt.decode(idToken, { complete: true });
+    if (!decoded || typeof decoded === 'string' || !decoded.header?.kid) {
+      this.logger.warn('Entra id_token decode failed (malformed token)');
+      return Promise.reject(new UnauthorizedException('Authentication failed'));
+    }
+
+    const unverified = decoded.payload as jwt.JwtPayload;
+    const tokenTid =
+      typeof unverified.tid === 'string' && unverified.tid.trim()
+        ? unverified.tid.trim()
+        : tenantId;
+    const configuredIsWildcard = /^(common|organizations|consumers)$/i.test(
+      tenantId,
+    );
+
+    // Single-tenant apps must receive tokens for the configured directory.
+    if (!configuredIsWildcard && tokenTid !== tenantId) {
+      this.logger.warn(
+        `Entra tenant mismatch: token tid=${tokenTid} configured=${tenantId} iss=${String(unverified.iss ?? '')}`,
+      );
+      return Promise.reject(new UnauthorizedException('Authentication failed'));
+    }
+
+    const issuerCandidates = Array.from(
+      new Set([
+        `https://login.microsoftonline.com/${tokenTid}/v2.0`,
+        `https://login.microsoftonline.com/${tenantId}/v2.0`,
+        `https://sts.windows.net/${tokenTid}/`,
+      ]),
+    );
+
     return new Promise((resolve, reject) => {
       const client = jwksClient({
-        jwksUri: `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
+        jwksUri: `https://login.microsoftonline.com/${tokenTid}/discovery/v2.0/keys`,
         cache: true,
         rateLimit: true,
-        jwksRequestsPerMinute: 5,
+        jwksRequestsPerMinute: 10,
+        // Prefer IPv4 — default lookup can ETIMEDOUT to login.microsoftonline.com
+        requestAgent: this.entraJwksAgent,
       });
 
       jwt.verify(
@@ -209,6 +247,9 @@ export class AuthService {
         (header, callback) => {
           client.getSigningKey(header.kid, (err, key) => {
             if (err || !key) {
+              this.logger.warn(
+                `Entra JWKS key lookup failed for kid=${header.kid}: ${err?.message ?? 'not found'}`,
+              );
               callback(err || new Error('JWKS signing key not found'));
             } else {
               callback(null, key.getPublicKey());
@@ -217,20 +258,26 @@ export class AuthService {
         },
         {
           audience: clientId,
-          issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+          issuer: issuerCandidates,
           algorithms: ['RS256'],
+          clockTolerance: 120,
         },
         (err, result) => {
           if (err) {
+            this.logger.warn(
+              `Entra id_token verify failed: ${err.name}: ${err.message} (iss=${String(unverified.iss ?? '')} aud=${String(unverified.aud ?? '')} tid=${tokenTid})`,
+            );
             reject(new UnauthorizedException('Authentication failed'));
-          } else {
-            const payload = result as jwt.JwtPayload;
-            if (expectedNonce && payload.nonce !== expectedNonce) {
-              reject(new UnauthorizedException('Authentication failed'));
-              return;
-            }
-            resolve(payload);
+            return;
           }
+
+          const payload = result as jwt.JwtPayload;
+          if (expectedNonce && payload.nonce !== expectedNonce) {
+            this.logger.warn('Entra id_token nonce mismatch');
+            reject(new UnauthorizedException('Authentication failed'));
+            return;
+          }
+          resolve(payload);
         },
       );
     });

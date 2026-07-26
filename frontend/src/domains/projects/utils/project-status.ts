@@ -26,6 +26,9 @@ export const PROJECT_CLOSURE_APPROVER_ROLES = [
   "pm",
 ];
 
+/** Super Admin / PMO Lead can reopen Cancelled → Active. */
+export const PROJECT_REOPEN_FROM_CANCELLED_ROLES = ["super_admin", "pmo_lead"];
+
 export const PROJECT_STATUS_TRANSITIONS: Record<
   ProjectStatus,
   ProjectStatus[]
@@ -36,6 +39,7 @@ export const PROJECT_STATUS_TRANSITIONS: Record<
   AtRisk: ["Active", "OnHold", "PendingClosure", "Cancelled"],
   PendingClosure: ["Closed", "Active"],
   Closed: [],
+  // Active is injected only for reopen roles in getAllowedProjectStatusTransitions.
   Cancelled: [],
 };
 
@@ -57,6 +61,12 @@ export function getAllowedProjectStatusTransitions(
     return base.filter(
       (status) => status !== "Closed" || Boolean(canClose),
     );
+  }
+
+  if (from === "Cancelled") {
+    const canReopen =
+      roleCode && PROJECT_REOPEN_FROM_CANCELLED_ROLES.includes(roleCode);
+    return canReopen ? ["Active"] : [];
   }
 
   return base;

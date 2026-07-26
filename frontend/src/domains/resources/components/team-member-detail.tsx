@@ -7,6 +7,7 @@ import {
   Building2,
   Calendar,
   Clock,
+  Clock3,
   Mail,
   User,
 } from "lucide-react";
@@ -16,8 +17,10 @@ import { cn } from "@/shared/utils/cn";
 import type { TeamDirectoryMember, TeamLeaveRecord } from "../types/resources.types";
 import { formatAllocationDateRange } from "@/domains/projects/utils/allocation-date.utils";
 import { KEKA_SYNC_CONFIG, UTILIZATION_CONFIG } from "../utils/resource-ui.config";
+import { formatLeaveLabel } from "../utils/team-directory.mapper";
+import { TeamMemberAttendanceTab } from "./team-member-attendance-tab";
 
-type DetailTab = "profile" | "assignments" | "leave";
+type DetailTab = "profile" | "assignments" | "leave" | "attendance";
 
 const LEAVE_STATUS_STYLES: Record<TeamLeaveRecord["status"], string> = {
   approved:
@@ -140,6 +143,11 @@ export function TeamMemberDetail({
               icon: Calendar,
               count: member.leaveHistory.length,
             },
+            {
+              id: "attendance" as const,
+              label: "Attendance",
+              icon: Clock3,
+            },
           ]
         ).map(({ id, label, icon: Icon, count }) => (
           <button
@@ -172,6 +180,7 @@ export function TeamMemberDetail({
       {tab === "profile" && <ProfileTab member={member} util={util} />}
       {tab === "assignments" && <AssignmentsTab member={member} />}
       {tab === "leave" && <LeaveTab member={member} />}
+      {tab === "attendance" && <TeamMemberAttendanceTab employeeId={member.id} />}
     </div>
   );
 }
@@ -330,7 +339,10 @@ function AssignmentsTab({ member }: { member: TeamDirectoryMember }) {
 }
 
 function LeaveTab({ member }: { member: TeamDirectoryMember }) {
-  if (member.leaveHistory.length === 0) {
+  const upcoming = member.upcomingLeave.filter((leave) => leave.status === "approved");
+  const history = member.leaveHistory;
+
+  if (upcoming.length === 0 && history.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border/60 py-16 text-center">
         <Calendar className="mx-auto size-8 text-muted-foreground/50" />
@@ -343,41 +355,87 @@ function LeaveTab({ member }: { member: TeamDirectoryMember }) {
   }
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {member.leaveHistory.length} leave record{member.leaveHistory.length === 1 ? "" : "s"}
-      </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {member.leaveHistory.map((leave) => (
-          <div
-            key={leave.id}
-            className="flex gap-3 rounded-xl border border-border/60 bg-card p-4"
-          >
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-              <Calendar className="size-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold">{leave.type}</p>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold capitalize",
-                    LEAVE_STATUS_STYLES[leave.status],
-                  )}
-                >
-                  {leave.status}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {leave.from}
-                {leave.to !== leave.from ? ` – ${leave.to}` : ""}
-              </p>
-              <p className="mt-2 text-[11px] font-medium text-muted-foreground">
-                {leave.days} day{leave.days === 1 ? "" : "s"}
-              </p>
-            </div>
+    <div className="space-y-6">
+      {upcoming.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold">Upcoming leave</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Approved leave in the current planning window
+            </p>
           </div>
-        ))}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {upcoming.map((leave) => (
+              <LeaveCard key={`upcoming-${leave.id}`} leave={leave} highlight />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Leave history</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {history.length} record{history.length === 1 ? "" : "s"} from Keka
+          </p>
+        </div>
+        {history.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border/60 px-4 py-8 text-center text-sm text-muted-foreground">
+            No historical leave records yet.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {history.map((leave) => (
+              <LeaveCard key={leave.id} leave={leave} />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function LeaveCard({
+  leave,
+  highlight = false,
+}: {
+  leave: TeamLeaveRecord;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex gap-3 rounded-xl border bg-card p-4",
+        highlight
+          ? "border-amber-200/80 dark:border-amber-800/60"
+          : "border-border/60",
+      )}
+    >
+      <div
+        className={cn(
+          "flex size-10 shrink-0 items-center justify-center rounded-lg",
+          highlight
+            ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+            : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+        )}
+      >
+        <Calendar className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold">{leave.type}</p>
+          <span
+            className={cn(
+              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold capitalize",
+              LEAVE_STATUS_STYLES[leave.status],
+            )}
+          >
+            {leave.status}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {formatLeaveLabel(leave)}
+        </p>
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
+import { KpiStatCard, KPI_CARD_THEMES } from "@/shared/components/kpi-stat-card";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { cn } from "@/shared/utils/cn";
@@ -179,27 +180,43 @@ export function ApprovalQueuePage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          { label: "Pending", value: stats.pending, color: "text-amber-600", icon: Clock },
-          { label: "Approved", value: stats.approved, color: "text-emerald-600", icon: CheckCircle2 },
-          { label: "Rejected", value: stats.rejected, color: "text-rose-600", icon: X },
-          { label: "Escalated", value: stats.escalated, color: "text-foreground", icon: AlertCircle },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <div
-              key={item.label}
-              className="flex items-center gap-3 rounded-xl border border-border/50 bg-card px-4 py-3"
-            >
-              <Icon className={cn("size-5 shrink-0", item.color)} />
-              <div>
-                <p className={cn("text-xl font-bold", item.color)}>{item.value}</p>
-                <p className="text-xs text-muted-foreground">{item.label}</p>
-              </div>
-            </div>
-          );
-        })}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiStatCard
+          title="Pending"
+          subtitle="Awaiting review"
+          value={stats.pending}
+          numericValue={stats.pending}
+          chartMax={Math.max(stats.pending + stats.approved + stats.rejected, 1)}
+          icon={Clock}
+          theme={KPI_CARD_THEMES.primary}
+        />
+        <KpiStatCard
+          title="Approved"
+          subtitle="This queue view"
+          value={stats.approved}
+          numericValue={stats.approved}
+          chartMax={Math.max(stats.pending + stats.approved + stats.rejected, 1)}
+          icon={CheckCircle2}
+          theme={KPI_CARD_THEMES.emerald}
+        />
+        <KpiStatCard
+          title="Rejected"
+          subtitle="Needs resubmission"
+          value={stats.rejected}
+          numericValue={stats.rejected}
+          chartMax={Math.max(stats.pending + stats.approved + stats.rejected, 1)}
+          icon={X}
+          theme={KPI_CARD_THEMES.rose}
+        />
+        <KpiStatCard
+          title="Escalated"
+          subtitle="Delayed approvals"
+          value={stats.escalated}
+          numericValue={stats.escalated}
+          chartMax={Math.max(stats.pending, stats.escalated, 1)}
+          icon={AlertCircle}
+          theme={KPI_CARD_THEMES.slate}
+        />
       </div>
 
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
@@ -300,6 +317,9 @@ export function ApprovalQueuePage() {
                     <p className="text-sm font-bold">{submission.totalHours.toFixed(1)}h</p>
                     <p className="text-[10px] text-muted-foreground">
                       {submission.billableHours.toFixed(1)}h billable
+                      {(submission.overtimeHours ?? 0) > 0
+                        ? ` · ${submission.overtimeHours.toFixed(1)}h OT`
+                        : ""}
                     </p>
                   </div>
 
@@ -341,6 +361,14 @@ export function ApprovalQueuePage() {
                       </Button>
                     </div>
                   )}
+
+                  <ChevronDown
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                      isExpanded && "rotate-180 text-primary",
+                    )}
+                    aria-hidden
+                  />
                 </div>
 
                 {isExpanded && (
@@ -360,7 +388,7 @@ export function ApprovalQueuePage() {
                         {submission.entries.map((entry) => (
                           <div
                             key={entry.id}
-                            className="grid grid-cols-[80px_1fr_1fr_80px_90px] items-start gap-3 px-4 py-2.5 transition-colors hover:bg-muted/20"
+                            className="grid grid-cols-[80px_1fr_1fr_110px_90px] items-start gap-3 px-4 py-2.5 transition-colors hover:bg-muted/20"
                           >
                             <p className="text-xs font-medium">{entry.date}</p>
                             <div>
@@ -370,7 +398,19 @@ export function ApprovalQueuePage() {
                             <p className="text-xs text-muted-foreground">
                               {entry.description || "—"}
                             </p>
-                            <p className="text-sm font-bold">{entry.hours}h</p>
+                            <div>
+                              <p className="text-sm font-bold">{entry.hours}h</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {(entry.regularHours ?? entry.hours) > 0
+                                  ? `${entry.regularHours ?? entry.hours}h`
+                                  : "0h"}
+                                {(entry.overtimeHours ?? 0) > 0
+                                  ? ` + ${entry.overtimeHours}h OT`
+                                  : ""}
+                                {" · "}
+                                {entry.isBillable === false ? "Non-billable" : "Billable"}
+                              </p>
+                            </div>
                             <div className="flex items-center gap-1">
                               {entry.kekaSyncStatus === "synced" && (
                                 <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-600">
@@ -390,6 +430,7 @@ export function ApprovalQueuePage() {
                                     className="h-6 px-1.5 text-[10px]"
                                     disabled={retryingId === entry.id}
                                     onClick={() => retryEntrySync(entry.id)}
+                                    data-testid="approval-keka-retry"
                                   >
                                     {retryingId === entry.id ? (
                                       <Loader2 className="size-3 animate-spin" />
@@ -462,6 +503,7 @@ export function ApprovalQueuePage() {
                             className="gap-1.5 bg-emerald-600 hover:bg-emerald-600/90"
                             disabled={approving || rejecting}
                             onClick={() => approve(submission)}
+                            data-testid="approval-approve"
                           >
                             <CheckCircle2 className="size-4" />
                             Approve Timesheet
@@ -472,6 +514,7 @@ export function ApprovalQueuePage() {
                             className="gap-1.5"
                             disabled={approving || rejecting}
                             onClick={() => reject(submission)}
+                            data-testid="approval-reject"
                           >
                             <X className="size-4" />
                             Reject & Send Feedback

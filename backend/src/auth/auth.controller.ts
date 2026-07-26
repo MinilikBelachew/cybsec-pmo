@@ -186,7 +186,25 @@ export class AuthController {
       return 'invalid_state';
     }
     if (err instanceof UnauthorizedException) {
+      const response = err.getResponse();
+      const fromResponse =
+        typeof response === 'string'
+          ? response
+          : typeof response === 'object' &&
+              response &&
+              'message' in response
+            ? Array.isArray((response as { message: unknown }).message)
+              ? ((response as { message: string[] }).message).join(' ')
+              : String((response as { message: unknown }).message ?? '')
+            : '';
+      const message = `${fromResponse} ${err.message}`;
+      if (/network|ETIMEDOUT|timed out|fetch failed/i.test(message)) {
+        return 'microsoft_unreachable';
+      }
       return 'invalid_token';
+    }
+    if (err instanceof Error && /ETIMEDOUT|fetch failed|timed out/i.test(err.message)) {
+      return 'microsoft_unreachable';
     }
     return 'auth_failed';
   }

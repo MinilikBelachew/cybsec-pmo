@@ -4,50 +4,67 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
-// Parse backend .env for configuration
-const backendEnvPath = path.resolve(__dirname, "../../../../backend/.env");
+// Parse backend .env for JWT only; DB URL targets Docker Postgres published on the host.
+const backendEnvPath = path.resolve(__dirname, "../../../backend/.env");
+
+/** docker-compose.dev.yml: postgres published as host localhost:5435, password m123 */
+const DOCKER_HOST_DATABASE_URL =
+  "postgresql://postgres:m123@127.0.0.1:5435/cybsec_pmo?schema=public";
+
 let jwtSecret = "secret";
-let databaseUrl = "postgresql://postgres:m123@localhost:5435/cybsec_pmo?schema=public";
+let databaseUrl =
+  process.env.PLAYWRIGHT_DATABASE_URL || DOCKER_HOST_DATABASE_URL;
 
 if (fs.existsSync(backendEnvPath)) {
   const envContent = fs.readFileSync(backendEnvPath, "utf-8");
-  const envLines = envContent.split("\n");
-  for (const line of envLines) {
+  for (const line of envContent.split("\n")) {
     const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (match) {
-      const key = match[1];
-      let val = match[2].trim();
-      // Remove quotes if present
-      if (val.startsWith('"') && val.endsWith('"')) {
-        val = val.substring(1, val.length - 1);
-      }
-      if (val.startsWith("'") && val.endsWith("'")) {
-        val = val.substring(1, val.length - 1);
-      }
-      if (key === "AUTH_JWT_SECRET") {
-        jwtSecret = val;
-      } else if (key === "DATABASE_URL") {
-        databaseUrl = val;
-      }
+    if (!match) continue;
+    const key = match[1];
+    let val = match[2].trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
     }
+    if (key === "AUTH_JWT_SECRET") {
+      jwtSecret = val;
+    }
+    // Intentionally ignore DATABASE_URL from backend/.env when running Playwright
+    // on the host against Docker: .env often points at localhost:5432 with a
+    // different password than the compose Postgres (m123 on :5435).
   }
-}
-
-// Map localhost:5435 if running on host mac
-// If database url contains "postgres" as host (from docker network), replace it with localhost
-if (databaseUrl.includes("@postgres:")) {
-  databaseUrl = databaseUrl.replace("@postgres:", "@localhost:");
-}
-// Keep port mapped port (exposed as 5435 in docker-compose)
-if (databaseUrl.includes(":5432/")) {
-  databaseUrl = databaseUrl.replace(":5432/", ":5435/");
 }
 
 export async function getDbClient(): Promise<Client> {
   const client = new Client({
     connectionString: databaseUrl,
   });
-  await client.connect();
+  try {
+    await client.connect();
+  } catch (error: any) {
+    const hint =
+      "E2E DB connection failed. With Docker Compose running, Playwright expects Postgres at:\n" +
+      `  ${DOCKER_HOST_DATABASE_URL.replace(/:[^:@/]+@/, ":***@")}\n` +
+      "  docker compose -f docker-compose.dev.yml up -d postgres\n" +
+      "Override with PLAYWRIGHT_DATABASE_URL if needed.\n" +
+      `Tried: ${databaseUrl.replace(/:[^:@/]+@/, ":***@")}`;
+    if (
+      error?.code === "ECONNREFUSED" ||
+      error?.code === "28P01" ||
+      error?.message?.includes("password authentication failed") ||
+      error?.name === "AggregateError" ||
+      (Array.isArray(error?.errors) &&
+        error.errors.some(
+          (e: any) =>
+            e?.code === "ECONNREFUSED" || e?.code === "28P01",
+        ))
+    ) {
+      throw new Error(hint, { cause: error });
+    }
+    throw error;
+  }
   return client;
 }
 
@@ -86,7 +103,7 @@ export async function createTestSession(
       .createHash("sha256")
       .update(crypto.randomBytes(32))
       .digest("hex");
-    
+
     // Set expiration to 30 days
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
@@ -95,7 +112,14 @@ export async function createTestSession(
     await client.query(
       `INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at, is_break_glass, break_glass_reason, created_at) 
        VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-      [sessionId, user.id, refreshTokenHash, expiresAt, isBreakGlass, breakGlassReason]
+      [
+        sessionId,
+        user.id,
+        refreshTokenHash,
+        expiresAt,
+        isBreakGlass,
+        breakGlassReason,
+      ]
     );
 
     // 4. Sign JWT token matching NestJS format

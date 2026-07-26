@@ -48,4 +48,14 @@ export class UpdateAllocationDto {
   @IsOptional()
   @IsDateString()
   endDate?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'Short-term surge coverage for critical delivery',
+    description:
+      'Required when update would over-allocate under warn/approve threshold policy (min 10 chars).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  overrideReason?: string;
 }

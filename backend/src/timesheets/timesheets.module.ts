@@ -6,7 +6,6 @@ import { TimesheetsController } from './timesheets.controller';
 import { TimesheetApprovalService } from './timesheet-approval.service';
 import { TimesheetEscalationService } from './timesheet-escalation.service';
 import { TimesheetEscalationScheduler } from './timesheet-escalation.scheduler';
-import { TimesheetKekaRetryScheduler } from './timesheet-keka-retry.scheduler';
 import { TimesheetsService } from './timesheets.service';
 
 @Module({
@@ -17,7 +16,6 @@ import { TimesheetsService } from './timesheets.service';
     TimesheetApprovalService,
     TimesheetEscalationService,
     TimesheetEscalationScheduler,
-    TimesheetKekaRetryScheduler,
   ],
   exports: [TimesheetsService, TimesheetApprovalService],
 })

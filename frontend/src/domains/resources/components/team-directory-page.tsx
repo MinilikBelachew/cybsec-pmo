@@ -39,7 +39,7 @@ import type {
   TeamLeaveSortField,
   UtilizationStatus,
 } from "../types/resources.types";
-import { mapTeamDirectoryMember } from "../utils/team-directory.mapper";
+import { formatUpcomingLeaveSummary, mapTeamDirectoryMember } from "../utils/team-directory.mapper";
 import { KEKA_SYNC_CONFIG, UTILIZATION_CONFIG } from "../utils/resource-ui.config";
 import { createTeamDirectoryColumns } from "./team-directory-columns";
 import { createTeamLeaveColumns } from "./team-leave-columns";
@@ -182,7 +182,7 @@ export function TeamDirectoryPage() {
   }
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-6 pb-10" data-testid="team-directory">
       <PageHeader
         title="Team Directory"
         description={`${stats.total} employees · utilization from active project allocations in the next 90 days`}
@@ -373,7 +373,7 @@ export function TeamDirectoryPage() {
             minTableWidth="min-w-[960px]"
             onRowClick={handleSelectMember}
             enableColumnReorder
-            columnOrderStorageKey="cybsec-team-directory-column-order"
+            columnOrderStorageKey="cybsec-team-directory-column-order-v3"
           />
         )
       ) : (
@@ -526,6 +526,15 @@ function MemberCard({
             <span>{member.remainingHours}h remaining</span>
           </div>
         </div>
+        {(() => {
+          const leaveLabel = formatUpcomingLeaveSummary(member.upcomingLeave);
+          if (!leaveLabel) return null;
+          return (
+            <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              {leaveLabel}
+            </p>
+          );
+        })()}
         {member.projects.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {member.projects.slice(0, 3).map((project) => (

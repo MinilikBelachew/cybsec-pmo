@@ -95,12 +95,22 @@ export class DashboardService {
         status: true,
         priority: true,
         endDate: true,
+        progressApproved: true,
+        parentTaskId: true,
       },
     });
 
     const totalTasks = tasks.length;
     const doneTasks = tasks.filter((t) => t.status === TaskStatus.Done).length;
     const openTasks = totalTasks - doneTasks;
+    const topLevelTasks = tasks.filter((t) => !t.parentTaskId);
+    const completionRate =
+      topLevelTasks.length > 0
+        ? Math.round(
+            topLevelTasks.reduce((sum, task) => sum + task.progressApproved, 0) /
+              topLevelTasks.length,
+          )
+        : 0;
 
     const now = new Date();
     const overdueTasks = tasks.filter(
@@ -138,7 +148,7 @@ export class DashboardService {
         done: doneTasks,
         open: openTasks,
         overdue: overdueTasks,
-        completionRate: totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0,
+        completionRate,
       },
       risks: {
         activeCount: activeRisks,
@@ -186,15 +196,15 @@ export class DashboardService {
     const budgetIdToProjectId = new Map(budgets.map((b) => [b.id, b.projectId]));
     const budgetIds = budgets.map((b) => b.id);
 
-    const [doneTasks, doneMilestones] = projectIds.length
+    const [taskProgress, doneMilestones] = projectIds.length
       ? await Promise.all([
           this.prisma.task.groupBy({
             by: ['projectId'],
             where: {
               projectId: { in: projectIds },
               parentTaskId: null,
-              status: TaskStatus.Done,
             },
+            _avg: { progressApproved: true },
             _count: { _all: true },
           }),
           this.prisma.projectMilestone.groupBy({
@@ -226,7 +236,15 @@ export class DashboardService {
           })
         : [];
 
-    const doneTasksMap = new Map(doneTasks.map((t) => [t.projectId, t._count._all]));
+    const taskProgressMap = new Map(
+      taskProgress.map((row) => [
+        row.projectId,
+        {
+          avg: Math.round(row._avg.progressApproved ?? 0),
+          count: row._count._all,
+        },
+      ]),
+    );
     const doneMilestonesMap = new Map(
       doneMilestones.map((m) => [m.projectId, m._count._all]),
     );
@@ -250,14 +268,14 @@ export class DashboardService {
 
     return projects.map((p) => {
       const tasksTotal = p._count.tasks;
-      const tasksDone = doneTasksMap.get(p.id) ?? 0;
+      const approvedProgress = taskProgressMap.get(p.id);
       const progress =
         p.status === ProjectStatus.Closed
           ? 100
           : p.status === ProjectStatus.Draft
             ? 0
-            : tasksTotal > 0
-              ? Math.round((tasksDone / tasksTotal) * 100)
+            : approvedProgress && approvedProgress.count > 0
+              ? approvedProgress.avg
               : 0;
 
       const base = {

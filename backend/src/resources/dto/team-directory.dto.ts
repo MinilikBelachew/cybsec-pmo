@@ -186,6 +186,66 @@ export class TeamLeaveListResponseDto {
   total: number;
 }
 
+export class EmployeeAttendanceRowDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty({ example: '2026-07-13' })
+  attendanceDate: string;
+
+  @ApiPropertyOptional({
+    description: 'Keka day type: 0 Working, 1 Holiday, 2 WeeklyOff, 3 Leave, 4 Unknown',
+  })
+  dayType: number | null;
+
+  @ApiPropertyOptional()
+  shiftStartTime: string | null;
+
+  @ApiPropertyOptional()
+  shiftEndTime: string | null;
+
+  @ApiPropertyOptional()
+  shiftDuration: number | null;
+
+  @ApiPropertyOptional()
+  shiftEffectiveDuration: number | null;
+
+  @ApiPropertyOptional()
+  totalEffectiveHours: number | null;
+
+  @ApiPropertyOptional()
+  totalGrossHours: number | null;
+
+  @ApiPropertyOptional()
+  firstInAt: string | null;
+
+  @ApiPropertyOptional()
+  lastOutAt: string | null;
+
+  @ApiProperty()
+  syncedAt: string;
+}
+
+export class EmployeeAttendanceListResponseDto {
+  @ApiProperty({ type: [EmployeeAttendanceRowDto] })
+  rows: EmployeeAttendanceRowDto[];
+
+  @ApiProperty()
+  page: number;
+
+  @ApiProperty()
+  limit: number;
+
+  @ApiProperty()
+  total: number;
+
+  @ApiPropertyOptional({
+    description: 'Latest successful attendance sync for this employee',
+    nullable: true,
+  })
+  lastSuccessfulSyncAt: string | null;
+}
+
 export class DesignationOptionsDto {
   @ApiProperty({ type: [String] })
   options: string[];

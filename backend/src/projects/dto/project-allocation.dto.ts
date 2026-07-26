@@ -119,6 +119,12 @@ export class ProjectAllocationDto {
   @ApiPropertyOptional({ nullable: true })
   requestedAt: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Reason captured when over-allocation was authorised',
+  })
+  overrideReason: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   approvedBy: { id: string; name: string } | null;
 

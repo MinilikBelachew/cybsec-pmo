@@ -40,6 +40,8 @@ export function useModulePermissions() {
       canCreatePhases: hasModulePermission(permissions, "phases", "create"),
       canEditPhases: hasModulePermission(permissions, "phases", "edit"),
       canEditDependencies: hasModulePermission(permissions, "dependencies", "edit"),
+      canViewDocuments: hasModulePermission(permissions, "documents", "view_internal"),
+      canUploadDocuments: hasModulePermission(permissions, "documents", "upload_shared"),
     }),
     [permissions],
   );

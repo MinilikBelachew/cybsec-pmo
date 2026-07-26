@@ -28,6 +28,9 @@ function getErrorMessage(code: string | null): string | null {
   if (code === "session_failed" || code === "auth_failed") {
     return "Authentication failed. Please try again.";
   }
+  if (code === "microsoft_unreachable") {
+    return "Could not reach Microsoft sign-in from the server. Check your network/VPN and try again.";
+  }
   if (code === "session_timeout") {
     return "Your session ended due to inactivity. Please sign in again.";
   }

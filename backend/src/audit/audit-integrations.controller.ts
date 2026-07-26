@@ -19,14 +19,17 @@ import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import {
   FailedSyncRecordListResponseDto,
   KekaSyncLogListResponseDto,
+  KekaSyncStatusResponseDto,
   QueryFailedSyncRecordsDto,
   QueryKekaSyncLogsDto,
+  QueryTimesheetReconcileDto,
   RetryKekaSyncDto,
   RetryKekaSyncResultDto,
-} from '../keka/dto/keka-integration.dto';
-import { KekaIntegrationAdminService } from '../keka/keka-integration-admin.service';
-import { KekaSyncEnqueueResultDto } from '../keka/dto/keka-sync.dto';
-import { KekaSyncService } from '../keka/sync/keka-sync.service';
+  TimesheetReconcileResponseDto,
+} from '../integrations/keka/dto/keka-integration.dto';
+import { KekaIntegrationAdminService } from '../integrations/keka/keka-integration-admin.service';
+import { KekaSyncEnqueueResultDto } from '../integrations/keka/dto/keka-sync.dto';
+import { KekaSyncService } from '../integrations/keka/sync/keka-sync.service';
 
 type RequestWithUser = {
   user?: { id: string };
@@ -45,6 +48,14 @@ export class AuditIntegrationsController {
     private readonly kekaIntegrationAdminService: KekaIntegrationAdminService,
     private readonly kekaSyncService: KekaSyncService,
   ) {}
+
+  @CheckModulePermission('audit', 'view')
+  @Get('sync-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncStatusResponseDto })
+  getSyncStatus(): Promise<KekaSyncStatusResponseDto> {
+    return this.kekaIntegrationAdminService.getSyncStatus();
+  }
 
   @CheckModulePermission('audit', 'view')
   @Get('sync-logs')
@@ -125,6 +136,14 @@ export class AuditIntegrationsController {
   }
 
   @CheckModulePermission('integrations', 'configure')
+  @Post('sync/clients')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
+  syncClients(): Promise<KekaSyncEnqueueResultDto> {
+    return this.kekaSyncService.enqueueClientsSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
   @Post('sync/projects')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
@@ -138,5 +157,28 @@ export class AuditIntegrationsController {
   @ApiOkResponse({ type: KekaSyncEnqueueResultDto })
   syncAll(): Promise<KekaSyncEnqueueResultDto> {
     return this.kekaSyncService.enqueueFullSync();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('timesheet-reconcile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TimesheetReconcileResponseDto })
+  reconcileTimesheets(
+    @Body() body: QueryTimesheetReconcileDto,
+  ): Promise<TimesheetReconcileResponseDto> {
+    return this.kekaIntegrationAdminService.reconcileTimesheets(body);
+  }
+
+  @CheckModulePermission('audit', 'view')
+  @Get('timesheet-reconcile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TimesheetReconcileResponseDto })
+  getTimesheetReconcile(
+    @Query() query: QueryTimesheetReconcileDto,
+  ): Promise<TimesheetReconcileResponseDto> {
+    return this.kekaIntegrationAdminService.reconcileTimesheets({
+      ...query,
+      notifyAdmins: false,
+    });
   }
 }

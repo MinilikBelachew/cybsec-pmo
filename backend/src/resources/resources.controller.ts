@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Query,
   Request,
@@ -25,9 +26,11 @@ import {
 } from './dto/allocation-approval.dto';
 import { QueryTeamDirectoryDto } from './dto/query-team-directory.dto';
 import { QueryTeamLeaveDto } from './dto/query-team-leave.dto';
+import { QueryEmployeeAttendanceDto } from './dto/query-employee-attendance.dto';
 import {
   AllocationPolicyDto,
   DesignationOptionsDto,
+  EmployeeAttendanceListResponseDto,
   TeamDirectoryResponseDto,
   TeamLeaveListResponseDto,
 } from './dto/team-directory.dto';
@@ -37,6 +40,13 @@ import {
   LeaveImpactListResponseDto,
   QueryLeaveImpactsDto,
 } from './dto/leave-impact.dto';
+import { QueryHolidaysDto } from './dto/query-holidays.dto';
+import { HolidayCalendarListResponseDto } from './dto/holidays.dto';
+import { HolidaysService } from './holidays.service';
+import {
+  AdminDepartmentListResponseDto,
+  QueryAdminDepartmentsDto,
+} from './dto/admin-departments.dto';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -51,7 +61,38 @@ export class ResourcesController {
     private readonly teamDirectoryService: TeamDirectoryService,
     private readonly allocationApprovalService: AllocationApprovalService,
     private readonly leaveBackupService: LeaveBackupService,
+    private readonly holidaysService: HolidaysService,
   ) {}
+
+  @CheckAbility('read', 'Team')
+  @Get('holidays')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: HolidayCalendarListResponseDto })
+  listHolidays(
+    @Query() query: QueryHolidaysDto,
+  ): Promise<HolidayCalendarListResponseDto> {
+    return this.holidaysService.listHolidays(query);
+  }
+
+  @CheckAbility('read', 'User')
+  @Get('departments')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: AdminDepartmentListResponseDto })
+  listAdminDepartments(
+    @Query() query: QueryAdminDepartmentsDto,
+  ): Promise<AdminDepartmentListResponseDto> {
+    return this.teamDirectoryService.listAdminDepartments(query);
+  }
+
+  @CheckAbility('read', 'User')
+  @Get('employees')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TeamDirectoryResponseDto })
+  listAdminEmployees(
+    @Query() query: QueryTeamDirectoryDto,
+  ): Promise<TeamDirectoryResponseDto> {
+    return this.teamDirectoryService.listAdminEmployees(query);
+  }
 
   @CheckAbility('read', 'Team')
   @Get('team')
@@ -73,6 +114,22 @@ export class ResourcesController {
     @Request() request: RequestWithAbility,
   ): Promise<TeamLeaveListResponseDto> {
     return this.teamDirectoryService.findLeave(query, request.caslUser!);
+  }
+
+  @CheckAbility('read', 'Team')
+  @Get('team/:employeeId/attendance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: EmployeeAttendanceListResponseDto })
+  findEmployeeAttendance(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: QueryEmployeeAttendanceDto,
+    @Request() request: RequestWithAbility,
+  ): Promise<EmployeeAttendanceListResponseDto> {
+    return this.teamDirectoryService.findEmployeeAttendance(
+      employeeId,
+      query,
+      request.caslUser!,
+    );
   }
 
   @CheckAbility('approve', 'Team')

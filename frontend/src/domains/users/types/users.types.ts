@@ -43,6 +43,11 @@ export interface GetUsersParams {
   search?: string;
   sortBy?: UserSortField;
   sortOrder?: "asc" | "desc";
+  /** Serialized as JSON `filters` query param (role codes / isActive). */
+  filters?: {
+    roles?: Array<{ id?: number; code?: string }>;
+    isActive?: boolean;
+  };
 }
 
 export interface PaginatedUsersResponse {

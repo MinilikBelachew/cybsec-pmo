@@ -14,7 +14,7 @@ import {
   KEKA_MOCK_DEPARTMENTS,
   KEKA_MOCK_EMPLOYEE_IDS,
   KEKA_MOCK_JOB_TITLE_IDS,
-} from '../src/keka/mock/keka-mock.ids';
+} from '../src/integrations/keka/mock/keka-mock.ids';
 
 const prisma = new PrismaClient();
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -17,6 +17,7 @@ import {
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/ui/button";
+import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import {
   Select,
   SelectContent,
@@ -25,6 +26,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
+import { getApiErrorMessage } from "@/core/errors/api-error";
 import {
   useCreateTimesheetEntryMutation,
   useDeleteTimesheetEntryMutation,
@@ -40,6 +42,18 @@ import type {
   TimesheetWeekEntry,
 } from "../types/resources.types";
 import { TIMESHEET_STATUS_CONFIG } from "../utils/resource-ui.config";
+import {
+  getTodayDateKey,
+  parseHoursInput,
+  sanitizeHoursInput,
+  validateEntryHours,
+  hasEntryHoursErrors,
+} from "../utils/timesheet-error.utils";
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="text-xs text-rose-600 dark:text-rose-400">{message}</p>;
+}
 
 function toUiStatus(status: string): TimesheetEntryStatus {
   return status.toLowerCase() as TimesheetEntryStatus;
@@ -57,8 +71,16 @@ export function LogHoursPage() {
   const [weekStart, setWeekStart] = useState<string | undefined>(initialWeekStart);
   const [activeDate, setActiveDate] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
 
-  const { data: context, isLoading: contextLoading } = useGetTimesheetContextQuery();
+  const today = getTodayDateKey();
+
+  const { data: context, isLoading: contextLoading } = useGetTimesheetContextQuery(
+    activeDate ? { asOf: activeDate } : undefined,
+  );
   const {
     data: week,
     isLoading: weekLoading,
@@ -86,12 +108,28 @@ export function LogHoursPage() {
 
   useEffect(() => {
     if (!week?.days.length) return;
-    if (!activeDate || !week.days.some((day) => day.date === activeDate)) {
-      const today = new Date().toISOString().slice(0, 10);
-      const todayInWeek = week.days.find((day) => day.date === today);
-      setActiveDate(todayInWeek?.date ?? week.days[week.days.length - 1].date);
+
+    const selectableDays = week.days.filter((day) => day.date <= today);
+    if (!selectableDays.length) {
+      setActiveDate(week.days[0].date);
+      return;
     }
-  }, [week?.days, activeDate]);
+
+    if (
+      !activeDate ||
+      !week.days.some((day) => day.date === activeDate) ||
+      activeDate > today
+    ) {
+      const todayInWeek = selectableDays.find((day) => day.date === today);
+      setActiveDate(todayInWeek?.date ?? selectableDays[selectableDays.length - 1].date);
+    }
+  }, [week?.days, activeDate, today]);
+
+  useEffect(() => {
+    if (activeDate && activeDate > today && showForm) {
+      setShowForm(false);
+    }
+  }, [activeDate, today, showForm]);
 
   const dayEntries = useMemo(
     () => week?.entries.filter((entry) => entry.workDate === activeDate) ?? [],
@@ -99,6 +137,7 @@ export function LogHoursPage() {
   );
 
   const activeDay = week?.days.find((day) => day.date === activeDate);
+  const isFutureDate = Boolean(activeDate && activeDate > today);
   const dayHours = activeDay?.totalHours ?? 0;
   const overThreshold = activeDay?.isOverThreshold ?? false;
   const draftCount =
@@ -115,8 +154,10 @@ export function LogHoursPage() {
   async function handleDelete(id: string) {
     try {
       await deleteEntry(id).unwrap();
-    } catch {
-      toast.error("Could not delete entry.");
+      toast.success("Entry deleted.");
+      setDeleteConfirm(null);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not delete entry."));
     }
   }
 
@@ -125,8 +166,8 @@ export function LogHoursPage() {
     try {
       const result = await submitWeek({ weekStart: week.weekStart }).unwrap();
       toast.success(`Submitted ${result.submittedCount} entries for approval.`);
-    } catch {
-      toast.error("Could not submit week.");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not submit week."));
     }
   }
 
@@ -135,8 +176,8 @@ export function LogHoursPage() {
     try {
       const result = await resubmitWeek({ weekStart: week.weekStart }).unwrap();
       toast.success(`Resubmitted ${result.submittedCount} entries for approval.`);
-    } catch {
-      toast.error("Could not resubmit week.");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not resubmit week."));
     }
   }
 
@@ -174,29 +215,11 @@ export function LogHoursPage() {
     <div className="space-y-6 pb-10">
       <PageHeader
         title="Log Hours"
-        description={`Week of ${week.weekLabel} · ${week.totalHours.toFixed(1)}h logged`}
+        description={`Week of ${week.weekLabel} · ${week.totalHours.toFixed(1)}h logged${
+          (week.overtimeHours ?? 0) > 0 ? ` · ${week.overtimeHours.toFixed(1)}h OT` : ""
+        }`}
         actions={
           <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-lg border border-border/60">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8"
-                onClick={() => setWeekStart(shiftWeekStart(week.weekStart, -1))}
-                aria-label="Previous week"
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8"
-                onClick={() => setWeekStart(shiftWeekStart(week.weekStart, 1))}
-                aria-label="Next week"
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
             {rejectedCount > 0 && (
               <Button
                 size="sm"
@@ -204,6 +227,7 @@ export function LogHoursPage() {
                 className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400"
                 onClick={handleResubmitWeek}
                 disabled={resubmitting || isFetching}
+                data-testid="log-hours-resubmit"
               >
                 <RefreshCw className={cn("size-3.5", resubmitting && "animate-spin")} />
                 Resubmit Week ({rejectedCount})
@@ -215,6 +239,7 @@ export function LogHoursPage() {
                 className="gap-1.5"
                 onClick={handleSubmitWeek}
                 disabled={submitting || isFetching}
+                data-testid="log-hours-submit-week"
               >
                 <Send className="size-3.5" />
                 Submit Week ({draftCount})
@@ -233,37 +258,45 @@ export function LogHoursPage() {
           const isCurrent = summary.weekStart === week.weekStart;
 
           return (
-            <button
+            <div
               key={summary.weekStart}
-              type="button"
-              onClick={() => setWeekStart(summary.weekStart)}
               className={cn(
-                "rounded-xl border p-4 text-left transition-colors",
+                "rounded-xl border p-4",
                 isCurrent
                   ? "border-primary/30 bg-primary/5"
-                  : "border-border/50 bg-card hover:border-border",
+                  : "border-border/50 bg-card",
               )}
             >
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold text-muted-foreground">
                   {summary.weekLabel}
                 </p>
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold",
-                    status.bg,
-                    status.text,
-                    status.border,
+                <div className="flex items-center gap-1.5">
+                  {isCurrent && (
+                    <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                      Current
+                    </span>
                   )}
-                >
-                  <StatusIcon className="size-3" />
-                  {summary.status === "mixed" ? "In progress" : status.label}
-                </span>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold",
+                      status.bg,
+                      status.text,
+                      status.border,
+                    )}
+                  >
+                    <StatusIcon className="size-3" />
+                    {summary.status === "mixed" ? "In progress" : status.label}
+                  </span>
+                </div>
               </div>
               <p className="text-xl font-bold">
                 {summary.totalHours.toFixed(1)}h{" "}
                 <span className="text-sm font-normal text-muted-foreground">
                   / {summary.billableHours.toFixed(1)}h billable
+                  {(summary.overtimeHours ?? 0) > 0
+                    ? ` · ${summary.overtimeHours.toFixed(1)}h OT`
+                    : ""}
                 </span>
               </p>
               {summary.approvedBy && (
@@ -271,27 +304,60 @@ export function LogHoursPage() {
                   Approved by {summary.approvedBy}
                 </p>
               )}
-            </button>
+            </div>
           );
         })}
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+        <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5">
+          <div className="flex items-center rounded-lg border border-border/60">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={() => setWeekStart(shiftWeekStart(week.weekStart, -1))}
+              aria-label="Previous week"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="min-w-[9rem] px-2 text-center text-sm font-semibold text-foreground">
+              {week.weekLabel}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={() => setWeekStart(shiftWeekStart(week.weekStart, 1))}
+              aria-label="Next week"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {week.totalHours.toFixed(1)}h this week
+          </p>
+        </div>
+
         <div className="flex border-b border-border/50">
           {week.days.map((day) => {
             const isActive = day.date === activeDate;
+            const isFutureDay = day.date > today;
             const [weekday, ...rest] = day.label.split(" ");
 
             return (
               <button
                 key={day.date}
                 type="button"
+                disabled={isFutureDay}
                 onClick={() => {
+                  if (isFutureDay) return;
                   setActiveDate(day.date);
                   setShowForm(false);
                 }}
                 className={cn(
                   "-mb-px flex flex-1 flex-col items-center border-b-2 px-2 py-3 text-sm transition-colors",
+                  isFutureDay && "cursor-not-allowed opacity-40",
                   isActive
                     ? "border-primary bg-primary/5 text-primary"
                     : "border-transparent text-muted-foreground hover:bg-muted/20 hover:text-foreground",
@@ -329,11 +395,24 @@ export function LogHoursPage() {
                 {overThreshold && " — exceeds 10h threshold"}
               </p>
             </div>
-            <Button size="sm" className="gap-1.5" onClick={() => setShowForm(!showForm)}>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={isFutureDate}
+              onClick={() => setShowForm(!showForm)}
+              data-testid="log-hours-add-header"
+            >
               <Plus className="size-3.5" />
               Add Entry
             </Button>
           </div>
+
+          {isFutureDate && (
+            <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <AlertCircle className="size-3.5 shrink-0" />
+              Hours can only be logged for today or past dates.
+            </div>
+          )}
 
           {overThreshold && (
             <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-400">
@@ -342,7 +421,7 @@ export function LogHoursPage() {
             </div>
           )}
 
-          {showForm && activeDate && (
+          {showForm && activeDate && !isFutureDate && (
             <AddEntryForm
               date={activeDate}
               projects={context.projects}
@@ -353,8 +432,8 @@ export function LogHoursPage() {
                   await createEntry(payload).unwrap();
                   setShowForm(false);
                   toast.success("Entry added.");
-                } catch {
-                  toast.error("Could not add entry. Check for duplicates or daily limits.");
+                } catch (error) {
+                  toast.error(getApiErrorMessage(error));
                 }
               }}
               onCancel={() => setShowForm(false)}
@@ -365,7 +444,13 @@ export function LogHoursPage() {
             <div className="flex flex-col items-center justify-center space-y-2 py-10 text-center">
               <Clock className="size-8 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">No hours logged for this day</p>
-              <Button variant="link" size="sm" onClick={() => setShowForm(true)}>
+              <Button
+                variant="link"
+                size="sm"
+                disabled={isFutureDate}
+                onClick={() => setShowForm(true)}
+                data-testid="log-hours-add"
+              >
                 + Add entry
               </Button>
             </div>
@@ -376,7 +461,12 @@ export function LogHoursPage() {
                   key={entry.id}
                   entry={entry}
                   saving={updating}
-                  onDelete={() => handleDelete(entry.id)}
+                  onDelete={() =>
+                    setDeleteConfirm({
+                      id: entry.id,
+                      label: `${entry.projectName} — ${entry.taskName}`,
+                    })
+                  }
                   onSave={async (payload) => {
                     try {
                       await updateEntry({ id: entry.id, ...payload }).unwrap();
@@ -385,8 +475,11 @@ export function LogHoursPage() {
                           ? "Entry updated and moved to draft."
                           : "Entry updated.",
                       );
-                    } catch {
-                      toast.error("Could not update entry.");
+                    } catch (error) {
+                      toast.error(
+                        getApiErrorMessage(error, "Could not update entry."),
+                      );
+                      toast.error(getApiErrorMessage(error, "Could not update entry."));
                     }
                   }}
                 />
@@ -433,6 +526,21 @@ export function LogHoursPage() {
           ))}
         </div>
       )}
+      <DeleteDialog
+        isOpen={deleteConfirm != null}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => {
+          if (deleteConfirm) {
+            void handleDelete(deleteConfirm.id);
+          }
+        }}
+        title="Delete timesheet entry"
+        description={
+          deleteConfirm
+            ? `Remove the log for ${deleteConfirm.label}? This cannot be undone.`
+            : ""
+        }
+      />
     </div>
   );
 }
@@ -446,44 +554,120 @@ function EntryRow({
   entry: TimesheetWeekEntry;
   saving: boolean;
   onDelete: () => void;
-  onSave: (payload: { hours?: number; notes?: string }) => Promise<void>;
+  onSave: (payload: {
+    regularHours?: number;
+    overtimeHours?: number;
+    notes?: string;
+    isBillable?: boolean;
+  }) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [hours, setHours] = useState(String(entry.hours));
+  const [regularHours, setRegularHours] = useState(
+    String(entry.regularHours ?? entry.hours),
+  );
+  const [overtimeHours, setOvertimeHours] = useState(
+    String(entry.overtimeHours ?? 0),
+  );
+  const [isBillable, setIsBillable] = useState(entry.isBillable);
   const [notes, setNotes] = useState(entry.notes ?? "");
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const status = TIMESHEET_STATUS_CONFIG[toUiStatus(entry.status)];
   const StatusIcon = status.icon;
   const canEdit =
     toUiStatus(entry.status) === "draft" || toUiStatus(entry.status) === "rejected";
-  const parsedHours = parseFloat(hours);
-  const canSave = Boolean(hours && parsedHours > 0 && parsedHours <= 24);
+  const hourErrors = validateEntryHours(regularHours, overtimeHours);
+  const parsedRegular = parseHoursInput(regularHours) ?? 0;
+  const parsedOt = parseHoursInput(overtimeHours) ?? 0;
+  const canSave = !hasEntryHoursErrors(hourErrors);
 
   const inputClass =
     "h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-sm outline-none transition-all focus:ring-1 focus:ring-primary/30";
 
   if (editing) {
     return (
-      <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+      <form
+        className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setSubmitAttempted(true);
+          if (!canSave || saving) return;
+          await onSave({
+            regularHours: parsedRegular,
+            overtimeHours: parsedOt,
+            isBillable,
+            notes: notes.trim() || undefined,
+          });
+          setEditing(false);
+          setSubmitAttempted(false);
+        }}
+      >
         <p className="text-xs font-bold uppercase tracking-wider text-primary">
           Edit Entry · {entry.projectName} — {entry.taskName}
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Hours
+              Regular hours
             </label>
             <input
               type="number"
-              min="0.25"
+              min="0"
               max="24"
               step="0.25"
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
+              value={regularHours}
+              onChange={(e) => setRegularHours(sanitizeHoursInput(e.target.value))}
               className={inputClass}
             />
+            {submitAttempted && <FieldError message={hourErrors.regular} />}
           </div>
-          <div className="space-y-1 sm:col-span-1">
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Overtime
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="24"
+              step="0.25"
+              value={overtimeHours}
+              onChange={(e) => setOvertimeHours(sanitizeHoursInput(e.target.value))}
+              className={inputClass}
+            />
+            {submitAttempted && <FieldError message={hourErrors.overtime} />}
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Billing
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBillable(true)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  isBillable
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    : "border-border/60 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Billable
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBillable(false)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  !isBillable
+                    ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                    : "border-border/60 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Non-billable
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1 sm:col-span-2">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Notes
             </label>
@@ -501,24 +685,23 @@ function EntryRow({
           </p>
         )}
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setEditing(false)} disabled={saving}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditing(false);
+              setSubmitAttempted(false);
+            }}
+            disabled={saving}
+          >
             Cancel
           </Button>
-          <Button
-            size="sm"
-            disabled={!canSave || saving}
-            onClick={async () => {
-              await onSave({
-                hours: parsedHours,
-                notes: notes.trim() || undefined,
-              });
-              setEditing(false);
-            }}
-          >
+          <Button type="submit" size="sm" disabled={!canSave || saving}>
             {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save changes"}
           </Button>
         </div>
-      </div>
+      </form>
     );
   }
 
@@ -542,6 +725,21 @@ function EntryRow({
           <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
             {entry.projectName}
           </span>
+          <span
+            className={cn(
+              "rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+              entry.isBillable
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+            )}
+          >
+            {entry.isBillable ? "Billable" : "Non-billable"}
+          </span>
+          {(entry.overtimeHours ?? 0) > 0 ? (
+            <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+              {entry.regularHours ?? 0}h + {entry.overtimeHours}h OT
+            </span>
+          ) : null}
         </div>
         {entry.notes && (
           <p className="text-xs text-muted-foreground">{entry.notes}</p>
@@ -571,7 +769,13 @@ function EntryRow({
               variant="ghost"
               size="icon"
               className="size-8 text-muted-foreground hover:text-primary"
-              onClick={() => setEditing(true)}
+              onClick={() => {
+                setRegularHours(String(entry.regularHours ?? entry.hours));
+                setOvertimeHours(String(entry.overtimeHours ?? 0));
+                setIsBillable(entry.isBillable);
+                setNotes(entry.notes ?? "");
+                setEditing(true);
+              }}
               aria-label="Edit entry"
             >
               <Pencil className="size-3.5" />
@@ -608,29 +812,42 @@ function AddEntryForm({
     projectId: string;
     taskId: string;
     workDate: string;
-    hours: number;
+    regularHours: number;
+    overtimeHours: number;
     notes?: string;
+    isBillable: boolean;
   }) => Promise<void>;
   onCancel: () => void;
 }) {
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
-  const [hours, setHours] = useState("");
+  const [regularHours, setRegularHours] = useState("");
+  const [overtimeHours, setOvertimeHours] = useState("0");
+  const [isBillable, setIsBillable] = useState(true);
   const [notes, setNotes] = useState("");
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const selectedProject = projects.find((item) => item.id === projectId);
-  const parsedHours = parseFloat(hours);
-  const canSubmit = Boolean(
-    projectId && taskId && hours && parsedHours > 0 && parsedHours <= 24,
-  );
+  const parsedRegular = parseHoursInput(regularHours) ?? 0;
+  const parsedOt = parseHoursInput(overtimeHours) ?? 0;
+  const total = parsedRegular + parsedOt;
+  const hourErrors = validateEntryHours(regularHours, overtimeHours);
+  const projectError = !projectId ? "Select a project." : undefined;
+  const taskError = !taskId ? "Select a task." : undefined;
+  const canSubmit =
+    !projectError && !taskError && !hasEntryHoursErrors(hourErrors);
 
-  async function handleAdd() {
-    if (!canSubmit) return;
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitAttempted(true);
+    if (!canSubmit || saving) return;
     await onAdd({
       projectId,
       taskId,
       workDate: date,
-      hours: parsedHours,
+      regularHours: parsedRegular,
+      overtimeHours: parsedOt,
+      isBillable,
       notes: notes.trim() || undefined,
     });
   }
@@ -639,7 +856,11 @@ function AddEntryForm({
     "h-9 w-full rounded-xl border border-border/60 bg-background px-3 text-sm outline-none transition-all focus:ring-1 focus:ring-primary/30";
 
   return (
-    <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+    <form
+      className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4"
+      onSubmit={(event) => void handleSubmit(event)}
+      noValidate
+    >
       <p className="text-xs font-bold uppercase tracking-wider text-primary">
         New Entry
       </p>
@@ -668,6 +889,7 @@ function AddEntryForm({
               ))}
             </SelectContent>
           </Select>
+          {submitAttempted && <FieldError message={projectError} />}
         </div>
 
         <div className="space-y-1">
@@ -699,30 +921,77 @@ function AddEntryForm({
               ))}
             </SelectContent>
           </Select>
+          {submitAttempted && <FieldError message={taskError} />}
         </div>
 
         <div className="space-y-1">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Hours Worked
+            Regular hours
           </label>
           <input
             type="number"
-            min="0.25"
+            min="0"
             max="24"
             step="0.25"
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-            placeholder="e.g. 4.5"
+            value={regularHours}
+            onChange={(e) => setRegularHours(sanitizeHoursInput(e.target.value))}
+            placeholder="e.g. 4"
             className={inputClass}
+            required
           />
-          {parsedHours > dailyThreshold && (
-            <p className="text-[10px] text-rose-500">
-              Over {dailyThreshold}h — may require approval
-            </p>
-          )}
+          {submitAttempted && <FieldError message={hourErrors.regular} />}
         </div>
 
         <div className="space-y-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Overtime
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="24"
+            step="0.25"
+            value={overtimeHours}
+            onChange={(e) => setOvertimeHours(sanitizeHoursInput(e.target.value))}
+            placeholder="0"
+            className={inputClass}
+          />
+          {submitAttempted && <FieldError message={hourErrors.overtime} />}
+        </div>
+
+        <div className="space-y-1 sm:col-span-2">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Billing type
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setIsBillable(true)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                isBillable
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  : "border-border/60 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Billable
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBillable(false)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                !isBillable
+                  ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                  : "border-border/60 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Non-billable
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-1 sm:col-span-2">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Date
           </label>
@@ -734,6 +1003,12 @@ function AddEntryForm({
           />
         </div>
       </div>
+
+      {total > dailyThreshold ? (
+        <p className="text-[10px] text-rose-500">
+          Total {total}h exceeds the {dailyThreshold}h daily threshold — may require approval
+        </p>
+      ) : null}
 
       <div className="space-y-1">
         <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -749,19 +1024,14 @@ function AddEntryForm({
       </div>
 
       <div className="flex items-center gap-2 pt-1">
-        <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
+        <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>
-        <Button
-          size="sm"
-          className="gap-1.5"
-          onClick={handleAdd}
-          disabled={!canSubmit || saving}
-        >
+        <Button type="submit" size="sm" className="gap-1.5" disabled={saving} data-testid="log-hours-submit">
           {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
           Add Entry
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

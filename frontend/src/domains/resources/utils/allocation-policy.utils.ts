@@ -50,9 +50,32 @@ export function isDepartmentStaffingAllowed(
     return projectCode === employeeCode;
   }
 
-  const allowed =
-    rules.byProjectDepartmentCode?.[projectCode] ?? [projectCode];
-  return allowed.some((code) => code.toUpperCase() === employeeCode);
+  const allowed = getAllowedEmployeeDepartmentCodes(projectCode, rules);
+  return allowed.some((code) => code === employeeCode);
+}
+
+/** Employee department codes allowed to staff a project department under the current rules. */
+export function getAllowedEmployeeDepartmentCodes(
+  projectDepartmentCode: string,
+  rules: DepartmentStaffingRules,
+): string[] {
+  const projectCode = projectDepartmentCode.trim().toUpperCase();
+  if (!projectCode) {
+    return [];
+  }
+
+  if (rules.rule === "same_department_only") {
+    return [projectCode];
+  }
+
+  const listed = rules.byProjectDepartmentCode?.[projectCode] ?? [];
+  return [
+    ...new Set(
+      [projectCode, ...listed]
+        .map((code) => code.trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 export function hasDesignationMismatch(

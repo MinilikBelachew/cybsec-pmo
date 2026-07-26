@@ -21,3 +21,15 @@ export const TIMESHEET_ESCALATION_DAYS = 3;
 export const TIMESHEET_KEKA_MAX_RETRIES = 3;
 
 export const KEKA_INTEGRATION = 'keka';
+
+/**
+ * Projects that accept timesheet logging / submission.
+ * Closed, Cancelled, On Hold, Pending Closure, Draft are blocked.
+ */
+export const TIMESHEET_LOGGABLE_PROJECT_STATUSES = [
+  'Active',
+  'At_Risk',
+] as const;
+
+/** Tasks in Done are treated as closed for logging. */
+export const TIMESHEET_BLOCKED_TASK_STATUSES = ['Done'] as const;

@@ -161,6 +161,15 @@ export class ProjectDto {
 
   @ApiPropertyOptional({ example: 88 })
   budgetRemaining?: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  kekaProjectId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  kekaClientId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  kekaSyncError?: string | null;
 }
 
 export class DepartmentDto {
@@ -186,6 +195,12 @@ export class CustomerDto {
 
   @ApiProperty()
   status: string;
+
+  @ApiPropertyOptional()
+  kekaClientId?: string | null;
+
+  @ApiPropertyOptional()
+  kekaClientCode?: string | null;
 }
 
 export class ProjectManagerDto {

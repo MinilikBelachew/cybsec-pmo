@@ -132,6 +132,7 @@ export interface AllocationApprovalRow {
   utilizationPercent: number;
   requestedBy: { id: string; name: string };
   requestedAt: string;
+  overrideReason?: string | null;
 }
 
 export interface AllocationApprovalListResponse {
@@ -162,6 +163,41 @@ export interface TeamLeaveRecord {
   approvedBy?: string;
 }
 
+/** Keka attendance day type: 0 Working, 1 Holiday, 2 WeeklyOff, 3 Leave, 4 Unknown */
+export type AttendanceDayType = 0 | 1 | 2 | 3 | 4;
+
+export type EmployeeAttendanceSortField =
+  | "attendanceDate"
+  | "dayType"
+  | "shiftStartTime"
+  | "shiftDuration"
+  | "shiftEffectiveDuration"
+  | "totalEffectiveHours"
+  | "syncedAt";
+
+export interface EmployeeAttendanceRow {
+  id: string;
+  attendanceDate: string;
+  dayType: AttendanceDayType | null;
+  shiftStartTime: string | null;
+  shiftEndTime: string | null;
+  shiftDuration: number | null;
+  shiftEffectiveDuration: number | null;
+  totalEffectiveHours: number | null;
+  totalGrossHours: number | null;
+  firstInAt: string | null;
+  lastOutAt: string | null;
+  syncedAt: string;
+}
+
+export interface EmployeeAttendanceListResponse {
+  rows: EmployeeAttendanceRow[];
+  page: number;
+  limit: number;
+  total: number;
+  lastSuccessfulSyncAt: string | null;
+}
+
 export interface TeamDirectoryMember {
   id: string;
   name: string;
@@ -181,6 +217,7 @@ export interface TeamDirectoryMember {
   utilStatus: UtilizationStatus;
   manager?: string;
   assignments: TeamAssignment[];
+  upcomingLeave: TeamLeaveRecord[];
   leaveHistory: TeamLeaveRecord[];
 }
 
@@ -215,6 +252,8 @@ export interface TimesheetWeekEntry {
   taskId: string;
   taskName: string;
   hours: number;
+  regularHours: number;
+  overtimeHours: number;
   notes: string | null;
   isBillable: boolean;
   status: string;
@@ -227,6 +266,7 @@ export interface TimesheetWeekSummaryCard {
   weekLabel: string;
   totalHours: number;
   billableHours: number;
+  overtimeHours: number;
   status: "draft" | "submitted" | "approved" | "mixed";
   submittedAt: string | null;
   approvedBy: string | null;
@@ -238,6 +278,7 @@ export interface TimesheetWeekResponse {
   weekLabel: string;
   totalHours: number;
   billableHours: number;
+  overtimeHours: number;
   days: TimesheetDaySummary[];
   entries: TimesheetWeekEntry[];
   recentWeeks: TimesheetWeekSummaryCard[];
@@ -272,6 +313,9 @@ export interface TimesheetSubmissionEntry {
   project: string;
   task: string;
   hours: number;
+  regularHours: number;
+  overtimeHours: number;
+  isBillable: boolean;
   description: string | null;
   kekaSyncStatus?: "synced" | "failed" | null;
 }
@@ -287,6 +331,7 @@ export interface TimesheetSubmission {
   submittedAt: string;
   totalHours: number;
   billableHours: number;
+  overtimeHours: number;
   status: ApprovalStatus;
   entries: TimesheetSubmissionEntry[];
   feedback: string | null;
@@ -332,3 +377,28 @@ export interface TimesheetApprovalDecision {
   syncFailures: string[];
   syncSuccessCount: number;
 }
+
+export type HolidayCalendarOption = {
+  id: string;
+  name: string;
+  holidayCount: number;
+  syncedAt: string | null;
+};
+
+export type HolidayEntry = {
+  id: string;
+  name: string;
+  holidayDate: string;
+  isFloater: boolean;
+  calendarYear: number | null;
+  calendarId: string;
+  calendarName: string;
+  syncedAt: string;
+};
+
+export type HolidayCalendarResponse = {
+  year: number;
+  lastSyncedAt: string | null;
+  calendars: HolidayCalendarOption[];
+  holidays: HolidayEntry[];
+};

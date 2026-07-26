@@ -38,6 +38,7 @@ import {
 } from "@/domains/projects/utils/project-status";
 import type { ProjectStatus, AllocationDateIssuesResponse } from "@/domains/projects/types/projects.types";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
+import { RegisterClientDialog } from "@/domains/projects/components/list/register-client-dialog";
 import { formatDateValue } from "@/domains/projects/utils/allocation-date.utils";
 import {
   Select,
@@ -54,6 +55,7 @@ import {
   DollarSign,
   GitBranch,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Sheet,
@@ -136,6 +138,9 @@ function toAllocationPayload(members: PendingTeamMember[]) {
       : { hours: member.hoursPerWeek }),
     startDate: member.startDate,
     endDate: member.endDate,
+    ...(member.isOverAllocated && member.overrideReason?.trim()
+      ? { overrideReason: member.overrideReason.trim() }
+      : {}),
   }));
 }
 
@@ -209,6 +214,8 @@ export function CreateProjectSheet({
     milestoneDrafts: DraftProjectMilestone[];
     issues: AllocationDateIssuesResponse | null;
   }>({ open: false, values: null, milestoneDrafts: [], issues: null });
+  const [registerClientOpen, setRegisterClientOpen] = useState(false);
+  const REGISTER_CLIENT_VALUE = "__register_client__";
   const [createProjectBundle, { isLoading: isCreating }] = useCreateProjectBundleMutation();
   const [instantiateTemplate, { isLoading: isInstantiating }] =
     useInstantiateProjectTemplateMutation();
@@ -251,6 +258,7 @@ export function CreateProjectSheet({
     control,
     register,
     reset,
+    setValue,
     trigger,
     formState: { errors },
   } = useForm<CreateProjectFormValues>({
@@ -451,6 +459,17 @@ export function CreateProjectSheet({
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
       const membersToSave = mergeTeamMembers(pendingTeamMembers, draftMembers);
+      const missingOverride = membersToSave.find(
+        (member) =>
+          member.isOverAllocated &&
+          (member.overrideReason?.trim().length ?? 0) < 10,
+      );
+      if (missingOverride) {
+        toast.error(
+          `Over-allocation for ${missingOverride.name} needs an override reason (at least 10 characters).`,
+        );
+        return;
+      }
       const newMilestones = toDraftMilestonePayload(currentMilestoneDrafts);
       let targetProjectId = project?.id;
 
@@ -533,6 +552,16 @@ export function CreateProjectSheet({
               ? `Project created with ${newMilestones.length} milestone${newMilestones.length === 1 ? "" : "s"}.`
               : "Project created successfully!",
         );
+        if (created.kekaProjectId) {
+          toast.success("Project linked/created in Keka.");
+        } else if (created.kekaSyncError) {
+          toast(
+            activeCustomer && !activeCustomer.kekaClientId
+              ? "Project created in PMO only because the selected client is not linked to Keka."
+              : `${created.kekaSyncError} Retry from Integrations → Keka.`,
+            { icon: "⚠️" },
+          );
+        }
       }
 
       setPendingTeamMembers([]);
@@ -771,16 +800,30 @@ export function CreateProjectSheet({
                   control={control}
                   name="customerId"
                   render={({ field }) => (
-                    <Select value={field.value || ""} onValueChange={field.onChange} disabled={isViewOnly}>
+                    <Select
+                      value={field.value || ""}
+                      onValueChange={(value) => {
+                        if (value === REGISTER_CLIENT_VALUE) {
+                          setRegisterClientOpen(true);
+                          return;
+                        }
+                        field.onChange(value);
+                      }}
+                      disabled={isViewOnly}
+                    >
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
                         <SelectValue placeholder="Select...">
                           {activeCustomer ? activeCustomer.displayName : undefined}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg max-h-60 overflow-y-auto">
+                        <SelectItem value={REGISTER_CLIENT_VALUE}>
+                          + Register new client…
+                        </SelectItem>
                         {customers.map((c) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.displayName}
+                            {c.kekaClientId ? "" : " (not linked to Keka)"}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -791,6 +834,18 @@ export function CreateProjectSheet({
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.customerId.message}
                   </p>
+                )}
+                {activeCustomer && !activeCustomer.kekaClientId && (
+                  <div
+                    role="alert"
+                    className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+                  >
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      This client is not linked to Keka. The project will be created in PMO
+                      only; link the client to Keka before syncing the project.
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
@@ -1243,6 +1298,14 @@ export function CreateProjectSheet({
           .filter((issue) => issue.kinds.includes("outside_project_window"))
           .flatMap((issue) => issue.messages) ?? []
       }
+    />
+
+    <RegisterClientDialog
+      open={registerClientOpen}
+      onClose={() => setRegisterClientOpen(false)}
+      onCreated={(customer) => {
+        setValue("customerId", customer.id, { shouldValidate: true });
+      }}
     />
     </>
   );

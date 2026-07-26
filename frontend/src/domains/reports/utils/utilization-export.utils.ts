@@ -14,6 +14,8 @@ const CSV_HEADERS = [
   "Billable util. (%)",
   "Status",
   "Keka reconcile",
+  "Keka remote (h)",
+  "Delta (h)",
 ] as const;
 
 function escapeCsvCell(value: unknown): string {
@@ -40,6 +42,8 @@ export function convertUtilisationToCsv(rows: UtilisationEmployeeRow[]): string 
       row.billableUtilisationPercent,
       UTILISATION_STATUS_CONFIG[row.status].label,
       RECONCILE_STATUS_CONFIG[row.reconcile.status].label,
+      row.reconcile.kekaRemoteHours.toFixed(2),
+      row.reconcile.deltaHours.toFixed(2),
     ].map(escapeCsvCell),
   );
 

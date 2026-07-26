@@ -30,6 +30,8 @@ export interface Customer {
   displayName: string;
   industry?: string | null;
   status: string;
+  kekaClientId?: string | null;
+  kekaClientCode?: string | null;
 }
 
 export interface ProjectManager {
@@ -82,6 +84,9 @@ export interface Project {
   milestonesDone?: number;
   budgetSpent?: number;
   budgetRemaining?: number;
+  kekaProjectId?: string | null;
+  kekaClientId?: string | null;
+  kekaSyncError?: string | null;
 }
 
 export type ProjectSortField =
@@ -226,6 +231,7 @@ export interface ProjectAllocation {
   status: string;
   requestedBy: { id: string; name: string } | null;
   requestedAt: string | null;
+  overrideReason?: string | null;
   approvedBy: { id: string; name: string } | null;
   kekaSyncedAt: string | null;
   employee: {
@@ -270,6 +276,7 @@ export interface PendingTeamMember {
   endDate?: string;
   remainingHours: number;
   isOverAllocated?: boolean;
+  overrideReason?: string;
 }
 
 export interface GetTeamCandidatesParams {
@@ -288,6 +295,7 @@ export interface CreateProjectTeamPayload {
     percent?: number;
     startDate: string;
     endDate?: string;
+    overrideReason?: string;
   }>;
 }
 
@@ -318,6 +326,7 @@ export interface UpdateProjectTeamPayload {
   backupEmployeeId?: string | null;
   startDate?: string;
   endDate?: string | null;
+  overrideReason?: string;
 }
 
 export interface AllocationDateIssue {
