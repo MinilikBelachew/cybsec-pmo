@@ -1,8 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PriorityLevel } from '@prisma/client';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { PrismaService } from '../database/prisma.service';
+import { buildMomDocx } from '../reports/templates/cybersec-sample-docx';
+import {
+  buildMomPdf,
+  type MomSnapshot,
+} from '../reports/templates/cybersec-sample-pdf';
 
 export type MeetingInput = {
   title: string;
@@ -178,18 +185,24 @@ export class MeetingsService {
   ) {
     const meeting = await this.get(projectId, meetingId, user);
     await this.assertProject(projectId, user, 'update');
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { name: true },
+    });
     const previous = await this.prisma.momDocument.findFirst({
       where: { meetingId },
       orderBy: { version: 'desc' },
       select: { version: true },
     });
+    const version = (previous?.version ?? 0) + 1;
     return this.prisma.momDocument.create({
       data: {
         meetingId,
-        version: (previous?.version ?? 0) + 1,
+        version,
         contentJson: {
           title: meeting.title,
           scheduledAt: meeting.scheduledAt.toISOString(),
+          projectName: project?.name,
           organiser: meeting.organiser,
           attendees: meeting.attendees.map((entry) => entry.user),
           agenda: meeting.items.filter((item) => item.itemType === 'Agenda'),
@@ -197,10 +210,76 @@ export class MeetingsService {
             (item) => item.itemType === 'Decision',
           ),
           actions: meeting.items.filter((item) => item.itemType === 'Action'),
+          version,
+          generatedAt: new Date().toISOString(),
         } as Prisma.InputJsonValue,
       },
       include: { acknowledgements: true },
     });
+  }
+
+  async exportMomPdf(
+    projectId: string,
+    momId: string,
+    user: CaslUserContext,
+  ) {
+    const mom = await this.getMom(projectId, momId, user);
+    const buffer = await buildMomPdf(this.asMomSnapshot(mom));
+    const relativePath = path.join('uploads', 'moms', `${momId}.pdf`);
+    await this.writeExport(relativePath, buffer);
+    await this.prisma.momDocument.update({
+      where: { id: momId },
+      data: {
+        s3PdfKey: relativePath.replace(/\\/g, '/'),
+        s3Key: relativePath.replace(/\\/g, '/'),
+      },
+    });
+    return buffer;
+  }
+
+  async exportMomDocx(
+    projectId: string,
+    momId: string,
+    user: CaslUserContext,
+  ) {
+    const mom = await this.getMom(projectId, momId, user);
+    const buffer = await buildMomDocx(this.asMomSnapshot(mom));
+    const relativePath = path.join('uploads', 'moms', `${momId}.docx`);
+    await this.writeExport(relativePath, buffer);
+    await this.prisma.momDocument.update({
+      where: { id: momId },
+      data: { s3DocxKey: relativePath.replace(/\\/g, '/') },
+    });
+    return buffer;
+  }
+
+  private asMomSnapshot(mom: {
+    version: number;
+    contentJson: Prisma.JsonValue | null;
+    meeting?: { title?: string; scheduledAt?: Date } | null;
+  }): MomSnapshot {
+    const raw = (mom.contentJson ?? {}) as Partial<MomSnapshot>;
+    return {
+      title: raw.title ?? mom.meeting?.title ?? 'Meeting',
+      scheduledAt:
+        raw.scheduledAt ??
+        mom.meeting?.scheduledAt?.toISOString() ??
+        new Date().toISOString(),
+      projectName: raw.projectName,
+      organiser: raw.organiser,
+      attendees: raw.attendees ?? [],
+      agenda: raw.agenda ?? [],
+      decisions: raw.decisions ?? [],
+      actions: raw.actions ?? [],
+      version: raw.version ?? mom.version,
+      generatedAt: raw.generatedAt ?? new Date().toISOString(),
+    };
+  }
+
+  private async writeExport(relativePath: string, buffer: Buffer) {
+    const absolutePath = path.resolve(process.cwd(), relativePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, buffer);
   }
 
   async reviewMom(
