@@ -964,7 +964,7 @@ export function ProjectWorkspace() {
     <div
       ref={containerRef}
       className={cn(
-        "flex flex-col overflow-hidden text-foreground transition-colors duration-300",
+        "flex flex-col overflow-y-auto text-foreground transition-colors duration-300",
         "h-[calc(100vh-6rem)] -m-6 bg-transparent"
       )}
     >
@@ -1254,7 +1254,7 @@ export function ProjectWorkspace() {
         </div>
       </div>
       )}
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+      <div className="flex flex-1 min-h-[28rem] flex-col overflow-hidden">
         {activeView === "list" && (
           <div className="flex-1 min-h-0 overflow-hidden">
           <ListView
