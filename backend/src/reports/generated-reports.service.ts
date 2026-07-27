@@ -1,13 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PrismaService } from '../database/prisma.service';
 import { HealthRulesService } from './health/health-rules.service';
-import { buildReportPdf, ReportSnapshot } from './report-export.util';
+import {
+  buildReportDocx,
+} from './templates/cybersec-sample-docx';
+import {
+  buildReportPdf,
+  type ReportSnapshot,
+} from './templates/cybersec-sample-pdf';
+import type { StatusReportType } from './generated-reports.types';
 
-export type StatusReportType = 'WSR' | 'MSR';
+export type { StatusReportType } from './generated-reports.types';
 
 @Injectable()
 export class GeneratedReportsService {
@@ -65,9 +71,18 @@ export class GeneratedReportsService {
       ]);
     if (!project) throw new NotFoundException('Project not found');
 
+    const now = new Date();
+    const periodLabel =
+      reportType === 'WSR'
+        ? `Week of ${now.toISOString().slice(0, 10)}`
+        : `${now.toLocaleString('en-US', { month: 'long' })} ${now.getFullYear()}`;
+
     const snapshot: ReportSnapshot = {
-      title: `${reportType} - ${project.name}`,
-      generatedAt: new Date().toISOString(),
+      title: `${reportType} — ${project.name}`,
+      generatedAt: now.toISOString(),
+      reportType,
+      projectName: project.name,
+      periodLabel,
       health: {
         overallRag: health.overallRag,
         dimensions: health.dimensions.map((item) => ({
@@ -153,9 +168,8 @@ export class GeneratedReportsService {
 
   async exportPdf(id: string) {
     const report = await this.get(id);
-    const buffer = await buildReportPdf(
-      report.dataSnapshot as unknown as ReportSnapshot,
-    );
+    const snapshot = this.asSnapshot(report);
+    const buffer = await buildReportPdf(snapshot);
     const relativePath = path.join('uploads', 'reports', `${id}.pdf`);
     await this.writeExport(relativePath, buffer);
     await this.prisma.generatedReport.update({
@@ -167,25 +181,8 @@ export class GeneratedReportsService {
 
   async exportDocx(id: string) {
     const report = await this.get(id);
-    const snapshot = report.dataSnapshot as unknown as ReportSnapshot;
-    const sections: Paragraph[] = [
-      new Paragraph({ text: snapshot.title, heading: HeadingLevel.TITLE }),
-      new Paragraph(`Generated ${snapshot.generatedAt}`),
-      new Paragraph({
-        text: `Health: ${snapshot.health.overallRag}`,
-        heading: HeadingLevel.HEADING_1,
-      }),
-      ...snapshot.health.dimensions.map(
-        (item) =>
-          new Paragraph(`${item.dimension}: ${item.ragStatus} (${item.score})`),
-      ),
-    ];
-    this.appendDocxSection(sections, 'Milestones', snapshot.milestones);
-    this.appendDocxSection(sections, 'Open actions', snapshot.actionPoints);
-    this.appendDocxSection(sections, 'Missing data', snapshot.missingData);
-    const buffer = await Packer.toBuffer(
-      new Document({ sections: [{ children: sections }] }),
-    );
+    const snapshot = this.asSnapshot(report);
+    const buffer = await buildReportDocx(snapshot);
     const relativePath = path.join('uploads', 'reports', `${id}.docx`);
     await this.writeExport(relativePath, buffer);
     await this.prisma.generatedReport.update({
@@ -195,30 +192,23 @@ export class GeneratedReportsService {
     return buffer;
   }
 
-  private appendDocxSection(
-    target: Paragraph[],
-    title: string,
-    rows: Array<Record<string, unknown>>,
-  ) {
-    target.push(
-      new Paragraph({ text: title, heading: HeadingLevel.HEADING_1 }),
-    );
-    if (rows.length === 0) target.push(new Paragraph('None'));
-    for (const row of rows) {
-      target.push(
-        new Paragraph({
-          bullet: { level: 0 },
-          children: [
-            new TextRun(
-              Object.entries(row)
-                .filter(([, value]) => value != null)
-                .map(([key, value]) => `${key}: ${String(value)}`)
-                .join(' | '),
-            ),
-          ],
-        }),
-      );
-    }
+  private asSnapshot(report: {
+    reportType: string;
+    dataSnapshot: Prisma.JsonValue | null;
+    project?: { name: string } | null;
+  }): ReportSnapshot {
+    const raw = (report.dataSnapshot ?? {}) as Partial<ReportSnapshot>;
+    return {
+      title: raw.title ?? `${report.reportType} report`,
+      generatedAt: raw.generatedAt ?? new Date().toISOString(),
+      reportType: (raw.reportType ?? report.reportType) as ReportSnapshot['reportType'],
+      projectName: raw.projectName ?? report.project?.name,
+      periodLabel: raw.periodLabel,
+      health: raw.health ?? { overallRag: 'amber', dimensions: [] },
+      milestones: raw.milestones ?? [],
+      actionPoints: raw.actionPoints ?? [],
+      missingData: raw.missingData ?? [],
+    };
   }
 
   private async writeExport(relativePath: string, buffer: Buffer) {

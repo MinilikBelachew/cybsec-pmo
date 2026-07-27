@@ -229,6 +229,13 @@ export const sidebarNav: NavSection[] = [
         href: "/dashboard/reports/data-quality",
         permission: { action: "read", subject: "Report" },
       },
+      {
+        id: "report-schedules",
+        label: "Schedules",
+        icon: Calendar,
+        href: "/dashboard/reports/schedules",
+        permission: { action: "read", subject: "Report" },
+      },
     ],
   },
   // {

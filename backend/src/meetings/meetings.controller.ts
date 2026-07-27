@@ -8,12 +8,15 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
+  Res,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
@@ -58,6 +61,38 @@ export class MeetingsController {
     @Request() request: RequestWithAbility,
   ) {
     return this.meetings.getMom(projectId, momId, request.caslUser!);
+  }
+
+  @Get('moms/:momId/export')
+  @CheckAbility('read', 'Project')
+  @CheckModulePermission('projects', 'view')
+  async exportMom(
+    @Param('projectId') projectId: string,
+    @Param('momId') momId: string,
+    @Query('format') format: 'pdf' | 'docx' = 'pdf',
+    @Request() request: RequestWithAbility,
+    @Res() response: Response,
+  ) {
+    const buffer =
+      format === 'docx'
+        ? await this.meetings.exportMomDocx(
+            projectId,
+            momId,
+            request.caslUser!,
+          )
+        : await this.meetings.exportMomPdf(
+            projectId,
+            momId,
+            request.caslUser!,
+          );
+    response
+      .type(
+        format === 'docx'
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'application/pdf',
+      )
+      .attachment(`mom-${momId}.${format}`)
+      .send(buffer);
   }
 
   @Post('moms/:momId/review')

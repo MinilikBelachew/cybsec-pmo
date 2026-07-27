@@ -81,6 +81,12 @@ export const meetingsApi = api.injectEndpoints({
         { type: "Projects", id: `moms-${projectId}` },
       ],
     }),
+    exportMom: builder.query<Blob, { projectId: string; momId: string; format: "pdf" | "docx" }>({
+      query: ({ projectId, momId, format }) => ({
+        url: `/projects/${projectId}/meetings/moms/${momId}/export?format=${format}`,
+        responseHandler: (response) => response.blob(),
+      }),
+    }),
   }),
 });
 
@@ -95,4 +101,5 @@ export const {
   useGetMomQuery,
   useReviewMomMutation,
   useAcknowledgeMomMutation,
+  useLazyExportMomQuery,
 } = meetingsApi;

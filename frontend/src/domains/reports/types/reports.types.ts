@@ -123,10 +123,12 @@ export interface StatusReport {
   id: string;
   reportType: ReportType;
   projectId: string;
-  status: "Draft" | "Approved" | string;
+  version?: number;
+  status: "Draft" | "Approved" | "Distributed" | string;
   dataSnapshot?: Record<string, unknown> | null;
   generatedAt: string;
   approvedAt?: string | null;
+  distributedAt?: string | null;
   project?: { id: string; name: string } | null;
 }
 

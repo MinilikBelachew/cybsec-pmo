@@ -110,8 +110,8 @@ export function ReportsHubPage() {
       <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
         <p className="font-medium text-foreground">Gate 3 reporting is live</p>
         <p className="mt-1 text-muted-foreground">
-          Generate WSR/MSR snapshots, manage schedules, resolve data quality flags, and review
-          portfolio health from the executive dashboard.
+          Generate WSR/MSR and MoM exports using the interim CyberSec sample template
+          (PDF/DOCX). Swap in approved Cybsec Word/PDF assets when they arrive.
         </p>
       </div>
 

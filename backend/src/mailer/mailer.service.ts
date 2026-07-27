@@ -59,7 +59,12 @@ export class MailerService {
       html: resolvedHtml,
     };
 
-    if (this.sendgridClient.isConfigured()) {
+    const hasAttachments = Array.isArray(payload.attachments)
+      ? payload.attachments.length > 0
+      : Boolean(payload.attachments);
+
+    // SendGrid helper path does not forward attachments — use SMTP when present.
+    if (this.sendgridClient.isConfigured() && !hasAttachments) {
       try {
         await this.sendgridClient.send({
           to: this.normalizeRecipients(payload.to),
