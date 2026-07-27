@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { readFile } from 'fs/promises';
 import { AllConfigType } from '../config/config.type';
@@ -16,16 +16,35 @@ export class MppParserClient {
     const baseUrl = this.configService.getOrThrow('mppImport.serviceUrl', {
       infer: true,
     });
+    const parseUrl = `${baseUrl.replace(/\/$/, '')}/parse`;
+    this.logger.log(`Parsing ${fileName} via ${parseUrl}`);
     const buffer = await readFile(filePath);
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(buffer)]), fileName);
 
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/parse`, {
-      method: 'POST',
-      body: form,
-    });
+    let response: Response;
+    try {
+      response = await fetch(parseUrl, {
+        method: 'POST',
+        body: form,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'connection failed';
+      this.logger.error(`MPXJ parser unreachable at ${parseUrl}: ${detail}`);
+      throw new BadRequestException(
+        `MPP parser service is unreachable (${detail}). Ensure mpxj-service is running.`,
+      );
+    }
 
-    const payload = (await response.json()) as ParsedMppProject | { error?: string };
+    let payload: ParsedMppProject | { error?: string };
+    try {
+      payload = (await response.json()) as ParsedMppProject | { error?: string };
+    } catch {
+      throw new BadRequestException(
+        `MPP parser returned a non-JSON response (HTTP ${response.status}).`,
+      );
+    }
 
     if (!response.ok) {
       const message =
@@ -33,7 +52,11 @@ export class MppParserClient {
           ? payload.error
           : `MPXJ parser failed with status ${response.status}`;
       this.logger.error(message);
-      throw new Error(message);
+      const hint =
+        /field index|invalid file|unable to parse/i.test(message)
+          ? ' Try File → Save As → XML (MSPDI) in Microsoft Project and import the .xml instead.'
+          : '';
+      throw new BadRequestException(`${message}.${hint}`.replace(/\.\./g, '.'));
     }
 
     const parsed = payload as ParsedMppProject;

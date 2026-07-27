@@ -349,14 +349,12 @@ export class DashboardService {
     const taskScope = this.recordScopeWhere.taskWhere(caslUser, 'read');
     const projectIds = await this.scopedProjectIds(caslUser);
 
-    const allocationWhere: Prisma.AllocationWhereInput = projectIds.length
-      ? { projectId: { in: projectIds }, status: 'Active' }
-      : { id: '__scoped_none__' };
-
-    const allocations = await this.prisma.allocation.findMany({
-      where: allocationWhere,
-      select: { employeeId: true, projectId: true, percent: true, hours: true },
-    });
+    const allocations = projectIds.length
+      ? await this.prisma.allocation.findMany({
+          where: { projectId: { in: projectIds }, status: 'Active' },
+          select: { employeeId: true, projectId: true, percent: true, hours: true },
+        })
+      : [];
 
     const scopedEmployeeIds = [
       ...new Set(allocations.map((row) => row.employeeId)),

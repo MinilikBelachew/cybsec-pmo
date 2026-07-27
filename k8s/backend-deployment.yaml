@@ -53,6 +53,8 @@ spec:
               value: "redis"
             - name: REDIS_PORT
               value: "6379"
+            - name: WORKER_HOST
+              value: "redis://redis:6379/1"
             - name: MPXJ_SERVICE_URL
               value: "http://mpxj-service:8080"
             - name: FRONTEND_DOMAIN
@@ -99,8 +101,30 @@ spec:
               value: "Konax"
             - name: BREAK_GLASS_ENABLED
               value: "true"
+            - name: AUTH_BREAK_GLASS_TTL
+              value: "4h"
             - name: BREAK_GLASS_EMERGENCY_SECRET
               value: "change-me-to-your-break-glass-secret"
+            - name: KEKA_MOCK_ENABLED
+              value: "false"
+            - name: KEKA_SANDBOX
+              value: "true"
+            - name: KEKA_SYNC_ENABLED
+              value: "true"
+            - name: KEKA_SYNC_CRON
+              value: "0 2 * * *"
+            - name: KEKA_AUTH_URL
+              value: "https://login.kekademo.com/connect/token"
+            - name: KEKA_API_BASE_URL
+              value: "https://cybersecdemo.kekademo.com/api/v1"
+            - name: KEKA_COMPANY_SUBDOMAIN
+              value: "cybersecdemo"
+            - name: KEKA_CLIENT_ID
+              value: "c9e27879-7f73-47fc-9cf5-734f1a25c961"
+            - name: KEKA_CLIENT_SECRET
+              value: "change-me-to-your-keka-client-secret"
+            - name: KEKA_API_KEY
+              value: "change-me-to-your-keka-api-key"
       imagePullSecrets:
         - name: dockerhub-registry
 
