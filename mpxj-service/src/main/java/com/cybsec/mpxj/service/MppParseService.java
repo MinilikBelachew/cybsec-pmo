@@ -52,6 +52,14 @@ public class MppParseService {
       } else {
         project = new UniversalProjectReader().read(inputStream);
       }
+    } catch (Exception error) {
+      String detail = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+      throw new IllegalArgumentException(
+          "Unable to parse project file ("
+              + detail
+              + "). If this is a .mpp from a recent Microsoft Project build, "
+              + "use File > Save As > XML (MSPDI) and import the .xml instead.",
+          error);
     }
 
     if (project == null) {
@@ -96,17 +104,13 @@ public class MppParseService {
       parsedTask.setSummary(task.getSummary());
       parsedTask.setStartDate(formatDate(task.getStart()));
       parsedTask.setFinishDate(formatDate(task.getFinish()));
-      parsedTask.setBaselineStartDate(formatDate(firstNonNull(
-          task.getBaselineStart(),
-          task.getBaselineStart(0))));
-      parsedTask.setBaselineFinishDate(formatDate(firstNonNull(
-          task.getBaselineFinish(),
-          task.getBaselineFinish(0))));
+      // Primary baseline is getBaseline*(); indexed overloads are Baseline1–10 only (1..10).
+      // getBaseline*(0) throws: "0 is not a valid field index".
+      parsedTask.setBaselineStartDate(formatDate(task.getBaselineStart()));
+      parsedTask.setBaselineFinishDate(formatDate(task.getBaselineFinish()));
       parsedTask.setDurationDays(toDurationDays(task.getDuration(), projectProperties));
       parsedTask.setBaselineDurationDays(
-          toDurationDays(
-              firstNonNull(task.getBaselineDuration(), task.getBaselineDuration(0)),
-              projectProperties));
+          toDurationDays(task.getBaselineDuration(), projectProperties));
       parsedTask.setActualStartDate(formatDate(task.getActualStart()));
       parsedTask.setActualFinishDate(formatDate(task.getActualFinish()));
       parsedTask.setPercentComplete(toPercent(task.getPercentageComplete()));
@@ -258,19 +262,6 @@ public class MppParseService {
       return 100;
     }
     return (int) Math.round(units.doubleValue() * 100);
-  }
-
-  @SafeVarargs
-  private final <T> T firstNonNull(T... values) {
-    if (values == null) {
-      return null;
-    }
-    for (T value : values) {
-      if (value != null) {
-        return value;
-      }
-    }
-    return null;
   }
 
   private String mapRelationType(RelationType type) {
