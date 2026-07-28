@@ -1,6 +1,7 @@
 export type UtilisationStatus = "over" | "optimal" | "under";
 
-export type ReconcileStatus = "matched" | "pending" | "mismatch" | "unavailable";
+export type ReconcileStatus =
+  "matched" | "pending" | "mismatch" | "unavailable";
 
 export type ReconcileSource = "keka-live" | "local-push-ack";
 
@@ -69,7 +70,8 @@ export interface UtilisationReportResponse {
   reconcileSource?: ReconcileSource;
 }
 
-export type UtilisationSortField = "name" | "billableUtilisation" | "approvedHours";
+export type UtilisationSortField =
+  "name" | "billableUtilisation" | "approvedHours";
 
 export type ReportType = "WSR" | "MSR";
 
@@ -119,6 +121,18 @@ export interface DataQualityFlag {
   project?: { id: string; name: string } | null;
 }
 
+export type DataQualityFlagType =
+  | "MISSING_TIMESHEET"
+  | "UNAPPROVED_TIMESHEET"
+  | "STALE_INTEGRATION"
+  | "INCOMPLETE_PROJECT";
+
+export interface DataQualityRules {
+  includeFlagTypes?: DataQualityFlagType[];
+  excludeFlagTypes?: DataQualityFlagType[];
+  enabled?: Partial<Record<DataQualityFlagType, boolean>>;
+}
+
 export interface StatusReport {
   id: string;
   reportType: ReportType;
@@ -143,6 +157,11 @@ export interface ReportSchedule {
   lastError?: string | null;
   createdAt: string;
   project?: { id: string; name: string } | null;
+  recipients?: Array<{
+    id: string;
+    roleId?: number | null;
+    role?: { id: number; code: string; label: string } | null;
+  }>;
 }
 
 export interface ReportScheduleInput {
@@ -150,4 +169,5 @@ export interface ReportScheduleInput {
   cronExpression: string;
   projectId?: string | null;
   isActive: boolean;
+  recipients?: Array<{ roleId: number }>;
 }

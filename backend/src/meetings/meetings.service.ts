@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, PriorityLevel } from '@prisma/client';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { AuditLogsService } from '../audit/audit-logs.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { PrismaService } from '../database/prisma.service';
+import { MailerService } from '../mailer/mailer.service';
 import { buildMomDocx } from '../reports/templates/cybersec-sample-docx';
 import {
   buildMomPdf,
@@ -43,6 +49,8 @@ export class MeetingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
+    private readonly mailer: MailerService,
+    private readonly auditLogs: AuditLogsService,
   ) {}
 
   async list(projectId: string, user: CaslUserContext) {
@@ -218,11 +226,7 @@ export class MeetingsService {
     });
   }
 
-  async exportMomPdf(
-    projectId: string,
-    momId: string,
-    user: CaslUserContext,
-  ) {
+  async exportMomPdf(projectId: string, momId: string, user: CaslUserContext) {
     const mom = await this.getMom(projectId, momId, user);
     const buffer = await buildMomPdf(this.asMomSnapshot(mom));
     const relativePath = path.join('uploads', 'moms', `${momId}.pdf`);
@@ -237,11 +241,7 @@ export class MeetingsService {
     return buffer;
   }
 
-  async exportMomDocx(
-    projectId: string,
-    momId: string,
-    user: CaslUserContext,
-  ) {
+  async exportMomDocx(projectId: string, momId: string, user: CaslUserContext) {
     const mom = await this.getMom(projectId, momId, user);
     const buffer = await buildMomDocx(this.asMomSnapshot(mom));
     const relativePath = path.join('uploads', 'moms', `${momId}.docx`);
@@ -294,6 +294,65 @@ export class MeetingsService {
       where: { id: momId },
       data: { status: 'Reviewed', reviewedBy: userId, reviewedAt: new Date() },
     });
+  }
+
+  async distributeMom(
+    projectId: string,
+    momId: string,
+    userId: string,
+    user: CaslUserContext,
+  ) {
+    const mom = await this.getMom(projectId, momId, user);
+    await this.assertProject(projectId, user, 'update');
+    if (mom.status !== 'Reviewed') {
+      throw new BadRequestException('MoM must be reviewed before distribution');
+    }
+    const attendees = mom.meeting.attendees.map((entry) => entry.user);
+    const recipients = [
+      ...new Set(
+        attendees
+          .map((attendee) => attendee.email)
+          .filter((email): email is string => Boolean(email)),
+      ),
+    ];
+    if (recipients.length === 0) {
+      throw new BadRequestException('MoM has no attendees to notify');
+    }
+    await this.mailer.sendMail({
+      to: recipients,
+      subject: `Minutes of Meeting: ${mom.meeting.title}`,
+      html: '<p>The minutes of your meeting are available. Please review and acknowledge them in the PMO application.</p>',
+      templatePath: '',
+      context: {},
+    });
+    const distributed = await this.prisma.$transaction(async (tx) => {
+      for (const attendee of attendees) {
+        await tx.momAcknowledgement.upsert({
+          where: {
+            momId_attendeeId: { momId, attendeeId: attendee.id },
+          },
+          update: { acknowledged: false, ackedAt: null },
+          create: {
+            momId,
+            attendeeId: attendee.id,
+            acknowledged: false,
+          },
+        });
+      }
+      return tx.momDocument.update({
+        where: { id: momId },
+        data: { status: 'Distributed' },
+        include: { acknowledgements: true },
+      });
+    });
+    await this.auditLogs.create({
+      action: 'MOM_DISTRIBUTED',
+      objectType: 'MomDocument',
+      objectId: momId,
+      newValue: { recipients, projectId },
+      user: { connect: { id: userId } },
+    });
+    return distributed;
   }
 
   async acknowledgeMom(

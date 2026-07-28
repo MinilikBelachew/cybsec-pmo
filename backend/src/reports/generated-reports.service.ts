@@ -1,12 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import ExcelJS from 'exceljs';
 import { Prisma } from '@prisma/client';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { AuditLogsService } from '../audit/audit-logs.service';
 import { PrismaService } from '../database/prisma.service';
+import { MailerService } from '../mailer/mailer.service';
 import { HealthRulesService } from './health/health-rules.service';
-import {
-  buildReportDocx,
-} from './templates/cybersec-sample-docx';
+import { buildReportDocx } from './templates/cybersec-sample-docx';
 import {
   buildReportPdf,
   type ReportSnapshot,
@@ -20,6 +25,8 @@ export class GeneratedReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly healthRules: HealthRulesService,
+    private readonly mailer: MailerService,
+    private readonly auditLogs: AuditLogsService,
   ) {}
 
   async generate(
@@ -159,15 +166,113 @@ export class GeneratedReportsService {
   }
 
   async markDistributed(id: string) {
-    await this.get(id);
+    await this.assertApprovedForDistribution(id);
     return this.prisma.generatedReport.update({
       where: { id },
       data: { status: 'Distributed', distributedAt: new Date() },
     });
   }
 
+  async distribute(id: string, userId: string) {
+    const report = await this.assertApprovedForDistribution(id);
+    if (!report.projectId) {
+      throw new BadRequestException('Report is not linked to a project');
+    }
+    const schedule = await this.prisma.reportSchedule.findFirst({
+      where: {
+        projectId: report.projectId,
+        reportType: report.reportType,
+        isActive: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { recipients: true },
+    });
+    const roleIds = (schedule?.recipients ?? [])
+      .map((recipient) => recipient.roleId)
+      .filter((roleId): roleId is number => roleId != null);
+    const contactIds = (schedule?.recipients ?? [])
+      .map((recipient) => recipient.contactId)
+      .filter((contactId): contactId is string => contactId != null);
+    const [roleUsers, contacts, project] = await Promise.all([
+      roleIds.length
+        ? this.prisma.user.findMany({
+            where: { roleId: { in: roleIds }, isActive: true },
+            select: { email: true },
+          })
+        : [],
+      contactIds.length
+        ? this.prisma.customerContact.findMany({
+            where: { id: { in: contactIds } },
+            select: { email: true },
+          })
+        : [],
+      this.prisma.project.findUnique({
+        where: { id: report.projectId },
+        select: {
+          name: true,
+          primaryPm: { select: { email: true } },
+        },
+      }),
+    ]);
+    const configuredRecipients = [
+      ...roleUsers.map((recipient) => recipient.email),
+      ...contacts.map((recipient) => recipient.email),
+    ];
+    const recipients = [
+      ...new Set(
+        configuredRecipients.length
+          ? configuredRecipients
+          : project?.primaryPm.email
+            ? [project.primaryPm.email]
+            : [],
+      ),
+    ];
+    if (recipients.length === 0) {
+      throw new BadRequestException('No report recipients are configured');
+    }
+
+    const pdf = await this.exportPdf(id);
+    await this.mailer.sendMail({
+      to: recipients,
+      subject: `${report.reportType} - ${project?.name ?? 'Project'}`,
+      html: '<p>Your approved project status report is attached.</p>',
+      attachments: [
+        {
+          filename: `${report.reportType}-${report.version}.pdf`,
+          content: pdf,
+          contentType: 'application/pdf',
+        },
+      ],
+      templatePath: '',
+      context: {},
+    });
+    const distributed = await this.prisma.generatedReport.update({
+      where: { id },
+      data: { status: 'Distributed', distributedAt: new Date() },
+    });
+    await this.auditLogs.create({
+      action: 'REPORT_DISTRIBUTED',
+      objectType: 'GeneratedReport',
+      objectId: id,
+      newValue: { recipients, reportType: report.reportType },
+      user: { connect: { id: userId } },
+    });
+    return distributed;
+  }
+
+  async assertApprovedForDistribution(id: string) {
+    const report = await this.get(id);
+    if (report.status !== 'Approved') {
+      throw new BadRequestException(
+        'Report must be approved before distribution',
+      );
+    }
+    return report;
+  }
+
   async exportPdf(id: string) {
     const report = await this.get(id);
+    this.assertDownloadable(report.status);
     const snapshot = this.asSnapshot(report);
     const buffer = await buildReportPdf(snapshot);
     const relativePath = path.join('uploads', 'reports', `${id}.pdf`);
@@ -181,6 +286,7 @@ export class GeneratedReportsService {
 
   async exportDocx(id: string) {
     const report = await this.get(id);
+    this.assertDownloadable(report.status);
     const snapshot = this.asSnapshot(report);
     const buffer = await buildReportDocx(snapshot);
     const relativePath = path.join('uploads', 'reports', `${id}.docx`);
@@ -192,6 +298,114 @@ export class GeneratedReportsService {
     return buffer;
   }
 
+  async exportExcel(id: string) {
+    const report = await this.get(id);
+    this.assertDownloadable(report.status);
+    const snapshot = this.asSnapshot(report);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Cybsec PMO';
+    workbook.created = new Date();
+
+    this.addWorksheet(workbook, 'Health', [
+      ['Dimension', 'Score', 'RAG Status'],
+      ...snapshot.health.dimensions.map((item) => [
+        item.dimension,
+        item.score,
+        item.ragStatus,
+      ]),
+      ['Overall', '', snapshot.health.overallRag],
+    ]);
+    this.addWorksheet(workbook, 'Milestones', [
+      ['Title', 'Target Date', 'Status', 'Weight'],
+      ...snapshot.milestones.map((item) => [
+        String(item.title ?? ''),
+        String(item.targetDate ?? ''),
+        String(item.status ?? ''),
+        typeof item.weight === 'number'
+          ? item.weight
+          : String(item.weight ?? ''),
+      ]),
+    ]);
+    this.addWorksheet(workbook, 'Actions', [
+      ['Title', 'Owner', 'Due Date', 'Priority', 'Status'],
+      ...snapshot.actionPoints.map((item) => [
+        String(item.title ?? ''),
+        String(item.owner ?? ''),
+        String(item.dueDate ?? ''),
+        String(item.priority ?? ''),
+        String(item.status ?? ''),
+      ]),
+    ]);
+    this.addWorksheet(workbook, 'MissingData', [
+      ['Flag Type', 'Severity', 'Description', 'Flagged At'],
+      ...snapshot.missingData.map((item) => [
+        String(item.flagType ?? ''),
+        String(item.severity ?? ''),
+        String(item.description ?? ''),
+        String(item.flaggedAt ?? ''),
+      ]),
+    ]);
+
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    const relativePath = path.join('uploads', 'reports', `${id}.xlsx`);
+    await this.writeExport(relativePath, buffer);
+    return buffer;
+  }
+
+  async exportCsv(id: string) {
+    const report = await this.get(id);
+    this.assertDownloadable(report.status);
+    const snapshot = this.asSnapshot(report);
+    const rows: unknown[][] = [
+      [
+        'Section',
+        'Title / Dimension',
+        'Owner / Score',
+        'Date',
+        'Status',
+        'Details',
+      ],
+      ...snapshot.health.dimensions.map((item) => [
+        'Health',
+        item.dimension,
+        item.score,
+        '',
+        item.ragStatus,
+        '',
+      ]),
+      ...snapshot.milestones.map((item) => [
+        'Milestone',
+        item.title,
+        '',
+        item.targetDate,
+        item.status,
+        item.weight,
+      ]),
+      ...snapshot.actionPoints.map((item) => [
+        'Action',
+        item.title,
+        item.owner,
+        item.dueDate,
+        item.status,
+        item.priority,
+      ]),
+      ...snapshot.missingData.map((item) => [
+        'Missing Data',
+        item.flagType,
+        '',
+        item.flaggedAt,
+        item.severity,
+        item.description,
+      ]),
+    ];
+    return Buffer.from(
+      rows
+        .map((row) => row.map((value) => this.csvCell(value)).join(','))
+        .join('\r\n'),
+      'utf8',
+    );
+  }
+
   private asSnapshot(report: {
     reportType: string;
     dataSnapshot: Prisma.JsonValue | null;
@@ -201,7 +415,8 @@ export class GeneratedReportsService {
     return {
       title: raw.title ?? `${report.reportType} report`,
       generatedAt: raw.generatedAt ?? new Date().toISOString(),
-      reportType: (raw.reportType ?? report.reportType) as ReportSnapshot['reportType'],
+      reportType: (raw.reportType ??
+        report.reportType) as ReportSnapshot['reportType'],
       projectName: raw.projectName ?? report.project?.name,
       periodLabel: raw.periodLabel,
       health: raw.health ?? { overallRag: 'amber', dimensions: [] },
@@ -215,5 +430,40 @@ export class GeneratedReportsService {
     const absolutePath = path.resolve(process.cwd(), relativePath);
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     await fs.writeFile(absolutePath, buffer);
+  }
+
+  private assertDownloadable(status: string) {
+    if (status !== 'Draft' && status !== 'Approved') {
+      throw new BadRequestException(
+        'Only draft or approved reports can be downloaded',
+      );
+    }
+  }
+
+  private addWorksheet(
+    workbook: ExcelJS.Workbook,
+    name: string,
+    rows: Array<Array<string | number>>,
+  ) {
+    const sheet = workbook.addWorksheet(name);
+    rows.forEach((row) => sheet.addRow(row));
+    const header = sheet.getRow(1);
+    header.font = { bold: true };
+    sheet.columns.forEach((column) => {
+      column.width = Math.min(
+        60,
+        Math.max(
+          12,
+          ...(column.values ?? []).map(
+            (value) => String(value ?? '').length + 2,
+          ),
+        ),
+      );
+    });
+  }
+
+  private csvCell(value: unknown) {
+    const text = String(value ?? '');
+    return `"${text.replace(/"/g, '""')}"`;
   }
 }
