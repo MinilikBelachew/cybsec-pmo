@@ -1483,6 +1483,10 @@ export function ProjectWorkspace() {
           <MeetingsPanel projectId={id} canEdit={canEditProjects} />
         )}
 
+        {activeView === "meetings" && (
+          <MeetingsPanel projectId={id} canEdit={canEditProjects} />
+        )}
+
         {activeView === "audit" && canViewProjectAudit && (
           <ProjectAuditView projectId={id} />
         )}
