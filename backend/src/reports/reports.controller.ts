@@ -200,6 +200,13 @@ export class ReportsController {
     return this.generatedReports.get(id);
   }
 
+  @Delete('status/:id')
+  @CheckAbility('manage', 'Report')
+  @CheckModulePermission('reports', 'manage')
+  deleteStatus(@Param('id') id: string) {
+    return this.generatedReports.delete(id);
+  }
+
   @Post('status/:id/approve')
   @CheckAbility('approve', 'Report')
   @CheckModulePermission('reports', 'approve')
@@ -238,18 +245,23 @@ export class ReportsController {
             ? await this.generatedReports.exportDocx(id)
             : await this.generatedReports.exportPdf(id);
     const extension = isExcel ? 'xlsx' : format;
-    response
-      .type(
-        format === 'csv'
-          ? 'text/csv; charset=utf-8'
-          : isExcel
-            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            : format === 'docx'
-              ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-              : 'application/pdf',
-      )
-      .attachment(`status-report-${id}.${extension}`)
-      .send(buffer);
+    const contentType =
+      format === 'csv'
+        ? 'text/csv; charset=utf-8'
+        : isExcel
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : format === 'docx'
+            ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            : 'application/pdf';
+    const payload = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    response.setHeader('Content-Type', contentType);
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="status-report-${id}.${extension}"`,
+    );
+    response.setHeader('Content-Length', String(payload.length));
+    response.setHeader('Cache-Control', 'no-store');
+    response.end(payload);
   }
 
   @Get('schedules')

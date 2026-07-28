@@ -43,6 +43,7 @@ export interface ProjectHealthItem {
 
 export interface MilestoneItem {
   id: string;
+  projectId: string;
   project: string;
   label: string;
   date: string;

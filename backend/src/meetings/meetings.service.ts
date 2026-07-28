@@ -407,6 +407,20 @@ export class MeetingsService {
     return mom;
   }
 
+  async removeMom(projectId: string, momId: string, user: CaslUserContext) {
+    const mom = await this.getMom(projectId, momId, user);
+    await this.assertProject(projectId, user, 'update');
+    await this.prisma.$transaction([
+      this.prisma.momAcknowledgement.deleteMany({ where: { momId } }),
+      this.prisma.momDocument.delete({ where: { id: momId } }),
+    ]);
+    await Promise.allSettled(
+      [mom.s3PdfKey, mom.s3DocxKey, mom.s3Key]
+        .filter((key): key is string => Boolean(key))
+        .map((key) => fs.unlink(path.resolve(process.cwd(), key))),
+    );
+  }
+
   private async createActionPoints(
     tx: Prisma.TransactionClient,
     projectId: string,

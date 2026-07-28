@@ -383,7 +383,11 @@ export function DashboardHome() {
           </select>
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 min-w-40 rounded-lg border bg-background px-3 text-xs">
             <option value="">All statuses</option>
-            <option value="Active">Active</option><option value="At_Risk">At risk</option><option value="On_Hold">On hold</option><option value="Closed">Closed</option>
+            <option value="Draft">Draft</option>
+            <option value="Active">Active</option>
+            <option value="At_Risk">At risk</option>
+            <option value="On_Hold">On hold</option>
+            <option value="Closed">Closed</option>
           </select>
           <select value={primaryPmId} onChange={(e) => setPrimaryPmId(e.target.value)} className="h-9 min-w-44 rounded-lg border bg-background px-3 text-xs">
             <option value="">All project managers</option>

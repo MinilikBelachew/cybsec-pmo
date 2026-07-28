@@ -34,90 +34,12 @@ export class GeneratedReportsService {
     projectId: string,
     userId: string,
   ) {
-    const [health, project, milestones, actionPoints, missingData, previous] =
-      await Promise.all([
-        this.healthRules.evaluateProject(projectId),
-        this.prisma.project.findUnique({
-          where: { id: projectId },
-          select: { name: true },
-        }),
-        this.prisma.projectMilestone.findMany({
-          where: { projectId },
-          orderBy: { targetDate: 'asc' },
-          select: { title: true, targetDate: true, status: true, weight: true },
-        }),
-        this.prisma.actionPoint.findMany({
-          where: {
-            projectId,
-            status: { notIn: ['Done', 'Cancelled'] },
-          },
-          orderBy: { dueDate: 'asc' },
-          select: {
-            title: true,
-            dueDate: true,
-            priority: true,
-            status: true,
-            owner: { select: { displayName: true } },
-          },
-        }),
-        this.prisma.dataQualityFlag.findMany({
-          where: { projectId, isResolved: false },
-          orderBy: { flaggedAt: 'desc' },
-          select: {
-            flagType: true,
-            severity: true,
-            description: true,
-            flaggedAt: true,
-          },
-        }),
-        this.prisma.generatedReport.findFirst({
-          where: { projectId, reportType },
-          orderBy: { version: 'desc' },
-          select: { version: true },
-        }),
-      ]);
-    if (!project) throw new NotFoundException('Project not found');
-
-    const now = new Date();
-    const periodLabel =
-      reportType === 'WSR'
-        ? `Week of ${now.toISOString().slice(0, 10)}`
-        : `${now.toLocaleString('en-US', { month: 'long' })} ${now.getFullYear()}`;
-
-    const snapshot: ReportSnapshot = {
-      title: `${reportType} — ${project.name}`,
-      generatedAt: now.toISOString(),
-      reportType,
-      projectName: project.name,
-      periodLabel,
-      health: {
-        overallRag: health.overallRag,
-        dimensions: health.dimensions.map((item) => ({
-          dimension: item.dimension,
-          score: item.score,
-          ragStatus: item.ragStatus,
-        })),
-      },
-      milestones: milestones.map((item) => ({
-        title: item.title,
-        targetDate: item.targetDate.toISOString().slice(0, 10),
-        status: item.status,
-        weight: item.weight == null ? null : Number(item.weight),
-      })),
-      actionPoints: actionPoints.map((item) => ({
-        title: item.title,
-        owner: item.owner.displayName,
-        dueDate: item.dueDate.toISOString().slice(0, 10),
-        priority: item.priority,
-        status: item.status,
-      })),
-      missingData: missingData.map((item) => ({
-        flagType: item.flagType,
-        severity: item.severity,
-        description: item.description,
-        flaggedAt: item.flaggedAt.toISOString(),
-      })),
-    };
+    const previous = await this.prisma.generatedReport.findFirst({
+      where: { projectId, reportType },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const snapshot = await this.buildSnapshot(reportType, projectId);
 
     return this.prisma.generatedReport.create({
       data: {
@@ -144,7 +66,11 @@ export class GeneratedReportsService {
         generator: { select: { id: true, displayName: true } },
         approver: { select: { id: true, displayName: true } },
       },
-      orderBy: { generatedAt: 'desc' },
+      orderBy: [
+        { projectId: 'asc' },
+        { reportType: 'asc' },
+        { version: 'desc' },
+      ],
     });
   }
 
@@ -155,6 +81,26 @@ export class GeneratedReportsService {
     });
     if (!report) throw new NotFoundException('Generated report not found');
     return report;
+  }
+
+  async delete(id: string) {
+    const report = await this.get(id);
+    await this.prisma.generatedReport.delete({ where: { id } });
+    await Promise.allSettled([
+      report.s3PdfKey
+        ? fs.unlink(path.resolve(process.cwd(), report.s3PdfKey))
+        : Promise.resolve(),
+      report.s3DocxKey
+        ? fs.unlink(path.resolve(process.cwd(), report.s3DocxKey))
+        : Promise.resolve(),
+      fs.unlink(
+        path.resolve(process.cwd(), 'uploads', 'reports', `${id}.xlsx`),
+      ),
+      fs.unlink(
+        path.resolve(process.cwd(), 'uploads', 'reports', `${id}.csv`),
+      ),
+    ]);
+    return { id, deleted: true };
   }
 
   async approve(id: string, userId: string) {
@@ -273,7 +219,7 @@ export class GeneratedReportsService {
   async exportPdf(id: string) {
     const report = await this.get(id);
     this.assertDownloadable(report.status);
-    const snapshot = this.asSnapshot(report);
+    const snapshot = await this.resolveSnapshot(report);
     const buffer = await buildReportPdf(snapshot);
     const relativePath = path.join('uploads', 'reports', `${id}.pdf`);
     await this.writeExport(relativePath, buffer);
@@ -287,7 +233,7 @@ export class GeneratedReportsService {
   async exportDocx(id: string) {
     const report = await this.get(id);
     this.assertDownloadable(report.status);
-    const snapshot = this.asSnapshot(report);
+    const snapshot = await this.resolveSnapshot(report);
     const buffer = await buildReportDocx(snapshot);
     const relativePath = path.join('uploads', 'reports', `${id}.docx`);
     await this.writeExport(relativePath, buffer);
@@ -301,50 +247,122 @@ export class GeneratedReportsService {
   async exportExcel(id: string) {
     const report = await this.get(id);
     this.assertDownloadable(report.status);
-    const snapshot = this.asSnapshot(report);
+    const snapshot = await this.resolveSnapshot(report);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Cybsec PMO';
     workbook.created = new Date();
 
-    this.addWorksheet(workbook, 'Health', [
-      ['Dimension', 'Score', 'RAG Status'],
-      ...snapshot.health.dimensions.map((item) => [
-        item.dimension,
-        item.score,
-        item.ragStatus,
-      ]),
-      ['Overall', '', snapshot.health.overallRag],
-    ]);
-    this.addWorksheet(workbook, 'Milestones', [
-      ['Title', 'Target Date', 'Status', 'Weight'],
-      ...snapshot.milestones.map((item) => [
-        String(item.title ?? ''),
-        String(item.targetDate ?? ''),
-        String(item.status ?? ''),
-        typeof item.weight === 'number'
-          ? item.weight
-          : String(item.weight ?? ''),
-      ]),
-    ]);
-    this.addWorksheet(workbook, 'Actions', [
-      ['Title', 'Owner', 'Due Date', 'Priority', 'Status'],
-      ...snapshot.actionPoints.map((item) => [
-        String(item.title ?? ''),
-        String(item.owner ?? ''),
-        String(item.dueDate ?? ''),
-        String(item.priority ?? ''),
-        String(item.status ?? ''),
-      ]),
-    ]);
-    this.addWorksheet(workbook, 'MissingData', [
-      ['Flag Type', 'Severity', 'Description', 'Flagged At'],
-      ...snapshot.missingData.map((item) => [
-        String(item.flagType ?? ''),
-        String(item.severity ?? ''),
-        String(item.description ?? ''),
-        String(item.flaggedAt ?? ''),
-      ]),
-    ]);
+    const healthSheet = workbook.addWorksheet('Health');
+    healthSheet.columns = [
+      { header: 'Dimension', key: 'dimension', width: 18 },
+      { header: 'Score', key: 'score', width: 12 },
+      { header: 'RAG Status', key: 'ragStatus', width: 14 },
+    ];
+    if (snapshot.health.dimensions.length) {
+      for (const item of snapshot.health.dimensions) {
+        healthSheet.addRow({
+          dimension: String(item.dimension ?? ''),
+          score: Number(item.score ?? 0),
+          ragStatus: String(item.ragStatus ?? ''),
+        });
+      }
+    } else {
+      healthSheet.addRow({
+        dimension: '—',
+        score: '',
+        ragStatus: 'No health dimensions available',
+      });
+    }
+    healthSheet.addRow({
+      dimension: 'Overall',
+      score: '',
+      ragStatus: String(snapshot.health.overallRag ?? ''),
+    });
+    healthSheet.getRow(1).font = { bold: true };
+
+    const milestoneSheet = workbook.addWorksheet('Milestones');
+    milestoneSheet.columns = [
+      { header: 'Title', key: 'title', width: 36 },
+      { header: 'Target Date', key: 'targetDate', width: 14 },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'Weight', key: 'weight', width: 10 },
+    ];
+    if (snapshot.milestones.length) {
+      for (const item of snapshot.milestones) {
+        milestoneSheet.addRow({
+          title: String(item.title ?? ''),
+          targetDate: String(item.targetDate ?? ''),
+          status: String(item.status ?? ''),
+          weight:
+            typeof item.weight === 'number'
+              ? item.weight
+              : String(item.weight ?? ''),
+        });
+      }
+    } else {
+      milestoneSheet.addRow({
+        title: '—',
+        targetDate: '',
+        status: 'No milestones',
+        weight: '',
+      });
+    }
+    milestoneSheet.getRow(1).font = { bold: true };
+
+    const actionsSheet = workbook.addWorksheet('Actions');
+    actionsSheet.columns = [
+      { header: 'Title', key: 'title', width: 28 },
+      { header: 'Owner', key: 'owner', width: 20 },
+      { header: 'Due Date', key: 'dueDate', width: 14 },
+      { header: 'Priority', key: 'priority', width: 12 },
+      { header: 'Status', key: 'status', width: 12 },
+    ];
+    if (snapshot.actionPoints.length) {
+      for (const item of snapshot.actionPoints) {
+        actionsSheet.addRow({
+          title: String(item.title ?? ''),
+          owner: String(item.owner ?? ''),
+          dueDate: String(item.dueDate ?? ''),
+          priority: String(item.priority ?? ''),
+          status: String(item.status ?? ''),
+        });
+      }
+    } else {
+      actionsSheet.addRow({
+        title: '—',
+        owner: '',
+        dueDate: '',
+        priority: '',
+        status: 'No open actions',
+      });
+    }
+    actionsSheet.getRow(1).font = { bold: true };
+
+    const missingSheet = workbook.addWorksheet('MissingData');
+    missingSheet.columns = [
+      { header: 'Flag Type', key: 'flagType', width: 24 },
+      { header: 'Severity', key: 'severity', width: 12 },
+      { header: 'Description', key: 'description', width: 48 },
+      { header: 'Flagged At', key: 'flaggedAt', width: 22 },
+    ];
+    if (snapshot.missingData.length) {
+      for (const item of snapshot.missingData) {
+        missingSheet.addRow({
+          flagType: String(item.flagType ?? ''),
+          severity: String(item.severity ?? ''),
+          description: String(item.description ?? ''),
+          flaggedAt: String(item.flaggedAt ?? ''),
+        });
+      }
+    } else {
+      missingSheet.addRow({
+        flagType: '—',
+        severity: '',
+        description: 'No unresolved data-quality flags',
+        flaggedAt: '',
+      });
+    }
+    missingSheet.getRow(1).font = { bold: true };
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
     const relativePath = path.join('uploads', 'reports', `${id}.xlsx`);
@@ -355,7 +373,7 @@ export class GeneratedReportsService {
   async exportCsv(id: string) {
     const report = await this.get(id);
     this.assertDownloadable(report.status);
-    const snapshot = this.asSnapshot(report);
+    const snapshot = await this.resolveSnapshot(report);
     const rows: unknown[][] = [
       [
         'Section',
@@ -406,23 +424,143 @@ export class GeneratedReportsService {
     );
   }
 
+  private async buildSnapshot(
+    reportType: StatusReportType,
+    projectId: string,
+  ): Promise<ReportSnapshot> {
+    const [health, project, milestones, actionPoints, missingData] =
+      await Promise.all([
+        this.healthRules.evaluateProject(projectId),
+        this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { name: true },
+        }),
+        this.prisma.projectMilestone.findMany({
+          where: { projectId },
+          orderBy: { targetDate: 'asc' },
+          select: { title: true, targetDate: true, status: true, weight: true },
+        }),
+        this.prisma.actionPoint.findMany({
+          where: {
+            projectId,
+            status: { notIn: ['Done', 'Cancelled'] },
+          },
+          orderBy: { dueDate: 'asc' },
+          select: {
+            title: true,
+            dueDate: true,
+            priority: true,
+            status: true,
+            owner: { select: { displayName: true } },
+          },
+        }),
+        this.prisma.dataQualityFlag.findMany({
+          where: { projectId, isResolved: false },
+          orderBy: { flaggedAt: 'desc' },
+          select: {
+            flagType: true,
+            severity: true,
+            description: true,
+            flaggedAt: true,
+          },
+        }),
+      ]);
+    if (!project) throw new NotFoundException('Project not found');
+
+    const now = new Date();
+    const periodLabel =
+      reportType === 'WSR'
+        ? `Week of ${now.toISOString().slice(0, 10)}`
+        : `${now.toLocaleString('en-US', { month: 'long' })} ${now.getFullYear()}`;
+
+    return {
+      title: `${reportType} — ${project.name}`,
+      generatedAt: now.toISOString(),
+      reportType,
+      projectName: project.name,
+      periodLabel,
+      health: {
+        overallRag: health.overallRag,
+        dimensions: health.dimensions.map((item) => ({
+          dimension: item.dimension,
+          score: item.score,
+          ragStatus: item.ragStatus,
+        })),
+      },
+      milestones: milestones.map((item) => ({
+        title: item.title,
+        targetDate: item.targetDate.toISOString().slice(0, 10),
+        status: item.status,
+        weight: item.weight == null ? null : Number(item.weight),
+      })),
+      actionPoints: actionPoints.map((item) => ({
+        title: item.title,
+        owner: item.owner.displayName,
+        dueDate: item.dueDate.toISOString().slice(0, 10),
+        priority: item.priority,
+        status: item.status,
+      })),
+      missingData: missingData.map((item) => ({
+        flagType: item.flagType,
+        severity: item.severity,
+        description: item.description,
+        flaggedAt: item.flaggedAt.toISOString(),
+      })),
+    };
+  }
+
+  private async resolveSnapshot(report: {
+    reportType: string;
+    projectId: string | null;
+    dataSnapshot: Prisma.JsonValue | null;
+    project?: { name: string } | null;
+  }): Promise<ReportSnapshot> {
+    const snapshot = this.asSnapshot(report);
+    const hasUsefulData =
+      snapshot.health.dimensions.length > 0 ||
+      snapshot.milestones.length > 0 ||
+      snapshot.actionPoints.length > 0 ||
+      snapshot.missingData.length > 0;
+    if (hasUsefulData || !report.projectId) return snapshot;
+
+    const rebuilt = await this.buildSnapshot(
+      (report.reportType === 'MSR' ? 'MSR' : 'WSR') as StatusReportType,
+      report.projectId,
+    );
+    return {
+      ...rebuilt,
+      title: snapshot.title || rebuilt.title,
+      generatedAt: snapshot.generatedAt || rebuilt.generatedAt,
+      periodLabel: snapshot.periodLabel || rebuilt.periodLabel,
+    };
+  }
+
   private asSnapshot(report: {
     reportType: string;
     dataSnapshot: Prisma.JsonValue | null;
     project?: { name: string } | null;
   }): ReportSnapshot {
-    const raw = (report.dataSnapshot ?? {}) as Partial<ReportSnapshot>;
+    const parsed =
+      typeof report.dataSnapshot === 'string'
+        ? (JSON.parse(report.dataSnapshot) as Partial<ReportSnapshot>)
+        : ((report.dataSnapshot ?? {}) as Partial<ReportSnapshot>);
+    const health = parsed.health ?? { overallRag: 'amber', dimensions: [] };
     return {
-      title: raw.title ?? `${report.reportType} report`,
-      generatedAt: raw.generatedAt ?? new Date().toISOString(),
-      reportType: (raw.reportType ??
+      title: parsed.title ?? `${report.reportType} report`,
+      generatedAt: parsed.generatedAt ?? new Date().toISOString(),
+      reportType: (parsed.reportType ??
         report.reportType) as ReportSnapshot['reportType'],
-      projectName: raw.projectName ?? report.project?.name,
-      periodLabel: raw.periodLabel,
-      health: raw.health ?? { overallRag: 'amber', dimensions: [] },
-      milestones: raw.milestones ?? [],
-      actionPoints: raw.actionPoints ?? [],
-      missingData: raw.missingData ?? [],
+      projectName: parsed.projectName ?? report.project?.name,
+      periodLabel: parsed.periodLabel,
+      health: {
+        overallRag: String(health.overallRag ?? 'amber'),
+        dimensions: Array.isArray(health.dimensions) ? health.dimensions : [],
+      },
+      milestones: Array.isArray(parsed.milestones) ? parsed.milestones : [],
+      actionPoints: Array.isArray(parsed.actionPoints)
+        ? parsed.actionPoints
+        : [],
+      missingData: Array.isArray(parsed.missingData) ? parsed.missingData : [],
     };
   }
 
@@ -438,28 +576,6 @@ export class GeneratedReportsService {
         'Only draft or approved reports can be downloaded',
       );
     }
-  }
-
-  private addWorksheet(
-    workbook: ExcelJS.Workbook,
-    name: string,
-    rows: Array<Array<string | number>>,
-  ) {
-    const sheet = workbook.addWorksheet(name);
-    rows.forEach((row) => sheet.addRow(row));
-    const header = sheet.getRow(1);
-    header.font = { bold: true };
-    sheet.columns.forEach((column) => {
-      column.width = Math.min(
-        60,
-        Math.max(
-          12,
-          ...(column.values ?? []).map(
-            (value) => String(value ?? '').length + 2,
-          ),
-        ),
-      );
-    });
   }
 
   private csvCell(value: unknown) {

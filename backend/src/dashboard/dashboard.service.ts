@@ -366,7 +366,7 @@ export class DashboardService {
       orderBy: { targetDate: 'asc' },
       take: 10,
       include: {
-        project: { select: { name: true } },
+        project: { select: { id: true, name: true } },
       },
     });
 
@@ -389,6 +389,7 @@ export class DashboardService {
 
       return {
         id: m.id,
+        projectId: m.project.id,
         project: m.project.name,
         label: m.title,
         date: target.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),

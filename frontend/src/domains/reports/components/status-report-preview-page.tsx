@@ -24,7 +24,10 @@ export function StatusReportPreviewPage({ id }: { id: string }) {
   const snapshot = report.dataSnapshot ?? {};
   return (
     <div className="space-y-6 pb-10">
-      <PageHeader title={`${report.reportType} Preview`} description={`${report.project?.name ?? report.projectId} · ${report.status}`} />
+      <PageHeader
+        title={`${report.reportType} Preview`}
+        description={`${report.project?.name ?? report.projectId} · v${report.version} · ${report.status}`}
+      />
       <div className="grid gap-4 lg:grid-cols-2">
         {Object.entries(snapshot).map(([name, value]) => <SnapshotSection key={name} name={name} value={value} />)}
         {Object.keys(snapshot).length === 0 && <p className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground lg:col-span-2">This report has no snapshot sections.</p>}

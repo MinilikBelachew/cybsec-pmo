@@ -135,6 +135,18 @@ export class MeetingsController {
     );
   }
 
+  @Delete('moms/:momId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @CheckAbility('update', 'Project')
+  @CheckModulePermission('projects', 'edit')
+  removeMom(
+    @Param('projectId') projectId: string,
+    @Param('momId') momId: string,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.meetings.removeMom(projectId, momId, request.caslUser!);
+  }
+
   @Get(':meetingId')
   @CheckAbility('read', 'Project')
   @CheckModulePermission('projects', 'view')

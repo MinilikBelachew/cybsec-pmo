@@ -47,7 +47,7 @@ export function ProjectHealthTable({ data }: { data: ProjectHealthItem[] }) {
               return (
                 <tr
                   key={p.id}
-                  onClick={() => router.push(`/dashboard/projects?projectId=${p.id}`)}
+                  onClick={() => router.push(`/dashboard/projects/${p.id}`)}
                   className="group hover:bg-muted/30 transition-colors cursor-pointer"
                 >
                   <td className="py-2.5 pe-3">

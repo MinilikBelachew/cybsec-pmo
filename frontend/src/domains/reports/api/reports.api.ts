@@ -173,13 +173,33 @@ export const reportsApi = api.injectEndpoints({
         { type: "Projects", id: `status-${id}` },
       ],
     }),
-    exportStatusReport: builder.query<
+    deleteStatusReport: builder.mutation<{ id: string; deleted: boolean }, string>({
+      query: (id) => ({ url: `/reports/status/${id}`, method: "DELETE" }),
+      invalidatesTags: (_result, _error, id) => [
+        { type: "Projects", id: "STATUS_REPORTS" },
+        { type: "Projects", id: `status-${id}` },
+      ],
+    }),
+    exportStatusReport: builder.mutation<
       Blob,
       { id: string; format: "pdf" | "docx" | "xlsx" | "csv" }
     >({
       query: ({ id, format }) => ({
         url: `/reports/status/${id}/export?format=${format}`,
-        responseHandler: (response) => response.blob(),
+        method: "GET",
+        responseHandler: async (response) => {
+          const buffer = await response.arrayBuffer();
+          const mime =
+            format === "xlsx"
+              ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              : format === "docx"
+                ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                : format === "csv"
+                  ? "text/csv;charset=utf-8"
+                  : "application/pdf";
+          return new Blob([buffer], { type: mime });
+        },
+        cache: "no-store",
       }),
     }),
     getReportSchedules: builder.query<ReportSchedule[], void>({
@@ -230,7 +250,8 @@ export const {
   useGetStatusReportQuery,
   useApproveStatusReportMutation,
   useDistributeStatusReportMutation,
-  useLazyExportStatusReportQuery,
+  useDeleteStatusReportMutation,
+  useExportStatusReportMutation,
   useGetReportSchedulesQuery,
   useGetReportScheduleQuery,
   useCreateReportScheduleMutation,

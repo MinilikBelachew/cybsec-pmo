@@ -562,8 +562,19 @@ export function ProjectWorkspace() {
     const key = `${project.id}:${methodology}`;
     if (methodologyAppliedFor.current === key) return;
     methodologyAppliedFor.current = key;
-    setActiveView(methodologyDefaultView);
-  }, [project?.id, methodology, methodologyDefaultView]);
+    const viewParam = searchParams.get("view");
+    const canOpenView =
+      !!viewParam &&
+      VIEWS.some((v) => v.id === viewParam) &&
+      (viewParam !== "audit" || canViewProjectAudit);
+    setActiveView(canOpenView ? (viewParam as View) : methodologyDefaultView);
+  }, [
+    project?.id,
+    methodology,
+    methodologyDefaultView,
+    searchParams,
+    canViewProjectAudit,
+  ]);
 
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
 
@@ -601,6 +612,22 @@ export function ProjectWorkspace() {
   };
 
   useEffect(() => {
+    const viewParam = searchParams.get("view");
+    if (viewParam && id) {
+      const isValidView = VIEWS.some((v) => v.id === viewParam);
+      const canOpen =
+        isValidView &&
+        (viewParam !== "audit" || canViewProjectAudit);
+      if (canOpen) {
+        if (project?.id) {
+          methodologyAppliedFor.current = `${project.id}:${methodology}`;
+        }
+        setActiveView(viewParam as View);
+        router.replace(`/dashboard/projects/${id}`);
+        return;
+      }
+    }
+
     const taskIdParam = searchParams.get("taskId");
     if (!taskIdParam || !id) return;
 
@@ -631,7 +658,15 @@ export function ProjectWorkspace() {
     };
 
     void run();
-  }, [searchParams, id, router, applyLeaveBackup]);
+  }, [
+    searchParams,
+    id,
+    router,
+    applyLeaveBackup,
+    canViewProjectAudit,
+    project?.id,
+    methodology,
+  ]);
 
   const [ganttZoom, setGanttZoom] = useState(1);
 
@@ -1480,11 +1515,9 @@ export function ProjectWorkspace() {
         )}
 
         {activeView === "meetings" && (
-          <MeetingsPanel projectId={id} canEdit={canEditProjects} />
-        )}
-
-        {activeView === "meetings" && (
-          <MeetingsPanel projectId={id} canEdit={canEditProjects} />
+          <div className="h-full min-h-0">
+            <MeetingsPanel projectId={id} canEdit={canEditProjects} />
+          </div>
         )}
 
         {activeView === "audit" && canViewProjectAudit && (

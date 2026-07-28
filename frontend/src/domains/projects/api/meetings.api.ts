@@ -56,6 +56,16 @@ export const meetingsApi = api.injectEndpoints({
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
         { type: "Projects", id: `meetings-${projectId}` },
+        { type: "Projects", id: `moms-${projectId}` },
+      ],
+    }),
+    deleteMom: builder.mutation<void, { projectId: string; momId: string }>({
+      query: ({ projectId, momId }) => ({
+        url: `/projects/${projectId}/meetings/moms/${momId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (_result, _error, { projectId }) => [
+        { type: "Projects", id: `moms-${projectId}` },
       ],
     }),
     generateMom: builder.mutation<
@@ -135,6 +145,7 @@ export const {
   useCreateMeetingMutation,
   useUpdateMeetingMutation,
   useDeleteMeetingMutation,
+  useDeleteMomMutation,
   useGenerateMomMutation,
   useGetMomsQuery,
   useGetMomQuery,

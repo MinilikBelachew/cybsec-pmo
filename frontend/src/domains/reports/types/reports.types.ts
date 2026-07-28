@@ -137,7 +137,7 @@ export interface StatusReport {
   id: string;
   reportType: ReportType;
   projectId: string;
-  version?: number;
+  version: number;
   status: "Draft" | "Approved" | "Distributed" | string;
   dataSnapshot?: Record<string, unknown> | null;
   generatedAt: string;
