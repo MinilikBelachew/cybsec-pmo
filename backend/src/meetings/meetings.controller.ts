@@ -75,16 +75,8 @@ export class MeetingsController {
   ) {
     const buffer =
       format === 'docx'
-        ? await this.meetings.exportMomDocx(
-            projectId,
-            momId,
-            request.caslUser!,
-          )
-        : await this.meetings.exportMomPdf(
-            projectId,
-            momId,
-            request.caslUser!,
-          );
+        ? await this.meetings.exportMomDocx(projectId, momId, request.caslUser!)
+        : await this.meetings.exportMomPdf(projectId, momId, request.caslUser!);
     response
       .type(
         format === 'docx'
@@ -104,6 +96,22 @@ export class MeetingsController {
     @Request() request: RequestWithAbility,
   ) {
     return this.meetings.reviewMom(
+      projectId,
+      momId,
+      request.user!.id,
+      request.caslUser!,
+    );
+  }
+
+  @Post('moms/:momId/distribute')
+  @CheckAbility('update', 'Project')
+  @CheckModulePermission('projects', 'edit')
+  distributeMom(
+    @Param('projectId') projectId: string,
+    @Param('momId') momId: string,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.meetings.distributeMom(
       projectId,
       momId,
       request.user!.id,

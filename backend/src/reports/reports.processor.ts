@@ -1,7 +1,7 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bull';
-import { MailerService } from '../mailer/mailer.service';
+import { AuditLogsService } from '../audit/audit-logs.service';
 import { PrismaService } from '../database/prisma.service';
 import { GeneratedReportsService } from './generated-reports.service';
 import {
@@ -17,7 +17,7 @@ export class ReportsProcessor {
   constructor(
     private readonly prisma: PrismaService,
     private readonly generatedReports: GeneratedReportsService,
-    private readonly mailer: MailerService,
+    private readonly auditLogs: AuditLogsService,
   ) {}
 
   @Process(GENERATE_SCHEDULED_REPORT_JOB)
@@ -42,40 +42,27 @@ export class ReportsProcessor {
         schedule.projectId,
         schedule.createdBy,
       );
-      const pdf = await this.generatedReports.exportPdf(report.id);
-      const roleIds = schedule.recipients
-        .map((recipient) => recipient.roleId)
-        .filter((id): id is number => id != null);
-      const roleUsers =
-        roleIds.length === 0
-          ? []
-          : await this.prisma.user.findMany({
-              where: { roleId: { in: roleIds }, isActive: true },
-              select: { email: true },
-            });
-      const to = [
-        ...roleUsers.map((user) => user.email),
-        ...schedule.recipients
-          .map((recipient) => recipient.contact?.email)
-          .filter((email): email is string => Boolean(email)),
-      ];
-      if (to.length > 0) {
-        await this.mailer.sendMail({
-          to: [...new Set(to)],
-          subject: `${schedule.reportType} - ${schedule.project?.name ?? 'Project'}`,
-          html: '<p>Your scheduled project status report is attached.</p>',
-          attachments: [
-            {
-              filename: `${schedule.reportType}-${report.version}.pdf`,
-              content: pdf,
-              contentType: 'application/pdf',
-            },
-          ],
-          templatePath: '',
-          context: {},
+      const approved = await this.prisma.generatedReport.findFirst({
+        where: {
+          projectId: schedule.projectId,
+          reportType: schedule.reportType,
+          status: 'Approved',
+          id: { not: report.id },
+        },
+        orderBy: { approvedAt: 'desc' },
+        select: { id: true },
+      });
+      if (!approved) {
+        await this.prisma.reportSchedule.update({
+          where: { id: schedule.id },
+          data: {
+            lastRun: new Date(),
+            lastError: 'No approved report to distribute',
+          },
         });
+        return report;
       }
-      await this.generatedReports.markDistributed(report.id);
+      await this.generatedReports.distribute(approved.id, schedule.createdBy);
       await this.prisma.reportSchedule.update({
         where: { id: schedule.id },
         data: { lastRun: new Date(), lastError: null },
@@ -88,6 +75,17 @@ export class ReportsProcessor {
       await this.prisma.reportSchedule.update({
         where: { id: schedule.id },
         data: { lastError: message },
+      });
+      await this.auditLogs.create({
+        action: 'REPORT_DELIVERY_FAILED',
+        objectType: 'GeneratedReport',
+        objectId: null,
+        newValue: {
+          scheduleId: schedule.id,
+          attempt: job.attemptsMade + 1,
+          error: message,
+        },
+        user: { connect: { id: schedule.createdBy } },
       });
       this.logger.error(
         `Scheduled report ${schedule.id} failed (attempt ${job.attemptsMade + 1})`,

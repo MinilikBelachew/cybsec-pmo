@@ -323,6 +323,7 @@ model AppSetting {
   departmentStaffingRules       Json      @default("{\"rule\":\"same_department_only\"}") @map("department_staffing_rules")
   sessionIdleTimeoutSec         Int       @default(900) @map("session_idle_timeout_sec")
   sessionWarningBeforeSec       Int       @default(300) @map("session_warning_before_sec")
+  dataQualityRules              Json      @default("{}") @map("data_quality_rules")
   updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 

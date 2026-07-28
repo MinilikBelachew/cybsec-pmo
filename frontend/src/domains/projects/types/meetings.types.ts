@@ -8,8 +8,18 @@ export interface Meeting {
   status: string;
   createdAt: string;
   organiser?: { id: string; displayName?: string | null };
-  attendees?: Array<{ id: string; userId: string; isRequired: boolean }>;
-  items?: Array<{ id: string; itemType: string; content: string; ownerId?: string | null }>;
+  attendees?: Array<{
+    id: string;
+    userId: string;
+    isRequired: boolean;
+    user?: { id: string; displayName: string; email: string };
+  }>;
+  items?: Array<{
+    id: string;
+    itemType: string;
+    content: string;
+    ownerId?: string | null;
+  }>;
   moms?: MomDocument[];
 }
 
@@ -20,6 +30,11 @@ export interface MeetingInput {
   teamsMeetingId?: string;
   teamsJoinUrl?: string;
   status?: string;
+  items?: Array<{
+    itemType: "Agenda" | "Decision" | "Action";
+    content: string;
+    ownerId?: string;
+  }>;
 }
 
 export interface MomDocument {
@@ -31,4 +46,10 @@ export interface MomDocument {
   reviewedAt?: string | null;
   createdAt: string;
   meeting?: Pick<Meeting, "id" | "title" | "scheduledAt">;
+  acknowledgements?: Array<{
+    id: string;
+    attendeeId: string;
+    acknowledged: boolean;
+    ackedAt?: string | null;
+  }>;
 }

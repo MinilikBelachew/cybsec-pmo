@@ -1,6 +1,7 @@
 import { api } from "@/core/api/api";
 import type {
   DataQualityFlag,
+  DataQualityRules,
   HealthRule,
   ProjectHealthReport,
   ReportSchedule,
@@ -78,7 +79,9 @@ export const reportsApi = api.injectEndpoints({
     }),
     getProjectHealthReport: builder.query<ProjectHealthReport, string>({
       query: (id) => `/reports/health/projects/${id}`,
-      providesTags: (_result, _error, id) => [{ type: "Projects", id: `health-${id}` }],
+      providesTags: (_result, _error, id) => [
+        { type: "Projects", id: `health-${id}` },
+      ],
     }),
     getDataQualityFlags: builder.query<
       DataQualityFlag[],
@@ -86,7 +89,8 @@ export const reportsApi = api.injectEndpoints({
     >({
       query: (params) => {
         const query = new URLSearchParams();
-        if (params?.resolved !== undefined) query.set("resolved", String(params.resolved));
+        if (params?.resolved !== undefined)
+          query.set("resolved", String(params.resolved));
         if (params?.projectId) query.set("projectId", params.projectId);
         if (params?.flagType) query.set("flagType", params.flagType);
         return `/reports/data-quality${query.size ? `?${query}` : ""}`;
@@ -94,12 +98,37 @@ export const reportsApi = api.injectEndpoints({
       providesTags: [{ type: "Projects", id: "DATA_QUALITY" }],
     }),
     scanDataQuality: builder.mutation<unknown, { projectId?: string }>({
-      query: (body) => ({ url: "/reports/data-quality/scan", method: "POST", body }),
+      query: (body) => ({
+        url: "/reports/data-quality/scan",
+        method: "POST",
+        body,
+      }),
       invalidatesTags: [{ type: "Projects", id: "DATA_QUALITY" }],
     }),
     resolveDataQualityFlag: builder.mutation<DataQualityFlag, string>({
-      query: (id) => ({ url: `/reports/data-quality/${id}/resolve`, method: "PATCH" }),
+      query: (id) => ({
+        url: `/reports/data-quality/${id}/resolve`,
+        method: "PATCH",
+      }),
       invalidatesTags: [{ type: "Projects", id: "DATA_QUALITY" }],
+    }),
+    getDataQualityRules: builder.query<DataQualityRules, void>({
+      query: () => "/reports/data-quality/rules",
+      providesTags: [{ type: "Settings", id: "DATA_QUALITY_RULES" }],
+    }),
+    updateDataQualityRules: builder.mutation<
+      DataQualityRules,
+      DataQualityRules
+    >({
+      query: (body) => ({
+        url: "/reports/data-quality/rules",
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: [
+        { type: "Settings", id: "DATA_QUALITY_RULES" },
+        { type: "Projects", id: "DATA_QUALITY" },
+      ],
     }),
     generateStatusReport: builder.mutation<
       StatusReport,
@@ -123,7 +152,9 @@ export const reportsApi = api.injectEndpoints({
     }),
     getStatusReport: builder.query<StatusReport, string>({
       query: (id) => `/reports/status/${id}`,
-      providesTags: (_result, _error, id) => [{ type: "Projects", id: `status-${id}` }],
+      providesTags: (_result, _error, id) => [
+        { type: "Projects", id: `status-${id}` },
+      ],
     }),
     approveStatusReport: builder.mutation<StatusReport, string>({
       query: (id) => ({ url: `/reports/status/${id}/approve`, method: "POST" }),
@@ -132,7 +163,20 @@ export const reportsApi = api.injectEndpoints({
         { type: "Projects", id: `status-${id}` },
       ],
     }),
-    exportStatusReport: builder.query<Blob, { id: string; format: "pdf" | "docx" }>({
+    distributeStatusReport: builder.mutation<StatusReport, string>({
+      query: (id) => ({
+        url: `/reports/status/${id}/distribute`,
+        method: "POST",
+      }),
+      invalidatesTags: (_result, _error, id) => [
+        { type: "Projects", id: "STATUS_REPORTS" },
+        { type: "Projects", id: `status-${id}` },
+      ],
+    }),
+    exportStatusReport: builder.query<
+      Blob,
+      { id: string; format: "pdf" | "docx" | "xlsx" | "csv" }
+    >({
       query: ({ id, format }) => ({
         url: `/reports/status/${id}/export?format=${format}`,
         responseHandler: (response) => response.blob(),
@@ -145,15 +189,21 @@ export const reportsApi = api.injectEndpoints({
     getReportSchedule: builder.query<ReportSchedule, string>({
       query: (id) => `/reports/schedules/${id}`,
     }),
-    createReportSchedule: builder.mutation<ReportSchedule, ReportScheduleInput>({
-      query: (body) => ({ url: "/reports/schedules", method: "POST", body }),
-      invalidatesTags: [{ type: "Projects", id: "REPORT_SCHEDULES" }],
-    }),
+    createReportSchedule: builder.mutation<ReportSchedule, ReportScheduleInput>(
+      {
+        query: (body) => ({ url: "/reports/schedules", method: "POST", body }),
+        invalidatesTags: [{ type: "Projects", id: "REPORT_SCHEDULES" }],
+      },
+    ),
     updateReportSchedule: builder.mutation<
       ReportSchedule,
       { id: string; body: Partial<ReportScheduleInput> }
     >({
-      query: ({ id, body }) => ({ url: `/reports/schedules/${id}`, method: "PATCH", body }),
+      query: ({ id, body }) => ({
+        url: `/reports/schedules/${id}`,
+        method: "PATCH",
+        body,
+      }),
       invalidatesTags: [{ type: "Projects", id: "REPORT_SCHEDULES" }],
     }),
     deleteReportSchedule: builder.mutation<void, string>({
@@ -173,10 +223,13 @@ export const {
   useGetDataQualityFlagsQuery,
   useScanDataQualityMutation,
   useResolveDataQualityFlagMutation,
+  useGetDataQualityRulesQuery,
+  useUpdateDataQualityRulesMutation,
   useGenerateStatusReportMutation,
   useGetStatusReportsQuery,
   useGetStatusReportQuery,
   useApproveStatusReportMutation,
+  useDistributeStatusReportMutation,
   useLazyExportStatusReportQuery,
   useGetReportSchedulesQuery,
   useGetReportScheduleQuery,

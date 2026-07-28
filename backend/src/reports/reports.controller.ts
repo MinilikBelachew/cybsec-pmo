@@ -29,7 +29,10 @@ import { UtilisationReportResponseDto } from './dto/utilisation-response.dto';
 import { UpdateHealthRuleItemDto } from './dto/health-rules.dto';
 import { UtilisationService } from './utilisation.service';
 import { HealthRulesService } from './health/health-rules.service';
-import { DataQualityService } from './data-quality/data-quality.service';
+import {
+  DataQualityRules,
+  DataQualityService,
+} from './data-quality/data-quality.service';
 import {
   GeneratedReportsService,
   StatusReportType,
@@ -120,6 +123,23 @@ export class ReportsController {
     return this.dataQuality.listFlags({ resolved, projectId, flagType });
   }
 
+  @Get('data-quality/rules')
+  @CheckAbility('manage', 'Report')
+  @CheckModulePermission('reports', 'manage')
+  getDataQualityRules() {
+    return this.dataQuality.getRules();
+  }
+
+  @Put('data-quality/rules')
+  @CheckAbility('manage', 'Report')
+  @CheckModulePermission('reports', 'manage')
+  updateDataQualityRules(
+    @Body() body: DataQualityRules,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.dataQuality.updateRules(body, request.user!.id);
+  }
+
   @Post('data-quality')
   @CheckAbility('manage', 'Report')
   @CheckModulePermission('reports', 'manage')
@@ -190,25 +210,45 @@ export class ReportsController {
     return this.generatedReports.approve(id, request.user!.id);
   }
 
+  @Post('status/:id/distribute')
+  @CheckAbility('approve', 'Report')
+  @CheckModulePermission('reports', 'approve')
+  distributeStatus(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ) {
+    return this.generatedReports.distribute(id, request.user!.id);
+  }
+
   @Get('status/:id/export')
   @CheckAbility('read', 'Report')
   @CheckModulePermission('reports', 'export')
   async exportStatus(
     @Param('id') id: string,
-    @Query('format') format: 'pdf' | 'docx' = 'pdf',
+    @Query('format') format: 'pdf' | 'docx' | 'xlsx' | 'excel' | 'csv' = 'pdf',
     @Res() response: Response,
   ) {
+    const isExcel = format === 'xlsx' || format === 'excel';
     const buffer =
-      format === 'docx'
-        ? await this.generatedReports.exportDocx(id)
-        : await this.generatedReports.exportPdf(id);
+      format === 'csv'
+        ? await this.generatedReports.exportCsv(id)
+        : isExcel
+          ? await this.generatedReports.exportExcel(id)
+          : format === 'docx'
+            ? await this.generatedReports.exportDocx(id)
+            : await this.generatedReports.exportPdf(id);
+    const extension = isExcel ? 'xlsx' : format;
     response
       .type(
-        format === 'docx'
-          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-          : 'application/pdf',
+        format === 'csv'
+          ? 'text/csv; charset=utf-8'
+          : isExcel
+            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            : format === 'docx'
+              ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              : 'application/pdf',
       )
-      .attachment(`status-report-${id}.${format}`)
+      .attachment(`status-report-${id}.${extension}`)
       .send(buffer);
   }
 

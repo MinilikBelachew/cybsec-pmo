@@ -20,6 +20,12 @@ type FlagCandidate = {
   description: string;
 };
 
+export type DataQualityRules = {
+  includeFlagTypes?: DataQualityFlagType[];
+  excludeFlagTypes?: DataQualityFlagType[];
+  enabled?: Partial<Record<DataQualityFlagType, boolean>>;
+};
+
 @Injectable()
 export class DataQualityService {
   constructor(private readonly prisma: PrismaService) {}
@@ -62,6 +68,33 @@ export class DataQualityService {
       where: { id },
       data: { isResolved: true, resolvedBy: userId, resolvedAt: new Date() },
     });
+  }
+
+  async getRules(): Promise<DataQualityRules> {
+    const settings = await this.prisma.appSetting.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: { id: 'default' },
+      select: { dataQualityRules: true },
+    });
+    return this.parseRules(settings.dataQualityRules);
+  }
+
+  async updateRules(rules: DataQualityRules, userId: string) {
+    const normalized = this.normalizeRules(rules);
+    await this.prisma.appSetting.upsert({
+      where: { id: 'default' },
+      update: {
+        dataQualityRules: normalized as Prisma.InputJsonValue,
+        updatedById: userId,
+      },
+      create: {
+        id: 'default',
+        dataQualityRules: normalized as Prisma.InputJsonValue,
+        updatedById: userId,
+      },
+    });
+    return normalized;
   }
 
   private async scan(projectId?: string) {
@@ -207,7 +240,13 @@ export class DataQualityService {
       }
     }
 
-    await this.persistCandidates(candidates, projectId);
+    const rules = await this.getRules();
+    await this.persistCandidates(
+      candidates.filter((candidate) =>
+        this.isEnabled(candidate.flagType, rules),
+      ),
+      projectId,
+    );
     return this.listFlags({
       resolved: false,
       ...(projectId ? { projectId } : {}),
@@ -266,5 +305,43 @@ export class DataQualityService {
         await this.prisma.dataQualityFlag.create({ data: candidate });
       }
     }
+  }
+
+  private isEnabled(flagType: DataQualityFlagType, rules: DataQualityRules) {
+    if (rules.enabled?.[flagType] === false) return false;
+    if (rules.excludeFlagTypes?.includes(flagType)) return false;
+    return (
+      !rules.includeFlagTypes?.length ||
+      rules.includeFlagTypes.includes(flagType)
+    );
+  }
+
+  private parseRules(value: Prisma.JsonValue): DataQualityRules {
+    if (!value || Array.isArray(value) || typeof value !== 'object') return {};
+    return this.normalizeRules(value as DataQualityRules);
+  }
+
+  private normalizeRules(rules: DataQualityRules): DataQualityRules {
+    const validTypes = new Set<DataQualityFlagType>(
+      Object.values(DATA_QUALITY_FLAG_TYPE),
+    );
+    const includeFlagTypes = (rules.includeFlagTypes ?? []).filter((type) =>
+      validTypes.has(type),
+    );
+    const excludeFlagTypes = (rules.excludeFlagTypes ?? []).filter((type) =>
+      validTypes.has(type),
+    );
+    const enabled = Object.fromEntries(
+      Object.entries(rules.enabled ?? {}).filter(
+        ([type, value]) =>
+          validTypes.has(type as DataQualityFlagType) &&
+          typeof value === 'boolean',
+      ),
+    ) as DataQualityRules['enabled'];
+    return {
+      ...(includeFlagTypes.length ? { includeFlagTypes } : {}),
+      ...(excludeFlagTypes.length ? { excludeFlagTypes } : {}),
+      ...(Object.keys(enabled ?? {}).length ? { enabled } : {}),
+    };
   }
 }
