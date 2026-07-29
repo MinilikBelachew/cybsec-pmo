@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Calendar,
   ChevronDown,
@@ -25,6 +25,7 @@ import {
 import { useGetProjectsQuery } from "@/domains/projects";
 import { env } from "@/config/env.config";
 import { useAppSelector } from "@/store/hooks";
+import { cn } from "@/shared/utils/cn";
 import {
   useApproveStatusReportMutation,
   useDeleteStatusReportMutation,
@@ -32,7 +33,7 @@ import {
   useGenerateStatusReportMutation,
   useGetStatusReportsQuery,
 } from "../api/reports.api";
-import type { ReportType } from "../types/reports.types";
+import type { ReportType, StatusReport } from "../types/reports.types";
 
 const EXPORT_FORMATS = [
   { value: "pdf" as const, label: "PDF" },
@@ -48,32 +49,92 @@ const EXPORT_MIME: Record<(typeof EXPORT_FORMATS)[number]["value"], string> = {
   csv: "text/csv;charset=utf-8",
 };
 
+const STATUS_BADGE: Record<string, string> = {
+  Draft: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+  Approved: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+  Distributed: "bg-sky-50 text-sky-700 ring-1 ring-sky-200",
+};
+
+const PAGE_SIZES = [5, 10, 20];
+
+function statusBadgeClass(status: string) {
+  return STATUS_BADGE[status] ?? "bg-muted text-muted-foreground ring-1 ring-border";
+}
+
 export function StatusReportsPage() {
-  const [projectId, setProjectId] = useState("");
-  const [reportType, setReportType] = useState<ReportType>("WSR");
+  const [generateProjectId, setGenerateProjectId] = useState("");
+  const [generateType, setGenerateType] = useState<ReportType>("WSR");
+
+  const [filterProjectId, setFilterProjectId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterType, setFilterType] = useState<"" | ReportType>("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   const userId = useAppSelector((state) => state.auth.user?.id);
   const { data: projects } = useGetProjectsQuery({ page: 1, limit: 100 });
-  const { data: reports = [], isLoading } = useGetStatusReportsQuery();
+  const { data: list, isLoading, isFetching } = useGetStatusReportsQuery({
+    projectId: filterProjectId || undefined,
+    reportType: filterType || undefined,
+    status: filterStatus || undefined,
+    page,
+    limit: pageSize,
+  });
   const [generate, { isLoading: generating }] =
     useGenerateStatusReportMutation();
-  const [approve] = useApproveStatusReportMutation();
+  const [approve, { isLoading: approving }] = useApproveStatusReportMutation();
   const [distribute, { isLoading: distributing }] =
     useDistributeStatusReportMutation();
   const [deleteReport, { isLoading: deleting }] =
     useDeleteStatusReportMutation();
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     id: string;
     label: string;
   } | null>(null);
 
+  const reports = list?.data ?? [];
+  const total = list?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterProjectId, filterStatus, filterType, pageSize]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
   const onGenerate = async () => {
-    if (!projectId) return toast.error("Select a project");
+    if (!generateProjectId) return toast.error("Select a project");
     try {
-      const created = await generate({ projectId, reportType }).unwrap();
-      toast.success(`${reportType} v${created.version} generated`);
+      const created = await generate({
+        projectId: generateProjectId,
+        reportType: generateType,
+      }).unwrap();
+      toast.success(`${generateType} v${created.version} generated`);
     } catch {
       toast.error("Could not generate status report");
+    }
+  };
+
+  const onFlowAction = async (report: StatusReport) => {
+    setActionId(report.id);
+    try {
+      if (report.status === "Draft") {
+        await approve(report.id).unwrap();
+        toast.success("Report approved");
+      } else if (report.status === "Approved") {
+        await distribute(report.id).unwrap();
+        toast.success("Report distributed");
+      }
+    } catch {
+      toast.error(
+        report.status === "Draft" ? "Approval failed" : "Distribution failed",
+      );
+    } finally {
+      setActionId(null);
     }
   };
 
@@ -124,19 +185,23 @@ export function StatusReportsPage() {
     }
   };
 
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+
   return (
     <div className="space-y-6 pb-10">
       <PageHeader
         title="Status Reports"
         description="Generate, review, approve, and export WSR/MSR snapshots. Regenerating the same project and type creates a new version."
       />
+
       <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
         <select
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
+          value={generateProjectId}
+          onChange={(e) => setGenerateProjectId(e.target.value)}
           className="h-10 w-full max-w-md rounded-lg border bg-background px-3 text-sm"
         >
-          <option value="">Select project</option>
+          <option value="">Select project to generate</option>
           {projects?.data.map((project) => (
             <option key={project.id} value={project.id}>
               {project.name}
@@ -144,8 +209,8 @@ export function StatusReportsPage() {
           ))}
         </select>
         <select
-          value={reportType}
-          onChange={(e) => setReportType(e.target.value as ReportType)}
+          value={generateType}
+          onChange={(e) => setGenerateType(e.target.value as ReportType)}
           className="h-10 w-40 rounded-lg border bg-background px-3 text-sm"
         >
           <option value="WSR">Weekly (WSR)</option>
@@ -160,6 +225,54 @@ export function StatusReportsPage() {
           Generate
         </Button>
       </div>
+
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
+        <select
+          value={filterProjectId}
+          onChange={(e) => setFilterProjectId(e.target.value)}
+          className="h-10 w-full max-w-xs rounded-lg border bg-background px-3 text-sm"
+        >
+          <option value="">All projects</option>
+          {projects?.data.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          className="h-10 w-40 rounded-lg border bg-background px-3 text-sm"
+        >
+          <option value="">All statuses</option>
+          <option value="Draft">Draft</option>
+          <option value="Approved">Approved</option>
+          <option value="Distributed">Distributed</option>
+        </select>
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value as "" | ReportType)}
+          className="h-10 w-40 rounded-lg border bg-background px-3 text-sm"
+        >
+          <option value="">All types</option>
+          <option value="WSR">Weekly (WSR)</option>
+          <option value="MSR">Monthly (MSR)</option>
+        </select>
+        {(filterProjectId || filterStatus || filterType) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFilterProjectId("");
+              setFilterStatus("");
+              setFilterType("");
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
+      </div>
+
       <div className="overflow-hidden rounded-xl border bg-card">
         {isLoading ? (
           <p className="p-8 text-center text-sm text-muted-foreground">
@@ -167,13 +280,12 @@ export function StatusReportsPage() {
           </p>
         ) : reports.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">
-            No status reports generated yet.
+            No status reports match the current filters.
           </p>
         ) : (
-          <div className="divide-y">
+          <div className={cn("divide-y", isFetching && "opacity-70")}>
             {reports.map((report) => {
-              const canExport =
-                report.status === "Draft" || report.status === "Approved";
+              const isFlowBusy = actionId === report.id && (approving || distributing);
               return (
                 <div
                   key={report.id}
@@ -183,9 +295,19 @@ export function StatusReportsPage() {
                     href={`/dashboard/reports/status/${report.id}`}
                     className="min-w-0 flex-1"
                   >
-                    <p className="font-semibold hover:text-primary">
-                      {report.project?.name ?? report.projectId}
-                    </p>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <p className="truncate font-semibold hover:text-primary">
+                        {report.project?.name ?? report.projectId}
+                      </p>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                          statusBadgeClass(report.status),
+                        )}
+                      >
+                        {report.status}
+                      </span>
+                    </div>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                       <span>
                         {report.reportType} · v{report.version}
@@ -196,52 +318,49 @@ export function StatusReportsPage() {
                       </span>
                     </p>
                   </Link>
+
                   <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
                     v{report.version}
                   </span>
-                  <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold">
-                    {report.status}
-                  </span>
+
                   {report.status === "Draft" && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={async () => {
-                        try {
-                          await approve(report.id).unwrap();
-                          toast.success("Report approved");
-                        } catch {
-                          toast.error("Approval failed");
-                        }
-                      }}
+                      disabled={isFlowBusy}
+                      onClick={() => void onFlowAction(report)}
                     >
-                      <ShieldCheck className="mr-1 size-4" />
+                      {isFlowBusy ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="mr-1 size-4" />
+                      )}
                       Approve
                     </Button>
                   )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={report.status !== "Approved" || distributing}
-                    onClick={async () => {
-                      try {
-                        await distribute(report.id).unwrap();
-                        toast.success("Report distributed");
-                      } catch {
-                        toast.error("Distribution failed");
-                      }
-                    }}
-                  >
-                    <Send className="mr-1 size-4" />
-                    Distribute
-                  </Button>
+                  {report.status === "Approved" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isFlowBusy}
+                      onClick={() => void onFlowAction(report)}
+                    >
+                      {isFlowBusy ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-1 size-4" />
+                      )}
+                      Distribute
+                    </Button>
+                  )}
+
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={!canExport || exportingId === report.id}
+                          disabled={exportingId === report.id}
                           className="gap-1"
                         />
                       }
@@ -267,6 +386,7 @@ export function StatusReportsPage() {
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -284,6 +404,46 @@ export function StatusReportsPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {total > 0 && (
+          <div className="flex flex-col gap-3 border-t border-border/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Showing {from}–{to} of {total}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="h-8 rounded-lg border bg-background px-2 text-sm"
+              >
+                {PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size} per page
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {page} of {pageCount}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         )}
       </div>

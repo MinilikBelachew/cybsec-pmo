@@ -54,24 +54,40 @@ export class GeneratedReportsService {
     });
   }
 
-  list(query: { projectId?: string; reportType?: string; status?: string }) {
-    return this.prisma.generatedReport.findMany({
-      where: {
-        ...(query.projectId ? { projectId: query.projectId } : {}),
-        ...(query.reportType ? { reportType: query.reportType } : {}),
-        ...(query.status ? { status: query.status } : {}),
-      },
-      include: {
-        project: { select: { id: true, name: true } },
-        generator: { select: { id: true, displayName: true } },
-        approver: { select: { id: true, displayName: true } },
-      },
-      orderBy: [
-        { projectId: 'asc' },
-        { reportType: 'asc' },
-        { version: 'desc' },
-      ],
-    });
+  async list(query: {
+    projectId?: string;
+    reportType?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
+    const where = {
+      ...(query.projectId ? { projectId: query.projectId } : {}),
+      ...(query.reportType ? { reportType: query.reportType } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.generatedReport.findMany({
+        where,
+        include: {
+          project: { select: { id: true, name: true } },
+          generator: { select: { id: true, displayName: true } },
+          approver: { select: { id: true, displayName: true } },
+        },
+        orderBy: [
+          { generatedAt: 'desc' },
+          { version: 'desc' },
+        ],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.generatedReport.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
   }
 
   async get(id: string) {
@@ -93,12 +109,12 @@ export class GeneratedReportsService {
       report.s3DocxKey
         ? fs.unlink(path.resolve(process.cwd(), report.s3DocxKey))
         : Promise.resolve(),
-      fs.unlink(
-        path.resolve(process.cwd(), 'uploads', 'reports', `${id}.xlsx`),
-      ),
-      fs.unlink(
-        path.resolve(process.cwd(), 'uploads', 'reports', `${id}.csv`),
-      ),
+      fs.rm(path.resolve(process.cwd(), 'uploads', 'reports', `${id}.xlsx`), {
+        force: true,
+      }),
+      fs.rm(path.resolve(process.cwd(), 'uploads', 'reports', `${id}.csv`), {
+        force: true,
+      }),
     ]);
     return { id, deleted: true };
   }
@@ -221,12 +237,6 @@ export class GeneratedReportsService {
     this.assertDownloadable(report.status);
     const snapshot = await this.resolveSnapshot(report);
     const buffer = await buildReportPdf(snapshot);
-    const relativePath = path.join('uploads', 'reports', `${id}.pdf`);
-    await this.writeExport(relativePath, buffer);
-    await this.prisma.generatedReport.update({
-      where: { id },
-      data: { s3PdfKey: relativePath.replace(/\\/g, '/') },
-    });
     return buffer;
   }
 
@@ -235,12 +245,6 @@ export class GeneratedReportsService {
     this.assertDownloadable(report.status);
     const snapshot = await this.resolveSnapshot(report);
     const buffer = await buildReportDocx(snapshot);
-    const relativePath = path.join('uploads', 'reports', `${id}.docx`);
-    await this.writeExport(relativePath, buffer);
-    await this.prisma.generatedReport.update({
-      where: { id },
-      data: { s3DocxKey: relativePath.replace(/\\/g, '/') },
-    });
     return buffer;
   }
 
@@ -365,8 +369,6 @@ export class GeneratedReportsService {
     missingSheet.getRow(1).font = { bold: true };
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
-    const relativePath = path.join('uploads', 'reports', `${id}.xlsx`);
-    await this.writeExport(relativePath, buffer);
     return buffer;
   }
 
@@ -564,16 +566,14 @@ export class GeneratedReportsService {
     };
   }
 
-  private async writeExport(relativePath: string, buffer: Buffer) {
-    const absolutePath = path.resolve(process.cwd(), relativePath);
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-    await fs.writeFile(absolutePath, buffer);
-  }
-
   private assertDownloadable(status: string) {
-    if (status !== 'Draft' && status !== 'Approved') {
+    if (
+      status !== 'Draft' &&
+      status !== 'Approved' &&
+      status !== 'Distributed'
+    ) {
       throw new BadRequestException(
-        'Only draft or approved reports can be downloaded',
+        'Only draft, approved, or distributed reports can be downloaded',
       );
     }
   }

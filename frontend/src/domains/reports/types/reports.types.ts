@@ -146,6 +146,13 @@ export interface StatusReport {
   project?: { id: string; name: string } | null;
 }
 
+export interface StatusReportsListResponse {
+  data: StatusReport[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface ReportSchedule {
   id: string;
   reportType: ReportType;

@@ -3,8 +3,10 @@
 import { useState } from "react";
 import {
   CheckCheck,
+  ChevronDown,
   Download,
   FileText,
+  Loader2,
   Pencil,
   Plus,
   Send,
@@ -15,6 +17,14 @@ import { toast } from "react-hot-toast";
 import { Button } from "@/shared/ui/button";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
+import { cn } from "@/shared/utils/cn";
+import {
+  downloadMomExport,
   useAcknowledgeMomMutation,
   useDeleteMeetingMutation,
   useDeleteMomMutation,
@@ -22,11 +32,26 @@ import {
   useGenerateMomMutation,
   useGetMeetingsQuery,
   useGetMomsQuery,
-  useLazyExportMomQuery,
   useReviewMomMutation,
 } from "../../api/meetings.api";
-import type { Meeting } from "../../types/meetings.types";
-import { MeetingFormModal } from "./meeting-form-modal";
+import type { Meeting, MomDocument } from "../../types/meetings.types";
+import {
+  MeetingSheet,
+  type MeetingSheetMode,
+} from "./meeting-sheet";
+
+const MOM_STATUS_BADGE: Record<string, string> = {
+  Draft: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+  Reviewed: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+  Distributed: "bg-sky-50 text-sky-700 ring-1 ring-sky-200",
+};
+
+function momStatusBadgeClass(status: string) {
+  return (
+    MOM_STATUS_BADGE[status] ??
+    "bg-muted text-muted-foreground ring-1 ring-border"
+  );
+}
 
 export function MeetingsPanel({
   projectId,
@@ -35,8 +60,11 @@ export function MeetingsPanel({
   projectId: string;
   canEdit: boolean;
 }) {
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetMode, setSheetMode] = useState<MeetingSheetMode>("create");
+  const [activeMeeting, setActiveMeeting] = useState<Meeting | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     type: "meeting" | "mom";
     id: string;
@@ -48,24 +76,33 @@ export function MeetingsPanel({
     useDeleteMeetingMutation();
   const [deleteMom, { isLoading: deletingMom }] = useDeleteMomMutation();
   const [generate] = useGenerateMomMutation();
-  const [review] = useReviewMomMutation();
-  const [distribute] = useDistributeMomMutation();
-  const [acknowledge] = useAcknowledgeMomMutation();
-  const [exportMom] = useLazyExportMomQuery();
+  const [review, { isLoading: reviewing }] = useReviewMomMutation();
+  const [distribute, { isLoading: distributing }] = useDistributeMomMutation();
+  const [acknowledge, { isLoading: acknowledging }] =
+    useAcknowledgeMomMutation();
 
   const openCreate = () => {
-    setEditingMeeting(null);
-    setFormOpen(true);
+    setActiveMeeting(null);
+    setSheetMode("create");
+    setSheetOpen(true);
+  };
+
+  const openPreview = (meeting: Meeting) => {
+    setActiveMeeting(meeting);
+    setSheetMode("preview");
+    setSheetOpen(true);
   };
 
   const openEdit = (meeting: Meeting) => {
-    setEditingMeeting(meeting);
-    setFormOpen(true);
+    setActiveMeeting(meeting);
+    setSheetMode("edit");
+    setSheetOpen(true);
   };
 
-  const closeForm = () => {
-    setFormOpen(false);
-    setEditingMeeting(null);
+  const closeSheet = () => {
+    setSheetOpen(false);
+    setActiveMeeting(null);
+    setSheetMode("create");
   };
 
   const act = async (action: () => Promise<unknown>, success: string) => {
@@ -77,18 +114,35 @@ export function MeetingsPanel({
     }
   };
 
-  const onDownload = async (momId: string, format: "pdf" | "docx") => {
+  const onMomFlowAction = async (mom: MomDocument) => {
+    setActionId(mom.id);
     try {
-      const blob = await exportMom({ projectId, momId, format }).unwrap();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `mom-${momId}.${format}`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      if (mom.status === "Draft") {
+        await review({ projectId, momId: mom.id }).unwrap();
+        toast.success("MoM reviewed");
+      } else if (mom.status === "Reviewed") {
+        await distribute({ projectId, momId: mom.id }).unwrap();
+        toast.success("MoM distributed");
+      } else if (mom.status === "Distributed") {
+        await acknowledge({ projectId, momId: mom.id }).unwrap();
+        toast.success("MoM acknowledged");
+      }
+    } catch {
+      toast.error("Action failed");
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const onDownload = async (momId: string, format: "pdf" | "docx") => {
+    setExportingId(momId);
+    try {
+      await downloadMomExport(projectId, momId, format);
       toast.success(`${format.toUpperCase()} downloaded`);
     } catch {
       toast.error("Export failed");
+    } finally {
+      setExportingId(null);
     }
   };
 
@@ -100,7 +154,7 @@ export function MeetingsPanel({
           projectId,
           meetingId: deleteConfirm.id,
         }).unwrap();
-        if (editingMeeting?.id === deleteConfirm.id) closeForm();
+        if (activeMeeting?.id === deleteConfirm.id) closeSheet();
         toast.success("Meeting deleted");
       } else {
         await deleteMom({ projectId, momId: deleteConfirm.id }).unwrap();
@@ -150,62 +204,76 @@ export function MeetingsPanel({
             ) : (
               <ul className="divide-y divide-border/40">
                 {meetings.map((meeting) => (
-                  <li
-                    key={meeting.id}
-                    className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">
-                        {meeting.title}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {new Date(meeting.scheduledAt).toLocaleString()} ·{" "}
-                        {meeting.status}
-                      </p>
-                    </div>
-                    {canEdit && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openEdit(meeting)}
-                        >
-                          <Pencil className="mr-1 size-4" />
-                          Edit
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            void act(
-                              () =>
-                                generate({
-                                  projectId,
-                                  meetingId: meeting.id,
-                                }).unwrap(),
-                              "MoM generated",
-                            )
-                          }
-                        >
-                          <FileText className="mr-1 size-4" />
-                          Generate MoM
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-rose-600 hover:text-rose-700"
-                          onClick={() =>
-                            setDeleteConfirm({
-                              type: "meeting",
-                              id: meeting.id,
-                              label: meeting.title,
-                            })
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                  <li key={meeting.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openPreview(meeting)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openPreview(meeting);
+                        }
+                      }}
+                      className="group flex cursor-pointer flex-col gap-3 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:flex-row sm:items-center"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
+                          {meeting.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {new Date(meeting.scheduledAt).toLocaleString()} ·{" "}
+                          {meeting.status}
+                        </p>
                       </div>
-                    )}
+                      {canEdit && (
+                        <div
+                          className="flex flex-wrap items-center gap-2"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEdit(meeting)}
+                          >
+                            <Pencil className="mr-1 size-4" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              void act(
+                                () =>
+                                  generate({
+                                    projectId,
+                                    meetingId: meeting.id,
+                                  }).unwrap(),
+                                "MoM generated",
+                              )
+                            }
+                          >
+                            <FileText className="mr-1 size-4" />
+                            Generate MoM
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-rose-600 hover:text-rose-700"
+                            onClick={() =>
+                              setDeleteConfirm({
+                                type: "meeting",
+                                id: meeting.id,
+                                label: meeting.title,
+                              })
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -225,125 +293,154 @@ export function MeetingsPanel({
               </p>
             ) : (
               <ul className="divide-y divide-border/40">
-                {moms.map((mom) => (
-                  <li
-                    key={mom.id}
-                    className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-semibold">
-                          {mom.meeting?.title ?? "Untitled meeting"}
+                {moms.map((mom) => {
+                  const isFlowBusy =
+                    actionId === mom.id &&
+                    (reviewing || distributing || acknowledging);
+                  const showReview = canEdit && mom.status === "Draft";
+                  const showDistribute = canEdit && mom.status === "Reviewed";
+                  const showAcknowledge = mom.status === "Distributed";
+
+                  return (
+                    <li
+                      key={mom.id}
+                      className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold">
+                            {mom.meeting?.title ?? "Untitled meeting"}
+                          </p>
+                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary">
+                            v{mom.version}
+                          </span>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                              momStatusBadgeClass(mom.status),
+                            )}
+                          >
+                            {mom.status}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {new Date(mom.createdAt).toLocaleString()}
                         </p>
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                          v{mom.version}
-                        </span>
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold">
-                          {mom.status}
-                        </span>
                       </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {new Date(mom.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {canEdit && mom.status === "Draft" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            void act(
-                              () =>
-                                review({
-                                  projectId,
-                                  momId: mom.id,
-                                }).unwrap(),
-                              "MoM reviewed",
-                            )
-                          }
-                        >
-                          <ShieldCheck className="mr-1 size-4" />
-                          Review
-                        </Button>
-                      )}
-                      {canEdit && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={mom.status !== "Reviewed"}
-                          onClick={() =>
-                            void act(
-                              () =>
-                                distribute({
-                                  projectId,
-                                  momId: mom.id,
-                                }).unwrap(),
-                              "MoM distributed",
-                            )
-                          }
-                        >
-                          <Send className="mr-1 size-4" />
-                          Distribute
-                        </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          void act(
-                            () =>
-                              acknowledge({
-                                projectId,
-                                momId: mom.id,
-                              }).unwrap(),
-                            "MoM acknowledged",
-                          )
-                        }
-                      >
-                        <CheckCheck className="mr-1 size-4" />
-                        Acknowledge
-                      </Button>
-                      {(["pdf", "docx"] as const).map((format) => (
-                        <Button
-                          key={format}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void onDownload(mom.id, format)}
-                        >
-                          <Download className="mr-1 size-4" />
-                          {format.toUpperCase()}
-                        </Button>
-                      ))}
-                      {canEdit && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-rose-600 hover:text-rose-700"
-                          onClick={() =>
-                            setDeleteConfirm({
-                              type: "mom",
-                              id: mom.id,
-                              label: `${mom.meeting?.title ?? "MoM"} v${mom.version}`,
-                            })
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {showReview && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isFlowBusy}
+                            onClick={() => void onMomFlowAction(mom)}
+                          >
+                            {isFlowBusy ? (
+                              <Loader2 className="mr-1 size-4 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="mr-1 size-4" />
+                            )}
+                            Review
+                          </Button>
+                        )}
+                        {showDistribute && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isFlowBusy}
+                            onClick={() => void onMomFlowAction(mom)}
+                          >
+                            {isFlowBusy ? (
+                              <Loader2 className="mr-1 size-4 animate-spin" />
+                            ) : (
+                              <Send className="mr-1 size-4" />
+                            )}
+                            Distribute
+                          </Button>
+                        )}
+                        {showAcknowledge && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isFlowBusy}
+                            onClick={() => void onMomFlowAction(mom)}
+                          >
+                            {isFlowBusy ? (
+                              <Loader2 className="mr-1 size-4 animate-spin" />
+                            ) : (
+                              <CheckCheck className="mr-1 size-4" />
+                            )}
+                            Acknowledge
+                          </Button>
+                        )}
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={exportingId === mom.id}
+                                className="gap-1"
+                              />
+                            }
+                          >
+                            {exportingId === mom.id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Download className="size-4" />
+                            )}
+                            Export
+                            <ChevronDown className="size-3.5 opacity-60" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-36">
+                            <DropdownMenuItem
+                              onClick={() => void onDownload(mom.id, "pdf")}
+                            >
+                              PDF
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => void onDownload(mom.id, "docx")}
+                            >
+                              DOCX
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        {canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-rose-600 hover:text-rose-700"
+                            onClick={() =>
+                              setDeleteConfirm({
+                                type: "mom",
+                                id: mom.id,
+                                label: `${mom.meeting?.title ?? "MoM"} v${mom.version}`,
+                              })
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
         </div>
       </div>
 
-      <MeetingFormModal
-        open={formOpen}
-        onClose={closeForm}
+      <MeetingSheet
+        open={sheetOpen}
+        onClose={closeSheet}
         projectId={projectId}
-        meeting={editingMeeting}
+        mode={sheetMode}
+        meeting={activeMeeting}
+        canEdit={canEdit}
+        onEdit={openEdit}
       />
 
       <DeleteDialog
@@ -352,7 +449,7 @@ export function MeetingsPanel({
         onConfirm={() => void onConfirmDelete()}
         title={
           deleteConfirm?.type === "mom"
-            ? "Delete minutes of meeting" 
+            ? "Delete minutes of meeting"
             : "Delete meeting"
         }
         description={

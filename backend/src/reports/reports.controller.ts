@@ -189,8 +189,16 @@ export class ReportsController {
     @Query('projectId') projectId?: string,
     @Query('reportType') reportType?: string,
     @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.generatedReports.list({ projectId, reportType, status });
+    return this.generatedReports.list({
+      projectId,
+      reportType,
+      status,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Get('status/:id')

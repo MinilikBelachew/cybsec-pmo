@@ -127,15 +127,6 @@ export const meetingsApi = api.injectEndpoints({
         { type: "Projects", id: `moms-${projectId}` },
       ],
     }),
-    exportMom: builder.query<
-      Blob,
-      { projectId: string; momId: string; format: "pdf" | "docx" }
-    >({
-      query: ({ projectId, momId, format }) => ({
-        url: `/projects/${projectId}/meetings/moms/${momId}/export?format=${format}`,
-        responseHandler: (response) => response.blob(),
-      }),
-    }),
   }),
 });
 
@@ -152,5 +143,35 @@ export const {
   useReviewMomMutation,
   useDistributeMomMutation,
   useAcknowledgeMomMutation,
-  useLazyExportMomQuery,
 } = meetingsApi;
+
+/**
+ * Download a MoM export via direct fetch (avoids caching a Blob in Redux).
+ */
+export async function downloadMomExport(
+  projectId: string,
+  momId: string,
+  format: "pdf" | "docx",
+): Promise<void> {
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL ??
+    process.env.NEXT_PUBLIC_BACKEND_URL ??
+    "/api";
+  const normalizedBase = apiBase.replace(/\/$/, "");
+
+  // Some environments set NEXT_PUBLIC_API_URL to ".../api/v1" already.
+  const hasV1InBase =
+    normalizedBase.endsWith("/v1") || normalizedBase.includes("/api/v1");
+  const versionPrefix = hasV1InBase ? "" : "/v1";
+
+  const url = `${normalizedBase}${versionPrefix}/projects/${projectId}/meetings/moms/${momId}/export?format=${format}`;
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) throw new Error(`Export failed (${response.status})`);
+  const blob = await response.blob();
+  const anchor = document.createElement("a");
+  const objectUrl = URL.createObjectURL(blob);
+  anchor.href = objectUrl;
+  anchor.download = `mom-${momId}.${format}`;
+  anchor.click();
+  URL.revokeObjectURL(objectUrl);
+}

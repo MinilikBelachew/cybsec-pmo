@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { useEffect, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarPlus, Loader2, Plus, Trash2, X } from "lucide-react";
+import {
+  CalendarPlus,
+  Eye,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import {
   Controller,
   useFieldArray,
@@ -16,6 +22,14 @@ import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/ui/sheet";
 import { ProjectDatePicker } from "@/domains/projects/components/shared/project-date-picker";
 import { useGetProjectTaskAssigneesQuery } from "@/domains/projects/api/projects.api";
 import {
@@ -31,11 +45,16 @@ import {
   type MeetingFormValues,
 } from "../../schemas/meeting/meeting.schema";
 
-type MeetingFormModalProps = {
+export type MeetingSheetMode = "create" | "edit" | "preview";
+
+type MeetingSheetProps = {
   open: boolean;
   onClose: () => void;
   projectId: string;
+  mode: MeetingSheetMode;
   meeting?: Meeting | null;
+  canEdit?: boolean;
+  onEdit?: (meeting: Meeting) => void;
 };
 
 const fieldErrorClass = "text-[11px] font-medium text-rose-600";
@@ -75,19 +94,148 @@ function toMeetingDefaults(
   };
 }
 
-export function MeetingFormModal({
+function PreviewSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function MeetingPreview({
+  meeting,
+  ownerNameById,
+}: {
+  meeting: Meeting;
+  ownerNameById: Map<string, string>;
+}) {
+  const agenda =
+    meeting.items?.filter((item) => item.itemType === "Agenda") ?? [];
+  const decisions =
+    meeting.items?.filter((item) => item.itemType === "Decision") ?? [];
+  const actions =
+    meeting.items?.filter((item) => item.itemType === "Action") ?? [];
+  const attendees = meeting.attendees ?? [];
+
+  return (
+    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+      <PreviewSection title="Details">
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+          <p className="text-base font-semibold text-foreground">
+            {meeting.title}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {new Date(meeting.scheduledAt).toLocaleString()} · {meeting.status}
+          </p>
+          {meeting.organiser?.displayName ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Organised by {meeting.organiser.displayName}
+            </p>
+          ) : null}
+        </div>
+      </PreviewSection>
+
+      <PreviewSection title="Attendees">
+        {attendees.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No attendees.</p>
+        ) : (
+          <ul className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/60">
+            {attendees.map((attendee) => (
+              <li key={attendee.id} className="px-4 py-2.5 text-sm">
+                <p className="font-medium">
+                  {attendee.user?.displayName ?? "Unknown"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {attendee.user?.email}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PreviewSection>
+
+      <PreviewSection title="Agenda">
+        {agenda.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No agenda items.</p>
+        ) : (
+          <ul className="list-disc space-y-1 pl-5 text-sm">
+            {agenda.map((item) => (
+              <li key={item.id}>{item.content}</li>
+            ))}
+          </ul>
+        )}
+      </PreviewSection>
+
+      <PreviewSection title="Decisions">
+        {decisions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No decisions.</p>
+        ) : (
+          <ul className="list-disc space-y-1 pl-5 text-sm">
+            {decisions.map((item) => (
+              <li key={item.id}>{item.content}</li>
+            ))}
+          </ul>
+        )}
+      </PreviewSection>
+
+      <PreviewSection title="Action points">
+        {actions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No action points.</p>
+        ) : (
+          <ul className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/60">
+            {actions.map((item) => (
+              <li key={item.id} className="px-4 py-2.5 text-sm">
+                <p className="font-medium">{item.content}</p>
+                <p className="text-xs text-muted-foreground">
+                  Owner:{" "}
+                  {item.ownerId
+                    ? (ownerNameById.get(item.ownerId) ?? "Assigned")
+                    : "Unassigned"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PreviewSection>
+    </div>
+  );
+}
+
+export function MeetingSheet({
   open,
   onClose,
   projectId,
+  mode,
   meeting = null,
-}: MeetingFormModalProps) {
-  const isEdit = Boolean(meeting?.id);
+  canEdit = false,
+  onEdit,
+}: MeetingSheetProps) {
+  const isPreview = mode === "preview";
+  const isEdit = mode === "edit";
   const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
     skip: !open,
   });
   const [create, { isLoading: creating }] = useCreateMeetingMutation();
   const [update, { isLoading: updating }] = useUpdateMeetingMutation();
   const saving = creating || updating;
+
+  const ownerNameById = new Map(
+    assignees.map((assignee) => [assignee.userId, assignee.displayName]),
+  );
+  for (const attendee of meeting?.attendees ?? []) {
+    if (attendee.userId && attendee.user?.displayName) {
+      ownerNameById.set(attendee.userId, attendee.user.displayName);
+    }
+  }
 
   const {
     control,
@@ -98,21 +246,19 @@ export function MeetingFormModal({
     setValue,
     formState: { errors },
   } = useForm<MeetingFormValues>({
-    resolver: zodResolver(
-      meetingFormSchema,
-    ) as Resolver<MeetingFormValues>,
+    resolver: zodResolver(meetingFormSchema) as Resolver<MeetingFormValues>,
     defaultValues: emptyMeetingFormValues(),
   });
 
   const agendaFields = useFieldArray({ control, name: "agenda" });
   const decisionFields = useFieldArray({ control, name: "decisions" });
   const actionFields = useFieldArray({ control, name: "actions" });
-  const attendeeIds = watch("attendeeIds");
+  const attendeeIds = watch("attendeeIds") ?? [];
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || isPreview) return;
     reset(toMeetingDefaults(meeting));
-  }, [open, meeting, reset]);
+  }, [open, meeting, reset, isPreview]);
 
   const toggleAttendee = (userId: string, checked: boolean) => {
     const next = checked
@@ -170,38 +316,48 @@ export function MeetingFormModal({
     }
   };
 
-  return (
-    <DialogPrimitive.Root
-      open={open}
-      onOpenChange={(isOpen) => !isOpen && onClose()}
-    >
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs" />
-        <DialogPrimitive.Popup className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
-            <div>
-              <DialogPrimitive.Title className="text-sm font-bold text-foreground">
-                {isEdit ? "Edit meeting" : "Create meeting"}
-              </DialogPrimitive.Title>
-              <DialogPrimitive.Description className="mt-1 text-xs text-muted-foreground">
-                {isEdit
-                  ? "Update attendees, agenda, decisions, and action points."
-                  : "Schedule a meeting with attendees, agenda, decisions, and actions."}
-              </DialogPrimitive.Description>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+  const title =
+    mode === "preview"
+      ? "Meeting details"
+      : mode === "edit"
+        ? "Edit meeting"
+        : "Create meeting";
 
+  const description =
+    mode === "preview"
+      ? "Review attendees, agenda, decisions, and action points."
+      : mode === "edit"
+        ? "Update attendees, agenda, decisions, and action points."
+        : "Schedule a meeting with attendees, agenda, decisions, and actions.";
+
+  return (
+    <Sheet open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <SheetContent
+        side="right"
+        showCloseButton
+        className="flex w-full flex-col gap-0 p-0 sm:!max-w-xl"
+      >
+        <SheetHeader className="shrink-0 border-b border-border px-6 py-5 text-left">
+          <SheetTitle className="flex items-center gap-2">
+            {mode === "preview" ? (
+              <Eye className="size-4 text-primary" />
+            ) : mode === "edit" ? (
+              <Pencil className="size-4 text-primary" />
+            ) : (
+              <CalendarPlus className="size-4 text-primary" />
+            )}
+            {title}
+          </SheetTitle>
+          <SheetDescription>{description}</SheetDescription>
+        </SheetHeader>
+
+        {isPreview && meeting ? (
+          <MeetingPreview meeting={meeting} ownerNameById={ownerNameById} />
+        ) : (
           <form
-            id="meeting-form-modal"
+            id="meeting-form-sheet"
             onSubmit={handleSubmit(onSubmit)}
-            className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4"
+            className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5"
           >
             <div className="space-y-1.5">
               <Label htmlFor="meeting-title">Title</Label>
@@ -417,22 +573,51 @@ export function MeetingFormModal({
               ))}
             </div>
           </form>
+        )}
 
-          <div className="flex shrink-0 justify-end gap-2 border-t border-border px-5 py-4">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" form="meeting-form-modal" disabled={saving}>
-              {saving ? (
-                <Loader2 className="mr-1 size-4 animate-spin" />
-              ) : (
-                <CalendarPlus className="mr-1 size-4" />
-              )}
-              {isEdit ? "Update" : "Create"}
-            </Button>
-          </div>
-        </DialogPrimitive.Popup>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t border-border px-6 py-4">
+          {isPreview ? (
+            <>
+              <Button type="button" variant="outline" onClick={onClose}>
+                Close
+              </Button>
+              {canEdit && meeting && onEdit ? (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    // Defer mode switch so this click does not land on the
+                    // submit button that replaces Edit in the same slot.
+                    const nextMeeting = meeting;
+                    window.setTimeout(() => onEdit(nextMeeting), 0);
+                  }}
+                >
+                  <Pencil className="mr-1 size-4" />
+                  Edit
+                </Button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                key={`meeting-submit-${mode}`}
+                type="submit"
+                form="meeting-form-sheet"
+                disabled={saving}
+              >
+                {saving ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" />
+                ) : (
+                  <CalendarPlus className="mr-1 size-4" />
+                )}
+                {isEdit ? "Update" : "Create"}
+              </Button>
+            </>
+          )}
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

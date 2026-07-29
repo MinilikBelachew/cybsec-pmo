@@ -8,6 +8,7 @@ import type {
   ReportScheduleInput,
   ReportType,
   StatusReport,
+  StatusReportsListResponse,
   UpdateHealthRule,
   UtilisationReportResponse,
   UtilisationSortField,
@@ -138,14 +139,22 @@ export const reportsApi = api.injectEndpoints({
       invalidatesTags: [{ type: "Projects", id: "STATUS_REPORTS" }],
     }),
     getStatusReports: builder.query<
-      StatusReport[],
-      { projectId?: string; reportType?: ReportType; status?: string } | void
+      StatusReportsListResponse,
+      {
+        projectId?: string;
+        reportType?: ReportType;
+        status?: string;
+        page?: number;
+        limit?: number;
+      } | void
     >({
       query: (params) => {
         const query = new URLSearchParams();
         if (params?.projectId) query.set("projectId", params.projectId);
         if (params?.reportType) query.set("reportType", params.reportType);
         if (params?.status) query.set("status", params.status);
+        if (params?.page) query.set("page", String(params.page));
+        if (params?.limit) query.set("limit", String(params.limit));
         return `/reports/status${query.size ? `?${query}` : ""}`;
       },
       providesTags: [{ type: "Projects", id: "STATUS_REPORTS" }],

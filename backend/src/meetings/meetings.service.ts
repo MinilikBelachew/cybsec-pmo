@@ -229,27 +229,12 @@ export class MeetingsService {
   async exportMomPdf(projectId: string, momId: string, user: CaslUserContext) {
     const mom = await this.getMom(projectId, momId, user);
     const buffer = await buildMomPdf(this.asMomSnapshot(mom));
-    const relativePath = path.join('uploads', 'moms', `${momId}.pdf`);
-    await this.writeExport(relativePath, buffer);
-    await this.prisma.momDocument.update({
-      where: { id: momId },
-      data: {
-        s3PdfKey: relativePath.replace(/\\/g, '/'),
-        s3Key: relativePath.replace(/\\/g, '/'),
-      },
-    });
     return buffer;
   }
 
   async exportMomDocx(projectId: string, momId: string, user: CaslUserContext) {
     const mom = await this.getMom(projectId, momId, user);
     const buffer = await buildMomDocx(this.asMomSnapshot(mom));
-    const relativePath = path.join('uploads', 'moms', `${momId}.docx`);
-    await this.writeExport(relativePath, buffer);
-    await this.prisma.momDocument.update({
-      where: { id: momId },
-      data: { s3DocxKey: relativePath.replace(/\\/g, '/') },
-    });
     return buffer;
   }
 
@@ -274,12 +259,6 @@ export class MeetingsService {
       version: raw.version ?? mom.version,
       generatedAt: raw.generatedAt ?? new Date().toISOString(),
     };
-  }
-
-  private async writeExport(relativePath: string, buffer: Buffer) {
-    const absolutePath = path.resolve(process.cwd(), relativePath);
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-    await fs.writeFile(absolutePath, buffer);
   }
 
   async reviewMom(
