@@ -84,19 +84,35 @@ export function DashboardHome() {
   const [departmentId, setDepartmentId] = useState("");
   const [status, setStatus] = useState("");
   const [primaryPmId, setPrimaryPmId] = useState("");
-  const dashboardFilters = useMemo(
-    () => ({
+  const dashboardFilters = useMemo(() => {
+    if (!layout.showFilters) return {};
+    return {
       ...(departmentId ? { departmentId } : {}),
       ...(status ? { status } : {}),
-      ...(primaryPmId ? { primaryPmId } : {}),
-    }),
-    [departmentId, status, primaryPmId],
-  );
+      ...(layout.showPmFilter && primaryPmId ? { primaryPmId } : {}),
+    };
+  }, [
+    layout.showFilters,
+    layout.showPmFilter,
+    departmentId,
+    status,
+    primaryPmId,
+  ]);
 
   useEffect(() => {
     setTab(layout.defaultTab);
     setShowBudget(layout.showPortfolioBudget);
   }, [layout.defaultTab, layout.showPortfolioBudget]);
+
+  useEffect(() => {
+    if (!layout.showFilters) {
+      setDepartmentId("");
+      setStatus("");
+      setPrimaryPmId("");
+    } else if (!layout.showPmFilter) {
+      setPrimaryPmId("");
+    }
+  }, [layout.showFilters, layout.showPmFilter]);
 
   useEffect(() => {
     if (layout.isTasksOnly) {
@@ -147,9 +163,15 @@ export function DashboardHome() {
   const [showExportProjects, setShowExportProjects] = useState(false);
   const [showExportTasks, setShowExportTasks] = useState(false);
 
-  const { data: departments = [] } = useGetDepartmentsQuery(undefined, { skip: !layout.canLoadProjectHealth });
-  const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !canExportProjects });
-  const { data: managers = [] } = useGetProjectManagersQuery(undefined, { skip: !layout.canLoadProjectHealth });
+  const { data: departments = [] } = useGetDepartmentsQuery(undefined, {
+    skip: !layout.showFilters,
+  });
+  const { data: customers = [] } = useGetCustomersQuery(undefined, {
+    skip: !canExportProjects,
+  });
+  const { data: managers = [] } = useGetProjectManagersQuery(undefined, {
+    skip: !layout.showPmFilter,
+  });
 
   const [triggerExportProjects, { isLoading: isExportingProjects }] = useLazyExportProjectsQuery();
   const [triggerExportTasks, { isLoading: isExportingTasks }] = useLazyExportTasksQuery();
@@ -375,7 +397,7 @@ export function DashboardHome() {
         </div>
       </div>
 
-      {layout.canLoadProjectHealth && (
+      {layout.showFilters && (
         <div className="flex flex-wrap gap-3 rounded-xl border border-border/40 bg-card/70 p-3">
           <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className="h-9 min-w-44 rounded-lg border bg-background px-3 text-xs">
             <option value="">All departments</option>
@@ -389,10 +411,12 @@ export function DashboardHome() {
             <option value="On_Hold">On hold</option>
             <option value="Closed">Closed</option>
           </select>
-          <select value={primaryPmId} onChange={(e) => setPrimaryPmId(e.target.value)} className="h-9 min-w-44 rounded-lg border bg-background px-3 text-xs">
-            <option value="">All project managers</option>
-            {managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.displayName ?? manager.email}</option>)}
-          </select>
+          {layout.showPmFilter && (
+            <select value={primaryPmId} onChange={(e) => setPrimaryPmId(e.target.value)} className="h-9 min-w-44 rounded-lg border bg-background px-3 text-xs">
+              <option value="">All project managers</option>
+              {managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.displayName ?? manager.email}</option>)}
+            </select>
+          )}
           {(departmentId || status || primaryPmId) && <Button variant="outline" size="sm" onClick={() => { setDepartmentId(""); setStatus(""); setPrimaryPmId(""); }}>Clear filters</Button>}
         </div>
       )}
