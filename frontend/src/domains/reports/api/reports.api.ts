@@ -1,6 +1,7 @@
 import { api } from "@/core/api/api";
 import type {
   DataQualityFlag,
+  DataQualityFlagsListResponse,
   DataQualityRules,
   HealthRule,
   ProjectHealthReport,
@@ -85,8 +86,14 @@ export const reportsApi = api.injectEndpoints({
       ],
     }),
     getDataQualityFlags: builder.query<
-      DataQualityFlag[],
-      { resolved?: boolean; projectId?: string; flagType?: string } | void
+      DataQualityFlagsListResponse,
+      {
+        resolved?: boolean;
+        projectId?: string;
+        flagType?: string;
+        page?: number;
+        limit?: number;
+      } | void
     >({
       query: (params) => {
         const query = new URLSearchParams();
@@ -94,6 +101,8 @@ export const reportsApi = api.injectEndpoints({
           query.set("resolved", String(params.resolved));
         if (params?.projectId) query.set("projectId", params.projectId);
         if (params?.flagType) query.set("flagType", params.flagType);
+        if (params?.page) query.set("page", String(params.page));
+        if (params?.limit) query.set("limit", String(params.limit));
         return `/reports/data-quality${query.size ? `?${query}` : ""}`;
       },
       providesTags: [{ type: "Projects", id: "DATA_QUALITY" }],

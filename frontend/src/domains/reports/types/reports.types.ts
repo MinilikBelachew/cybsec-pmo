@@ -121,6 +121,13 @@ export interface DataQualityFlag {
   project?: { id: string; name: string } | null;
 }
 
+export interface DataQualityFlagsListResponse {
+  data: DataQualityFlag[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export type DataQualityFlagType =
   | "MISSING_TIMESHEET"
   | "UNAPPROVED_TIMESHEET"

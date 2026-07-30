@@ -119,8 +119,16 @@ export class ReportsController {
     @Query('resolved') resolved?: string,
     @Query('projectId') projectId?: string,
     @Query('flagType') flagType?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.dataQuality.listFlags({ resolved, projectId, flagType });
+    return this.dataQuality.listFlags({
+      resolved,
+      projectId,
+      flagType,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Get('data-quality/rules')

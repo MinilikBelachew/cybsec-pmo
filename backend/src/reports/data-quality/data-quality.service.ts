@@ -39,24 +39,37 @@ export class DataQualityService {
     return this.scan(projectId);
   }
 
-  listFlags(query: {
+  async listFlags(query: {
     resolved?: boolean | string;
     projectId?: string;
     flagType?: string;
+    page?: number;
+    limit?: number;
   }) {
     const resolved =
       query.resolved === undefined
         ? undefined
         : query.resolved === true || query.resolved === 'true';
-    return this.prisma.dataQualityFlag.findMany({
-      where: {
-        ...(resolved === undefined ? {} : { isResolved: resolved }),
-        ...(query.projectId ? { projectId: query.projectId } : {}),
-        ...(query.flagType ? { flagType: query.flagType } : {}),
-      },
-      include: { project: { select: { id: true, name: true } } },
-      orderBy: [{ isResolved: 'asc' }, { flaggedAt: 'desc' }],
-    });
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
+    const where = {
+      ...(resolved === undefined ? {} : { isResolved: resolved }),
+      ...(query.projectId ? { projectId: query.projectId } : {}),
+      ...(query.flagType ? { flagType: query.flagType } : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.dataQualityFlag.findMany({
+        where,
+        include: { project: { select: { id: true, name: true } } },
+        orderBy: [{ isResolved: 'asc' }, { flaggedAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.dataQualityFlag.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
   }
 
   async resolveFlag(id: string, userId: string) {
