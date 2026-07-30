@@ -51,5 +51,10 @@ export interface MomDocument {
     attendeeId: string;
     acknowledged: boolean;
     ackedAt?: string | null;
+    attendee?: {
+      id: string;
+      displayName: string;
+      email?: string | null;
+    };
   }>;
 }

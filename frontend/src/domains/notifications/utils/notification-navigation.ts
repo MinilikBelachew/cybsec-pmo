@@ -33,6 +33,8 @@ export function notificationIcon(eventType: string) {
       return Bell;
     case "LEAVE_CRITICAL_CONFLICT":
       return AlertTriangle;
+    case "MOM_ACKNOWLEDGE_REQUIRED":
+      return CheckCircle2;
     default:
       return Bell;
   }
@@ -64,6 +66,8 @@ export function notificationIconClass(eventType: string): string {
       return "text-amber-600";
     case "LEAVE_CRITICAL_CONFLICT":
       return "text-rose-500";
+    case "MOM_ACKNOWLEDGE_REQUIRED":
+      return "text-sky-600";
     default:
       return "text-primary";
   }
@@ -75,6 +79,10 @@ export function resolveNotificationHref(notification: NotificationRecord): strin
   const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
   const progressUpdateId =
     typeof payload.progressUpdateId === "string" ? payload.progressUpdateId : null;
+
+  if (notification.eventType === "MOM_ACKNOWLEDGE_REQUIRED" && projectId) {
+    return `/dashboard/projects/${projectId}?view=meetings`;
+  }
 
   let taskIdToOpen = taskId;
   if (!taskIdToOpen && Array.isArray(payload.impactedTaskIds)) {

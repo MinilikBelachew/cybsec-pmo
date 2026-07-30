@@ -3,19 +3,24 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, PriorityLevel } from '@prisma/client';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
+import { AllConfigType } from '../config/config.type';
 import { PrismaService } from '../database/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
+import { NotificationsService } from '../notifications/notifications.service';
 import { buildMomDocx } from '../reports/templates/cybersec-sample-docx';
 import {
   buildMomPdf,
   type MomSnapshot,
 } from '../reports/templates/cybersec-sample-pdf';
+import { RoleEnum } from '../roles/roles.enum';
 
 export type MeetingInput = {
   title: string;
@@ -51,10 +56,14 @@ export class MeetingsService {
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly mailer: MailerService,
     private readonly auditLogs: AuditLogsService,
+    private readonly notifications: NotificationsService,
+    private readonly configService: ConfigService<AllConfigType>,
   ) {}
 
   async list(projectId: string, user: CaslUserContext) {
     await this.assertProject(projectId, user, 'read');
+    // Engineers only receive distributed MoMs they attended — not the meeting list.
+    if (this.isEngineerAttendeeViewer(user)) return [];
     return this.prisma.meeting.findMany({
       where: { projectId },
       include: meetingInclude,
@@ -64,6 +73,9 @@ export class MeetingsService {
 
   async get(projectId: string, id: string, user: CaslUserContext) {
     await this.assertProject(projectId, user, 'read');
+    if (this.isEngineerAttendeeViewer(user)) {
+      throw new NotFoundException('Meeting not found');
+    }
     const meeting = await this.prisma.meeting.findFirst({
       where: { id, projectId },
       include: meetingInclude,
@@ -305,11 +317,20 @@ export class MeetingsService {
       .replace(/^-|-$/g, '')
       .slice(0, 80);
     const filename = `MoM-v${mom.version}-${safeTitle || 'meeting'}.pdf`;
+    const momPagePath = `/dashboard/projects/${projectId}?view=meetings`;
+    const frontendDomain =
+      this.configService.get('app.frontendDomain', { infer: true }) ??
+      'http://localhost:3000';
+    const momPageUrl = `${frontendDomain.replace(/\/$/, '')}${momPagePath}`;
 
     await this.mailer.sendMail({
       to: recipients,
       subject: `Minutes of Meeting: ${mom.meeting.title}`,
-      html: '<p>The minutes of your meeting are attached. Please review and acknowledge them in the PMO application.</p>',
+      html: `
+        <p>The minutes of your meeting are attached.</p>
+        <p>Please review and acknowledge them in the PMO application:</p>
+        <p><a href="${momPageUrl}">Open Minutes of Meeting</a></p>
+      `,
       attachments: [
         {
           filename,
@@ -320,6 +341,7 @@ export class MeetingsService {
       templatePath: '',
       context: {},
     });
+
     const distributed = await this.prisma.$transaction(async (tx) => {
       for (const attendee of attendees) {
         await tx.momAcknowledgement.upsert({
@@ -337,9 +359,36 @@ export class MeetingsService {
       return tx.momDocument.update({
         where: { id: momId },
         data: { status: 'Distributed' },
-        include: { acknowledgements: true },
+        include: {
+          acknowledgements: {
+            include: {
+              attendee: {
+                select: { id: true, displayName: true, email: true },
+              },
+            },
+          },
+        },
       });
     });
+
+    await this.notifications.notify({
+      eventType: NOTIFICATION_EVENT_TYPE.MOM_ACKNOWLEDGE_REQUIRED,
+      recipientUserIds: attendees.map((attendee) => attendee.id),
+      title: 'Acknowledge minutes of meeting',
+      body: `"${mom.meeting.title}" (v${mom.version}) has been distributed. Please acknowledge the minutes.`,
+      payload: {
+        projectId,
+        momId,
+        meetingId: mom.meetingId,
+        meetingTitle: mom.meeting.title,
+        link: momPagePath,
+      },
+      sourceObjectType: 'MomDocument',
+      sourceObjectId: momId,
+      actorId: userId,
+      inAppOnly: true,
+    });
+
     await this.auditLogs.create({
       action: 'MOM_DISTRIBUTED',
       objectType: 'MomDocument',
@@ -356,23 +405,32 @@ export class MeetingsService {
     userId: string,
     user: CaslUserContext,
   ) {
-    await this.getMom(projectId, momId, user);
-    return this.prisma.momAcknowledgement.upsert({
+    const mom = await this.getMom(projectId, momId, user);
+    if (mom.status !== 'Distributed') {
+      throw new BadRequestException('Only distributed MoMs can be acknowledged');
+    }
+    // Recipients are fixed at distribute time via MomAcknowledgement rows.
+    const existing = await this.prisma.momAcknowledgement.findUnique({
       where: { momId_attendeeId: { momId, attendeeId: userId } },
-      update: { acknowledged: true, ackedAt: new Date() },
-      create: {
-        momId,
-        attendeeId: userId,
-        acknowledged: true,
-        ackedAt: new Date(),
-      },
+    });
+    if (!existing) {
+      throw new BadRequestException(
+        'Only recipients of this MoM can acknowledge it',
+      );
+    }
+    return this.prisma.momAcknowledgement.update({
+      where: { id: existing.id },
+      data: { acknowledged: true, ackedAt: new Date() },
     });
   }
 
   async listMoms(projectId: string, user: CaslUserContext) {
     await this.assertProject(projectId, user, 'read');
     return this.prisma.momDocument.findMany({
-      where: { meeting: { projectId } },
+      where: {
+        meeting: { projectId },
+        ...this.engineerDistributedMomWhere(user),
+      },
       include: {
         meeting: { select: { id: true, title: true, scheduledAt: true } },
         acknowledgements: {
@@ -388,7 +446,11 @@ export class MeetingsService {
   async getMom(projectId: string, momId: string, user: CaslUserContext) {
     await this.assertProject(projectId, user, 'read');
     const mom = await this.prisma.momDocument.findFirst({
-      where: { id: momId, meeting: { projectId } },
+      where: {
+        id: momId,
+        meeting: { projectId },
+        ...this.engineerDistributedMomWhere(user),
+      },
       include: {
         meeting: { include: meetingInclude },
         acknowledgements: {
@@ -459,5 +521,18 @@ export class MeetingsService {
     });
     if (!project)
       throw new NotFoundException('Project not found or inaccessible');
+  }
+
+  /** Engineers may only see distributed MoMs they were sent (ack row at distribute). */
+  private isEngineerAttendeeViewer(user: CaslUserContext) {
+    return user.roleCode === RoleEnum.engineer;
+  }
+
+  private engineerDistributedMomWhere(user: CaslUserContext) {
+    if (!this.isEngineerAttendeeViewer(user)) return {};
+    return {
+      status: 'Distributed' as const,
+      acknowledgements: { some: { attendeeId: user.id } },
+    };
   }
 }

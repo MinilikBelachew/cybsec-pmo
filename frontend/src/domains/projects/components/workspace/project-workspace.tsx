@@ -548,8 +548,14 @@ export function ProjectWorkspace() {
     const base = canViewProjectAudit
       ? VIEWS
       : VIEWS.filter((view) => view.id !== "audit");
-    return orderViewsForMethodology(base, project?.methodology);
-  }, [canViewProjectAudit, project?.methodology]);
+    const ordered = orderViewsForMethodology(base, project?.methodology);
+    if (user?.backendRoleCode !== "engineer") return ordered;
+    return ordered.map((view) =>
+      view.id === "meetings"
+        ? { ...view, label: "Minutes of Meeting" }
+        : view,
+    );
+  }, [canViewProjectAudit, project?.methodology, user?.backendRoleCode]);
 
   const methodology = resolveMethodology(project?.methodology);
   const methodologyDefaultView = getMethodologyDefaultView(methodology);
