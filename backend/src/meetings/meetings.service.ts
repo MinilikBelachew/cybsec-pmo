@@ -297,10 +297,26 @@ export class MeetingsService {
     if (recipients.length === 0) {
       throw new BadRequestException('MoM has no attendees to notify');
     }
+
+    const pdf = await buildMomPdf(this.asMomSnapshot(mom));
+    const safeTitle = mom.meeting.title
+      .replace(/[^\w\-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80);
+    const filename = `MoM-v${mom.version}-${safeTitle || 'meeting'}.pdf`;
+
     await this.mailer.sendMail({
       to: recipients,
       subject: `Minutes of Meeting: ${mom.meeting.title}`,
-      html: '<p>The minutes of your meeting are available. Please review and acknowledge them in the PMO application.</p>',
+      html: '<p>The minutes of your meeting are attached. Please review and acknowledge them in the PMO application.</p>',
+      attachments: [
+        {
+          filename,
+          content: pdf,
+          contentType: 'application/pdf',
+        },
+      ],
       templatePath: '',
       context: {},
     });

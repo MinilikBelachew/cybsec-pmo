@@ -174,7 +174,7 @@ export interface ReportSchedule {
 export interface ReportScheduleInput {
   reportType: ReportType;
   cronExpression: string;
-  projectId?: string | null;
+  projectId: string;
   isActive: boolean;
   recipients?: Array<{ roleId: number }>;
 }

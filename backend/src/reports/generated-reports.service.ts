@@ -140,9 +140,10 @@ export class GeneratedReportsService {
     if (!report.projectId) {
       throw new BadRequestException('Report is not linked to a project');
     }
+    const projectId = report.projectId;
     const schedule = await this.prisma.reportSchedule.findFirst({
       where: {
-        projectId: report.projectId,
+        projectId,
         reportType: report.reportType,
         isActive: true,
       },
@@ -158,7 +159,34 @@ export class GeneratedReportsService {
     const [roleUsers, contacts, project] = await Promise.all([
       roleIds.length
         ? this.prisma.user.findMany({
-            where: { roleId: { in: roleIds }, isActive: true },
+            where: {
+              isActive: true,
+              roleId: { in: roleIds },
+              OR: [
+                {
+                  employees: {
+                    is: {
+                      allocations: {
+                        some: {
+                          projectId,
+                          status: 'Active',
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  primaryProjects: {
+                    some: { id: projectId },
+                  },
+                },
+                {
+                  secondaryProjects: {
+                    some: { id: projectId },
+                  },
+                },
+              ],
+            },
             select: { email: true },
           })
         : [],
@@ -169,7 +197,7 @@ export class GeneratedReportsService {
           })
         : [],
       this.prisma.project.findUnique({
-        where: { id: report.projectId },
+        where: { id: projectId },
         select: {
           name: true,
           primaryPm: { select: { email: true } },
