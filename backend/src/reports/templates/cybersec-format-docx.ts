@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import {
   BrandProfile,
   DOCX_FONT_FAMILY,
+  INTERNAL_WATERMARK,
   MOM_ACKNOWLEDGEMENT_NOTE,
   NOT_RECORDED,
   ReportDocType,
@@ -236,6 +237,7 @@ function brandHeader(
   brand: BrandProfile,
   docType: ReportDocType,
   subtitle: string,
+  watermark: boolean,
 ) {
   const logoRun = (() => {
     const bytes = brand.logoData
@@ -304,6 +306,22 @@ function brandHeader(
     }),
   ];
 
+  if (watermark) {
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [
+          new TextRun({
+            text: INTERNAL_WATERMARK.toUpperCase(),
+            bold: true,
+            color: 'C00000',
+            size: SMALL_SIZE,
+          }),
+        ],
+      }),
+    );
+  }
+
   return new Header({ children });
 }
 
@@ -336,6 +354,7 @@ function packDocument(
   docType: ReportDocType,
   subtitle: string,
   documentRef: string,
+  watermark: boolean,
   children: DocChild[],
 ) {
   return Packer.toBuffer(
@@ -349,7 +368,7 @@ function packDocument(
       },
       sections: [
         {
-          headers: { default: brandHeader(brand, docType, subtitle) },
+          headers: { default: brandHeader(brand, docType, subtitle, watermark) },
           footers: { default: brandFooter(brand, documentRef) },
           children,
         },
@@ -715,6 +734,7 @@ export async function buildStatusReportDocx(
     snapshot.docType,
     snapshot.projectName,
     snapshot.control.documentRef,
+    isInternal,
     children,
   );
 }
@@ -831,6 +851,7 @@ export async function buildMomDocx(snapshot: MomSnapshot): Promise<Buffer> {
     'MoM',
     snapshot.projectName,
     snapshot.control.documentRef,
+    false,
     children,
   );
 }

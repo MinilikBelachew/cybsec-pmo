@@ -67,6 +67,7 @@ export async function buildStatusReportPdf(
     docType: snapshot.docType,
     subtitle: snapshot.projectName,
     documentRef: snapshot.control.documentRef,
+    watermark: isInternal,
   });
 
   let sectionNumber = 0;

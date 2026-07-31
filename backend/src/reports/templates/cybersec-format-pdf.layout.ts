@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import {
   BrandProfile,
+  INTERNAL_WATERMARK,
   ReportDocType,
   TYPOGRAPHY,
   docTypeLabel,
@@ -68,8 +69,8 @@ function measureLogo(
 
 /**
  * Renders the approved CyberSec page furniture: a letterhead on every page,
- * "Page X of Y" with the document reference in the footer, and tables whose
- * headings repeat across page breaks.
+ * "Page X of Y" with the document reference in the footer, tables whose
+ * headings repeat across page breaks, and the internal-only watermark.
  */
 export class ApprovedPdfWriter {
   readonly doc: PDFKit.PDFDocument;
@@ -84,6 +85,7 @@ export class ApprovedPdfWriter {
       docType: ReportDocType;
       subtitle: string;
       documentRef: string;
+      watermark?: boolean;
     },
   ) {
     this.doc = new PDFDocument({
@@ -417,11 +419,12 @@ export class ApprovedPdfWriter {
 
     for (let index = range.start; index < range.start + range.count; index += 1) {
       doc.switchToPage(index);
-      // The footer sits outside the text area. Without collapsing the margins
-      // first, pdfkit reads it as overflow and appends a blank page for every
-      // page it decorates.
+      // The footer and watermark sit outside the text area. Without collapsing
+      // the margins first, pdfkit reads them as overflow and appends a blank
+      // page for every page it decorates.
       const margins = { ...doc.page.margins };
       doc.page.margins = { top: 0, bottom: 0, left: 0, right: 0 };
+      if (this.options.watermark) this.drawWatermark();
       this.drawFooter(index - range.start + 1, range.count);
       doc.page.margins = margins;
     }
@@ -429,6 +432,26 @@ export class ApprovedPdfWriter {
     doc.flushPages();
     doc.end();
     return this.done;
+  }
+
+  private drawWatermark() {
+    const doc = this.doc;
+    const centerX = doc.page.width / 2;
+    const centerY = doc.page.height / 2;
+    doc.save();
+    doc.rotate(-40, { origin: [centerX, centerY] });
+    doc
+      .font(this.bold())
+      .fontSize(54)
+      .fillColor('#C00000')
+      .opacity(0.1)
+      .text(INTERNAL_WATERMARK, 0, centerY - 34, {
+        width: doc.page.width,
+        align: 'center',
+        lineBreak: false,
+      });
+    doc.opacity(1).restore();
+    doc.fillColor('#000000');
   }
 
   private drawFooter(pageNumber: number, totalPages: number) {

@@ -384,7 +384,7 @@ describe('approved status report renderers', () => {
     const client = statusSnapshot({ audience: 'client', cost: null, dataQuality: [] });
     const internal = await buildStatusReportPdf(statusSnapshot());
     const external = await buildStatusReportPdf(client);
-    // The internal document additionally carries cost and missing data.
+    // The internal document additionally carries cost, missing data and a watermark.
     expect(internal.length).toBeGreaterThan(external.length);
   });
 

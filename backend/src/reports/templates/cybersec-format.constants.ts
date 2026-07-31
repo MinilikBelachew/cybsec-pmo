@@ -92,6 +92,8 @@ export const MEETING_TYPES = [
 
 export type MeetingType = (typeof MEETING_TYPES)[number];
 
+export const INTERNAL_WATERMARK = 'Internal Use Only';
+
 /** Printed wherever a mandatory field has no recorded value. */
 export const NOT_RECORDED = 'Not recorded';
 
