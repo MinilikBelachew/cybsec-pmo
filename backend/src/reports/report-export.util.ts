@@ -1,6 +1,12 @@
 export {
-  buildReportPdf,
+  buildStatusReportPdf,
   buildMomPdf,
-  type ReportSnapshot,
-  type MomSnapshot,
-} from './templates/cybersec-sample-pdf';
+} from './templates/cybersec-format-pdf';
+export {
+  buildStatusReportDocx,
+  buildMomDocx,
+} from './templates/cybersec-format-docx';
+export type {
+  MomSnapshot,
+  StatusReportSnapshot,
+} from './templates/cybersec-format.types';

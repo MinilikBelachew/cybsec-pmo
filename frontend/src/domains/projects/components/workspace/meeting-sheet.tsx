@@ -37,6 +37,7 @@ import {
   useUpdateMeetingMutation,
 } from "../../api/meetings.api";
 import type { Meeting } from "../../types/meetings.types";
+import { MEETING_TYPES } from "../../types/meetings.types";
 import {
   combineScheduledAt,
   emptyMeetingFormValues,
@@ -83,6 +84,7 @@ function toMeetingDefaults(
 
   return {
     title: meeting.title,
+    meetingType: meeting.meetingType ?? "",
     scheduledDate,
     scheduledTime,
     attendeeIds: meeting.attendees?.map((attendee) => attendee.userId) ?? [],
@@ -134,6 +136,7 @@ function MeetingPreview({
             {meeting.title}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
+            {meeting.meetingType ? `${meeting.meetingType} · ` : ""}
             {new Date(meeting.scheduledAt).toLocaleString()} · {meeting.status}
           </p>
           {meeting.organiser?.displayName ? (
@@ -275,6 +278,7 @@ export function MeetingSheet({
       ).toISOString();
       const body = {
         title: values.title.trim(),
+        meetingType: values.meetingType.trim(),
         scheduledAt,
         attendeeIds: values.attendeeIds,
         items: [
@@ -370,6 +374,26 @@ export function MeetingSheet({
               />
               {errors.title && (
                 <p className={fieldErrorClass}>{errors.title.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="meeting-type">Meeting type</Label>
+              <select
+                id="meeting-type"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-invalid={Boolean(errors.meetingType)}
+                {...register("meetingType")}
+              >
+                <option value="">Select meeting type</option>
+                {MEETING_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+              {errors.meetingType && (
+                <p className={fieldErrorClass}>{errors.meetingType.message}</p>
               )}
             </div>
 

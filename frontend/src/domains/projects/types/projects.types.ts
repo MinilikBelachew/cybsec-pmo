@@ -68,6 +68,7 @@ export interface Project {
   currency?: CurrencyCode;
   primaryPmId: string;
   secondaryPmId: string | null;
+  brandingProfileId?: string | null;
   status: ProjectStatus;
   createdBy: string;
   createdAt: string;
@@ -135,6 +136,7 @@ export interface CreateProjectDto {
   currency?: CurrencyCode;
   primaryPmId: string;
   secondaryPmId?: string | null;
+  brandingProfileId?: string | null;
   status?: ProjectStatus;
 }
 

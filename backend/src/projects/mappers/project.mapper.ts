@@ -173,6 +173,7 @@ export function toApiProject(
       : {}),
     primaryPmId: project.primaryPmId,
     secondaryPmId: project.secondaryPmId,
+    brandingProfileId: project.brandingProfileId,
     status: STATUS_FROM_PRISMA[project.status],
     createdBy: project.createdBy,
     createdAt: project.createdAt,

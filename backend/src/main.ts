@@ -40,6 +40,7 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-custom-lang', 'x-user-id'],
+    exposedHeaders: ['Content-Disposition'],
   });
 
   // Parse cookies from incoming requests (needed for httpOnly token reading)

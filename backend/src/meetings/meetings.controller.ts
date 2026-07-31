@@ -77,13 +77,18 @@ export class MeetingsController {
       format === 'docx'
         ? await this.meetings.exportMomDocx(projectId, momId, request.caslUser!)
         : await this.meetings.exportMomPdf(projectId, momId, request.caslUser!);
+    const filename = await this.meetings.momExportFileName(
+      projectId,
+      momId,
+      format,
+    );
     response
       .type(
         format === 'docx'
           ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
           : 'application/pdf',
       )
-      .attachment(`mom-${momId}.${format}`)
+      .attachment(filename)
       .send(buffer);
   }
 

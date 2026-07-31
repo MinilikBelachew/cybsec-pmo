@@ -168,10 +168,15 @@ export async function downloadMomExport(
   const response = await fetch(url, { credentials: "include" });
   if (!response.ok) throw new Error(`Export failed (${response.status})`);
   const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition);
+  const filename = match
+    ? decodeURIComponent(match[1].replace(/"/g, "").trim())
+    : `mom-${momId}.${format}`;
   const anchor = document.createElement("a");
   const objectUrl = URL.createObjectURL(blob);
   anchor.href = objectUrl;
-  anchor.download = `mom-${momId}.${format}`;
+  anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(objectUrl);
 }

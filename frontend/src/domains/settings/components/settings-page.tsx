@@ -5,7 +5,7 @@ import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAuth } from "@/domains/auth";
-import { Users, Settings, ShieldAlert, Archive, Briefcase, Activity } from "lucide-react";
+import { Users, Settings, ShieldAlert, Archive, Briefcase, Activity, Palette } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
@@ -14,8 +14,16 @@ import { SessionTimeoutSection } from "./session-timeout-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
 import { AllocationPoliciesSection } from "./allocation-policies-section";
 import { HealthRulesSection } from "./health-rules-section";
+import { BrandingProfilesSection } from "./branding-profiles-section";
 
-type SettingsTab = "profile" | "users" | "security" | "audit" | "allocation" | "health";
+type SettingsTab =
+  | "profile"
+  | "users"
+  | "security"
+  | "audit"
+  | "allocation"
+  | "health"
+  | "branding";
 
 export function SettingsPage() {
   const ability = useAppAbility();
@@ -109,6 +117,21 @@ export function SettingsPage() {
         {canManageSecurity && (
           <button
             type="button"
+            onClick={() => setActiveTab("branding")}
+            className={cn(
+              "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+              activeTab === "branding"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Palette className="size-4" />
+            Branding
+          </button>
+        )}
+        {canManageSecurity && (
+          <button
+            type="button"
             onClick={() => setActiveTab("audit")}
             className={cn(
               "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
@@ -149,6 +172,13 @@ export function SettingsPage() {
 
       {activeTab === "allocation" && canManageSecurity && (
         <AllocationPoliciesSection
+          onSuccess={notifySuccess}
+          onError={notifyError}
+        />
+      )}
+
+      {activeTab === "branding" && canManageSecurity && (
+        <BrandingProfilesSection
           onSuccess={notifySuccess}
           onError={notifyError}
         />

@@ -330,6 +330,35 @@ model AppSetting {
   @@map("app_settings")
 }
 
+/// A brand the PMO delivers under. Loaded once in settings, then selected per
+/// project so the report templates themselves never change.
+model BrandingProfile {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique @db.VarChar(120)
+  companyName    String   @map("company_name") @db.VarChar(255)
+  documentOwner  String   @map("document_owner") @db.VarChar(255)
+  /// Letterhead logo bytes. Stored inline so exports never depend on the file driver.
+  logoData       Bytes?   @map("logo_data")
+  logoMimeType   String?  @map("logo_mime_type") @db.VarChar(100)
+  logoFileName   String?  @map("logo_file_name") @db.VarChar(255)
+  primaryColor   String   @default("#0B3D5C") @map("primary_color") @db.VarChar(9)
+  accentColor    String   @default("#C45C26") @map("accent_color") @db.VarChar(9)
+  mutedColor     String   @default("#5A6A75") @map("muted_color") @db.VarChar(9)
+  lineColor      String   @default("#D7DEE5") @map("line_color") @db.VarChar(9)
+  /// Applied to projects that have not picked a profile. At most one row is true.
+  isDefault      Boolean  @default(false) @map("is_default")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+
+  projects Project[]
+
+  @@index([isDefault], map: "idx_branding_profiles_default")
+  @@index([isActive], map: "idx_branding_profiles_active")
+  @@map("branding_profiles")
+}
+
 model Notification {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId           String    @map("user_id") @db.Uuid
@@ -401,6 +430,8 @@ model Project {
   status            ProjectStatus  @default(Draft)
   crmOpportunityId  String?        @map("crm_opportunity_id") @db.Uuid
   templateId        String?        @map("template_id") @db.Uuid
+  /// Brand the reports and MoMs for this project are issued under.
+  brandingProfileId String?        @map("branding_profile_id") @db.Uuid
   /// Linked Keka PSA project id (GET/POST /psa/projects). Required for timesheet + allocation push.
   kekaProjectId     String?        @unique @map("keka_project_id") @db.VarChar(100)
   /// Linked Keka PSA client id (project.clientId).
@@ -417,6 +448,7 @@ model Project {
   secondaryPm    User?            @relation("ProjectSecondaryPM", fields: [secondaryPmId], references: [id])
   crmOpportunity CrmOpportunity?  @relation(fields: [crmOpportunityId], references: [id])
   template       ProjectTemplate? @relation(fields: [templateId], references: [id])
+  brandingProfile BrandingProfile? @relation(fields: [brandingProfileId], references: [id])
   creator        User             @relation("ProjectCreatedBy", fields: [createdBy], references: [id])
 
   projectDomains        ProjectDomain[]
@@ -1415,6 +1447,9 @@ model Meeting {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId      String   @map("project_id") @db.Uuid
   title          String   @db.VarChar(255)
+  /// Mandatory on the approved MoM template: Kickoff, Weekly Status Review,
+  /// Monthly Status Review, Tech Support, Implementation Session, Steering, Closure.
+  meetingType    String?  @map("meeting_type") @db.VarChar(50)
   scheduledAt    DateTime @map("scheduled_at") @db.Timestamptz
   teamsMeetingId String?  @map("teams_meeting_id") @db.VarChar(255)
   teamsJoinUrl   String?  @map("teams_join_url")

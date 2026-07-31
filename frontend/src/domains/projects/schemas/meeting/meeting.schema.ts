@@ -17,6 +17,10 @@ export const meetingFormSchema = z
       .trim()
       .min(1, "Title is required")
       .max(255, "Title is too long"),
+    meetingType: z
+      .string()
+      .trim()
+      .min(1, "Meeting type is required"),
     scheduledDate: z.preprocess(
       (val) => (val === "" || val === null || val === undefined ? undefined : val),
       z.coerce.date({ message: "Scheduled date is required" }),
@@ -66,6 +70,7 @@ export function splitScheduledAt(value: string | Date): {
 
 export const emptyMeetingFormValues = (): DefaultValues<MeetingFormValues> => ({
   title: "",
+  meetingType: "",
   scheduledTime: "",
   attendeeIds: [] as string[],
   agenda: [{ content: "" }],

@@ -2,6 +2,7 @@ export interface Meeting {
   id: string;
   projectId: string;
   title: string;
+  meetingType?: string | null;
   scheduledAt: string;
   teamsMeetingId?: string | null;
   teamsJoinUrl?: string | null;
@@ -23,8 +24,21 @@ export interface Meeting {
   moms?: MomDocument[];
 }
 
+export const MEETING_TYPES = [
+  "Kickoff",
+  "Weekly Status Review",
+  "Monthly Status Review",
+  "Tech Support",
+  "Implementation Session",
+  "Steering",
+  "Closure",
+] as const;
+
+export type MeetingType = (typeof MEETING_TYPES)[number];
+
 export interface MeetingInput {
   title: string;
+  meetingType?: string | null;
   scheduledAt: string;
   attendeeIds?: string[];
   teamsMeetingId?: string;

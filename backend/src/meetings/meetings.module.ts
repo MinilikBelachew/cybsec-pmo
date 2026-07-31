@@ -4,6 +4,7 @@ import { CaslModule } from '../casl/casl.module';
 import { PrismaModule } from '../database/prisma.module';
 import { MailerModule } from '../mailer/mailer.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { BrandingModule } from '../branding/branding.module';
 import { MeetingsController } from './meetings.controller';
 import { MeetingsService } from './meetings.service';
 
@@ -14,6 +15,7 @@ import { MeetingsService } from './meetings.service';
     MailerModule,
     AuditLogsModule,
     NotificationsModule,
+    BrandingModule,
   ],
   controllers: [MeetingsController],
   providers: [MeetingsService],

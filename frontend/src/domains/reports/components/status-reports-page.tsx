@@ -156,10 +156,15 @@ export function StatusReportsPage() {
       if (!response.ok) throw new Error(`Export failed (${response.status})`);
       const buffer = await response.arrayBuffer();
       const file = new Blob([buffer], { type: EXPORT_MIME[format] });
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition);
+      const filename = match
+        ? decodeURIComponent(match[1].replace(/"/g, "").trim())
+        : `status-report-${id}.${format}`;
       const url = URL.createObjectURL(file);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `status-report-${id}.${format}`;
+      anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();

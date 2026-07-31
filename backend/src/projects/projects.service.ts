@@ -154,6 +154,7 @@ export class ProjectsService {
           currency: toPrismaCurrency(dto.currency ?? 'USD'),
           primaryPmId: dto.primaryPmId,
           secondaryPmId: dto.secondaryPmId ?? null,
+          brandingProfileId: dto.brandingProfileId ?? null,
           status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),
           createdBy: actorId,
         },
@@ -611,6 +612,10 @@ export class ProjectsService {
         dto.secondaryPmId !== undefined
           ? dto.secondaryPmId
           : existing.secondaryPmId,
+      brandingProfileId:
+        dto.brandingProfileId !== undefined
+          ? dto.brandingProfileId
+          : existing.brandingProfileId,
       status: dto.status ?? (STATUS_FROM_PRISMA[existing.status] as ApiProjectStatus),
     };
 
@@ -634,6 +639,7 @@ export class ProjectsService {
       dto.customerId ||
       dto.primaryPmId ||
       dto.secondaryPmId !== undefined ||
+      dto.brandingProfileId !== undefined ||
       dto.startDate ||
       dto.endDate ||
       dto.status !== undefined
@@ -667,6 +673,9 @@ export class ProjectsService {
         ...(dto.primaryPmId !== undefined && { primaryPmId: dto.primaryPmId }),
         ...(dto.secondaryPmId !== undefined && {
           secondaryPmId: dto.secondaryPmId,
+        }),
+        ...(dto.brandingProfileId !== undefined && {
+          brandingProfileId: dto.brandingProfileId,
         }),
         ...(dto.status !== undefined && { status: toPrismaStatus(dto.status) }),
       },
@@ -913,7 +922,8 @@ export class ProjectsService {
       errors.primaryPmId = 'primaryPmRequired';
     }
 
-    const [department, customer, primaryPm, secondaryPm] = await Promise.all([
+    const [department, customer, primaryPm, secondaryPm, brandingProfile] =
+      await Promise.all([
       this.prisma.department.findFirst({
         where: { id: dto.departmentId, isActive: true },
       }),
@@ -938,6 +948,11 @@ export class ProjectsService {
             },
           })
         : Promise.resolve(null),
+      dto.brandingProfileId
+        ? this.prisma.brandingProfile.findFirst({
+            where: { id: dto.brandingProfileId, isActive: true },
+          })
+        : Promise.resolve(null),
     ]);
 
     if (!department) errors.departmentId = 'departmentNotFound';
@@ -948,6 +963,9 @@ export class ProjectsService {
     }
     if (dto.secondaryPmId && dto.secondaryPmId === dto.primaryPmId) {
       errors.secondaryPmId = 'secondaryPmMustDifferFromPrimary';
+    }
+    if (dto.brandingProfileId && !brandingProfile) {
+      errors.brandingProfileId = 'brandingProfileNotFoundOrInactive';
     }
     if (dto.endDate <= dto.startDate) {
       errors.endDate = 'End date must be after the start date';

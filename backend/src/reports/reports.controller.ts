@@ -260,7 +260,10 @@ export class ReportsController {
           : format === 'docx'
             ? await this.generatedReports.exportDocx(id)
             : await this.generatedReports.exportPdf(id);
-    const extension = isExcel ? 'xlsx' : format;
+    const filename = await this.generatedReports.buildExportFileName(
+      id,
+      isExcel ? 'xlsx' : format,
+    );
     const contentType =
       format === 'csv'
         ? 'text/csv; charset=utf-8'
@@ -273,7 +276,7 @@ export class ReportsController {
     response.setHeader('Content-Type', contentType);
     response.setHeader(
       'Content-Disposition',
-      `attachment; filename="status-report-${id}.${extension}"`,
+      `attachment; filename="${filename}"`,
     );
     response.setHeader('Content-Length', String(payload.length));
     response.setHeader('Cache-Control', 'no-store');

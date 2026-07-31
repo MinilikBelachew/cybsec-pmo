@@ -38,6 +38,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { CurrenciesModule } from './currencies/currencies.module';
 import { SearchModule } from './search/search.module';
+import { BrandingModule } from './branding/branding.module';
 import { MppImportModule } from './mpp-import/mpp-import.module';
 import mppImportConfig from './mpp-import/config/mpp-import.config';
 import { IntegrationsModule } from './integrations/integrations.module';
@@ -136,6 +137,7 @@ import { MeetingsModule } from './meetings/meetings.module';
     TimesheetsModule,
     ReportsModule,
     MeetingsModule,
+    BrandingModule,
     ScheduleModule.forRoot(),
   ],
 })
