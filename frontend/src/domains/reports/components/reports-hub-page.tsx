@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import {
-  BarChart3,
   Calendar,
   Clock,
   FileText,
@@ -36,16 +35,7 @@ const TEMPLATES: ReportTemplate[] = [
     icon: PieChart,
     href: "/dashboard/reports/utilization",
     live: true,
-    tags: ["Utilization", "M2.6", "Keka"],
-  },
-  {
-    id: "executive",
-    name: "Executive Summary",
-    description: "Portfolio health, budget vs actual, and top risks for leadership.",
-    icon: BarChart3,
-    href: "/dashboard",
-    live: true,
-    tags: ["Executive", "Dashboard"],
+    tags: ["Utilization", "Keka"],
   },
   {
     id: "wsr",
@@ -54,7 +44,7 @@ const TEMPLATES: ReportTemplate[] = [
     icon: Calendar,
     href: "/dashboard/reports/status",
     live: true,
-    tags: ["WSR", "MSR", "Gate 3"],
+    tags: ["WSR", "MSR"],
   },
   {
     id: "data-quality",
@@ -63,7 +53,7 @@ const TEMPLATES: ReportTemplate[] = [
     icon: ListChecks,
     href: "/dashboard/reports/data-quality",
     live: true,
-    tags: ["Quality", "Gate 3"],
+    tags: ["Quality"],
   },
   {
     id: "schedules",
@@ -72,7 +62,7 @@ const TEMPLATES: ReportTemplate[] = [
     icon: Workflow,
     href: "/dashboard/reports/schedules",
     live: true,
-    tags: ["Automation", "Gate 3"],
+    tags: ["Automation"],
   },
   {
     id: "timesheets",
@@ -106,14 +96,6 @@ export function ReportsHubPage() {
         title="Reports"
         description={`${liveCount} live reports · ${TEMPLATES.length - liveCount} planned`}
       />
-
-      <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-        <p className="font-medium text-foreground">Gate 3 reporting is live</p>
-        <p className="mt-1 text-muted-foreground">
-          Generate WSR/MSR and MoM exports using the interim CyberSec sample template
-          (PDF/DOCX). Swap in approved Cybsec Word/PDF assets when they arrive.
-        </p>
-      </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {TEMPLATES.map((template) => {
@@ -202,7 +184,7 @@ export function ReportsHubPage() {
           <div>
             <p className="text-sm font-semibold">Need a custom report?</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Status packs, scheduled reports, data quality scans, and the executive dashboard
+              Status packs, scheduled reports, data quality scans, and utilization
               are available now. Additional finance and timesheet templates remain planned.
             </p>
           </div>
