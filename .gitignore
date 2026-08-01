@@ -25,4 +25,10 @@
 
 # Credentials
 /scripts/cybersec-pmo-aac8c39f3ac7.json
-/scripts/phase2-drive-upload
+
+# Evidence upload staging folders and link caches
+/scripts/phase*-drive-upload/
+/scripts/.tmp-videos/
+/scripts/.uploaded-links.json
+/scripts/.uploaded-drive-links-phase*.json
+/scripts/.google-sheet-id

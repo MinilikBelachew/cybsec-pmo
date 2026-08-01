@@ -1,0 +1,3 @@
+Employee,Designation,Department,Planned (h),Submitted (h),Approved (h),Billable (h),Non-billable (h),Available (h),Billable util. (%),Status,Keka reconcile,Keka remote (h),Delta (h)
+M2 Backup Engineer,Software Engineer,Security Operations Center,0.00,0.00,0.00,0.00,0.00,0.00,0,Under,Matched,0.00,0.00
+M2 Dave Engineer,Software Engineer,Security Operations Center,0.00,6.00,0.00,0.00,0.00,0.00,0,Under,Matched,0.00,0.00

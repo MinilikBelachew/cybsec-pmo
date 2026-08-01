@@ -17,14 +17,29 @@ const PHASE2_SPECS = [
   "**/keka-sync.spec.ts",
 ];
 
+const PHASE3_SPECS = [
+  "**/dashboard-kpis.spec.ts",
+  "**/health-rules.spec.ts",
+  "**/status-reports.spec.ts",
+  "**/meetings-mom.spec.ts",
+  "**/report-distribution.spec.ts",
+  "**/data-quality.spec.ts",
+];
+
+const SPECS_BY_PHASE: Record<"1" | "2" | "3", string[]> = {
+  "1": PHASE1_SPECS,
+  "2": PHASE2_SPECS,
+  "3": PHASE3_SPECS,
+};
+
 export function createPlaywrightConfig(
-  phase: "1" | "2",
+  phase: "1" | "2" | "3",
 ): PlaywrightTestConfig {
   process.env.PLAYWRIGHT_PHASE = phase;
 
   return defineConfig({
     testDir: "./tests/e2e",
-    testMatch: phase === "1" ? PHASE1_SPECS : PHASE2_SPECS,
+    testMatch: SPECS_BY_PHASE[phase],
     outputDir: `./test-results-phase${phase}`,
     fullyParallel: false,
     forbidOnly: !!process.env.CI,
@@ -41,6 +56,7 @@ export function createPlaywrightConfig(
         },
       ],
     ],
+    globalSetup: "./global-setup.ts",
     globalTeardown: "./global-teardown.ts",
     use: {
       baseURL: "http://localhost:3000",

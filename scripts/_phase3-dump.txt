@@ -1,0 +1,303 @@
+==============================================================================
+ROW 80 | TC-M3.1-01 | M3.1 | Positive
+SCENARIO: KPIs: schedule, milestone, risk, budget, workload, utilisation, timesheet, collection
+STEPS:
+1. Log in to the PMO Platform as a PMO Lead via EntraID SSO.
+2. Navigate to Dashboard (/dashboard). Confirm Executive Dashboard / Portfolio Overview is the default tab.
+3. On Portfolio Overview, confirm KPI cards load (projects/progress, at-risk, and budget KPIs). remember some sections of the dashboard like Budget Burn Rate (budget, spent, and invoice) is going to implemented in phase 5.
+4. Open Execution Health and confirm Project Health table and milestone widgets load.
+5. Open People & Resources and confirm utilisation / workload widgets load.
+6. Optional: open Settings -> Health rules and confirm RAG dimensions (schedule, cost, risk, resources, collections) are configured.
+EXPECTED_NOW: System successfully executes the action: 'Verify: KPIs: schedule, milestone, risk, budget, workload, utilisation, timesheet, collection'. The application processes inputs and writes them to the 'report_schedules' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: UAT UI screenshots showing successful page and popup status.
+==============================================================================
+ROW 81 | TC-M3.1-02 | M3.1 | Negative
+SCENARIO: Role-based access enforced
+STEPS:
+1. Log in as Engineer. Open Dashboard (/dashboard).
+2. Confirm dashboard filters (Department / Status / Primary PM) are NOT shown and are not applied.
+3. Attempt to open Reports hub paths that require reports.view (e.g. /dashboard/reports/utilization) if Engineer lacks permission - confirm access is denied / gated.
+4. Log in as PM (own_projects). Open Dashboard -> Project Health / portfolio widgets.
+5. Confirm only projects where the PM is Primary or Secondary PM appear (other PMs' projects are absent).
+6. Log in as PMO Lead. Open Dashboard and confirm cross-project visibility (projects from multiple PMs appear).
+EXPECTED_NOW: System rejects the illegal action and displays a clear validation error or 400/409 response. No partial database write or state change occurs.
+EVIDENCE: UAT UI screenshots showing successful page and popup status.
+==============================================================================
+ROW 82 | TC-M3.1-03 | M3.1 | Positive
+SCENARIO: Filters available
+STEPS:
+1. Log in as PMO Lead. Open Dashboard (/dashboard).
+2. Confirm filter bar is visible: Department, Status, and Primary PM.
+3. Apply Department and/or Status and/or Primary PM filters. Confirm stats, Project Health, milestones, resources, and burn-rate refresh.
+4. Click Clear filters and confirm the full portfolio returns.
+5. Log in as Engineer. Confirm the filter bar is not shown.
+6. Log in as PM (own_projects). Confirm filters may show Department/Status but Primary PM filter is hidden; results remain limited to own projects.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Filters available'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: UAT UI screenshots showing successful page and popup status.
+==============================================================================
+ROW 83 | TC-M3.1-04 | M3.1 | Positive
+SCENARIO: Drill-down available
+STEPS:
+1. Log in as PMO Lead. Open Dashboard -> Execution Health / Project Health table.
+2. Click a project row and confirm navigation into the project workspace / projects list with the selected project context.
+3. Return to Dashboard -> People & Resources and note utilisation KPIs.
+4. Open Reports -> Utilization (/dashboard/reports/utilization) for detailed drill-down.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Drill-down available'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: UAT UI screenshots showing successful page and popup status.
+==============================================================================
+ROW 84 | TC-M3.1-05 | M3.1 | Positive
+SCENARIO: Real-time vs cached behaviour defined
+STEPS:
+1. Log in as PMO Lead. Open Dashboard (/dashboard).
+2. Note the Live / As-of freshness badge near Reload.
+3. Click Reload and confirm APIs refetch and the As-of timestamp updates.
+4. Confirm data freshness source shows live for dashboard endpoints.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Real-time vs cached behaviour defined'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: UAT UI screenshots showing successful page and popup status.
+==============================================================================
+ROW 85 | TC-M3.2-01 | M3.2 | Positive
+SCENARIO: RAG rules for schedule, cost, risk, resources, collections
+STEPS:
+1. Log in as PMO Lead / admin.
+2. Open Settings -> Health rules and confirm dimensions exist: schedule, cost, risk, resources, collections.
+3. Evaluate a known project (UI health widget or GET /reports/health/projects/{id}).
+4. Confirm each dimension returns score + ragStatus (green/amber/red) and an overall RAG.
+5. Confirm RAG colours/labels appear consistently on the health evaluation UI/response.
+EXPECTED_NOW: System successfully executes the action: 'Verify: RAG rules for schedule, cost, risk, resources, collections'. The application processes inputs and writes them to the 'report_schedules' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Health rulebook and test calculations
+==============================================================================
+ROW 86 | TC-M3.2-02 | M3.2 | Positive
+SCENARIO: Rules configurable
+STEPS:
+1. Log in as Super Admin
+2. Open Settings -> Health rules.
+3. Edit green/amber/red thresholds for at least two dimensions.
+4. Save and confirm the update succeeds (rules version/active set updates).
+5. Re-evaluate a project and confirm new thresholds affect ragStatus.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Rules configurable'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Health rulebook and test calculations
+==============================================================================
+ROW 87 | TC-M3.2-03 | M3.2 | Positive
+SCENARIO: Calculations reconcile to source records
+STEPS:
+1. Pick an Active project with known source data (tasks, milestones, budget, allocations).
+2. Open project health evaluation (dashboard health page).
+3. Manually compare dimension values to source UI/records (task progress/overdue, milestones done, spend vs budget, open high/critical items, allocation %, collections).
+4. Change a source fact (e.g. complete a milestone or approve timesheets) and re-evaluate.
+5. Confirm scores/RAG move in the expected direction.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Calculations reconcile to source records'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Health rulebook and test calculations
+==============================================================================
+ROW 88 | TC-M3.3-01 | M3.3 | Positive
+SCENARIO: Weekly report renders in approved CyberSec format
+STEPS:
+1. Log in as PMO In Settings -> Branding note the Default profile's company name, logo and colours, and check which profile the test project uses.
+2, Dashboard -> projects -> edit project -> then select Branding profile for that project.
+3. Reports -> Status Reports: select the project, choose Weekly (WSR), Generate, then open the preview and confirm a readable layout.
+4. Export PDF and DOCX.
+5. Confirm the letterhead on every page matches the project's branding profile, and the control block shows nine values three per row: Document reference, Version, Project name, Customer, Delivered by, Report period, Date issued, Prepared by, Reviewed by.
+6. Confirm sections run in order: 1. Executive health summary, 2. Milestones, 3. Work completed and work planned, 4. Open action points, 5. Issues, 6. Risks, 7. Pending items, 8. Cost, 9. Missing or incomplete data, then Notes - each empty one showing a "nothing to report" line. 
+7, remember Risks and issues section for now shows "nothing to report". they are going to be implemented in phase 5.
+8. Confirm the footer carries the document reference and "Page X of Y", there is Internal Use Only watermark.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Weekly report renders in approved CyberSec format'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Approved sample WSR/MSR outputs
+==============================================================================
+ROW 89 | TC-M3.3-02 | M3.3 | Positive
+SCENARIO: Monthly report renders in approved CyberSec format
+STEPS:
+1. Log in as PMO In Settings -> Branding note the Default profile's company name, logo and colours, and check which profile the test project uses.
+2, Dashboard -> projects -> edit project -> then select Branding profile for that project.
+3. Reports -> Status Reports: select the project, choose monthly (MSR), Generate, then open the preview and confirm a readable layout.
+4. Export PDF and DOCX.
+5. Confirm the letterhead on every page matches the project's branding profile, and the control block shows nine values three per row: Document reference, Version, Project name, Customer, Delivered by, Report period, Date issued, Prepared by, Reviewed by.
+6. Confirm sections run in order: 1. Executive health summary, 2. Milestones, 3. Work completed and work planned, 4. Open action points, 5. Issues, 6. Risks, 7. Pending items, 8. Cost, 9. Missing or incomplete data, then Notes - each empty one showing a "nothing to report" line. 
+7, remember Risks and issues section for now shows "nothing to report". they are going to be implemented in phase 5.
+8. Confirm the footer carries the document reference and "Page X of Y", there is Internal Use Only watermark.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Monthly report renders in approved CyberSec format'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Approved sample WSR/MSR outputs
+==============================================================================
+ROW 90 | TC-M3.3-03 | M3.3 | Positive
+SCENARIO: Agreed sections included
+STEPS:
+1. Generate a WSR for a project that has milestones, open action points, and (optionally) DQ flags.
+2. Open report preview (/dashboard/reports/status/{id}).
+3. Confirm sections are rendered: Project health, Milestones, Open action points, Data quality issues (plus header meta: status, overall RAG, period, generated time).
+4. Export PDF/DOCX and confirm corresponding section headings are present.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Agreed sections included'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Approved sample WSR/MSR outputs
+==============================================================================
+ROW 91 | TC-M3.3-04 | M3.3 | Positive
+SCENARIO: Missing data flagged
+STEPS:
+1. Ensure unresolved Data Quality flags exist for the project (run Data Quality scan if needed).
+2. Generate WSR/MSR for that project.
+3. In preview, open Data quality issues and confirm flag type, severity, and description are listed.
+4. Resolve flags on Data Quality page (/dashboard/reports/data-quality), regenerate the report, and confirm missing-data content clears or reduces.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Missing data flagged'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Approved sample WSR/MSR outputs
+==============================================================================
+ROW 92 | TC-M3.3-05 | M3.3 | Positive
+SCENARIO: PM approval before distribution
+STEPS:
+1. Generate a WSR (status Draft).
+2. Confirm only the Draft flow action is available (Approve). Distribute is not available while Draft.
+3. Click Approve - status becomes Approved (badge updates).
+4. Click Distribute - status becomes Distributed; recipients receive email with subject like 'WSR - {project}' / 'MSR - {project}', body notice, and PDF attachment.
+5. Confirm email is sent only on Distribute (not on Draft/Approve).
+EXPECTED_NOW: System successfully executes the action: 'Verify: PM approval before distribution'. The application processes inputs and writes them to the 'report_schedules' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Approved sample WSR/MSR outputs
+==============================================================================
+ROW 93 | TC-M3.3-06 | M3.3 | Positive
+SCENARIO: Export to PDF and DOCX
+STEPS:
+1. Open Status Reports (/dashboard/reports/status).
+2. For a Draft/Approved/Distributed report, use Export and download PDF, DOCX, Excel (.xlsx), and CSV.
+3. Open each file and confirm health/milestones/actions/missing-data content is present.
+4. Confirm Excel uses discrete sheets (Health, Milestones, Actions, MissingData) where implemented.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Export to PDF and DOCX'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Approved sample WSR/MSR outputs
+==============================================================================
+ROW 94 | TC-M3.3-07 | M3.3 | Positive
+SCENARIO: Report version control
+STEPS:
+1. Generate WSR for a project (version 1).
+2. Generate again for the same project + Weekly (WSR).
+3. Confirm a new row appears with version = previous + 1 and prior versions remain listed.
+4. Use filters (project / status / type) and pagination if many reports exist.
+5. Open both versions from the list/preview.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Report version control'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Approved sample WSR/MSR outputs
+==============================================================================
+ROW 95 | TC-M3.4-01 | M3.4 | Positive
+SCENARIO: Meeting captures agenda, attendees, decisions and action points
+STEPS:
+1. Open a project workspace -> Meetings & MoM tab.
+2. Click Meeting; enter title and scheduled datetime.
+3. Select attendees from project team/assignees (include at least one Engineer for later MoM ack tests).
+4. Add Agenda items, Decisions, and Actions (with owners).
+5. Save/Create. Confirm the meeting appears in the Meetings accordion list (latest meeting on top).
+6. Expand the meeting accordion and use View/Edit to confirm attendees + agenda/decisions/actions persist.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Meeting captures agenda, attendees, decisions and action points'. The application processes inputs and writes them to the 'meetings' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Sample meeting, MoM and version history
+==============================================================================
+ROW 96 | TC-M3.4-02 | M3.4 | Positive
+SCENARIO: MoM produced in CyberSec format
+STEPS:
+1. From Meetings & MoM, expand the meeting accordion.
+2. Click Generate MoM.
+3. Confirm a Draft MoM appears nested under that meeting (Minutes vN) with status Draft.
+4. Export MoM PDF and DOCX from the MoM row Export menu.
+5. Confirm interim CyberSec MoM layout (attendance, agenda, decisions, actions, acknowledgement note).
+EXPECTED_NOW: System successfully executes the action: 'Verify: MoM produced in CyberSec format'. The application processes inputs and writes them to the 'meetings' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Sample meeting, MoM and version history
+==============================================================================
+ROW 97 | TC-M3.4-03 | M3.4 | Positive
+SCENARIO: MoM reviewed
+STEPS:
+1. Expand the meeting and locate the Draft MoM.
+2. Click Review.
+3. Confirm status changes to Reviewed and the next action becomes Distribute.
+EXPECTED_NOW: System successfully executes the action: 'Verify: MoM reviewed'. The application processes inputs and writes them to the 'meetings' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Sample meeting, MoM and version history
+==============================================================================
+ROW 98 | TC-M3.4-04 | M3.4 | Positive
+SCENARIO: MoM versioned
+STEPS:
+1. Generate MoM for a meeting (v1).
+2. Generate MoM again for the same meeting.
+3. Confirm version increments (v2) and both documents appear nested under the same meeting.
+EXPECTED_NOW: System successfully executes the action: 'Verify: MoM versioned'. The application processes inputs and writes them to the 'meetings' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Sample meeting, MoM and version history
+==============================================================================
+ROW 99 | TC-M3.4-05 | M3.4 | Positive
+SCENARIO: MoM shared with acknowledgement
+STEPS:
+1. As PM, open Meetings & MoM, expand the meeting, and click Distribute on the Reviewed MoM.
+2. Confirm attendees are emailed with MoM PDF attached and a link 'Open Minutes of Meeting'.
+3. Confirm each attendee receives an in-app notification to acknowledge the MoM; opening it lands on the MoM tab.
+4. As PM, expand Acknowledgements accordion under the MoM and confirm pending recipients (x/y).
+5. Log in as Engineer. Confirm he does NOT see the Meetings list - only Distributed MoMs he was a recipient of, nested under meeting titles.
+6. Click Acknowledge; confirm the button becomes disabled labelled Acknowledged.
+7. As PM, refresh Acknowledgements and confirm the engineer shows Acknowledged with timestamp.
+EXPECTED_NOW: System successfully executes the action: 'Verify: MoM shared with acknowledgement'. The application processes inputs and writes them to the 'meetings' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Sample meeting, MoM and version history
+==============================================================================
+ROW 100 | TC-M3.5-01 | M3.5 | Positive
+SCENARIO: Export to PDF/Excel/CSV as applicable
+STEPS:
+1. From Status Reports, export a report as PDF, DOCX, Excel, and CSV.
+2. From Reports -> Utilization, export CSV.
+3. From Dashboard, use Export Portfolio (xlsx/csv/pdf as permitted by role).
+EXPECTED_NOW: System successfully executes the action: 'Verify: Export to PDF/Excel/CSV as applicable'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: System Audit Trail log extract showing diff matching the action.
+==============================================================================
+ROW 101 | TC-M3.5-02 | M3.5 | Positive
+SCENARIO: Schedule to role-based recipients
+STEPS:
+1. Log in as PMO Lead. Open Reports -> Schedules (/dashboard/reports/schedules).
+2. Click Create and complete the modal: required Project, report type WSR or MSR, friendly schedule (WSR: weekday + time; MSR: day-of-month + time), Active toggle, multi-select internal roles.
+3. Save and confirm the schedule card appears with project, type, cron/summary, recipients, and Active/Inactive control.
+4. Toggle Active/Inactive on the card and confirm state persists.
+5. Delete with confirmation and confirm the schedule is removed.
+EXPECTED_NOW: System successfully executes the action: 'Verify: Schedule to role-based recipients'. The application processes inputs and writes them to the 'report_schedules' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: System Audit Trail log extract showing diff matching the action.
+==============================================================================
+ROW 102 | TC-M3.5-03 | M3.5 | Positive
+SCENARIO: Failed delivery retries and is logged
+STEPS:
+1. Configure a schedule that will fail delivery.
+2. Wait for cron job.
+3. Confirm schedule lastError is populated in UI and retries occur (Bull attempts).
+4. Confirm audit_logs contains a delivery-failure event (e.g. REPORT_DELIVERY_FAILED).
+EXPECTED_NOW: System successfully executes the action: 'Verify: Failed delivery retries and is logged'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: System Audit Trail log extract showing diff matching the action.
+==============================================================================
+ROW 103 | TC-M3.6-01 | M3.6 | Positive
+SCENARIO: Missing or unapproved timesheets flagged
+STEPS:
+1. Open Reports -> Data Quality (/dashboard/reports/data-quality).
+2. In Scan rules, set Missing timesheet and Unapproved timesheet to Include (segmented Include/Exclude). Save rules.
+3. Click Scan all projects.
+4. Use filters (project / flag type / Open). confirm flags for missing and unapproved timesheets (if available).
+5. Resolve a flag and confirm it leaves the Open list (or shows as Resolved when filtered).
+EXPECTED_NOW: System successfully executes the action: 'Verify: Missing or unapproved timesheets flagged'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Exported file attachment (PDF/Excel/DOCX) verified for layout and correct values.
+==============================================================================
+ROW 104 | TC-M3.6-02 | M3.6 | Positive
+SCENARIO: Stale integrations flagged
+STEPS:
+1. On Data Quality -> Scan rules, set Stale integration to Include and Save rules.
+2. Run Scan all projects.
+3. Confirm a STALE_INTEGRATION flag is created with a clear description (if available).
+EXPECTED_NOW: System successfully executes the action: 'Verify: Stale integrations flagged'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Exported file attachment (PDF/Excel/DOCX) verified for layout and correct values.
+==============================================================================
+ROW 105 | TC-M3.6-03 | M3.6 | Positive
+SCENARIO: Incomplete project updates flagged
+STEPS:
+1. On Data Quality -> Scan rules, set Incomplete project to Include and Save rules.
+2. Run Scan all projects.
+3. Confirm INCOMPLETE_PROJECT flags appear for the incomplete projects (if available).
+EXPECTED_NOW: System successfully executes the action: 'Verify: Incomplete project updates flagged'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Exported file attachment (PDF/Excel/DOCX) verified for layout and correct values.
+==============================================================================
+ROW 106 | TC-M3.6-04 | M3.6 | Positive
+SCENARIO: Include/exclude per approved rules
+STEPS:
+1. Open Data Quality -> Scan rules (list of checks with Include / Exclude segmented controls).
+2. Set one type to Exclude (e.g. Stale integration) and keep others Include; click Save rules.
+3. Run Scan all projects - confirm excluded types are not created/updated; included types still appear.
+4. Set the excluded type back to Include, Save, and rescan - confirm it can appear again (if available).
+EXPECTED_NOW: System successfully executes the action: 'Verify: Include/exclude per approved rules'. The application processes inputs and writes them to the 'generated_reports' table in the database. An audit record is created in 'audit_logs', and a successful status code (HTTP 200/201) is returned to the user interface.
+EVIDENCE: Exported file attachment (PDF/Excel/DOCX) verified for layout and correct values.
+==============================================================================
+ROW 271 | TC-M3.1-06 | M3.1 | Negative
+SCENARIO: Report query with non-existent project ID
+STEPS:
+1. Log in as a PMO Lead.
+2. Access the report generation endpoint directly with a non-existent project ID (e.g. '/api/reports/project/999999').
+3. Verify that the server responds with a clean HTTP 404 Not Found error.
+EXPECTED_NOW: Server returns a structured 404 error response.
+EVIDENCE: API JSON response showing 404 error status.
+
+TOTAL ROWS: 28
