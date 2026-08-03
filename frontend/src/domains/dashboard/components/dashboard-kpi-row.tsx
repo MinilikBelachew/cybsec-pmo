@@ -55,6 +55,8 @@ export function KpiRow({
 
 
   const pStats = stats?.projects || { total: 0, active: 0, atRisk: 0, delayed: 0, completed: 0, totalValue: 0, totalSpent: 0, remainingBudget: 0 };
+  const totalValue = pStats.totalValue ?? 0;
+  const totalSpent = pStats.totalSpent ?? 0;
   const tStats = stats?.tasks || { total: 0, done: 0, open: 0, overdue: 0, completionRate: 0 };
   const rStats = stats?.risks || { activeCount: 0 };
 
@@ -80,7 +82,7 @@ export function KpiRow({
           { id: "p1", labelKey: "projectProgress",    value: `${tStats.completionRate}%`, subKey: "tasksMilestones",  spark: [52,55,58,60,63,65,tStats.completionRate],   icon: Activity,   theme: CARD_THEMES.slate },
           { id: "p2", labelKey: "onTimeDelivery",     value: `${100 - Math.round((pStats.delayed / (pStats.total || 1)) * 100)}%`, subKey: "plannedTimeline", spark: [80,82,85,86,88,90,100 - Math.round((pStats.delayed / (pStats.total || 1)) * 100)], icon: Clock, theme: CARD_THEMES.amber },
           showFinancials
-            ? { id: "p3", labelKey: "budgetAdherence", value: pStats.totalValue > 0 ? `${Math.round((pStats.totalSpent / pStats.totalValue) * 100)}%` : "0%", subKey: "plannedVsActual", spark: [85,87,88,89,90,91,pStats.totalValue > 0 ? Math.round((pStats.totalSpent / pStats.totalValue) * 100) : 0], icon: TrendingUp, theme: CARD_THEMES.emerald }
+            ? { id: "p3", labelKey: "budgetAdherence", value: totalValue > 0 ? `${Math.round((totalSpent / totalValue) * 100)}%` : "0%", subKey: "plannedVsActual", spark: [85,87,88,89,90,91,totalValue > 0 ? Math.round((totalSpent / totalValue) * 100) : 0], icon: TrendingUp, theme: CARD_THEMES.emerald }
             : { id: "p3", labelKey: "totalProjects", value: `${pStats.total}`, subKey: "acrossProjects", spark: [1,2,3,4,5,6,pStats.total], icon: TrendingUp, theme: CARD_THEMES.emerald },
           { id: "p4", labelKey: "scopeChanges",       value: `${pStats.atRisk}`,   subKey: "activeChangeRequests", spark: [6,5,4,4,3,3,pStats.atRisk],       icon: FileText, theme: CARD_THEMES.rose },
           { id: "p5", labelKey: "collectionPct", value: stats ? `${stats.collectionPct ?? 0}%` : "—", subKey: "acrossProjects", spark: sparkFrom(stats?.collectionPct), icon: Users, theme: CARD_THEMES.sky },
