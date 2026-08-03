@@ -274,6 +274,7 @@ export class ReportSectionsService {
         where: { projectId, status: { notIn: CLOSED_RISK_STATUSES } },
         orderBy: { score: 'desc' },
         select: {
+          title: true,
           category: true,
           impact: true,
           likelihood: true,
@@ -303,6 +304,7 @@ export class ReportSectionsService {
 
     const rows: RiskRow[] = manualRisks.map((risk) => ({
       description:
+        risk.title?.trim() ||
         risk.mitigationPlan?.trim() ||
         `${risk.category} exposure (impact ${risk.impact}, likelihood ${risk.likelihood})`,
       category: risk.category,
@@ -371,6 +373,7 @@ export class ReportSectionsService {
           targetDate: { lt: today },
         },
         select: {
+          title: true,
           category: true,
           mitigationPlan: true,
           targetDate: true,
@@ -428,7 +431,7 @@ export class ReportSectionsService {
     for (const risk of risks) {
       if (!risk.targetDate) continue;
       rows.push({
-        item: risk.mitigationPlan?.trim() || `${risk.category} risk`,
+        item: risk.title?.trim() || risk.mitigationPlan?.trim() || `${risk.category} risk`,
         type: 'Risk',
         requestedDate: iso(risk.targetDate),
         daysWaiting: daysBetween(risk.targetDate, today),

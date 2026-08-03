@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PriorityLevel } from '@prisma/client';
+import { PriorityLevel, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CaslUserContext } from '../casl/casl.types';
@@ -86,10 +86,188 @@ export class ActionPointsService {
       },
       include: {
         owner: { select: { id: true, displayName: true, email: true } },
+        project: { select: { id: true, name: true } },
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
     });
     return rows.map((row) => this.toDto(row));
+  }
+
+  async listPortfolio(
+    caslUser: CaslUserContext,
+    filters?: {
+      projectId?: string;
+      status?: string;
+      sourceType?: string;
+      ownerId?: string;
+    },
+  ): Promise<ActionPointDto[]> {
+    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    const rows = await this.prisma.actionPoint.findMany({
+      where: {
+        ...(filters?.projectId ? { projectId: filters.projectId } : {}),
+        ...(filters?.status ? { status: filters.status } : {}),
+        ...(filters?.sourceType ? { sourceType: filters.sourceType } : {}),
+        ...(filters?.ownerId ? { ownerId: filters.ownerId } : {}),
+        ...(this.isAssigneeOnlyRole(caslUser.roleCode)
+          ? { ownerId: caslUser.id }
+          : {}),
+        project: { AND: [scopeWhere] },
+      },
+      include: {
+        owner: { select: { id: true, displayName: true, email: true } },
+        project: { select: { id: true, name: true } },
+      },
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+    });
+    return rows.map((row) => this.toDto(row));
+  }
+
+  async closureReport(
+    caslUser: CaslUserContext,
+    filters?: { projectId?: string },
+  ) {
+    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    const rows = await this.prisma.actionPoint.findMany({
+      where: {
+        ...(filters?.projectId ? { projectId: filters.projectId } : {}),
+        project: { AND: [scopeWhere] },
+      },
+      include: {
+        owner: { select: { id: true, displayName: true } },
+      },
+    });
+
+    const bySourceMap = new Map<string, number>();
+    const byOwnerMap = new Map<string, { name: string; count: number }>();
+    const byStatusMap = new Map<string, number>();
+    let closed = 0;
+    let overdueOpen = 0;
+
+    for (const row of rows) {
+      bySourceMap.set(row.sourceType, (bySourceMap.get(row.sourceType) ?? 0) + 1);
+      const ownerKey = row.ownerId;
+      const existing = byOwnerMap.get(ownerKey);
+      byOwnerMap.set(ownerKey, {
+        name: row.owner?.displayName ?? ownerKey,
+        count: (existing?.count ?? 0) + 1,
+      });
+      byStatusMap.set(row.status, (byStatusMap.get(row.status) ?? 0) + 1);
+      if (CLOSED_STATUSES.has(row.status)) closed += 1;
+      if (isOverdue(row.dueDate, row.status)) overdueOpen += 1;
+    }
+
+    return {
+      bySource: Array.from(bySourceMap.entries()).map(([sourceType, count]) => ({
+        sourceType,
+        ownerId: '',
+        status: '',
+        count,
+      })),
+      byOwner: Array.from(byOwnerMap.entries()).map(([ownerId, v]) => ({
+        sourceType: '',
+        ownerId,
+        ownerName: v.name,
+        status: '',
+        count: v.count,
+      })),
+      byStatus: Array.from(byStatusMap.entries()).map(([status, count]) => ({
+        sourceType: '',
+        ownerId: '',
+        status,
+        count,
+      })),
+      total: rows.length,
+      closed,
+      overdueOpen,
+    };
+  }
+
+  async sendDueReminders(caslUser: CaslUserContext): Promise<{ sent: number }> {
+    if (!this.isActionPointManager(caslUser.roleCode)) {
+      throw new ForbiddenException('Only managers can trigger action reminders');
+    }
+    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    return this.sendRemindersWhere({
+      status: { notIn: Array.from(CLOSED_STATUSES) },
+      dueDate: { lte: this.inDaysFromToday(3) },
+      project: { AND: [scopeWhere] },
+    });
+  }
+
+  /** Cron: remind owners of open action points due within 3 days. */
+  async processScheduledReminders(): Promise<{ sent: number }> {
+    return this.sendRemindersWhere({
+      status: { notIn: Array.from(CLOSED_STATUSES) },
+      dueDate: { lte: this.inDaysFromToday(3) },
+    });
+  }
+
+  /** Cron: notify owners of overdue open action points. */
+  async processOverdueNotifications(): Promise<{ sent: number }> {
+    const today = startOfUtcToday();
+    const overdue = await this.prisma.actionPoint.findMany({
+      where: {
+        status: { notIn: Array.from(CLOSED_STATUSES) },
+        dueDate: { lt: today },
+      },
+      select: {
+        id: true,
+        title: true,
+        ownerId: true,
+        projectId: true,
+      },
+      take: 200,
+    });
+
+    let sent = 0;
+    for (const row of overdue) {
+      if (!row.projectId) continue;
+      await this.notifyOverdue(row.id, row.title, row.ownerId, row.projectId);
+      sent += 1;
+    }
+    return { sent };
+  }
+
+  private inDaysFromToday(days: number): Date {
+    const today = startOfUtcToday();
+    const target = new Date(today);
+    target.setUTCDate(target.getUTCDate() + days);
+    return target;
+  }
+
+  private async sendRemindersWhere(
+    where: Prisma.ActionPointWhereInput,
+  ): Promise<{ sent: number }> {
+    const dueSoon = await this.prisma.actionPoint.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        ownerId: true,
+        projectId: true,
+        dueDate: true,
+      },
+      take: 200,
+    });
+
+    for (const row of dueSoon) {
+      await this.notifications.notify({
+        eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_REMINDER,
+        recipientUserIds: [row.ownerId],
+        title: 'Action point reminder',
+        body: `Action “${row.title}” is due on ${toIsoDate(row.dueDate)}.`,
+        payload: {
+          projectId: row.projectId,
+          actionPointId: row.id,
+          dueDate: toIsoDate(row.dueDate),
+        },
+        sourceObjectType: 'ActionPoint',
+        sourceObjectId: row.id,
+        includeActorAsRecipient: true,
+      });
+    }
+    return { sent: dueSoon.length };
   }
 
   async createForProject(
@@ -127,6 +305,47 @@ export class ActionPointsService {
         throw new BadRequestException('Task not found on this project');
       }
       sourceId = task.id;
+    } else if (sourceType === ActionPointSourceType.Risk) {
+      if (!dto.sourceId) {
+        throw new BadRequestException('sourceId (risk id) is required when sourceType is Risk');
+      }
+      const risk = await this.prisma.risk.findFirst({
+        where: { id: dto.sourceId, projectId },
+        select: { id: true },
+      });
+      if (!risk) {
+        throw new BadRequestException('Risk not found on this project');
+      }
+      sourceId = risk.id;
+    } else if (sourceType === ActionPointSourceType.Issue) {
+      if (!dto.sourceId) {
+        throw new BadRequestException('sourceId (issue id) is required when sourceType is Issue');
+      }
+      const issue = await this.prisma.issue.findFirst({
+        where: { id: dto.sourceId, projectId },
+        select: { id: true },
+      });
+      if (!issue) {
+        throw new BadRequestException('Issue not found on this project');
+      }
+      sourceId = issue.id;
+    } else if (
+      sourceType === ActionPointSourceType.Meeting ||
+      sourceType === ActionPointSourceType.MoM
+    ) {
+      if (!dto.sourceId) {
+        throw new BadRequestException(
+          `sourceId (meeting id) is required when sourceType is ${sourceType}`,
+        );
+      }
+      const meeting = await this.prisma.meeting.findFirst({
+        where: { id: dto.sourceId, projectId },
+        select: { id: true },
+      });
+      if (!meeting) {
+        throw new BadRequestException('Meeting not found on this project');
+      }
+      sourceId = meeting.id;
     }
 
     const status = dto.status?.trim() || 'Open';
@@ -146,6 +365,7 @@ export class ActionPointsService {
       },
       include: {
         owner: { select: { id: true, displayName: true, email: true } },
+        project: { select: { id: true, name: true } },
       },
     });
 
@@ -259,6 +479,7 @@ export class ActionPointsService {
       },
       include: {
         owner: { select: { id: true, displayName: true, email: true } },
+        project: { select: { id: true, name: true } },
       },
     });
 
@@ -402,6 +623,7 @@ export class ActionPointsService {
     closedAt: Date | null;
     createdAt: Date;
     owner?: { id: string; displayName: string; email: string } | null;
+    project?: { id: string; name: string } | null;
   }): ActionPointDto {
     return {
       id: row.id,
@@ -409,6 +631,7 @@ export class ActionPointsService {
       sourceType: row.sourceType,
       sourceId: row.sourceId,
       projectId: row.projectId,
+      projectName: row.project?.name,
       ownerId: row.ownerId,
       owner: row.owner
         ? {

@@ -27,6 +27,9 @@ export class ActionPointDto {
   @ApiPropertyOptional({ nullable: true })
   projectId: string | null;
 
+  @ApiPropertyOptional()
+  projectName?: string;
+
   @ApiProperty()
   ownerId: string;
 

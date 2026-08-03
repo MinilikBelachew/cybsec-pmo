@@ -1136,6 +1136,7 @@ model FailedSyncRecord {
 model Risk {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId          String    @map("project_id") @db.Uuid
+  title              String    @db.VarChar(255)
   category           String    @db.VarChar(100)
   impact             Int
   likelihood         Int
@@ -1148,6 +1149,7 @@ model Risk {
   residualRating     Int?      @map("residual_rating")
   status             String    @default("Open") @db.VarChar(30)
   ruleVersion        String?   @map("rule_version") @db.VarChar(20)
+  closedAt           DateTime? @map("closed_at") @db.Timestamptz
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 

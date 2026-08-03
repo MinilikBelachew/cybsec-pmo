@@ -33,6 +33,7 @@ import { useGetProjectTaskAssigneesQuery } from "@/domains/projects/api/projects
 import type {
   ActionPoint,
   ActionPointPriority,
+  ActionPointSourceType,
   ActionPointStatus,
 } from "@/domains/projects/types/action-points.types";
 import {
@@ -42,6 +43,9 @@ import {
 import {
   ProjectDatePicker,
 } from "@/domains/projects/components/shared/project-date-picker";
+import { useGetProjectIssuesQuery } from "@/domains/risk-compliance/api/issues.api";
+import { useGetProjectRisksQuery } from "@/domains/risk-compliance/api/risks.api";
+import { useGetTasksQuery } from "@/domains/projects/api/tasks.api";
 
 const STATUS_OPTIONS: ActionPointStatus[] = [
   "Open",
@@ -62,6 +66,13 @@ const PRIORITY_OPTIONS: ActionPointPriority[] = [
   "Medium",
   "High",
   "Critical",
+];
+
+const SOURCE_TYPE_OPTIONS: ActionPointSourceType[] = [
+  "Project",
+  "Task",
+  "Risk",
+  "Issue",
 ];
 
 /** Matches backend ACTION_POINT_MANAGER_ROLES */
@@ -130,6 +141,17 @@ export function ActionPointsPanel({
   const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
     skip: !canManage,
   });
+  const { data: projectRisks = [] } = useGetProjectRisksQuery(projectId, {
+    skip: !canManage,
+  });
+  const { data: projectIssues = [] } = useGetProjectIssuesQuery(projectId, {
+    skip: !canManage,
+  });
+  const { data: tasksResponse } = useGetTasksQuery(
+    { projectId, limit: 100 },
+    { skip: !canManage },
+  );
+  const projectTasks = tasksResponse?.data ?? [];
   const [createActionPoint, { isLoading: isCreating }] = useCreateActionPointMutation();
   const [updateActionPoint, { isLoading: isUpdating }] = useUpdateActionPointMutation();
   const [deleteActionPoint, { isLoading: isDeleting }] = useDeleteActionPointMutation();
@@ -155,6 +177,7 @@ export function ActionPointsPanel({
     control,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<ActionPointFormValues>({
     resolver: zodResolver(schema) as import("react-hook-form").Resolver<ActionPointFormValues>,
@@ -163,9 +186,13 @@ export function ActionPointsPanel({
       ownerId: "",
       dueDate: undefined,
       priority: "Medium",
+      sourceType: "Project",
+      sourceId: "",
     },
     mode: "onSubmit",
   });
+
+  const watchedSourceType = watch("sourceType");
 
   useEffect(() => {
     if (formMode === "closed") {
@@ -175,6 +202,8 @@ export function ActionPointsPanel({
         ownerId: "",
         dueDate: undefined,
         priority: "Medium",
+        sourceType: "Project",
+        sourceId: "",
       });
     }
   }, [formMode, reset]);
@@ -201,6 +230,8 @@ export function ActionPointsPanel({
       ownerId: "",
       dueDate: undefined,
       priority: "Medium",
+      sourceType: "Project",
+      sourceId: "",
     });
     setFormMode("create");
   }
@@ -214,6 +245,10 @@ export function ActionPointsPanel({
       priority: (PRIORITY_OPTIONS.includes(ap.priority as ActionPointPriority)
         ? ap.priority
         : "Medium") as ActionPointPriority,
+      sourceType: (SOURCE_TYPE_OPTIONS.includes(ap.sourceType as ActionPointSourceType)
+        ? ap.sourceType
+        : "Project") as ActionPointSourceType,
+      sourceId: ap.sourceId || "",
     });
     setFormMode("edit");
   }
@@ -237,6 +272,10 @@ export function ActionPointsPanel({
         }).unwrap();
         toast.success("Action point updated");
       } else {
+        const needsSourceLink =
+          values.sourceType === "Task" ||
+          values.sourceType === "Risk" ||
+          values.sourceType === "Issue";
         await createActionPoint({
           projectId,
           body: {
@@ -244,7 +283,8 @@ export function ActionPointsPanel({
             ownerId: values.ownerId,
             dueDate: toApiDate(values.dueDate),
             priority: values.priority,
-            sourceType: "Project",
+            sourceType: values.sourceType,
+            sourceId: needsSourceLink ? values.sourceId : undefined,
             status: "Open",
           },
         }).unwrap();
@@ -419,6 +459,103 @@ export function ActionPointsPanel({
         </div>
       </div>
 
+      {formMode === "create" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Source
+            </label>
+            <Controller
+              control={control}
+              name="sourceType"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={(v) => {
+                    field.onChange((v as ActionPointSourceType) || "Project");
+                  }}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOURCE_TYPE_OPTIONS.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          {(watchedSourceType === "Task" ||
+            watchedSourceType === "Risk" ||
+            watchedSourceType === "Issue") && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Linked {watchedSourceType} *
+              </label>
+              <Controller
+                control={control}
+                name="sourceId"
+                render={({ field }) => {
+                  const options =
+                    watchedSourceType === "Task"
+                      ? projectTasks.map((t) => ({
+                          id: t.id,
+                          label: t.title || t.id,
+                        }))
+                      : watchedSourceType === "Risk"
+                        ? projectRisks.map((r) => ({
+                            id: r.id,
+                            label: r.title,
+                          }))
+                        : projectIssues.map((i) => ({
+                            id: i.id,
+                            label: i.title,
+                          }));
+                  return (
+                    <Select
+                      value={field.value || undefined}
+                      onValueChange={(v) => field.onChange(v ?? "")}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          "h-9",
+                          errors.sourceId && "border-rose-500 ring-2 ring-rose-500/20",
+                        )}
+                      >
+                        <SelectValue placeholder={`Select ${watchedSourceType.toLowerCase()}`}>
+                          {options.find((o) => o.id === field.value)?.label}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {options.length === 0 ? (
+                          <SelectItem value="__none" disabled>
+                            No {watchedSourceType.toLowerCase()}s available
+                          </SelectItem>
+                        ) : (
+                          options.map((o) => (
+                            <SelectItem key={o.id} value={o.id}>
+                              {o.label}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  );
+                }}
+              />
+              {errors.sourceId && (
+                <p className={fieldErrorClass}>{errors.sourceId.message}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={closeForm} disabled={isSaving}>
           Cancel
@@ -531,6 +668,9 @@ export function ActionPointsPanel({
                             )}
                             <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                               {ap.priority}
+                            </span>
+                            <span className="rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                              {ap.sourceType}
                             </span>
                           </div>
                         </div>

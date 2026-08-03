@@ -150,11 +150,15 @@ export class DashboardService {
       (t) => t.status !== TaskStatus.Done && t.endDate && new Date(t.endDate) < now,
     ).length;
 
-    const activeRisks = tasks.filter(
-      (t) =>
-        t.status !== TaskStatus.Done &&
-        (t.priority === 'Critical' || t.priority === 'High'),
-    ).length;
+    const activeRisks =
+      projectIds.length > 0
+        ? await this.prisma.risk.count({
+            where: {
+              projectId: { in: projectIds },
+              status: { notIn: ['Closed', 'Cancelled'] },
+            },
+          })
+        : 0;
 
     const totalResources = showProjects
       ? await this.countScopedEmployees(caslUser, filters)

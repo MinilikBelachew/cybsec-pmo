@@ -31,6 +31,7 @@ import {
   type ProjectTeamSectionHandle,
 } from "@/domains/projects";
 import { useGetBrandingProfileOptionsQuery } from "@/domains/settings/api/branding.api";
+import { SurfacedLessonsPanel } from "@/domains/risk-compliance";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useAuth } from "@/domains/auth/hooks/use-auth";
 import {
@@ -1326,6 +1327,23 @@ export function CreateProjectSheet({
               projectEndDate={watchedEndDate}
               error={milestoneError || undefined}
               readOnly={milestonesReadOnly}
+            />
+          )}
+
+          {open && (!isEditMode || watchedStatus === "PendingClosure") && (
+            <SurfacedLessonsPanel
+              projectId={isEditMode ? project?.id : undefined}
+              departmentId={watchedDeptId || undefined}
+              title={
+                watchedStatus === "PendingClosure"
+                  ? "Lessons for project closure"
+                  : "Lessons for project setup"
+              }
+              description={
+                watchedStatus === "PendingClosure"
+                  ? "Review related lessons before closing this project."
+                  : "Review related lessons while setting up this project."
+              }
             />
           )}
         </div>

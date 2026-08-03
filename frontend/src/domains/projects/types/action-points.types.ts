@@ -1,5 +1,11 @@
 export type ActionPointStatus = "Open" | "In Progress" | "Done" | "Cancelled";
-export type ActionPointSourceType = "Project" | "Task";
+export type ActionPointSourceType =
+  | "Project"
+  | "Task"
+  | "Meeting"
+  | "MoM"
+  | "Risk"
+  | "Issue";
 export type ActionPointPriority = "Low" | "Medium" | "High" | "Critical";
 
 export type ActionPoint = {
@@ -8,6 +14,7 @@ export type ActionPoint = {
   sourceType: ActionPointSourceType | string;
   sourceId: string;
   projectId: string | null;
+  projectName?: string;
   ownerId: string;
   owner?: {
     id: string;
