@@ -5,7 +5,7 @@ services:
     restart: always
     ports:
       # Host-only bind — do not publish Postgres on 0.0.0.0 (internet-facing VPS risk)
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:5437:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -18,9 +18,9 @@ services:
     container_name: cybersec-redis
     restart: always
     ports:
-      # Host-only bind — scanners were hitting public 6378 (Cross Protocol Scripting)
+      # Host-only bind — scanners were hitting public (Cross Protocol Scripting)
       # Backend reaches Redis via the Docker network as redis:6379 (no public publish needed)
-      - "127.0.0.1:6378:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
 
@@ -49,7 +49,7 @@ services:
     container_name: cybersec-backend
     restart: always
     ports:
-      - "6010:3000"
+      - "6040:3000"
     depends_on:
       - postgres
       - redis
@@ -78,9 +78,9 @@ services:
     #   context: ./frontend
     #   dockerfile: Dockerfile
     #   args:
-    #     - NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1
-    #     - NEXT_PUBLIC_WS_URL=https://cybsec.addisanalytics.com
-    #     - NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com
+    #     - NEXT_PUBLIC_API_URL=https://cybsec-stage.learnica.net/api/v1
+    #     - NEXT_PUBLIC_WS_URL=https://cybsec-stage.learnica.net
+    #     - NEXT_PUBLIC_APP_URL=https://cybsec-stage.learnica.net
 
     # --------------------------------------------------------------------------
     # OPTION 2: Pull from Docker Hub (Default)
@@ -90,7 +90,7 @@ services:
     container_name: cybersec-frontend
     restart: always
     ports:
-      - "3010:3000"
+      - "3040:3000"
     environment:
       NODE_ENV: production
     depends_on:
