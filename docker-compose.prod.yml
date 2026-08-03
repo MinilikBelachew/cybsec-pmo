@@ -1,13 +1,13 @@
 services:
   postgres:
     image: postgres:17.6-alpine
-    container_name: cybersec-postgres
+    container_name: cybersec-postgres-stage
     restart: always
     ports:
       # Host-only bind — do not publish Postgres on 0.0.0.0 (internet-facing VPS risk)
       - "127.0.0.1:5437:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_stage_data:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: ${DATABASE_USERNAME:-root}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret123}
@@ -15,18 +15,18 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: cybersec-redis
+    container_name: cybersec-redis-stage
     restart: always
     ports:
       # Host-only bind — scanners were hitting public (Cross Protocol Scripting)
       # Backend reaches Redis via the Docker network as redis:6379 (no public publish needed)
       - "127.0.0.1:6380:6379"
     volumes:
-      - redis_data:/data
+      - redis_stage_data:/data
 
   mpxj-service:
     image: aynuayex/cybersec-pmo:mpxj-service
-    container_name: cybersec-mpxj-service
+    container_name: cybersec-mpxj-service-stage
     restart: always
     expose:
       - "8080"
@@ -46,7 +46,7 @@ services:
     # --------------------------------------------------------------------------
     image: aynuayex/cybersec-pmo:backend
 
-    container_name: cybersec-backend
+    container_name: cybersec-backend-stage
     restart: always
     ports:
       - "6040:3000"
@@ -55,7 +55,7 @@ services:
       - redis
       - mpxj-service
     volumes:
-      - mpp_import_data:/tmp/mpp-imports
+      - mpp_import_stage_data:/tmp/mpp-imports
     env_file:
       - ./backend/.env.prod
     environment:
@@ -87,7 +87,7 @@ services:
     # --------------------------------------------------------------------------
     image: aynuayex/cybersec-pmo:frontend
 
-    container_name: cybersec-frontend
+    container_name: cybersec-frontend-stage
     restart: always
     ports:
       - "3040:3000"
@@ -97,6 +97,6 @@ services:
       - backend
 
 volumes:
-  postgres_data:
-  redis_data:
-  mpp_import_data:
+  postgres_stage_data:
+  redis_stage_data:
+  mpp_import_stage_data:
