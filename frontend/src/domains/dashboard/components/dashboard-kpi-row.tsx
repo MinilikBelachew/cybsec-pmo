@@ -70,7 +70,7 @@ export function KpiRow({
   const underutilizedCount = team.filter((member) => member.status === "under").length;
   const totalBillableHours = deptHours.reduce((sum, dept) => sum + dept.billable, 0);
 
-  const sparkFrom = (value: number, fallback = 0) => {
+  const sparkFrom = (value?: number, fallback = 0) => {
     const v = value || fallback;
     return [v, v, v, v, v, v, v];
   };
