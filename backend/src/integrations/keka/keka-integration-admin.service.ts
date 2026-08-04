@@ -27,11 +27,17 @@ import {
 } from './dto/keka-integration.dto';
 import {
   KEKA_ENTITY_TYPE,
+  KEKA_FAILURE_CLASS,
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from './keka.constants';
 import { KEKA_INTEGRATION } from '../../timesheets/timesheets.constants';
-import { backfillFailedRecordsFromSyncLogs, upsertFailedSyncRecord, resolveFailedSyncRecord } from './utils/failed-sync-record.util';
+import {
+  backfillFailedRecordsFromSyncLogs,
+  prepareFailedSyncForceRetry,
+  resolveFailedSyncRecord,
+  upsertFailedSyncRecord,
+} from './utils/failed-sync-record.util';
 
 /** Logs within this window of the latest log are treated as one "last run". */
 const LAST_RUN_WINDOW_MS = 30 * 60 * 1000;
@@ -266,6 +272,9 @@ export class KekaIntegrationAdminService {
           ref: null,
         };
       }
+
+      // Admin force retry: reopen dead-lettered / exhausted rows for another window.
+      await prepareFailedSyncForceRetry(this.prisma, record.id);
 
       entityType = record.entityType;
       entityId = record.entityId ?? undefined;
@@ -573,19 +582,39 @@ export class KekaIntegrationAdminService {
     query: QueryFailedSyncRecordsDto,
   ): Prisma.FailedSyncRecordWhereInput {
     const search = query.search?.trim();
+    const disposition = query.disposition ?? 'all';
+    const and: Prisma.FailedSyncRecordWhereInput[] = [];
+
+    if (disposition === 'pending') {
+      and.push({
+        isResolved: false,
+        deadLetteredAt: null,
+        failureClass: KEKA_FAILURE_CLASS.TRANSIENT,
+      });
+    } else if (disposition === 'dead_letter') {
+      and.push({
+        isResolved: false,
+        OR: [
+          { deadLetteredAt: { not: null } },
+          { failureClass: KEKA_FAILURE_CLASS.PERMANENT },
+        ],
+      });
+    }
+
+    if (search) {
+      and.push({
+        OR: [
+          { entityId: { contains: search, mode: 'insensitive' } },
+          { errorMsg: { contains: search, mode: 'insensitive' } },
+        ],
+      });
+    }
 
     return {
       ...(query.integration ? { integration: query.integration } : {}),
       ...(query.entityType ? { entityType: query.entityType } : {}),
       ...(query.isResolved !== undefined ? { isResolved: query.isResolved } : {}),
-      ...(search
-        ? {
-            OR: [
-              { entityId: { contains: search, mode: 'insensitive' } },
-              { errorMsg: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      ...(and.length > 0 ? { AND: and } : {}),
     };
   }
 
@@ -594,6 +623,10 @@ export class KekaIntegrationAdminService {
       include: { resolver: { select: { displayName: true } } };
     }>,
   ): FailedSyncRecordRowDto {
+    const isDeadLetter =
+      row.deadLetteredAt != null ||
+      row.failureClass === KEKA_FAILURE_CLASS.PERMANENT;
+
     return {
       id: row.id,
       integration: row.integration,
@@ -602,6 +635,9 @@ export class KekaIntegrationAdminService {
       direction: row.direction,
       errorMsg: row.errorMsg,
       retryCount: row.retryCount,
+      failureClass: row.failureClass,
+      deadLetteredAt: row.deadLetteredAt,
+      isDeadLetter,
       isResolved: row.isResolved,
       resolvedByName: row.resolver?.displayName ?? null,
       resolvedAt: row.resolvedAt,

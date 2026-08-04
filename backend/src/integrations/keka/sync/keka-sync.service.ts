@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
-import { Queue } from 'bull';
+import { JobOptions, Queue } from 'bull';
 import {
   KEKA_SYNC_ALL_JOB,
   KEKA_SYNC_ATTENDANCE_JOB,
@@ -12,6 +12,7 @@ import {
   KEKA_SYNC_QUEUE,
   KEKA_SYNC_SALARY_JOB,
 } from '../keka.constants';
+import { KekaSyncJobStatusDto } from '../dto/keka-sync.dto';
 import { KekaSyncRunResult } from '../keka.types';
 import { AttendanceSyncService } from './attendance-sync.service';
 import { DepartmentSyncService } from './department-sync.service';
@@ -21,6 +22,29 @@ import { LeaveSyncService } from './leave-sync.service';
 import { ProjectLinkService } from './project-link.service';
 import { ClientSyncService } from './client-sync.service';
 import { SalarySyncService } from './salary-sync.service';
+
+/** Keep finished jobs briefly so the UI can poll status after completion. */
+const KEKA_SYNC_JOB_OPTIONS: JobOptions = {
+  removeOnComplete: 100,
+  removeOnFail: 100,
+};
+
+const FULL_SYNC_STEPS = [
+  'department',
+  'employee',
+  'leave',
+  'attendance',
+  'holiday',
+  'pay_cycle',
+  'salary',
+  'client',
+  'project',
+] as const;
+
+type SyncProgressCallback = (
+  percent: number,
+  step: string,
+) => void | Promise<void>;
 
 @Injectable()
 export class KekaSyncService {
@@ -71,34 +95,72 @@ export class KekaSyncService {
     return this.projectLinkService.linkProjectsAndTasks();
   }
 
-  async syncAllNow(): Promise<KekaSyncRunResult> {
+  async syncAllNow(onProgress?: SyncProgressCallback): Promise<KekaSyncRunResult> {
     const startedAt = new Date().toISOString();
+    const totalSteps = FULL_SYNC_STEPS.length;
+    let stepIndex = 0;
 
+    const report = async (step: string) => {
+      if (!onProgress) return;
+      const percent = Math.round((stepIndex / totalSteps) * 100);
+      await onProgress(percent, step);
+    };
+
+    await report('department');
     const departmentResult = await this.runStep('department', () =>
       this.syncDepartmentsNow(),
     );
+    stepIndex += 1;
+
+    await report('employee');
     const employeeResult = await this.runStep('employee', () =>
       this.employeeSyncService.syncEmployees(),
     );
+    stepIndex += 1;
+
+    await report('leave');
     const leaveResult = await this.runStep('leave', () => this.syncLeaveNow());
+    stepIndex += 1;
+
+    await report('attendance');
     const attendanceResult = await this.runStep('attendance', () =>
       this.syncAttendanceNow(),
     );
+    stepIndex += 1;
+
+    await report('holiday');
     const holidayResult = await this.runStep('holiday', () =>
       this.syncHolidaysNow(),
     );
+    stepIndex += 1;
+
+    await report('pay_cycle');
     const payCycleResult = await this.runStep('pay_cycle', () =>
       this.salarySyncService.syncPayCycles(),
     );
+    stepIndex += 1;
+
+    await report('salary');
     const salaryResult = await this.runStep('salary', () =>
       this.salarySyncService.syncSalaries(),
     );
+    stepIndex += 1;
+
+    await report('client');
     const clientResult = await this.runStep('client', () =>
       this.syncClientsNow(),
     );
+    stepIndex += 1;
+
+    await report('project');
     const projectResult = await this.runStep('project', () =>
       this.syncProjectsNow(),
     );
+    stepIndex += 1;
+
+    if (onProgress) {
+      await onProgress(100, 'done');
+    }
 
     return {
       startedAt,
@@ -133,44 +195,126 @@ export class KekaSyncService {
     }
   }
 
-  async enqueueEmployeesSync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_EMPLOYEES_JOB, {});
+  private async enqueue(
+    name: string,
+  ): Promise<{ jobId: string | number }> {
+    const job = await this.syncQueue.add(name, {}, KEKA_SYNC_JOB_OPTIONS);
     return { jobId: job.id ?? 'unknown' };
+  }
+
+  async enqueueEmployeesSync(): Promise<{ jobId: string | number }> {
+    return this.enqueue(KEKA_SYNC_EMPLOYEES_JOB);
   }
 
   async enqueueLeaveSync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_LEAVE_JOB, {});
-    return { jobId: job.id ?? 'unknown' };
+    return this.enqueue(KEKA_SYNC_LEAVE_JOB);
   }
 
   async enqueueAttendanceSync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_ATTENDANCE_JOB, {});
-    return { jobId: job.id ?? 'unknown' };
+    return this.enqueue(KEKA_SYNC_ATTENDANCE_JOB);
   }
 
   async enqueueHolidaysSync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_HOLIDAYS_JOB, {});
-    return { jobId: job.id ?? 'unknown' };
+    return this.enqueue(KEKA_SYNC_HOLIDAYS_JOB);
   }
 
   async enqueueSalarySync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_SALARY_JOB, {});
-    return { jobId: job.id ?? 'unknown' };
+    return this.enqueue(KEKA_SYNC_SALARY_JOB);
   }
 
   async enqueueClientsSync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_CLIENTS_JOB, {});
-    return { jobId: job.id ?? 'unknown' };
+    return this.enqueue(KEKA_SYNC_CLIENTS_JOB);
   }
 
   async enqueueProjectsSync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_PROJECTS_JOB, {});
-    return { jobId: job.id ?? 'unknown' };
+    return this.enqueue(KEKA_SYNC_PROJECTS_JOB);
   }
 
   async enqueueFullSync(): Promise<{ jobId: string | number }> {
-    const job = await this.syncQueue.add(KEKA_SYNC_ALL_JOB, {});
-    return { jobId: job.id ?? 'unknown' };
+    return this.enqueue(KEKA_SYNC_ALL_JOB);
+  }
+
+  async getSyncJobStatus(jobId: string): Promise<KekaSyncJobStatusDto> {
+    const job = await this.syncQueue.getJob(jobId);
+    if (!job) {
+      return {
+        jobId,
+        status: 'unknown',
+        progress: 0,
+        step: null,
+        result: null,
+        failedReason: null,
+      };
+    }
+
+    const state = await job.getState();
+    const status = this.mapJobState(state);
+    const { progress, step } = this.parseJobProgress(job.progress());
+
+    let result: KekaSyncJobStatusDto['result'] = null;
+    if (status === 'completed' && job.returnvalue) {
+      const value = job.returnvalue as {
+        synced?: number;
+        failed?: number;
+        results?: Array<{ synced: number; failed: number }>;
+      };
+      if (
+        typeof value.synced === 'number' &&
+        typeof value.failed === 'number'
+      ) {
+        result = { synced: value.synced, failed: value.failed };
+      } else if (Array.isArray(value.results)) {
+        result = {
+          synced: value.results.reduce((sum, entry) => sum + entry.synced, 0),
+          failed: value.results.reduce((sum, entry) => sum + entry.failed, 0),
+        };
+      }
+    }
+
+    return {
+      jobId: String(job.id),
+      status,
+      progress: status === 'completed' ? 100 : progress,
+      step,
+      result,
+      failedReason:
+        status === 'failed' ? (job.failedReason ?? 'Keka sync failed.') : null,
+    };
+  }
+
+  private mapJobState(
+    state: string,
+  ): KekaSyncJobStatusDto['status'] {
+    switch (state) {
+      case 'waiting':
+      case 'active':
+      case 'completed':
+      case 'failed':
+      case 'delayed':
+      case 'paused':
+        return state;
+      default:
+        return 'unknown';
+    }
+  }
+
+  private parseJobProgress(raw: unknown): {
+    progress: number;
+    step: string | null;
+  } {
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return { progress: Math.max(0, Math.min(100, Math.round(raw))), step: null };
+    }
+    if (raw && typeof raw === 'object') {
+      const obj = raw as { percent?: unknown; step?: unknown };
+      const percent =
+        typeof obj.percent === 'number' && Number.isFinite(obj.percent)
+          ? Math.max(0, Math.min(100, Math.round(obj.percent)))
+          : 0;
+      const step = typeof obj.step === 'string' ? obj.step : null;
+      return { progress: percent, step };
+    }
+    return { progress: 0, step: null };
   }
 
   async runScheduledSync(): Promise<void> {

@@ -1,13 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../database/prisma.service';
-import { KEKA_INTEGRATION } from '../../../timesheets/timesheets.constants';
 import {
   KEKA_ENTITY_TYPE,
   KEKA_FAILED_SYNC_MAX_RETRIES,
   KEKA_SYNC_DIRECTION,
 } from '../keka.constants';
-import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
+import {
+  autoRetryEligibleWhere,
+  upsertFailedSyncRecord,
+  resolveFailedSyncRecord,
+} from '../utils/failed-sync-record.util';
 import { AllocationPushService } from './allocation-push.service';
 import { ClientSyncService } from './client-sync.service';
 import { KekaSyncService } from './keka-sync.service';
@@ -24,6 +27,8 @@ type RetrySummary = {
  * Auto-retries unresolved Keka FailedSyncRecord rows:
  * - outbound timesheets / allocations / clients / projects (direct entity retry)
  * - inbound entity types (re-queue the matching sync job)
+ *
+ * Skips permanent and dead-lettered rows; marks exhausted rows after max retries.
  */
 @Injectable()
 export class FailedSyncRetryService {
@@ -69,12 +74,10 @@ export class FailedSyncRetryService {
     succeeded: number;
   }> {
     const failures = await this.prisma.failedSyncRecord.findMany({
-      where: {
-        integration: KEKA_INTEGRATION,
+      where: autoRetryEligibleWhere({
         entityType: KEKA_ENTITY_TYPE.ALLOCATION,
-        isResolved: false,
         retryCount: { lt: KEKA_FAILED_SYNC_MAX_RETRIES },
-      },
+      }),
       orderBy: { lastAttempted: 'asc' },
       take: 25,
     });
@@ -99,13 +102,11 @@ export class FailedSyncRetryService {
     succeeded: number;
   }> {
     const failures = await this.prisma.failedSyncRecord.findMany({
-      where: {
-        integration: KEKA_INTEGRATION,
+      where: autoRetryEligibleWhere({
         entityType: KEKA_ENTITY_TYPE.CLIENT,
         direction: KEKA_SYNC_DIRECTION.OUTBOUND,
-        isResolved: false,
         retryCount: { lt: KEKA_FAILED_SYNC_MAX_RETRIES },
-      },
+      }),
       orderBy: { lastAttempted: 'asc' },
       take: 25,
     });
@@ -130,13 +131,11 @@ export class FailedSyncRetryService {
     succeeded: number;
   }> {
     const failures = await this.prisma.failedSyncRecord.findMany({
-      where: {
-        integration: KEKA_INTEGRATION,
+      where: autoRetryEligibleWhere({
         entityType: KEKA_ENTITY_TYPE.PROJECT,
         direction: KEKA_SYNC_DIRECTION.OUTBOUND,
-        isResolved: false,
         retryCount: { lt: KEKA_FAILED_SYNC_MAX_RETRIES },
-      },
+      }),
       orderBy: { lastAttempted: 'asc' },
       take: 25,
     });
@@ -175,15 +174,13 @@ export class FailedSyncRetryService {
     queuedInboundTypes: string[];
   }> {
     const failures = await this.prisma.failedSyncRecord.findMany({
-      where: {
-        integration: KEKA_INTEGRATION,
-        isResolved: false,
+      where: autoRetryEligibleWhere({
         direction: KEKA_SYNC_DIRECTION.INBOUND,
         retryCount: { lt: KEKA_FAILED_SYNC_MAX_RETRIES },
         entityType: {
           notIn: [KEKA_ENTITY_TYPE.TIMESHEET, KEKA_ENTITY_TYPE.ALLOCATION],
         },
-      },
+      }),
       orderBy: { lastAttempted: 'asc' },
       take: 100,
       select: {
@@ -219,6 +216,17 @@ export class FailedSyncRetryService {
           retryCount: { increment: 1 },
         },
       });
+
+      // Exhaustion dead-letter after this queued attempt bumps count to the ceiling.
+      await this.prisma.failedSyncRecord.updateMany({
+        where: {
+          id: { in: ids },
+          retryCount: { gte: KEKA_FAILED_SYNC_MAX_RETRIES },
+          deadLetteredAt: null,
+        },
+        data: { deadLetteredAt: now },
+      });
+
       // Queued job is the retry attempt; success is recorded when sync resolves the row.
       succeeded += ids.length;
     }

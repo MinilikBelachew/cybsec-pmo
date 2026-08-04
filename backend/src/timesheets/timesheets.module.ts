@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../database/prisma.module';
 import { CaslModule } from '../casl/casl.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SettingsModule } from '../settings/settings.module';
 import { TimesheetsController } from './timesheets.controller';
 import { TimesheetApprovalService } from './timesheet-approval.service';
 import { TimesheetEscalationService } from './timesheet-escalation.service';
@@ -9,7 +10,7 @@ import { TimesheetEscalationScheduler } from './timesheet-escalation.scheduler';
 import { TimesheetsService } from './timesheets.service';
 
 @Module({
-  imports: [PrismaModule, CaslModule, NotificationsModule],
+  imports: [PrismaModule, CaslModule, NotificationsModule, SettingsModule],
   controllers: [TimesheetsController],
   providers: [
     TimesheetsService,

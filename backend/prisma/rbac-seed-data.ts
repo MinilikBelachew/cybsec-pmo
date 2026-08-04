@@ -230,7 +230,6 @@ const PERMISSIONS_BY_ROLE: Record<string, PermissionSeed[]> = {
     { module: 'timesheets', action: 'approve', recordScope: 'team' },
     { module: 'team', action: 'view', recordScope: 'team' },
     { module: 'team', action: 'edit', recordScope: 'team' },
-    { module: 'team', action: 'approve', recordScope: 'team' },
     { module: 'reports', action: 'view', recordScope: 'team' },
     { module: 'risks', action: 'view', recordScope: 'team' },
     { module: 'issues', action: 'edit', recordScope: 'team' },

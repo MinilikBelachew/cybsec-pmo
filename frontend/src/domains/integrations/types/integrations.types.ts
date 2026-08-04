@@ -34,6 +34,9 @@ export type FailedSyncRecordEntry = {
   direction: string;
   errorMsg: string;
   retryCount: number;
+  failureClass: "transient" | "permanent" | string;
+  deadLetteredAt: string | null;
+  isDeadLetter: boolean;
   isResolved: boolean;
   resolvedByName: string | null;
   resolvedAt: string | null;
@@ -57,6 +60,7 @@ export type FailedSyncRecordsQuery = {
   entityType?: string;
   isResolved?: boolean;
   search?: string;
+  disposition?: "all" | "pending" | "dead_letter";
 };
 
 export type RetryKekaSyncResult = {
@@ -108,4 +112,63 @@ export type TimesheetReconcileResponse = {
   unavailableCount: number;
   notifiedAdminCount: number;
   mismatches: TimesheetReconcileMismatch[];
+};
+
+export type KekaSyncJobStatus =
+  | "waiting"
+  | "active"
+  | "completed"
+  | "failed"
+  | "delayed"
+  | "paused"
+  | "unknown";
+
+export type KekaSyncJobStatusResponse = {
+  jobId: string;
+  status: KekaSyncJobStatus;
+  progress: number;
+  step: string | null;
+  result: { synced: number; failed: number } | null;
+  failedReason: string | null;
+};
+
+export type KekaConnectionResponse = {
+  companySubdomain: string | null;
+  sandbox: boolean;
+  authUrl: string | null;
+  apiBaseUrl: string | null;
+  clientIdMasked: string | null;
+  hasClientId: boolean;
+  hasClientSecret: boolean;
+  hasApiKey: boolean;
+  source: "database" | "env" | "mixed";
+  configured: boolean;
+  lastTestedAt: string | null;
+  lastTestStatus: "ok" | "failed" | null;
+  lastTestError: string | null;
+  updatedAt: string | null;
+  effectiveAuthUrl: string;
+  effectiveApiBaseUrl: string;
+};
+
+export type KekaConnectionSecrets = {
+  clientId: string | null;
+  clientSecret: string | null;
+  apiKey: string | null;
+};
+
+export type UpdateKekaConnectionBody = {
+  companySubdomain?: string;
+  sandbox?: boolean;
+  authUrl?: string | null;
+  apiBaseUrl?: string | null;
+  clientId?: string;
+  clientSecret?: string;
+  apiKey?: string;
+};
+
+export type KekaConnectionTestResult = {
+  success: boolean;
+  message: string;
+  testedAt: string;
 };

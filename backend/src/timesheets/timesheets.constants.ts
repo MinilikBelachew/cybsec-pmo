@@ -14,7 +14,7 @@ export const TIMESHEET_DAILY_THRESHOLD_HOURS = 10;
 /** Hard cap per day across all entries. */
 export const TIMESHEET_DAILY_MAX_HOURS = 24;
 
-/** Pending submission older than this is escalated (M2.5). */
+/** Fallback default when settings cannot be read (M2.5). Live value comes from AppSetting. */
 export const TIMESHEET_ESCALATION_DAYS = 3;
 
 /** Max automatic Keka push retries per timesheet entry. */

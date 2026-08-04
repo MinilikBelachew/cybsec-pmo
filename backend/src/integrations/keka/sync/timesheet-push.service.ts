@@ -14,6 +14,10 @@ import {
 import { formatDateOnly } from '../../../timesheets/utils/week.util';
 import { AllocationPushService } from './allocation-push.service';
 import { ProjectLinkService } from './project-link.service';
+import {
+  autoRetryEligibleWhere,
+  upsertFailedSyncRecord,
+} from '../utils/failed-sync-record.util';
 
 type KekaTimeEntryDto = {
   projectId: string;
@@ -406,6 +410,7 @@ export class TimesheetPushService {
     });
 
     if (
+      !resolvedBy &&
       latestFailed &&
       latestFailed.retryCount >= TIMESHEET_KEKA_MAX_RETRIES
     ) {
@@ -432,12 +437,10 @@ export class TimesheetPushService {
     succeeded: number;
   }> {
     const failures = await this.prisma.failedSyncRecord.findMany({
-      where: {
-        integration: KEKA_INTEGRATION,
+      where: autoRetryEligibleWhere({
         entityType: KEKA_ENTITY_TYPE.TIMESHEET,
-        isResolved: false,
         retryCount: { lt: TIMESHEET_KEKA_MAX_RETRIES },
-      },
+      }),
       orderBy: { lastAttempted: 'asc' },
       take: 25,
     });
@@ -545,41 +548,15 @@ export class TimesheetPushService {
       },
     });
 
-    const existing = await this.prisma.failedSyncRecord.findFirst({
-      where: {
-        integration: KEKA_INTEGRATION,
-        entityType: KEKA_ENTITY_TYPE.TIMESHEET,
-        entityId,
-        isResolved: false,
-      },
+    await upsertFailedSyncRecord(this.prisma, {
+      entityType: KEKA_ENTITY_TYPE.TIMESHEET,
+      entityId,
+      direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+      errorMsg,
+      retryCount: nextRetryCount,
+      maxRetries: TIMESHEET_KEKA_MAX_RETRIES,
+      payload: payload as Prisma.InputJsonValue,
     });
-
-    const now = new Date();
-
-    if (existing) {
-      await this.prisma.failedSyncRecord.update({
-        where: { id: existing.id },
-        data: {
-          errorMsg,
-          retryCount: nextRetryCount,
-          lastAttempted: now,
-          payload: payload as Prisma.InputJsonValue,
-        },
-      });
-    } else {
-      await this.prisma.failedSyncRecord.create({
-        data: {
-          integration: KEKA_INTEGRATION,
-          entityType: KEKA_ENTITY_TYPE.TIMESHEET,
-          entityId,
-          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
-          payload: payload as Prisma.InputJsonValue,
-          errorMsg,
-          retryCount: nextRetryCount,
-          lastAttempted: now,
-        },
-      });
-    }
   }
 
   private async resolveFailedSyncRecord(

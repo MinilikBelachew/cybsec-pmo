@@ -11,6 +11,7 @@ import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
 import { BreakGlassSection } from "./break-glass-section";
 import { SessionTimeoutSection } from "./session-timeout-section";
+import { TimesheetEscalationSection } from "./timesheet-escalation-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
 import { AllocationPoliciesSection } from "./allocation-policies-section";
 
@@ -145,6 +146,10 @@ export function SettingsPage() {
       {activeTab === "security" && canManageSecurity && (
         <div className="space-y-6">
           <SessionTimeoutSection
+            onSuccess={notifySuccess}
+            onError={notifyError}
+          />
+          <TimesheetEscalationSection
             onSuccess={notifySuccess}
             onError={notifyError}
           />

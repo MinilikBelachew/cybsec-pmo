@@ -1,13 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TimesheetEscalationPolicyService } from '../settings/timesheet-escalation-policy.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import {
   notifyTimesheetEscalated,
   resolveApproverUserIds,
   resolveEscalationRecipientUserIds,
 } from './timesheet-notifications.util';
-import { TIMESHEET_ESCALATION_DAYS, TIMESHEET_STATUS } from './timesheets.constants';
+import { TIMESHEET_STATUS } from './timesheets.constants';
 import { formatDateOnly, getWeekStart } from './utils/week.util';
 import { timesheetNotificationSourceObjectId } from './utils/timesheet-notification-source-id.util';
 
@@ -18,11 +19,13 @@ export class TimesheetEscalationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly escalationPolicy: TimesheetEscalationPolicyService,
   ) {}
 
   async notifyEscalatedSubmissions(): Promise<number> {
+    const { escalationDays } = await this.escalationPolicy.getPolicy();
     const threshold = new Date();
-    threshold.setDate(threshold.getDate() - TIMESHEET_ESCALATION_DAYS);
+    threshold.setDate(threshold.getDate() - escalationDays);
     const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const rows = await this.prisma.timesheet.findMany({
@@ -105,7 +108,7 @@ export class TimesheetEscalationService {
         employeeName: group.employeeName,
         weekStart: group.weekStart,
         entryCount: group.entryCount,
-        daysPending: TIMESHEET_ESCALATION_DAYS,
+        daysPending: escalationDays,
       });
 
       notified += 1;

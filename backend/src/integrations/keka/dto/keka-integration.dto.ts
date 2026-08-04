@@ -134,6 +134,16 @@ export class QueryFailedSyncRecordsDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    enum: ['all', 'pending', 'dead_letter'],
+    description:
+      'Filter unresolved rows: pending auto-retry, dead-lettered, or all (default).',
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['all', 'pending', 'dead_letter'])
+  disposition?: 'all' | 'pending' | 'dead_letter';
 }
 
 export class FailedSyncRecordRowDto {
@@ -157,6 +167,17 @@ export class FailedSyncRecordRowDto {
 
   @ApiProperty()
   retryCount: number;
+
+  @ApiProperty({ enum: ['transient', 'permanent'] })
+  failureClass: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  deadLetteredAt: Date | null;
+
+  @ApiProperty({
+    description: 'True when dead-lettered (permanent error or max retries).',
+  })
+  isDeadLetter: boolean;
 
   @ApiProperty()
   isResolved: boolean;

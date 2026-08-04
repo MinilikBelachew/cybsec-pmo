@@ -2,21 +2,69 @@ import { api } from "@/core/api/api";
 import type {
   FailedSyncRecordsQuery,
   FailedSyncRecordsResponse,
+  KekaConnectionResponse,
+  KekaConnectionSecrets,
+  KekaConnectionTestResult,
+  KekaSyncJobStatusResponse,
   KekaSyncLogsQuery,
   KekaSyncLogsResponse,
   KekaSyncStatusResponse,
   RetryKekaSyncResult,
   TimesheetReconcileResponse,
+  UpdateKekaConnectionBody,
 } from "../types/integrations.types";
 
 
 export const integrationsApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    getKekaConnection: builder.query<KekaConnectionResponse, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/connection",
+      }),
+      providesTags: ["KekaConnection"],
+    }),
+
+    getKekaConnectionSecrets: builder.query<KekaConnectionSecrets, void>({
+      query: () => ({
+        url: "/audit/integrations/keka/connection/secrets",
+      }),
+    }),
+
+    updateKekaConnection: builder.mutation<
+      KekaConnectionResponse,
+      UpdateKekaConnectionBody
+    >({
+      query: (body) => ({
+        url: "/audit/integrations/keka/connection",
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["KekaConnection"],
+    }),
+
+    testKekaConnection: builder.mutation<
+      KekaConnectionTestResult,
+      UpdateKekaConnectionBody | void
+    >({
+      query: (body) => ({
+        url: "/audit/integrations/keka/connection/test",
+        method: "POST",
+        body: body ?? {},
+      }),
+      invalidatesTags: ["KekaConnection"],
+    }),
+
     getKekaSyncStatus: builder.query<KekaSyncStatusResponse, void>({
       query: () => ({
         url: "/audit/integrations/keka/sync-status",
       }),
       providesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+    }),
+
+    getKekaSyncJobStatus: builder.query<KekaSyncJobStatusResponse, string>({
+      query: (jobId) => ({
+        url: `/audit/integrations/keka/sync-jobs/${encodeURIComponent(jobId)}`,
+      }),
     }),
 
     getKekaTimesheetReconcile: builder.query<TimesheetReconcileResponse, void>({
@@ -46,6 +94,7 @@ export const integrationsApi = api.injectEndpoints({
           integration: params.integration,
           entityType: params.entityType,
           search: params.search,
+          disposition: params.disposition,
           // Explicit string keeps `false` in the query string for unresolved.
           ...(params.isResolved === undefined
             ? {}
@@ -164,7 +213,12 @@ export const integrationsApi = api.injectEndpoints({
 });
 
 export const {
+  useGetKekaConnectionQuery,
+  useLazyGetKekaConnectionSecretsQuery,
+  useUpdateKekaConnectionMutation,
+  useTestKekaConnectionMutation,
   useGetKekaSyncStatusQuery,
+  useGetKekaSyncJobStatusQuery,
   useGetKekaTimesheetReconcileQuery,
   useGetKekaSyncLogsQuery,
   useGetFailedSyncRecordsQuery,

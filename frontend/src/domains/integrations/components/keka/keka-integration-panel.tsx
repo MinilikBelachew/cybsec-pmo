@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   AlertCircle,
@@ -38,6 +38,7 @@ import { useAppSelector } from "@/store/hooks";
 import { hasModulePermission } from "@/domains/auth/utils/module-permissions";
 import {
   useGetFailedSyncRecordsQuery,
+  useGetKekaSyncJobStatusQuery,
   useGetKekaSyncLogsQuery,
   useGetKekaSyncStatusQuery,
   useGetKekaTimesheetReconcileQuery,
@@ -57,10 +58,18 @@ import type {
   KekaEntitySyncStatus,
   KekaSyncLogEntry,
 } from "../../types/integrations.types";
-import { INTEGRATION_POLLING_INTERVAL_MS } from "../../constants/integration-polling";
+import {
+  INTEGRATION_POLLING_INTERVAL_MS,
+  KEKA_SYNC_JOB_POLLING_INTERVAL_MS,
+} from "../../constants/integration-polling";
 import { RECONCILE_STATUS_CONFIG } from "@/domains/reports/utils/utilization-ui.config";
 
 type IntegrationSubTab = "logs" | "failures";
+
+type ActiveSyncJob = {
+  jobId: string;
+  label: string;
+};
 
 type FilterOption = {
   value: string;
@@ -103,6 +112,12 @@ const RESOLVED_OPTIONS: FilterOption[] = [
   { value: "all", label: "All records" },
 ];
 
+const DISPOSITION_OPTIONS: FilterOption[] = [
+  { value: "all", label: "All unresolved kinds" },
+  { value: "pending", label: "Pending auto-retry" },
+  { value: "dead_letter", label: "Dead-lettered" },
+];
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -122,6 +137,22 @@ function entityStatusTone(entity: KekaEntitySyncStatus) {
     return "ok";
   }
   return "idle";
+}
+
+function formatSyncStep(step: string | null | undefined) {
+  if (!step || step === "starting" || step === "done") return null;
+  return step.replace(/_/g, " ");
+}
+
+function formatSyncJobResultToast(
+  label: string,
+  result: { synced: number; failed: number } | null,
+) {
+  if (!result) return `${label} completed.`;
+  if (result.failed > 0) {
+    return `${label} finished: ${result.synced} synced, ${result.failed} failed.`;
+  }
+  return `${label} completed: ${result.synced} synced.`;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -222,13 +253,27 @@ export function KekaIntegrationPanel() {
   const [resolvedFilter, setResolvedFilter] = useState<"unresolved" | "resolved" | "all">(
     "unresolved",
   );
+  const [dispositionFilter, setDispositionFilter] = useState<
+    "all" | "pending" | "dead_letter"
+  >("all");
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [activeSyncJob, setActiveSyncJob] = useState<ActiveSyncJob | null>(null);
+  const handledJobOutcomeRef = useRef<string | null>(null);
 
   const debouncedSearch = useDebounce(search, 300);
 
   useEffect(() => {
     setPageIndex(0);
-  }, [subTab, debouncedSearch, statusFilter, entityTypeFilter, directionFilter, resolvedFilter, pageSize]);
+  }, [
+    subTab,
+    debouncedSearch,
+    statusFilter,
+    entityTypeFilter,
+    directionFilter,
+    resolvedFilter,
+    dispositionFilter,
+    pageSize,
+  ]);
 
   const logsQuery = useGetKekaSyncLogsQuery(
     {
@@ -258,6 +303,10 @@ export function KekaIntegrationPanel() {
       // Always send an explicit boolean so unresolved (false) is not dropped.
       isResolved:
         resolvedFilter === "all" ? undefined : resolvedFilter === "resolved",
+      disposition:
+        resolvedFilter === "unresolved" && dispositionFilter !== "all"
+          ? dispositionFilter
+          : undefined,
     },
     {
       skip: subTab !== "failures",
@@ -270,6 +319,12 @@ export function KekaIntegrationPanel() {
   });
   const reconcileQuery = useGetKekaTimesheetReconcileQuery();
   const reconcileResult = reconcileQuery.data ?? null;
+
+  const activeJobId = activeSyncJob?.jobId ?? "";
+  const jobStatusQuery = useGetKekaSyncJobStatusQuery(activeJobId, {
+    skip: !activeSyncJob,
+    pollingInterval: activeSyncJob ? KEKA_SYNC_JOB_POLLING_INTERVAL_MS : 0,
+  });
 
   const [retrySync] = useRetryKekaSyncMutation();
   const [syncEmployees, { isLoading: syncingEmployees }] =
@@ -289,7 +344,15 @@ export function KekaIntegrationPanel() {
   const [reconcileTimesheets, { isLoading: reconcilingTimesheets }] =
     useReconcileKekaTimesheetsMutation();
 
+  const trackSyncJob = useCallback((jobId: string | number, label: string) => {
+    const id = String(jobId);
+    if (!id || id === "unknown") return;
+    handledJobOutcomeRef.current = null;
+    setActiveSyncJob({ jobId: id, label });
+  }, []);
+
   const syncBusy =
+    Boolean(activeSyncJob) ||
     syncingEmployees ||
     syncingLeave ||
     syncingAttendance ||
@@ -313,6 +376,44 @@ export function KekaIntegrationPanel() {
     void reconcileQuery.refetch();
     void activeQuery.refetch();
   }, [activeQuery, reconcileQuery, syncStatusQuery]);
+
+  useEffect(() => {
+    if (!activeSyncJob) return;
+    const status = jobStatusQuery.data;
+    if (!status || status.jobId !== activeSyncJob.jobId) return;
+
+    const outcomeKey = `${status.jobId}:${status.status}`;
+    if (
+      status.status === "completed" ||
+      status.status === "failed" ||
+      status.status === "unknown"
+    ) {
+      if (handledJobOutcomeRef.current === outcomeKey) return;
+      handledJobOutcomeRef.current = outcomeKey;
+
+      if (status.status === "completed") {
+        toast.success(
+          formatSyncJobResultToast(activeSyncJob.label, status.result),
+        );
+      } else if (status.status === "failed") {
+        toast.error(
+          status.failedReason?.trim() ||
+            `${activeSyncJob.label} failed. Check sync logs.`,
+        );
+      }
+
+      setActiveSyncJob(null);
+      refetchAll();
+    }
+  }, [activeSyncJob, jobStatusQuery.data, refetchAll]);
+
+  const jobProgressLabel = useMemo(() => {
+    if (!activeSyncJob) return null;
+    const step = formatSyncStep(jobStatusQuery.data?.step);
+    const progress = jobStatusQuery.data?.progress ?? 0;
+    if (step) return `${activeSyncJob.label}: syncing ${step}… ${progress}%`;
+    return `${activeSyncJob.label}: syncing… ${progress}%`;
+  }, [activeSyncJob, jobStatusQuery.data?.progress, jobStatusQuery.data?.step]);
 
   const filterControls = (
     <div className="flex flex-wrap items-center gap-2">
@@ -340,14 +441,28 @@ export function KekaIntegrationPanel() {
           />
         </>
       ) : (
-        <FilterDropdown
-          label="Resolution"
-          value={resolvedFilter}
-          options={RESOLVED_OPTIONS}
-          onChange={(value) =>
-            setResolvedFilter(value as "unresolved" | "resolved" | "all")
-          }
-        />
+        <>
+          <FilterDropdown
+            label="Resolution"
+            value={resolvedFilter}
+            options={RESOLVED_OPTIONS}
+            onChange={(value) =>
+              setResolvedFilter(value as "unresolved" | "resolved" | "all")
+            }
+          />
+          {resolvedFilter === "unresolved" ? (
+            <FilterDropdown
+              label="Retry"
+              value={dispositionFilter}
+              options={DISPOSITION_OPTIONS}
+              onChange={(value) =>
+                setDispositionFilter(
+                  value as "all" | "pending" | "dead_letter",
+                )
+              }
+            />
+          ) : null}
+        </>
       )}
 
       {!canConfigureIntegrations && (
@@ -585,16 +700,34 @@ export function KekaIntegrationPanel() {
       {
         accessorKey: "isResolved",
         header: "Status",
-        cell: ({ row }) =>
-          row.original.isResolved ? (
-            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
-              Resolved
-            </Badge>
-          ) : (
+        cell: ({ row }) => {
+          if (row.original.isResolved) {
+            return (
+              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+                Resolved
+              </Badge>
+            );
+          }
+          if (row.original.failureClass === "permanent") {
+            return (
+              <Badge className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50">
+                Permanent
+              </Badge>
+            );
+          }
+          if (row.original.isDeadLetter) {
+            return (
+              <Badge className="border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100">
+                Max retries reached
+              </Badge>
+            );
+          }
+          return (
             <Badge className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
               Unresolved
             </Badge>
-          ),
+          );
+        },
       },
       {
         accessorKey: "errorMsg",
@@ -655,7 +788,7 @@ export function KekaIntegrationPanel() {
                 ) : (
                   <RotateCcw className="size-3" />
                 )}
-                Retry
+                {row.original.isDeadLetter ? "Force retry" : "Retry"}
               </Button>
             </div>
           );
@@ -876,6 +1009,28 @@ export function KekaIntegrationPanel() {
         </div>
       )}
 
+      {activeSyncJob && (
+        <div
+          className="flex items-center gap-3 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3"
+          data-testid="keka-sync-progress"
+        >
+          <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">
+              {jobProgressLabel ?? `${activeSyncJob.label}: syncing…`}
+            </p>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{
+                  width: `${Math.max(4, Math.min(100, jobStatusQuery.data?.progress ?? 4))}%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-1 rounded-xl border border-border/50 bg-muted/30 p-1">
           <button
@@ -914,14 +1069,15 @@ export function KekaIntegrationPanel() {
               disabled={syncBusy}
               onClick={async () => {
                 try {
-                  await syncAll().unwrap();
-                  toast.success("Full Keka sync job queued.");
+                  const { jobId } = await syncAll().unwrap();
+                  trackSyncJob(jobId, "Full Keka sync");
+                  toast.success("Full Keka sync started.");
                 } catch {
                   toast.error("Could not queue full sync.");
                 }
               }}
             >
-              {syncingAll ? (
+              {syncingAll || activeSyncJob?.label === "Full Keka sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Layers className="size-3.5" />
@@ -970,14 +1126,15 @@ export function KekaIntegrationPanel() {
               data-testid="keka-sync-employees"
               onClick={async () => {
                 try {
-                  await syncEmployees().unwrap();
-                  toast.success("Employee sync job queued.");
+                  const { jobId } = await syncEmployees().unwrap();
+                  trackSyncJob(jobId, "Employee sync");
+                  toast.success("Employee sync started.");
                 } catch {
                   toast.error("Could not queue employee sync.");
                 }
               }}
             >
-              {syncingEmployees ? (
+              {syncingEmployees || activeSyncJob?.label === "Employee sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Users className="size-3.5" />
@@ -992,14 +1149,15 @@ export function KekaIntegrationPanel() {
               data-testid="keka-sync-leave"
               onClick={async () => {
                 try {
-                  await syncLeave().unwrap();
-                  toast.success("Leave sync job queued.");
+                  const { jobId } = await syncLeave().unwrap();
+                  trackSyncJob(jobId, "Leave sync");
+                  toast.success("Leave sync started.");
                 } catch {
                   toast.error("Could not queue leave sync.");
                 }
               }}
             >
-              {syncingLeave ? (
+              {syncingLeave || activeSyncJob?.label === "Leave sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Calendar className="size-3.5" />
@@ -1013,14 +1171,15 @@ export function KekaIntegrationPanel() {
               disabled={syncBusy}
               onClick={async () => {
                 try {
-                  await syncAttendance().unwrap();
-                  toast.success("Attendance sync job queued.");
+                  const { jobId } = await syncAttendance().unwrap();
+                  trackSyncJob(jobId, "Attendance sync");
+                  toast.success("Attendance sync started.");
                 } catch {
                   toast.error("Could not queue attendance sync.");
                 }
               }}
             >
-              {syncingAttendance ? (
+              {syncingAttendance || activeSyncJob?.label === "Attendance sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Clock3 className="size-3.5" />
@@ -1034,14 +1193,15 @@ export function KekaIntegrationPanel() {
               disabled={syncBusy}
               onClick={async () => {
                 try {
-                  await syncHolidays().unwrap();
-                  toast.success("Holiday sync job queued.");
+                  const { jobId } = await syncHolidays().unwrap();
+                  trackSyncJob(jobId, "Holiday sync");
+                  toast.success("Holiday sync started.");
                 } catch {
                   toast.error("Could not queue holiday sync.");
                 }
               }}
             >
-              {syncingHolidays ? (
+              {syncingHolidays || activeSyncJob?.label === "Holiday sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <PartyPopper className="size-3.5" />
@@ -1055,14 +1215,15 @@ export function KekaIntegrationPanel() {
               disabled={syncBusy}
               onClick={async () => {
                 try {
-                  await syncSalary().unwrap();
-                  toast.success("Salary sync job queued.");
+                  const { jobId } = await syncSalary().unwrap();
+                  trackSyncJob(jobId, "Salary sync");
+                  toast.success("Salary sync started.");
                 } catch {
                   toast.error("Could not queue salary sync.");
                 }
               }}
             >
-              {syncingSalary ? (
+              {syncingSalary || activeSyncJob?.label === "Salary sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Wallet className="size-3.5" />
@@ -1076,14 +1237,15 @@ export function KekaIntegrationPanel() {
               disabled={syncBusy}
               onClick={async () => {
                 try {
-                  await syncClients().unwrap();
-                  toast.success("Client sync job queued.");
+                  const { jobId } = await syncClients().unwrap();
+                  trackSyncJob(jobId, "Client sync");
+                  toast.success("Client sync started.");
                 } catch {
                   toast.error("Could not queue client sync.");
                 }
               }}
             >
-              {syncingClients ? (
+              {syncingClients || activeSyncJob?.label === "Client sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Users className="size-3.5" />
@@ -1097,14 +1259,15 @@ export function KekaIntegrationPanel() {
               disabled={syncBusy}
               onClick={async () => {
                 try {
-                  await syncProjects().unwrap();
-                  toast.success("Project link job queued.");
+                  const { jobId } = await syncProjects().unwrap();
+                  trackSyncJob(jobId, "Project sync");
+                  toast.success("Project link started.");
                 } catch {
                   toast.error("Could not queue project sync.");
                 }
               }}
             >
-              {syncingProjects ? (
+              {syncingProjects || activeSyncJob?.label === "Project sync" ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <FolderKanban className="size-3.5" />

@@ -43,3 +43,11 @@ export const KEKA_ENTITY_TYPE = {
 
 /** Auto-retry ceiling for unresolved FailedSyncRecord rows (inbound + outbound). */
 export const KEKA_FAILED_SYNC_MAX_RETRIES = 5;
+
+export const KEKA_FAILURE_CLASS = {
+  TRANSIENT: 'transient',
+  PERMANENT: 'permanent',
+} as const;
+
+export type KekaFailureClass =
+  (typeof KEKA_FAILURE_CLASS)[keyof typeof KEKA_FAILURE_CLASS];

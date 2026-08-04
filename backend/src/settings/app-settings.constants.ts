@@ -41,3 +41,11 @@ export const SESSION_SECURITY_LIMITS = {
   idleTimeoutSec: { min: 60, max: 86_400 },
   warningBeforeSec: { min: 10, max: 3_600 },
 } as const;
+
+export const DEFAULT_TIMESHEET_ESCALATION = {
+  timesheetEscalationDays: 3,
+} as const;
+
+export const TIMESHEET_ESCALATION_LIMITS = {
+  escalationDays: { min: 1, max: 30 },
+} as const;

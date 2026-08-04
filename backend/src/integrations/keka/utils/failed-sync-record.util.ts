@@ -2,9 +2,12 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { KEKA_INTEGRATION } from '../../../timesheets/timesheets.constants';
 import {
+  KEKA_FAILED_SYNC_MAX_RETRIES,
+  KEKA_FAILURE_CLASS,
   KEKA_SYNC_DIRECTION,
   KEKA_SYNC_STATUS,
 } from '../keka.constants';
+import { classifyKekaSyncError } from './classify-keka-sync-error.util';
 
 type UpsertFailedSyncInput = {
   entityType: string;
@@ -13,17 +16,23 @@ type UpsertFailedSyncInput = {
   errorMsg: string;
   retryCount?: number;
   payload?: Prisma.InputJsonValue;
+  /** Override auto-retry ceiling used for exhaustion dead-lettering. */
+  maxRetries?: number;
+  statusHint?: number;
 };
 
 /**
  * Upserts an unresolved FailedSyncRecord for admin "Failed records" recovery.
- * Call whenever a Keka sync attempt fails (inbound or outbound).
+ * Classifies permanent vs transient and dead-letters permanent / exhausted rows.
  */
 export async function upsertFailedSyncRecord(
   prisma: PrismaService,
   input: UpsertFailedSyncInput,
 ): Promise<void> {
   const now = new Date();
+  const failureClass = classifyKekaSyncError(input.errorMsg, input.statusHint);
+  const maxRetries = input.maxRetries ?? KEKA_FAILED_SYNC_MAX_RETRIES;
+
   const existing = await prisma.failedSyncRecord.findFirst({
     where: {
       integration: KEKA_INTEGRATION,
@@ -34,17 +43,31 @@ export async function upsertFailedSyncRecord(
   });
 
   if (existing) {
+    const retryCount = input.retryCount ?? existing.retryCount + 1;
+    const deadLetteredAt =
+      failureClass === KEKA_FAILURE_CLASS.PERMANENT || retryCount >= maxRetries
+        ? now
+        : null;
+
     await prisma.failedSyncRecord.update({
       where: { id: existing.id },
       data: {
         errorMsg: input.errorMsg,
-        retryCount: input.retryCount ?? existing.retryCount + 1,
+        retryCount,
+        failureClass,
+        deadLetteredAt,
         lastAttempted: now,
         ...(input.payload !== undefined ? { payload: input.payload } : {}),
       },
     });
     return;
   }
+
+  const retryCount = input.retryCount ?? 1;
+  const deadLetteredAt =
+    failureClass === KEKA_FAILURE_CLASS.PERMANENT || retryCount >= maxRetries
+      ? now
+      : null;
 
   await prisma.failedSyncRecord.create({
     data: {
@@ -53,9 +76,29 @@ export async function upsertFailedSyncRecord(
       entityId: input.entityId,
       direction: input.direction ?? KEKA_SYNC_DIRECTION.INBOUND,
       errorMsg: input.errorMsg,
-      retryCount: input.retryCount ?? 1,
+      retryCount,
+      failureClass,
+      deadLetteredAt,
       lastAttempted: now,
       ...(input.payload !== undefined ? { payload: input.payload } : {}),
+    },
+  });
+}
+
+/**
+ * Clear dead-letter state and reset retry window before an admin force retry.
+ */
+export async function prepareFailedSyncForceRetry(
+  prisma: PrismaService,
+  failedSyncRecordId: string,
+): Promise<void> {
+  await prisma.failedSyncRecord.update({
+    where: { id: failedSyncRecordId },
+    data: {
+      deadLetteredAt: null,
+      failureClass: KEKA_FAILURE_CLASS.TRANSIENT,
+      retryCount: 0,
+      lastAttempted: new Date(),
     },
   });
 }
@@ -128,14 +171,25 @@ export async function backfillFailedRecordsFromSyncLogs(
 
     if (existing) continue;
 
+    const errorMsg = log.errorMsg ?? 'Keka sync failed';
+    const failureClass = classifyKekaSyncError(errorMsg);
+    const retryCount = log.retryCount;
+    const deadLetteredAt =
+      failureClass === KEKA_FAILURE_CLASS.PERMANENT ||
+      retryCount >= KEKA_FAILED_SYNC_MAX_RETRIES
+        ? log.createdAt
+        : null;
+
     await prisma.failedSyncRecord.create({
       data: {
         integration: KEKA_INTEGRATION,
         entityType: log.entityType,
         entityId: log.entityId,
         direction: log.direction,
-        errorMsg: log.errorMsg ?? 'Keka sync failed',
-        retryCount: log.retryCount,
+        errorMsg,
+        retryCount,
+        failureClass,
+        deadLetteredAt,
         lastAttempted: log.createdAt,
         ...(log.payload !== null
           ? { payload: log.payload as Prisma.InputJsonValue }
@@ -143,4 +197,17 @@ export async function backfillFailedRecordsFromSyncLogs(
       },
     });
   }
+}
+
+/** Shared Prisma filter for auto-retry-eligible unresolved rows. */
+export function autoRetryEligibleWhere(
+  extra: Prisma.FailedSyncRecordWhereInput = {},
+): Prisma.FailedSyncRecordWhereInput {
+  return {
+    integration: KEKA_INTEGRATION,
+    isResolved: false,
+    deadLetteredAt: null,
+    failureClass: KEKA_FAILURE_CLASS.TRANSIENT,
+    ...extra,
+  };
 }

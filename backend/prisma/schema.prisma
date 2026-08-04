@@ -148,6 +148,7 @@ model User {
   approvedBudgets           ProjectBudget[]
   approvedRevisions         BudgetRevision[]
   resolvedSyncs             FailedSyncRecord[]
+  updatedKekaConnections    KekaConnectionSettings[] @relation("KekaConnectionUpdatedBy")
   ownedRisks                Risk[]
   ownedIssues               Issue[]
   raisedIssues              Issue[]              @relation("IssueRaiser")
@@ -323,6 +324,7 @@ model AppSetting {
   departmentStaffingRules       Json      @default("{\"rule\":\"same_department_only\"}") @map("department_staffing_rules")
   sessionIdleTimeoutSec         Int       @default(900) @map("session_idle_timeout_sec")
   sessionWarningBeforeSec       Int       @default(300) @map("session_warning_before_sec")
+  timesheetEscalationDays       Int       @default(3) @map("timesheet_escalation_days")
   updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 
@@ -1074,25 +1076,48 @@ model CrmOpportunity {
 }
 
 model FailedSyncRecord {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  integration   String    @db.VarChar(50)
-  entityType    String    @map("entity_type") @db.VarChar(50)
-  entityId      String?   @map("entity_id") @db.VarChar(100)
-  direction     String    @db.VarChar(10)
-  payload       Json?
-  errorMsg      String    @map("error_msg")
-  retryCount    Int       @default(0) @map("retry_count")
-  isResolved    Boolean   @default(false) @map("is_resolved")
-  resolvedBy    String?   @map("resolved_by") @db.Uuid
-  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz
-  lastAttempted DateTime  @map("last_attempted") @db.Timestamptz
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  integration    String    @db.VarChar(50)
+  entityType     String    @map("entity_type") @db.VarChar(50)
+  entityId       String?   @map("entity_id") @db.VarChar(100)
+  direction      String    @db.VarChar(10)
+  payload        Json?
+  errorMsg       String    @map("error_msg")
+  retryCount     Int       @default(0) @map("retry_count")
+  failureClass   String    @default("transient") @map("failure_class") @db.VarChar(20)
+  deadLetteredAt DateTime? @map("dead_lettered_at") @db.Timestamptz
+  isResolved     Boolean   @default(false) @map("is_resolved")
+  resolvedBy     String?   @map("resolved_by") @db.Uuid
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz
+  lastAttempted  DateTime  @map("last_attempted") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   resolver User? @relation(fields: [resolvedBy], references: [id])
 
   @@index([integration], map: "idx_failed_sync_integration")
   @@index([isResolved], map: "idx_failed_sync_resolved")
+  @@index([deadLetteredAt], map: "idx_failed_sync_dead_lettered")
   @@map("failed_sync_records")
+}
+
+model KekaConnectionSettings {
+  id                    String    @id @default("default") @db.VarChar(32)
+  companySubdomain      String?   @map("company_subdomain") @db.VarChar(100)
+  sandbox               Boolean   @default(true)
+  authUrl               String?   @map("auth_url") @db.VarChar(500)
+  apiBaseUrl            String?   @map("api_base_url") @db.VarChar(500)
+  clientIdEncrypted     String?   @map("client_id_encrypted")
+  clientSecretEncrypted String?   @map("client_secret_encrypted")
+  apiKeyEncrypted       String?   @map("api_key_encrypted")
+  lastTestedAt          DateTime? @map("last_tested_at") @db.Timestamptz
+  lastTestStatus        String?   @map("last_test_status") @db.VarChar(20)
+  lastTestError         String?   @map("last_test_error")
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  updatedById           String?   @map("updated_by_id") @db.Uuid
+
+  updatedBy User? @relation("KekaConnectionUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("keka_connection_settings")
 }
 
 // ─────────────────────────────────────────
