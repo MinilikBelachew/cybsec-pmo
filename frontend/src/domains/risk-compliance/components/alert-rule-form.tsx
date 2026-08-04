@@ -7,22 +7,44 @@ import { toast } from "react-hot-toast";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import { cn } from "@/shared/utils/cn";
 import { useCreateAlertRuleMutation } from "../api/alerts.api";
 import {
+  ALERT_CHANNELS,
+  ALERT_EVENT_TYPES,
   createAlertRuleSchema,
   type AlertRuleFormValues,
 } from "../schemas/alert.schema";
 
-type RoleOption = { id: number; label: string };
+type RoleOption = { id: number; code: string; label: string };
 
 const DEFAULT_VALUES: AlertRuleFormValues = {
   eventType: "RISK_SCORE_BREACHED",
   scoreThreshold: 12,
-  channels: "in_app,email",
-  escalationRole: "pmo_lead",
+  channels: ["in_app", "email"],
+  escalationRole: "",
   reminderCadenceHrs: 24,
   escalationDelayHrs: 48,
   recipientRoleIds: [],
+};
+
+const EVENT_TYPE_LABELS: Record<(typeof ALERT_EVENT_TYPES)[number], string> = {
+  RISK_SCORE_BREACHED: "Risk score breached",
+  ISSUE_ESCALATED: "Issue escalated",
+  ALERT_FIRED: "Alert fired",
+  ALERT_ESCALATED: "Alert escalated",
+};
+
+const CHANNEL_LABELS: Record<(typeof ALERT_CHANNELS)[number], string> = {
+  in_app: "In-app",
+  email: "Email",
 };
 
 type AlertRuleFormProps = {
@@ -43,10 +65,21 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
     resolver: zodResolver(
       createAlertRuleSchema,
     ) as import("react-hook-form").Resolver<AlertRuleFormValues>,
-    defaultValues: DEFAULT_VALUES,
+    defaultValues: {
+      ...DEFAULT_VALUES,
+      escalationRole: roles[0]?.code ?? "",
+    },
   });
 
+  const eventType = watch("eventType");
+  const escalationRole = watch("escalationRole");
   const recipientRoleIds = watch("recipientRoleIds") ?? [];
+
+  const selectedEscalationLabel = useMemo(() => {
+    const role = roles.find((r) => r.code === escalationRole);
+    return role ? role.label : escalationRole || undefined;
+  }, [roles, escalationRole]);
+
   const selectedRecipientLabels = useMemo(() => {
     if (recipientRoleIds.length === 0) return "None selected";
     return recipientRoleIds
@@ -59,10 +92,7 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
       await createRule({
         eventType: values.eventType,
         thresholdConfig: { scoreGte: values.scoreThreshold },
-        channels: values.channels
-          .split(",")
-          .map((c) => c.trim())
-          .filter(Boolean),
+        channels: values.channels,
         escalationRole: values.escalationRole,
         reminderCadenceHrs: values.reminderCadenceHrs,
         escalationDelayHrs: values.escalationDelayHrs,
@@ -86,18 +116,55 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
     >
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Event type</label>
-          <Input {...register("eventType")} />
+          <label className="text-xs text-muted-foreground">
+            Event type <span className="text-destructive font-bold">*</span>
+          </label>
+          <Controller
+            control={control}
+            name="eventType"
+            render={({ field }) => (
+              <Select
+                value={field.value}
+                onValueChange={(v) =>
+                  field.onChange(
+                    (v as AlertRuleFormValues["eventType"]) || field.value,
+                  )
+                }
+              >
+                <SelectTrigger
+                  className={cn(
+                    "w-full",
+                    errors.eventType && "border-rose-500",
+                  )}
+                >
+                  <SelectValue placeholder="Select event type">
+                    {EVENT_TYPE_LABELS[eventType] ?? eventType}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ALERT_EVENT_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {EVENT_TYPE_LABELS[type]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
           {errors.eventType && (
             <p className={fieldErrorClass}>{errors.eventType.message}</p>
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Score threshold (≥)</label>
+          <label className="text-xs text-muted-foreground">
+            Score threshold (≥){" "}
+            <span className="text-destructive font-bold">*</span>
+          </label>
           <Input
             type="number"
             min={1}
             {...register("scoreThreshold", { valueAsNumber: true })}
+            className={cn(errors.scoreThreshold && "border-rose-500")}
           />
           {errors.scoreThreshold && (
             <p className={fieldErrorClass}>{errors.scoreThreshold.message}</p>
@@ -105,37 +172,115 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
         </div>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
-            Channels (comma-separated)
+            Channels <span className="text-destructive font-bold">*</span>
           </label>
-          <Input {...register("channels")} placeholder="in_app,email" />
+          <Controller
+            control={control}
+            name="channels"
+            render={({ field }) => (
+              <div
+                className={cn(
+                  "flex flex-wrap gap-2 rounded-lg border border-border/60 p-2",
+                  errors.channels && "border-rose-500",
+                )}
+              >
+                {ALERT_CHANNELS.map((channel) => {
+                  const checked = (field.value ?? []).includes(channel);
+                  return (
+                    <label
+                      key={channel}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-2 py-1 text-xs cursor-pointer hover:bg-muted/40"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const current = field.value ?? [];
+                          field.onChange(
+                            checked
+                              ? current.filter((c) => c !== channel)
+                              : [...current, channel],
+                          );
+                        }}
+                      />
+                      {CHANNEL_LABELS[channel]}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          />
           {errors.channels && (
             <p className={fieldErrorClass}>{errors.channels.message}</p>
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Escalation role</label>
-          <Input {...register("escalationRole")} />
+          <label className="text-xs text-muted-foreground">
+            Escalation role <span className="text-destructive font-bold">*</span>
+          </label>
+          <Controller
+            control={control}
+            name="escalationRole"
+            render={({ field }) => (
+              <Select
+                value={field.value || undefined}
+                onValueChange={(v) => field.onChange(v ?? "")}
+              >
+                <SelectTrigger
+                  className={cn(
+                    "w-full",
+                    errors.escalationRole && "border-rose-500",
+                  )}
+                >
+                  <SelectValue placeholder="Select escalation role">
+                    {selectedEscalationLabel}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.length === 0 ? (
+                    <SelectItem value="__none" disabled>
+                      No roles available
+                    </SelectItem>
+                  ) : (
+                    roles.map((role) => (
+                      <SelectItem key={role.id} value={role.code}>
+                        {role.label}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+          />
           {errors.escalationRole && (
             <p className={fieldErrorClass}>{errors.escalationRole.message}</p>
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Reminder cadence (hrs)</label>
+          <label className="text-xs text-muted-foreground">
+            Reminder cadence (hrs){" "}
+            <span className="text-destructive font-bold">*</span>
+          </label>
           <Input
             type="number"
             min={1}
             {...register("reminderCadenceHrs", { valueAsNumber: true })}
+            className={cn(errors.reminderCadenceHrs && "border-rose-500")}
           />
           {errors.reminderCadenceHrs && (
             <p className={fieldErrorClass}>{errors.reminderCadenceHrs.message}</p>
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Escalation delay (hrs)</label>
+          <label className="text-xs text-muted-foreground">
+            Escalation delay (hrs){" "}
+            <span className="text-destructive font-bold">*</span>
+          </label>
           <Input
             type="number"
             min={1}
             {...register("escalationDelayHrs", { valueAsNumber: true })}
+            className={cn(errors.escalationDelayHrs && "border-rose-500")}
           />
           {errors.escalationDelayHrs && (
             <p className={fieldErrorClass}>{errors.escalationDelayHrs.message}</p>

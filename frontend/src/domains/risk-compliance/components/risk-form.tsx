@@ -30,6 +30,7 @@ import {
 } from "../schemas/risk.schema";
 import type { Risk } from "../types/risks.types";
 import {
+  assigneeLabel,
   getApiErrorMessage,
   scoreBadgeClass,
   toApiDate,
@@ -68,6 +69,8 @@ export function RiskForm({
       likelihood: 3,
       ownerId: "",
       mitigationPlan: "",
+      residualImpact: null,
+      residualLikelihood: null,
       status: "Open",
     },
   });
@@ -83,8 +86,8 @@ export function RiskForm({
         ownerId: risk.ownerId,
         mitigationPlan: risk.mitigationPlan ?? "",
         targetDate: toDateOnly(risk.targetDate),
-        residualImpact: risk.residualImpact ?? undefined,
-        residualLikelihood: risk.residualLikelihood ?? undefined,
+        residualImpact: risk.residualImpact ?? null,
+        residualLikelihood: risk.residualLikelihood ?? null,
         status: (risk.status as RiskFormValues["status"]) || "Open",
       });
       return;
@@ -98,8 +101,8 @@ export function RiskForm({
       ownerId: "",
       mitigationPlan: "",
       targetDate: undefined,
-      residualImpact: undefined,
-      residualLikelihood: undefined,
+      residualImpact: null,
+      residualLikelihood: null,
       status: "Open",
     });
   }, [mode, risk, defaultProjectId, projects, form]);
@@ -108,11 +111,37 @@ export function RiskForm({
   const ownerId = form.watch("ownerId");
   const impact = form.watch("impact");
   const likelihood = form.watch("likelihood");
-  const liveScore = Number(impact || 0) * Number(likelihood || 0);
+  const liveScore =
+    Number.isFinite(impact) && Number.isFinite(likelihood)
+      ? Number(impact) * Number(likelihood)
+      : 0;
 
-  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
+  const {
+    data: assignees = [],
+    isFetching: assigneesFetching,
+    isLoading: assigneesLoading,
+  } = useGetProjectTaskAssigneesQuery(projectId, {
     skip: !projectId,
   });
+
+  // Clear owner only after the new project's assignees have loaded.
+  useEffect(() => {
+    if (!projectId || assigneesLoading || assigneesFetching) return;
+    if (!ownerId) return;
+    if (!assignees.some((a) => a.userId === ownerId)) {
+      form.setValue("ownerId", "");
+    }
+  }, [
+    projectId,
+    assignees,
+    assigneesLoading,
+    assigneesFetching,
+    ownerId,
+    form,
+  ]);
+
+  const assigneesPending =
+    Boolean(projectId) && (assigneesLoading || (assigneesFetching && assignees.length === 0));
 
   const selectedProjectName =
     projects.find((p) => p.id === projectId)?.name ??
@@ -120,10 +149,13 @@ export function RiskForm({
     undefined;
   const selectedOwner = assignees.find((a) => a.userId === ownerId);
   const selectedOwnerLabel =
-    selectedOwner?.displayName ||
-    selectedOwner?.name ||
-    selectedOwner?.email ||
-    risk?.owner?.displayName;
+    assigneeLabel(selectedOwner) ||
+    (mode === "edit" &&
+    risk &&
+    risk.projectId === projectId &&
+    risk.ownerId === ownerId
+      ? risk.owner?.displayName
+      : undefined);
 
   const onSubmit = form.handleSubmit(async (values) => {
     const body = {
@@ -165,18 +197,15 @@ export function RiskForm({
       className="rounded-xl border border-border/60 bg-card p-4 space-y-4"
       noValidate
     >
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold">
-          {mode === "edit" ? "Edit risk" : "New risk"}
-        </p>
-        <Badge variant="outline" className={cn("border", scoreBadgeClass(liveScore))}>
-          Score {liveScore || "—"}
-        </Badge>
-      </div>
+      <p className="text-sm font-semibold">
+        {mode === "edit" ? "Edit risk" : "New risk"}
+      </p>
 
       {mode === "create" && (
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Project</label>
+          <label className="text-xs text-muted-foreground">
+            Project <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="projectId"
@@ -189,7 +218,10 @@ export function RiskForm({
                 }}
               >
                 <SelectTrigger
-                  className={cn(form.formState.errors.projectId && "border-rose-500")}
+                  className={cn(
+                    "w-full",
+                    form.formState.errors.projectId && "border-rose-500",
+                  )}
                 >
                   <SelectValue placeholder="Select project">
                     {selectedProjectName}
@@ -215,14 +247,18 @@ export function RiskForm({
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1 md:col-span-2">
-          <label className="text-xs text-muted-foreground">Title</label>
+          <label className="text-xs text-muted-foreground">
+            Title <span className="text-destructive font-bold">*</span>
+          </label>
           <Input {...form.register("title")} placeholder="Risk title" />
           {form.formState.errors.title && (
             <p className={fieldErrorClass}>{form.formState.errors.title.message}</p>
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Category</label>
+          <label className="text-xs text-muted-foreground">
+            Category <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="category"
@@ -231,7 +267,7 @@ export function RiskForm({
                 value={field.value}
                 onValueChange={(v) => field.onChange(v ?? field.value)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue>{field.value}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -246,24 +282,41 @@ export function RiskForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Owner</label>
+          <label className="text-xs text-muted-foreground">
+            Owner <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="ownerId"
             render={({ field }) => (
               <Select
-                value={field.value || undefined}
-                onValueChange={(v) => field.onChange(v ?? "")}
+                key={`risk-owner-${projectId || "none"}`}
+                value={
+                  field.value && selectedOwnerLabel
+                    ? field.value
+                    : undefined
+                }
+                onValueChange={(v) => {
+                  if (!v || v === "__none") return;
+                  field.onChange(v);
+                }}
               >
                 <SelectTrigger
-                  className={cn(form.formState.errors.ownerId && "border-rose-500")}
+                  className={cn(
+                    "w-full",
+                    form.formState.errors.ownerId && "border-rose-500",
+                  )}
                 >
                   <SelectValue placeholder="Select owner">
                     {selectedOwnerLabel}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {assignees.length === 0 ? (
+                  {assigneesPending ? (
+                    <SelectItem value="__none" disabled>
+                      Loading assignees…
+                    </SelectItem>
+                  ) : assignees.length === 0 ? (
                     <SelectItem value="__none" disabled>
                       {projectId
                         ? "No assignees — add team members first"
@@ -272,7 +325,7 @@ export function RiskForm({
                   ) : (
                     assignees.map((a) => (
                       <SelectItem key={a.userId} value={a.userId}>
-                        {a.displayName || a.name || a.email}
+                        {assigneeLabel(a) || a.userId}
                       </SelectItem>
                     ))
                   )}
@@ -286,78 +339,87 @@ export function RiskForm({
             </p>
           )}
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Impact (1–4)</label>
-          <Controller
-            control={form.control}
-            name="impact"
-            render={({ field }) => (
-              <Input
-                type="number"
-                min={1}
-                max={4}
-                value={field.value}
-                onChange={(e) => field.onChange(Number(e.target.value))}
-              />
+
+        <div className="md:col-span-2 grid gap-3 sm:grid-cols-[minmax(9rem,11rem)_1fr_1fr] items-start">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Score</label>
+            <div className="flex h-8 items-center rounded-lg border border-border/60 bg-muted/30 px-3">
+              <Badge
+                variant="outline"
+                className={cn("border", scoreBadgeClass(liveScore))}
+              >
+                {Number.isFinite(impact) ? impact : "—"} ×{" "}
+                {Number.isFinite(likelihood) ? likelihood : "—"} ={" "}
+                {liveScore || "—"}
+              </Badge>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Impact × Likelihood
+            </p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              Impact (1–4) <span className="text-destructive font-bold">*</span>
+            </label>
+            <Controller
+              control={form.control}
+              name="impact"
+              render={({ field }) => (
+                <Input
+                  type="number"
+                  min={1}
+                  max={4}
+                  value={Number.isNaN(field.value) ? "" : field.value}
+                  onChange={(e) =>
+                    field.onChange(
+                      e.target.value === "" ? NaN : Number(e.target.value),
+                    )
+                  }
+                  className={cn(
+                    form.formState.errors.impact && "border-rose-500",
+                  )}
+                />
+              )}
+            />
+            {form.formState.errors.impact && (
+              <p className={fieldErrorClass}>
+                {form.formState.errors.impact.message}
+              </p>
             )}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Likelihood (1–4)</label>
-          <Controller
-            control={form.control}
-            name="likelihood"
-            render={({ field }) => (
-              <Input
-                type="number"
-                min={1}
-                max={4}
-                value={field.value}
-                onChange={(e) => field.onChange(Number(e.target.value))}
-              />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              Likelihood (1–4){" "}
+              <span className="text-destructive font-bold">*</span>
+            </label>
+            <Controller
+              control={form.control}
+              name="likelihood"
+              render={({ field }) => (
+                <Input
+                  type="number"
+                  min={1}
+                  max={4}
+                  value={Number.isNaN(field.value) ? "" : field.value}
+                  onChange={(e) =>
+                    field.onChange(
+                      e.target.value === "" ? NaN : Number(e.target.value),
+                    )
+                  }
+                  className={cn(
+                    form.formState.errors.likelihood && "border-rose-500",
+                  )}
+                />
+              )}
+            />
+            {form.formState.errors.likelihood && (
+              <p className={fieldErrorClass}>
+                {form.formState.errors.likelihood.message}
+              </p>
             )}
-          />
+          </div>
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Residual impact</label>
-          <Controller
-            control={form.control}
-            name="residualImpact"
-            render={({ field }) => (
-              <Input
-                type="number"
-                min={1}
-                max={4}
-                value={field.value ?? ""}
-                onChange={(e) =>
-                  field.onChange(
-                    e.target.value === "" ? null : Number(e.target.value),
-                  )
-                }
-              />
-            )}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Residual likelihood</label>
-          <Controller
-            control={form.control}
-            name="residualLikelihood"
-            render={({ field }) => (
-              <Input
-                type="number"
-                min={1}
-                max={4}
-                value={field.value ?? ""}
-                onChange={(e) =>
-                  field.onChange(
-                    e.target.value === "" ? null : Number(e.target.value),
-                  )
-                }
-              />
-            )}
-          />
-        </div>
+
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Target date</label>
           <Controller
@@ -372,7 +434,9 @@ export function RiskForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Status</label>
+          <label className="text-xs text-muted-foreground">
+            Status <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="status"
@@ -381,7 +445,7 @@ export function RiskForm({
                 value={field.value}
                 onValueChange={(v) => field.onChange(v ?? field.value)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue>{field.value}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -395,12 +459,83 @@ export function RiskForm({
             )}
           />
         </div>
-        <div className="space-y-1 md:col-span-2">
-          <label className="text-xs text-muted-foreground">Mitigation plan</label>
-          <Input
-            {...form.register("mitigationPlan")}
-            placeholder="Mitigation / treatment plan"
-          />
+
+        <div className="md:col-span-2 rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            Residual risk &amp; mitigation
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Residual impact
+              </label>
+              <Controller
+                control={form.control}
+                name="residualImpact"
+                render={({ field }) => (
+                  <Input
+                    type="number"
+                    min={1}
+                    max={4}
+                    value={field.value ?? ""}
+                    onChange={(e) =>
+                      field.onChange(
+                        e.target.value === "" ? null : Number(e.target.value),
+                      )
+                    }
+                    className={cn(
+                      form.formState.errors.residualImpact && "border-rose-500",
+                    )}
+                  />
+                )}
+              />
+              {form.formState.errors.residualImpact && (
+                <p className={fieldErrorClass}>
+                  {form.formState.errors.residualImpact.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Residual likelihood
+              </label>
+              <Controller
+                control={form.control}
+                name="residualLikelihood"
+                render={({ field }) => (
+                  <Input
+                    type="number"
+                    min={1}
+                    max={4}
+                    value={field.value ?? ""}
+                    onChange={(e) =>
+                      field.onChange(
+                        e.target.value === "" ? null : Number(e.target.value),
+                      )
+                    }
+                    className={cn(
+                      form.formState.errors.residualLikelihood &&
+                        "border-rose-500",
+                    )}
+                  />
+                )}
+              />
+              {form.formState.errors.residualLikelihood && (
+                <p className={fieldErrorClass}>
+                  {form.formState.errors.residualLikelihood.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-xs text-muted-foreground">
+                Mitigation plan
+              </label>
+              <Input
+                {...form.register("mitigationPlan")}
+                placeholder="Mitigation / treatment plan"
+              />
+            </div>
+          </div>
         </div>
       </div>
 

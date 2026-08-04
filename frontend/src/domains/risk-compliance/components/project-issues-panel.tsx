@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CircleAlert, Loader2 } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
@@ -7,6 +8,8 @@ import { buttonVariants } from "@/shared/ui/button";
 import { cn } from "@/shared/utils/cn";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useGetProjectIssuesQuery } from "../api/issues.api";
+import { priorityBadgeClass } from "../utils/form-utils";
+import { ListPagination, paginateItems } from "./list-pagination";
 
 type ProjectIssuesPanelProps = {
   projectId: string;
@@ -17,6 +20,22 @@ export function ProjectIssuesPanel({ projectId }: ProjectIssuesPanelProps) {
   const { data: issues = [], isLoading } = useGetProjectIssuesQuery(projectId, {
     skip: !canViewIssues,
   });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setPage(1);
+  }, [projectId, pageSize]);
+
+  const pageCount = Math.max(1, Math.ceil(issues.length / pageSize));
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const pagedIssues = useMemo(
+    () => paginateItems(issues, page, pageSize),
+    [issues, page, pageSize],
+  );
 
   if (!canViewIssues) {
     return (
@@ -74,10 +93,30 @@ export function ProjectIssuesPanel({ projectId }: ProjectIssuesPanelProps) {
               </tr>
             </thead>
             <tbody>
-              {issues.map((issue) => (
+              {pagedIssues.map((issue) => (
                 <tr key={issue.id} className="border-t border-border/40">
-                  <td className="px-4 py-3 font-medium">{issue.title}</td>
-                  <td className="px-4 py-3">{issue.priority}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{issue.title}</div>
+                    {issue.isOverdue && (
+                      <Badge
+                        variant="outline"
+                        className="mt-1 border text-[10px] text-rose-700 border-rose-200 bg-rose-50"
+                      >
+                        Overdue
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "border",
+                        priorityBadgeClass(issue.priority),
+                      )}
+                    >
+                      {issue.priority}
+                    </Badge>
+                  </td>
                   <td className="px-4 py-3">
                     <Badge variant="outline">{issue.status}</Badge>
                   </td>
@@ -88,6 +127,16 @@ export function ProjectIssuesPanel({ projectId }: ProjectIssuesPanelProps) {
               ))}
             </tbody>
           </table>
+          <ListPagination
+            page={page}
+            pageSize={pageSize}
+            total={issues.length}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </div>
       )}
     </div>

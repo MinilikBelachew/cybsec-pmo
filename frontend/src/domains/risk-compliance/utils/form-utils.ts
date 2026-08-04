@@ -36,3 +36,22 @@ export function scoreBadgeClass(score: number) {
   if (score >= 6) return "bg-amber-100 text-amber-800 border-amber-200";
   return "bg-emerald-100 text-emerald-800 border-emerald-200";
 }
+
+export function priorityBadgeClass(priority: string) {
+  if (priority === "Critical" || priority === "High") {
+    return "bg-rose-100 text-rose-800 border-rose-200";
+  }
+  if (priority === "Medium") {
+    return "bg-amber-100 text-amber-800 border-amber-200";
+  }
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+export function assigneeLabel(assignee?: {
+  displayName?: string | null;
+  name?: string | null;
+  email?: string | null;
+} | null): string | undefined {
+  if (!assignee) return undefined;
+  return assignee.displayName || assignee.name || assignee.email || undefined;
+}

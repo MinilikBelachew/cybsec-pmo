@@ -88,7 +88,9 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
     >
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Category</label>
+          <label className="text-xs text-muted-foreground">
+            Category <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="category"
@@ -141,7 +143,9 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
           />
         </div>
         <div className="space-y-1 md:col-span-2">
-          <label className="text-xs text-muted-foreground">Context</label>
+          <label className="text-xs text-muted-foreground">
+            Context <span className="text-destructive font-bold">*</span>
+          </label>
           <Input
             {...register("description")}
             placeholder="What happened?"
@@ -152,7 +156,9 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
           )}
         </div>
         <div className="space-y-1 md:col-span-2">
-          <label className="text-xs text-muted-foreground">Recommendation</label>
+          <label className="text-xs text-muted-foreground">
+            Recommendation <span className="text-destructive font-bold">*</span>
+          </label>
           <Input
             {...register("recommendation")}
             placeholder="What should we do next time?"

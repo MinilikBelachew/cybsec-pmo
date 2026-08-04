@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -80,9 +81,31 @@ export function EscalationForm({
   const ownerId = watch("ownerId");
   const severity = watch("severity");
 
-  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
+  const {
+    data: assignees = [],
+    isFetching: assigneesFetching,
+    isLoading: assigneesLoading,
+  } = useGetProjectTaskAssigneesQuery(projectId, {
     skip: !projectId,
   });
+
+  useEffect(() => {
+    if (!projectId || assigneesLoading || assigneesFetching) return;
+    if (!ownerId) return;
+    if (!assignees.some((a) => a.userId === ownerId)) {
+      setValue("ownerId", "");
+    }
+  }, [
+    projectId,
+    assignees,
+    assigneesLoading,
+    assigneesFetching,
+    ownerId,
+    setValue,
+  ]);
+
+  const assigneesPending =
+    Boolean(projectId) && (assigneesLoading || (assigneesFetching && assignees.length === 0));
 
   const selectedProjectName = projects.find((p) => p.id === projectId)?.name;
   const selectedCustomerName =
@@ -121,7 +144,9 @@ export function EscalationForm({
     >
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Project</label>
+          <label className="text-xs text-muted-foreground">
+            Project <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="projectId"
@@ -153,7 +178,9 @@ export function EscalationForm({
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Customer</label>
+          <label className="text-xs text-muted-foreground">
+            Customer <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="customerId"
@@ -182,7 +209,9 @@ export function EscalationForm({
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Severity</label>
+          <label className="text-xs text-muted-foreground">
+            Severity <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="severity"
@@ -208,7 +237,9 @@ export function EscalationForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">SLA hours</label>
+          <label className="text-xs text-muted-foreground">
+            SLA hours <span className="text-destructive font-bold">*</span>
+          </label>
           <Input
             type="number"
             min={1}
@@ -220,14 +251,24 @@ export function EscalationForm({
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Owner</label>
+          <label className="text-xs text-muted-foreground">
+            Owner <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="ownerId"
             render={({ field }) => (
               <Select
-                value={field.value || undefined}
-                onValueChange={(v) => field.onChange(v ?? "")}
+                key={`escalation-owner-${projectId || "none"}`}
+                value={
+                  field.value && selectedOwnerLabel
+                    ? field.value
+                    : undefined
+                }
+                onValueChange={(v) => {
+                  if (!v || v === "__none") return;
+                  field.onChange(v);
+                }}
               >
                 <SelectTrigger className={cn(errors.ownerId && "border-rose-500")}>
                   <SelectValue placeholder="Select owner">
@@ -235,7 +276,11 @@ export function EscalationForm({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {assignees.length === 0 ? (
+                  {assigneesPending ? (
+                    <SelectItem value="__none" disabled>
+                      Loading assignees…
+                    </SelectItem>
+                  ) : assignees.length === 0 ? (
                     <SelectItem value="__none" disabled>
                       Select a project first
                     </SelectItem>
@@ -395,7 +440,9 @@ export function CloseEscalationForm({
       className="space-y-2 rounded-lg border border-border/50 p-3"
       noValidate
     >
-      <label className="text-xs text-muted-foreground">Resolution summary</label>
+      <label className="text-xs text-muted-foreground">
+        Resolution summary <span className="text-destructive font-bold">*</span>
+      </label>
       <Input
         {...register("resolutionSummary")}
         placeholder="How was this resolved?"
