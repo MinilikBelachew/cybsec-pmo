@@ -160,9 +160,10 @@ export function IssueTrackerPage() {
         </Select>
       </div>
 
-      {formMode !== "closed" && canEditIssues && (
+      {canEditIssues && (
         <IssueForm
-          mode={formMode}
+          open={formMode !== "closed"}
+          mode={formMode === "edit" ? "edit" : "create"}
           issue={editing}
           projects={projects}
           defaultProjectId={

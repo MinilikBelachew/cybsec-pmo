@@ -79,8 +79,9 @@ export function AlertCataloguePage() {
         }
       />
 
-      {showForm && canManage && (
+      {canManage && (
         <AlertRuleForm
+          open={showForm}
           roles={roles}
           onCancel={() => setShowForm(false)}
           onSuccess={() => setShowForm(false)}

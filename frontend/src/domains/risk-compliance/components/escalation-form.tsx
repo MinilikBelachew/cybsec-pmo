@@ -29,6 +29,7 @@ import {
   type EscalationCommunicationFormValues,
   type EscalationFormValues,
 } from "../schemas/escalation.schema";
+import { FormSheet } from "./form-sheet";
 
 const SEVERITIES = ["Low", "Medium", "High", "Critical"] as const;
 const COMM_CHANNELS = ["Call", "Email", "Meeting", "Chat", "Other"] as const;
@@ -47,6 +48,7 @@ const CREATE_DEFAULTS: EscalationFormValues = {
 };
 
 type EscalationFormProps = {
+  open: boolean;
   projects: ProjectOption[];
   customers: CustomerOption[];
   onCancel: () => void;
@@ -54,6 +56,7 @@ type EscalationFormProps = {
 };
 
 export function EscalationForm({
+  open,
   projects,
   customers,
   onCancel,
@@ -68,6 +71,7 @@ export function EscalationForm({
     handleSubmit,
     watch,
     setValue,
+    reset,
     formState: { errors },
   } = useForm<EscalationFormValues>({
     resolver: zodResolver(
@@ -75,6 +79,10 @@ export function EscalationForm({
     ) as import("react-hook-form").Resolver<EscalationFormValues>,
     defaultValues: CREATE_DEFAULTS,
   });
+
+  useEffect(() => {
+    if (open) reset(CREATE_DEFAULTS);
+  }, [open, reset]);
 
   const projectId = watch("projectId");
   const customerId = watch("customerId");
@@ -138,11 +146,20 @@ export function EscalationForm({
   const fieldErrorClass = "text-[11px] font-medium text-rose-500";
 
   return (
+    <FormSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+      title="New escalation"
+      description="Open a customer escalation with severity, SLA, and owner."
+    >
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 space-y-3"
+      className="flex min-h-0 flex-1 flex-col"
       noValidate
     >
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
@@ -159,7 +176,7 @@ export function EscalationForm({
                   setValue("ownerId", "");
                 }}
               >
-                <SelectTrigger className={cn(errors.projectId && "border-rose-500")}>
+                <SelectTrigger className={cn(errors.projectId && "border-rose-500", "w-full")}>
                   <SelectValue placeholder="Select project">
                     {selectedProjectName}
                   </SelectValue>
@@ -190,7 +207,7 @@ export function EscalationForm({
                 value={field.value || undefined}
                 onValueChange={(v) => field.onChange(v ?? "")}
               >
-                <SelectTrigger className={cn(errors.customerId && "border-rose-500")}>
+                <SelectTrigger className={cn(errors.customerId && "border-rose-500", "w-full")}>
                   <SelectValue placeholder="Select customer">
                     {selectedCustomerName}
                   </SelectValue>
@@ -223,7 +240,7 @@ export function EscalationForm({
                   field.onChange((v as (typeof SEVERITIES)[number]) || "High")
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger className={cn(errors.severity && "border-rose-500", "w-full")}>
                   <SelectValue>{severity}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -271,7 +288,7 @@ export function EscalationForm({
                   field.onChange(v);
                 }}
               >
-                <SelectTrigger className={cn(errors.ownerId && "border-rose-500")}>
+                <SelectTrigger className={cn(errors.ownerId && "border-rose-500", "w-full")}>
                   <SelectValue placeholder="Select owner">
                     {selectedOwnerLabel}
                   </SelectValue>
@@ -338,7 +355,8 @@ export function EscalationForm({
           </div>
         </div>
       </div>
-      <div className="flex justify-end gap-2">
+      </div>
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -348,6 +366,7 @@ export function EscalationForm({
         </Button>
       </div>
     </form>
+    </FormSheet>
   );
 }
 

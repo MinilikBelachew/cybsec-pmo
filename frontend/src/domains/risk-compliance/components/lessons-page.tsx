@@ -106,8 +106,9 @@ export function LessonsPage() {
         </Select>
       </div>
 
-      {showForm && canEditProjects && (
+      {canEditProjects && (
         <LessonForm
+          open={showForm}
           projects={projects}
           onCancel={() => setShowForm(false)}
           onSuccess={() => setShowForm(false)}

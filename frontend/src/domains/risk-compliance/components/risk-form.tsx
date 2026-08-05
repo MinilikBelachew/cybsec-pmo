@@ -36,10 +36,12 @@ import {
   toApiDate,
   toDateOnly,
 } from "../utils/form-utils";
+import { FormSheet } from "./form-sheet";
 
 type ProjectOption = { id: string; name: string };
 
 type RiskFormProps = {
+  open: boolean;
   mode: "create" | "edit";
   risk?: Risk | null;
   projects: ProjectOption[];
@@ -49,6 +51,7 @@ type RiskFormProps = {
 };
 
 export function RiskForm({
+  open,
   mode,
   risk,
   projects,
@@ -192,15 +195,24 @@ export function RiskForm({
   const isSaving = isCreating || isUpdating;
 
   return (
+    <FormSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+      title={mode === "edit" ? "Edit risk" : "New risk"}
+      description={
+        mode === "edit"
+          ? "Update risk details, residual scores, and mitigation."
+          : "Capture a new risk with impact, likelihood, and mitigation."
+      }
+    >
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 space-y-4"
+      className="flex min-h-0 flex-1 flex-col"
       noValidate
     >
-      <p className="text-sm font-semibold">
-        {mode === "edit" ? "Edit risk" : "New risk"}
-      </p>
-
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
       {mode === "create" && (
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
@@ -538,8 +550,9 @@ export function RiskForm({
           </div>
         </div>
       </div>
+      </div>
 
-      <div className="flex gap-2 justify-end">
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -549,5 +562,6 @@ export function RiskForm({
         </Button>
       </div>
     </form>
+    </FormSheet>
   );
 }

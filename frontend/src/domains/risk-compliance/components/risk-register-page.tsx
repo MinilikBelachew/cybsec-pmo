@@ -159,9 +159,10 @@ export function RiskRegisterPage() {
         </Select>
       </div>
 
-      {formMode !== "closed" && canEditRisks && (
+      {canEditRisks && (
         <RiskForm
-          mode={formMode}
+          open={formMode !== "closed"}
+          mode={formMode === "edit" ? "edit" : "create"}
           risk={editing}
           projects={projects}
           defaultProjectId={

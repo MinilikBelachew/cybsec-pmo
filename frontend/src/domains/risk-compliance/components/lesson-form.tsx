@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -20,6 +21,7 @@ import {
   createLessonSchema,
   type LessonFormValues,
 } from "../schemas/lesson.schema";
+import { FormSheet } from "./form-sheet";
 
 type ProjectOption = { id: string; name: string };
 
@@ -32,23 +34,34 @@ const CREATE_DEFAULTS: LessonFormValues = {
 };
 
 type LessonFormProps = {
+  open: boolean;
   projects: ProjectOption[];
   onCancel: () => void;
   onSuccess: () => void;
 };
 
-export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
+export function LessonForm({
+  open,
+  projects,
+  onCancel,
+  onSuccess,
+}: LessonFormProps) {
   const [createLesson, { isLoading: isCreating }] = useCreateLessonMutation();
   const {
     register,
     control,
     handleSubmit,
     watch,
+    reset,
     formState: { errors },
   } = useForm<LessonFormValues>({
     resolver: zodResolver(createLessonSchema),
     defaultValues: CREATE_DEFAULTS,
   });
+
+  useEffect(() => {
+    if (open) reset(CREATE_DEFAULTS);
+  }, [open, reset]);
 
   const projectId = watch("projectId");
   const category = watch("category");
@@ -81,11 +94,20 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
   const fieldErrorClass = "text-[11px] font-medium text-rose-500";
 
   return (
+    <FormSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+      title="New lesson"
+      description="Capture what happened and the recommendation for next time."
+    >
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 space-y-3"
+      className="flex min-h-0 flex-1 flex-col"
       noValidate
     >
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
@@ -101,7 +123,7 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
                   field.onChange((v as LessonFormValues["category"]) || "DEPLOYMENT")
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue>{category}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -125,7 +147,7 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
                 value={field.value || "none"}
                 onValueChange={(v) => field.onChange(v ?? "none")}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Optional project">
                     {selectedProjectName}
                   </SelectValue>
@@ -175,7 +197,8 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
           <Input {...register("tags")} />
         </div>
       </div>
-      <div className="flex justify-end gap-2">
+      </div>
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -185,5 +208,6 @@ export function LessonForm({ projects, onCancel, onSuccess }: LessonFormProps) {
         </Button>
       </div>
     </form>
+    </FormSheet>
   );
 }

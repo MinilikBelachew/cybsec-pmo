@@ -34,10 +34,12 @@ import {
   toApiDate,
   toDateOnly,
 } from "../utils/form-utils";
+import { FormSheet } from "./form-sheet";
 
 type ProjectOption = { id: string; name: string };
 
 type IssueFormProps = {
+  open: boolean;
   mode: "create" | "edit";
   issue?: Issue | null;
   projects: ProjectOption[];
@@ -47,6 +49,7 @@ type IssueFormProps = {
 };
 
 export function IssueForm({
+  open,
   mode,
   issue,
   projects,
@@ -173,15 +176,24 @@ export function IssueForm({
   const isSaving = isCreating || isUpdating;
 
   return (
+    <FormSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+      title={mode === "edit" ? "Edit issue" : "New issue"}
+      description={
+        mode === "edit"
+          ? "Update issue details, priority, and resolution."
+          : "Log a new issue with owner, due date, and priority."
+      }
+    >
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 space-y-4"
+      className="flex min-h-0 flex-1 flex-col"
       noValidate
     >
-      <p className="text-sm font-semibold">
-        {mode === "edit" ? "Edit issue" : "New issue"}
-      </p>
-
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
       {mode === "create" && (
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
@@ -402,8 +414,9 @@ export function IssueForm({
           </div>
         </div>
       </div>
+      </div>
 
-      <div className="flex gap-2 justify-end">
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -413,5 +426,6 @@ export function IssueForm({
         </Button>
       </div>
     </form>
+    </FormSheet>
   );
 }

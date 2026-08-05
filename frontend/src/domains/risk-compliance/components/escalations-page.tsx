@@ -104,8 +104,9 @@ export function EscalationsPage() {
         </SelectContent>
       </Select>
 
-      {showForm && canManage && (
+      {canManage && (
         <EscalationForm
+          open={showForm}
           projects={projects}
           customers={customers}
           onCancel={() => setShowForm(false)}

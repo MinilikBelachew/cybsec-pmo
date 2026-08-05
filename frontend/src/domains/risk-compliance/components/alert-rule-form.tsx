@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -22,6 +22,7 @@ import {
   createAlertRuleSchema,
   type AlertRuleFormValues,
 } from "../schemas/alert.schema";
+import { FormSheet } from "./form-sheet";
 
 type RoleOption = { id: number; code: string; label: string };
 
@@ -48,18 +49,25 @@ const CHANNEL_LABELS: Record<(typeof ALERT_CHANNELS)[number], string> = {
 };
 
 type AlertRuleFormProps = {
+  open: boolean;
   roles: RoleOption[];
   onCancel: () => void;
   onSuccess: () => void;
 };
 
-export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps) {
+export function AlertRuleForm({
+  open,
+  roles,
+  onCancel,
+  onSuccess,
+}: AlertRuleFormProps) {
   const [createRule, { isLoading: isCreating }] = useCreateAlertRuleMutation();
   const {
     register,
     control,
     handleSubmit,
     watch,
+    reset,
     formState: { errors },
   } = useForm<AlertRuleFormValues>({
     resolver: zodResolver(
@@ -70,6 +78,14 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
       escalationRole: roles[0]?.code ?? "",
     },
   });
+
+  useEffect(() => {
+    if (!open) return;
+    reset({
+      ...DEFAULT_VALUES,
+      escalationRole: roles[0]?.code ?? "",
+    });
+  }, [open, roles, reset]);
 
   const eventType = watch("eventType");
   const escalationRole = watch("escalationRole");
@@ -109,11 +125,20 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
   const fieldErrorClass = "text-[11px] font-medium text-rose-500";
 
   return (
+    <FormSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+      title="New alert rule"
+      description="Define when alerts fire, who receives them, and escalation."
+    >
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 space-y-3"
+      className="flex min-h-0 flex-1 flex-col"
       noValidate
     >
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
@@ -329,7 +354,8 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
           />
         </div>
       </div>
-      <div className="flex justify-end gap-2">
+      </div>
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -339,5 +365,6 @@ export function AlertRuleForm({ roles, onCancel, onSuccess }: AlertRuleFormProps
         </Button>
       </div>
     </form>
+    </FormSheet>
   );
 }
