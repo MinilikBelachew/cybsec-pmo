@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPriorityLevel } from '../../projects/enums/project-api.enum';
+import { ActionPointSourceType } from './create-action-point.dto';
 
 export class UpdateActionPointDto {
   @ApiPropertyOptional()
@@ -32,6 +33,20 @@ export class UpdateActionPointDto {
   @IsOptional()
   @IsEnum(ApiPriorityLevel)
   priority?: ApiPriorityLevel;
+
+  @ApiPropertyOptional({ enum: ActionPointSourceType })
+  @IsOptional()
+  @IsEnum(ActionPointSourceType)
+  sourceType?: ActionPointSourceType;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Required when sourceType is Task, Risk, Issue, Meeting, or MoM. Defaults to project id for Project.',
+  })
+  @IsOptional()
+  @IsUUID()
+  sourceId?: string;
 
   @ApiPropertyOptional({
     example: 'In Progress',

@@ -45,6 +45,8 @@ export type UpdateActionPointPayload = {
   ownerId?: string;
   dueDate?: string;
   priority?: ActionPointPriority;
+  sourceType?: ActionPointSourceType;
+  sourceId?: string;
   status?: ActionPointStatus;
   closureNote?: string;
 };

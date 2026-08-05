@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import { Bell, Loader2, Plus } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
+import { ListPagination, paginateItems } from "@/shared/components/list-pagination";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { hasModulePermission } from "@/domains/auth/utils/module-permissions";
@@ -35,6 +36,25 @@ export function AlertCataloguePage() {
   const [disableRule] = useDisableAlertRuleMutation();
   const [acknowledge] = useAcknowledgeAlertEventMutation();
   const [showForm, setShowForm] = useState(false);
+  const [instancePage, setInstancePage] = useState(1);
+  const [instancePageSize, setInstancePageSize] = useState(10);
+
+  useEffect(() => {
+    setInstancePage(1);
+  }, [instancePageSize, instances.length]);
+
+  const instancePageCount = Math.max(
+    1,
+    Math.ceil(instances.length / instancePageSize),
+  );
+  useEffect(() => {
+    if (instancePage > instancePageCount) setInstancePage(instancePageCount);
+  }, [instancePage, instancePageCount]);
+
+  const pagedInstances = useMemo(
+    () => paginateItems(instances, instancePage, instancePageSize),
+    [instances, instancePage, instancePageSize],
+  );
 
   if (!canManage && !canView) {
     return (
@@ -155,59 +175,73 @@ export function AlertCataloguePage() {
               No alert events yet.
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="text-start px-4 py-3">Event</th>
-                  <th className="text-start px-4 py-3">Object</th>
-                  <th className="text-start px-4 py-3">Channel</th>
-                  <th className="text-start px-4 py-3">Status</th>
-                  <th className="text-start px-4 py-3">Fired</th>
-                  <th className="text-end px-4 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {instances.slice(0, 50).map((event) => (
-                  <tr key={event.id} className="border-t border-border/40">
-                    <td className="px-4 py-3">{event.eventType ?? "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {event.objectType}
-                      {event.objectId ? ` · ${event.objectId.slice(0, 8)}` : ""}
-                    </td>
-                    <td className="px-4 py-3">{event.channel}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline">{event.deliveryStatus}</Badge>
-                      {event.ackedAt && (
-                        <Badge variant="outline" className="ms-1">
-                          Acked
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(event.firedAt).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-end">
-                      {!event.ackedAt && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              await acknowledge(event.id).unwrap();
-                              toast.success("Acknowledged");
-                            } catch {
-                              toast.error("Failed to acknowledge");
-                            }
-                          }}
-                        >
-                          Acknowledge
-                        </Button>
-                      )}
-                    </td>
+            <>
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="text-start px-4 py-3">Event</th>
+                    <th className="text-start px-4 py-3">Object</th>
+                    <th className="text-start px-4 py-3">Channel</th>
+                    <th className="text-start px-4 py-3">Status</th>
+                    <th className="text-start px-4 py-3">Fired</th>
+                    <th className="text-end px-4 py-3">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pagedInstances.map((event) => (
+                    <tr key={event.id} className="border-t border-border/40">
+                      <td className="px-4 py-3">{event.eventType ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {event.objectType}
+                        {event.objectId
+                          ? ` · ${event.objectId.slice(0, 8)}`
+                          : ""}
+                      </td>
+                      <td className="px-4 py-3">{event.channel}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">{event.deliveryStatus}</Badge>
+                        {event.ackedAt && (
+                          <Badge variant="outline" className="ms-1">
+                            Acked
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(event.firedAt).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-end">
+                        {!event.ackedAt && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                await acknowledge(event.id).unwrap();
+                                toast.success("Acknowledged");
+                              } catch {
+                                toast.error("Failed to acknowledge");
+                              }
+                            }}
+                          >
+                            Acknowledge
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <ListPagination
+                page={instancePage}
+                pageSize={instancePageSize}
+                total={instances.length}
+                onPageChange={setInstancePage}
+                onPageSizeChange={(size) => {
+                  setInstancePageSize(size);
+                  setInstancePage(1);
+                }}
+              />
+            </>
           )}
         </div>
       )}

@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import { CheckSquare, Loader2 } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
+import { ListPagination, paginateItems } from "@/shared/components/list-pagination";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import {
@@ -25,6 +26,8 @@ export function ActionsPortfolioPage() {
   const { canViewProjects, canEditProjects } = useModulePermissions();
   const [projectFilter, setProjectFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const { data: projectsResponse } = useGetProjectsQuery({ page: 1, limit: 200 });
   const projects = projectsResponse?.data ?? [];
@@ -46,6 +49,25 @@ export function ActionsPortfolioPage() {
   );
   const [sendReminders, { isLoading: isReminding }] =
     useSendActionRemindersMutation();
+
+  useEffect(() => {
+    setPage(1);
+  }, [projectFilter, sourceFilter, pageSize]);
+
+  const pageCount = Math.max(1, Math.ceil(actions.length / pageSize));
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const pagedActions = useMemo(
+    () => paginateItems(actions, page, pageSize),
+    [actions, page, pageSize],
+  );
+
+  const selectedFilterProjectName =
+    projectFilter === "all"
+      ? "All projects"
+      : projects.find((p) => p.id === projectFilter)?.name;
 
   if (!canViewProjects) {
     return (
@@ -105,7 +127,9 @@ export function ActionsPortfolioPage() {
           onValueChange={(v) => setProjectFilter(v ?? "all")}
         >
           <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Project" />
+            <SelectValue placeholder="Project">
+              {selectedFilterProjectName}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All projects</SelectItem>
@@ -121,7 +145,9 @@ export function ActionsPortfolioPage() {
           onValueChange={(v) => setSourceFilter(v ?? "all")}
         >
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Source" />
+            <SelectValue placeholder="Source">
+              {sourceFilter === "all" ? "All sources" : sourceFilter}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All sources</SelectItem>
@@ -145,46 +171,58 @@ export function ActionsPortfolioPage() {
             No action points found.
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="text-start px-4 py-3">Action</th>
-                <th className="text-start px-4 py-3">Project</th>
-                <th className="text-start px-4 py-3">Source</th>
-                <th className="text-start px-4 py-3">Owner</th>
-                <th className="text-start px-4 py-3">Due</th>
-                <th className="text-start px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {actions.map((action) => (
-                <tr key={action.id} className="border-t border-border/40">
-                  <td className="px-4 py-3 font-medium">
-                    {action.title}
-                    {action.isOverdue && (
-                      <Badge
-                        variant="outline"
-                        className="ms-2 text-rose-700 border-rose-200"
-                      >
-                        Overdue
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {action.projectName ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge variant="outline">{action.sourceType}</Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    {action.owner?.displayName ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">{action.dueDate}</td>
-                  <td className="px-4 py-3">{action.status}</td>
+          <>
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="text-start px-4 py-3">Action</th>
+                  <th className="text-start px-4 py-3">Project</th>
+                  <th className="text-start px-4 py-3">Source</th>
+                  <th className="text-start px-4 py-3">Owner</th>
+                  <th className="text-start px-4 py-3">Due</th>
+                  <th className="text-start px-4 py-3">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {pagedActions.map((action) => (
+                  <tr key={action.id} className="border-t border-border/40">
+                    <td className="px-4 py-3 font-medium">
+                      {action.title}
+                      {action.isOverdue && (
+                        <Badge
+                          variant="outline"
+                          className="ms-2 text-rose-700 border-rose-200"
+                        >
+                          Overdue
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {action.projectName ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline">{action.sourceType}</Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      {action.owner?.displayName ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">{action.dueDate}</td>
+                    <td className="px-4 py-3">{action.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <ListPagination
+              page={page}
+              pageSize={pageSize}
+              total={actions.length}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+            />
+          </>
         )}
       </div>
     </div>

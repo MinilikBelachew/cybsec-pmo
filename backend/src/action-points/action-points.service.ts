@@ -290,63 +290,11 @@ export class ActionPointsService {
     await this.assertOwnerExists(dto.ownerId);
     this.assertDueDateWithinProject(dto.dueDate, project.startDate, project.endDate);
 
-    const sourceType = dto.sourceType ?? ActionPointSourceType.Project;
-    let sourceId = dto.sourceId ?? projectId;
-
-    if (sourceType === ActionPointSourceType.Task) {
-      if (!dto.sourceId) {
-        throw new BadRequestException('sourceId (task id) is required when sourceType is Task');
-      }
-      const task = await this.prisma.task.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!task) {
-        throw new BadRequestException('Task not found on this project');
-      }
-      sourceId = task.id;
-    } else if (sourceType === ActionPointSourceType.Risk) {
-      if (!dto.sourceId) {
-        throw new BadRequestException('sourceId (risk id) is required when sourceType is Risk');
-      }
-      const risk = await this.prisma.risk.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!risk) {
-        throw new BadRequestException('Risk not found on this project');
-      }
-      sourceId = risk.id;
-    } else if (sourceType === ActionPointSourceType.Issue) {
-      if (!dto.sourceId) {
-        throw new BadRequestException('sourceId (issue id) is required when sourceType is Issue');
-      }
-      const issue = await this.prisma.issue.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!issue) {
-        throw new BadRequestException('Issue not found on this project');
-      }
-      sourceId = issue.id;
-    } else if (
-      sourceType === ActionPointSourceType.Meeting ||
-      sourceType === ActionPointSourceType.MoM
-    ) {
-      if (!dto.sourceId) {
-        throw new BadRequestException(
-          `sourceId (meeting id) is required when sourceType is ${sourceType}`,
-        );
-      }
-      const meeting = await this.prisma.meeting.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!meeting) {
-        throw new BadRequestException('Meeting not found on this project');
-      }
-      sourceId = meeting.id;
-    }
+    const { sourceType, sourceId } = await this.resolveSourceLink(
+      projectId,
+      dto.sourceType ?? ActionPointSourceType.Project,
+      dto.sourceId,
+    );
 
     const status = dto.status?.trim() || 'Open';
     this.assertStatus(status);
@@ -427,7 +375,14 @@ export class ActionPointsService {
       }
       // Assignees may only change status (and optional closure note).
       const forbiddenKeys = (
-        ['title', 'ownerId', 'dueDate', 'priority'] as const
+        [
+          'title',
+          'ownerId',
+          'dueDate',
+          'priority',
+          'sourceType',
+          'sourceId',
+        ] as const
       ).filter((key) => dto[key] !== undefined);
       if (forbiddenKeys.length > 0) {
         throw new ForbiddenException(
@@ -458,6 +413,20 @@ export class ActionPointsService {
       );
     }
 
+    let resolvedSource:
+      | { sourceType: ActionPointSourceType; sourceId: string }
+      | undefined;
+    if (isManager && (dto.sourceType !== undefined || dto.sourceId !== undefined)) {
+      resolvedSource = await this.resolveSourceLink(
+        projectId,
+        dto.sourceType ?? (existing.sourceType as ActionPointSourceType),
+        dto.sourceId ??
+          (dto.sourceType === ActionPointSourceType.Project
+            ? projectId
+            : existing.sourceId),
+      );
+    }
+
     const nextStatus = dto.status?.trim() ?? existing.status;
     const wasClosed = CLOSED_STATUSES.has(existing.status);
     const willClose = CLOSED_STATUSES.has(nextStatus);
@@ -472,6 +441,12 @@ export class ActionPointsService {
           : {}),
         ...(isManager && dto.priority !== undefined
           ? { priority: dto.priority as PriorityLevel }
+          : {}),
+        ...(resolvedSource
+          ? {
+              sourceType: resolvedSource.sourceType,
+              sourceId: resolvedSource.sourceId,
+            }
           : {}),
         ...(dto.status !== undefined ? { status: nextStatus } : {}),
         ...(dto.closureNote !== undefined ? { closureNote: dto.closureNote } : {}),
@@ -529,6 +504,79 @@ export class ActionPointsService {
       throw new NotFoundException('Action point not found');
     }
     await this.prisma.actionPoint.delete({ where: { id: actionPointId } });
+  }
+
+  private async resolveSourceLink(
+    projectId: string,
+    sourceType: ActionPointSourceType,
+    sourceId?: string,
+  ): Promise<{ sourceType: ActionPointSourceType; sourceId: string }> {
+    let resolvedId = sourceId ?? projectId;
+
+    if (sourceType === ActionPointSourceType.Task) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          'sourceId (task id) is required when sourceType is Task',
+        );
+      }
+      const task = await this.prisma.task.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!task) {
+        throw new BadRequestException('Task not found on this project');
+      }
+      resolvedId = task.id;
+    } else if (sourceType === ActionPointSourceType.Risk) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          'sourceId (risk id) is required when sourceType is Risk',
+        );
+      }
+      const risk = await this.prisma.risk.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!risk) {
+        throw new BadRequestException('Risk not found on this project');
+      }
+      resolvedId = risk.id;
+    } else if (sourceType === ActionPointSourceType.Issue) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          'sourceId (issue id) is required when sourceType is Issue',
+        );
+      }
+      const issue = await this.prisma.issue.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!issue) {
+        throw new BadRequestException('Issue not found on this project');
+      }
+      resolvedId = issue.id;
+    } else if (
+      sourceType === ActionPointSourceType.Meeting ||
+      sourceType === ActionPointSourceType.MoM
+    ) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          `sourceId (meeting id) is required when sourceType is ${sourceType}`,
+        );
+      }
+      const meeting = await this.prisma.meeting.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!meeting) {
+        throw new BadRequestException('Meeting not found on this project');
+      }
+      resolvedId = meeting.id;
+    } else {
+      resolvedId = projectId;
+    }
+
+    return { sourceType, sourceId: resolvedId };
   }
 
   private assertCanManageActionPoints(caslUser: CaslUserContext): void {

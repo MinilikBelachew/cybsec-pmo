@@ -80,6 +80,7 @@ export function EscalationForm({
   const customerId = watch("customerId");
   const ownerId = watch("ownerId");
   const severity = watch("severity");
+  const initialChannel = watch("initialChannel");
 
   const {
     data: assignees = [],
@@ -303,10 +304,38 @@ export function EscalationForm({
           <label className="text-xs text-muted-foreground">
             Initial communication
           </label>
-          <Input
-            {...register("initialCommunication")}
-            placeholder="Optional first customer communication"
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+            <Controller
+              control={control}
+              name="initialChannel"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={(v) =>
+                    field.onChange(
+                      (v as EscalationFormValues["initialChannel"]) || "Email",
+                    )
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-[140px]">
+                    <SelectValue>{initialChannel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMM_CHANNELS.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <Input
+              {...register("initialCommunication")}
+              placeholder="Optional first customer communication"
+              className="flex-1"
+            />
+          </div>
         </div>
       </div>
       <div className="flex justify-end gap-2">
