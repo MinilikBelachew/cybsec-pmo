@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IssueEvidenceFileDto } from './issue-evidence-file.dto';
 
 export class IssueUserDto {
   @ApiProperty()
@@ -47,6 +48,9 @@ export class IssueDto {
 
   @ApiPropertyOptional({ nullable: true })
   s3EvidenceKey: string | null;
+
+  @ApiPropertyOptional({ type: [IssueEvidenceFileDto] })
+  evidenceFiles?: IssueEvidenceFileDto[];
 
   @ApiProperty()
   raisedBy: string;

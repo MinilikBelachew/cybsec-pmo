@@ -6,6 +6,11 @@ export type IssueUser = {
   email: string;
 };
 
+export type IssueEvidenceFile = {
+  storageKey: string;
+  filename: string;
+};
+
 export type Issue = {
   id: string;
   projectId: string;
@@ -19,6 +24,7 @@ export type Issue = {
   status: string;
   resolutionNote: string | null;
   s3EvidenceKey: string | null;
+  evidenceFiles?: IssueEvidenceFile[];
   raisedBy: string;
   raiser?: IssueUser;
   createdAt: string;
@@ -40,11 +46,13 @@ export type UpdateIssuePayload = Partial<CreateIssuePayload> & {
   expectedResolutionDate?: string | null;
   resolutionNote?: string | null;
   s3EvidenceKey?: string | null;
+  evidenceFiles?: IssueEvidenceFile[];
 };
 
 export type CloseIssuePayload = {
   resolutionNote?: string;
   s3EvidenceKey?: string;
+  evidenceFiles?: IssueEvidenceFile[];
 };
 
 export type ListIssuesParams = {

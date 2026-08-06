@@ -1173,6 +1173,7 @@ model Issue {
   status                 String        @default("Open") @db.VarChar(30)
   resolutionNote         String?       @map("resolution_note")
   s3EvidenceKey          String?       @map("s3_evidence_key") @db.VarChar(512)
+  evidenceFiles          Json?         @map("evidence_files")
   raisedBy               String        @map("raised_by") @db.Uuid
   createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

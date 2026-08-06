@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { CaslUserContext } from '../casl/casl.types';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { AlertEngineService } from '../alerts/alert-engine.service';
+import { RoleEnum } from '../roles/roles.enum';
 import { CreateRiskDto } from './dto/create-risk.dto';
 import { UpdateRiskDto } from './dto/update-risk.dto';
 import { RiskDto } from './dto/risk.dto';
@@ -21,6 +23,17 @@ const ALLOWED_STATUSES = new Set([
   'Accepted',
   'Closed',
   'Cancelled',
+]);
+
+/** Engineers only see risks they own and may update status only. */
+const RISK_ASSIGNEE_ROLES = new Set<string>([RoleEnum.engineer]);
+
+/** Roles that may create/edit/delete risks (matches risks:edit in RBAC seed). */
+const RISK_MANAGER_ROLES = new Set<string>([
+  RoleEnum.super_admin,
+  RoleEnum.it_admin,
+  RoleEnum.pmo_lead,
+  RoleEnum.pm,
 ]);
 
 /** Score at or above this value is treated as high and linked to dashboard alerts. */
@@ -65,15 +78,31 @@ export class RisksService {
     private readonly alertEngine: AlertEngineService,
   ) {}
 
+  private isAssigneeOnlyRole(roleCode?: string | null): boolean {
+    return Boolean(roleCode && RISK_ASSIGNEE_ROLES.has(roleCode));
+  }
+
+  private isRiskManager(roleCode?: string | null): boolean {
+    return Boolean(roleCode && RISK_MANAGER_ROLES.has(roleCode));
+  }
+
+  private ownerScope(caslUser: CaslUserContext): { ownerId: string } | object {
+    return this.isAssigneeOnlyRole(caslUser.roleCode)
+      ? { ownerId: caslUser.id }
+      : {};
+  }
+
   async listPortfolio(
     caslUser: CaslUserContext,
-    filters?: { projectId?: string; status?: string },
+    filters?: { projectId?: string; status?: string; category?: string },
   ): Promise<RiskDto[]> {
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     const rows = await this.prisma.risk.findMany({
       where: {
         ...(filters?.projectId ? { projectId: filters.projectId } : {}),
         ...(filters?.status ? { status: filters.status } : {}),
+        ...(filters?.category ? { category: filters.category } : {}),
+        ...this.ownerScope(caslUser),
         project: { AND: [scopeWhere] },
       },
       include: {
@@ -91,7 +120,7 @@ export class RisksService {
   ): Promise<RiskDto[]> {
     await this.assertProjectAccess(projectId, caslUser);
     const rows = await this.prisma.risk.findMany({
-      where: { projectId },
+      where: { projectId, ...this.ownerScope(caslUser) },
       include: {
         owner: { select: { id: true, displayName: true, email: true } },
         project: { select: { id: true, name: true } },
@@ -103,7 +132,7 @@ export class RisksService {
 
   async getById(riskId: string, caslUser: CaslUserContext): Promise<RiskDto> {
     const row = await this.prisma.risk.findFirst({
-      where: { id: riskId },
+      where: { id: riskId, ...this.ownerScope(caslUser) },
       include: {
         owner: { select: { id: true, displayName: true, email: true } },
         project: { select: { id: true, name: true } },
@@ -195,6 +224,41 @@ export class RisksService {
       throw new NotFoundException('Risk not found');
     }
 
+    const isAssigneeOnly = this.isAssigneeOnlyRole(caslUser.roleCode);
+    const isOwner =
+      existing.ownerId === caslUser.id || existing.ownerId === actorId;
+
+    if (isAssigneeOnly) {
+      if (!isOwner) {
+        throw new ForbiddenException(
+          'You can only update risks assigned to you',
+        );
+      }
+      const forbiddenKeys = (
+        [
+          'title',
+          'category',
+          'impact',
+          'likelihood',
+          'ownerId',
+          'mitigationPlan',
+          'targetDate',
+          'residualImpact',
+          'residualLikelihood',
+        ] as const
+      ).filter((key) => dto[key] !== undefined);
+      if (forbiddenKeys.length > 0) {
+        throw new ForbiddenException(
+          'You can only update the status of risks assigned to you',
+        );
+      }
+      if (dto.status === undefined) {
+        throw new BadRequestException('No allowed fields to update');
+      }
+    } else if (!this.isRiskManager(caslUser.roleCode)) {
+      throw new ForbiddenException('You cannot update this risk');
+    }
+
     if (dto.ownerId) {
       await this.assertOwnerExists(dto.ownerId);
     }
@@ -225,24 +289,34 @@ export class RisksService {
     const updated = await this.prisma.risk.update({
       where: { id: riskId },
       data: {
-        ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
-        ...(dto.category !== undefined ? { category: dto.category.trim() } : {}),
-        ...(dto.impact !== undefined ? { impact: dto.impact } : {}),
-        ...(dto.likelihood !== undefined ? { likelihood: dto.likelihood } : {}),
+        ...(!isAssigneeOnly && dto.title !== undefined
+          ? { title: dto.title.trim() }
+          : {}),
+        ...(!isAssigneeOnly && dto.category !== undefined
+          ? { category: dto.category.trim() }
+          : {}),
+        ...(!isAssigneeOnly && dto.impact !== undefined
+          ? { impact: dto.impact }
+          : {}),
+        ...(!isAssigneeOnly && dto.likelihood !== undefined
+          ? { likelihood: dto.likelihood }
+          : {}),
         score,
-        ...(dto.ownerId !== undefined ? { ownerId: dto.ownerId } : {}),
-        ...(dto.mitigationPlan !== undefined
+        ...(!isAssigneeOnly && dto.ownerId !== undefined
+          ? { ownerId: dto.ownerId }
+          : {}),
+        ...(!isAssigneeOnly && dto.mitigationPlan !== undefined
           ? { mitigationPlan: dto.mitigationPlan?.trim() || null }
           : {}),
-        ...(dto.targetDate !== undefined
+        ...(!isAssigneeOnly && dto.targetDate !== undefined
           ? {
               targetDate: dto.targetDate ? asDateOnly(dto.targetDate) : null,
             }
           : {}),
-        ...(dto.residualImpact !== undefined
+        ...(!isAssigneeOnly && dto.residualImpact !== undefined
           ? { residualImpact: dto.residualImpact }
           : {}),
-        ...(dto.residualLikelihood !== undefined
+        ...(!isAssigneeOnly && dto.residualLikelihood !== undefined
           ? { residualLikelihood: dto.residualLikelihood }
           : {}),
         residualRating,
@@ -255,7 +329,7 @@ export class RisksService {
       },
     });
 
-    if (dto.ownerId && dto.ownerId !== existing.ownerId) {
+    if (!isAssigneeOnly && dto.ownerId && dto.ownerId !== existing.ownerId) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.RISK_ASSIGNED,
         recipientUserIds: [dto.ownerId],
@@ -298,6 +372,9 @@ export class RisksService {
     riskId: string,
     caslUser: CaslUserContext,
   ): Promise<void> {
+    if (this.isAssigneeOnlyRole(caslUser.roleCode)) {
+      throw new ForbiddenException('You cannot delete risks');
+    }
     await this.assertProjectAccess(projectId, caslUser);
     const existing = await this.prisma.risk.findFirst({
       where: { id: riskId, projectId },

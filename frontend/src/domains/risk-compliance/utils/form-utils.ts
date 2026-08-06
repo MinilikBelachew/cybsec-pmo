@@ -47,6 +47,19 @@ export function priorityBadgeClass(priority: string) {
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
+export function issueStatusBadgeClass(status: string) {
+  if (status === "Closed" || status === "Resolved") {
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  }
+  if (status === "In Progress") {
+    return "bg-sky-100 text-sky-800 border-sky-200";
+  }
+  if (status === "Cancelled") {
+    return "bg-slate-100 text-slate-600 border-slate-200";
+  }
+  return "bg-amber-100 text-amber-800 border-amber-200";
+}
+
 export function assigneeLabel(assignee?: {
   displayName?: string | null;
   name?: string | null;

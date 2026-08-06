@@ -23,7 +23,15 @@ export const createIssueSchema = z.object({
   dueDate: z.date({ message: "Due date is required" }),
   expectedResolutionDate: z.date().optional().nullable(),
   status: z.enum(ISSUE_STATUS_OPTIONS),
-  resolutionNote: z.string().optional().nullable(),
+});
+
+export const closeIssueSchema = z.object({
+  resolutionNote: z
+    .string()
+    .trim()
+    .min(1, "Resolution note is required")
+    .max(2000),
 });
 
 export type IssueFormValues = z.infer<typeof createIssueSchema>;
+export type CloseIssueFormValues = z.infer<typeof closeIssueSchema>;

@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
+import { useAuth } from "@/domains/auth/hooks/use-auth";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useGetProjectsQuery } from "@/domains/projects/api/projects.api";
 import {
@@ -22,16 +23,25 @@ import {
   useGetRisksQuery,
   useUpdateRiskMutation,
 } from "../api/risks.api";
-import { RISK_STATUS_OPTIONS } from "../schemas/risk.schema";
+import {
+  RISK_CATEGORY_OPTIONS,
+  RISK_STATUS_OPTIONS,
+} from "../schemas/risk.schema";
 import type { Risk } from "../types/risks.types";
 import { getApiErrorMessage, scoreBadgeClass } from "../utils/form-utils";
 import { ListPagination, paginateItems } from "./list-pagination";
 import { RiskForm } from "./risk-form";
 
 export function RiskRegisterPage() {
+  const { user } = useAuth();
   const { canViewRisks, canEditRisks } = useModulePermissions();
+  const isEngineer = (user?.backendRoleCode ?? "") === "engineer";
+  const canManageRisks = canEditRisks && !isEngineer;
+  const canUpdateRiskStatus = canManageRisks || isEngineer;
+
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [formMode, setFormMode] = useState<"closed" | "create" | "edit">("closed");
   const [editing, setEditing] = useState<Risk | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Risk | null>(null);
@@ -45,8 +55,9 @@ export function RiskRegisterPage() {
     () => ({
       ...(projectFilter !== "all" ? { projectId: projectFilter } : {}),
       ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+      ...(categoryFilter !== "all" ? { category: categoryFilter } : {}),
     }),
-    [projectFilter, statusFilter],
+    [projectFilter, statusFilter, categoryFilter],
   );
 
   const { data: risks = [], isLoading, isError } = useGetRisksQuery(listParams, {
@@ -57,7 +68,7 @@ export function RiskRegisterPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [projectFilter, statusFilter, pageSize]);
+  }, [projectFilter, statusFilter, categoryFilter, pageSize]);
 
   const pageCount = Math.max(1, Math.ceil(risks.length / pageSize));
   useEffect(() => {
@@ -105,7 +116,7 @@ export function RiskRegisterPage() {
         title="Risk Register"
         description="Track project risks with impact × likelihood scoring, ownership, and mitigation plans."
         actions={
-          canEditRisks ? (
+          canManageRisks ? (
             <Button
               onClick={() => {
                 setEditing(null);
@@ -140,6 +151,24 @@ export function RiskRegisterPage() {
           </SelectContent>
         </Select>
         <Select
+          value={categoryFilter}
+          onValueChange={(v) => setCategoryFilter(v ?? "all")}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Category">
+              {categoryFilter === "all" ? "All categories" : categoryFilter}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All categories</SelectItem>
+            {RISK_CATEGORY_OPTIONS.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
           value={statusFilter}
           onValueChange={(v) => setStatusFilter(v ?? "all")}
         >
@@ -159,7 +188,7 @@ export function RiskRegisterPage() {
         </Select>
       </div>
 
-      {canEditRisks && (
+      {canManageRisks && (
         <RiskForm
           open={formMode !== "closed"}
           mode={formMode === "edit" ? "edit" : "create"}
@@ -203,9 +232,10 @@ export function RiskRegisterPage() {
                   <th className="text-start px-4 py-3 font-medium">Project</th>
                   <th className="text-start px-4 py-3 font-medium">Score</th>
                   <th className="text-start px-4 py-3 font-medium">Owner</th>
+                  <th className="text-start px-4 py-3 font-medium">Mitigation plan</th>
                   <th className="text-start px-4 py-3 font-medium">Status</th>
                   <th className="text-start px-4 py-3 font-medium">Target</th>
-                  {canEditRisks && (
+                  {canManageRisks && (
                     <th className="text-end px-4 py-3 font-medium">Actions</th>
                   )}
                 </tr>
@@ -217,7 +247,6 @@ export function RiskRegisterPage() {
                       <div className="font-medium">{risk.title}</div>
                       <div className="text-xs text-muted-foreground">
                         {risk.category}
-                        {risk.mitigationPlan ? ` · ${risk.mitigationPlan}` : ""}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
@@ -234,8 +263,13 @@ export function RiskRegisterPage() {
                     <td className="px-4 py-3">
                       {risk.owner?.displayName ?? "—"}
                     </td>
+                    <td className="px-4 py-3 text-muted-foreground max-w-[220px]">
+                      <span className="line-clamp-2" title={risk.mitigationPlan ?? undefined}>
+                        {risk.mitigationPlan?.trim() || "—"}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
-                      {canEditRisks ? (
+                      {canUpdateRiskStatus ? (
                         <Select
                           value={risk.status}
                           onValueChange={(v) => {
@@ -261,7 +295,7 @@ export function RiskRegisterPage() {
                     <td className="px-4 py-3 text-muted-foreground">
                       {risk.targetDate ?? "—"}
                     </td>
-                    {canEditRisks && (
+                    {canManageRisks && (
                       <td className="px-4 py-3">
                         <div className="flex justify-end items-center gap-1">
                           <Button

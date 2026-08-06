@@ -1,14 +1,17 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsDate,
   IsEnum,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPriorityLevel } from '../../projects/enums/project-api.enum';
+import { IssueEvidenceFileDto } from './issue-evidence-file.dto';
 
 export class UpdateIssueDto {
   @ApiPropertyOptional()
@@ -54,12 +57,19 @@ export class UpdateIssueDto {
   resolutionNote?: string | null;
 
   @ApiPropertyOptional({
-    description: 'S3 key for closure evidence attachment',
+    description: 'Legacy single evidence key (prefer evidenceFiles)',
   })
   @IsOptional()
   @IsString()
   @MaxLength(512)
   s3EvidenceKey?: string | null;
+
+  @ApiPropertyOptional({ type: [IssueEvidenceFileDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => IssueEvidenceFileDto)
+  evidenceFiles?: IssueEvidenceFileDto[];
 }
 
 export class CloseIssueDto {
@@ -68,9 +78,18 @@ export class CloseIssueDto {
   @IsString()
   resolutionNote?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: 'Legacy single evidence key (prefer evidenceFiles)',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(512)
   s3EvidenceKey?: string;
+
+  @ApiPropertyOptional({ type: [IssueEvidenceFileDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => IssueEvidenceFileDto)
+  evidenceFiles?: IssueEvidenceFileDto[];
 }

@@ -68,7 +68,6 @@ export function IssueForm({
       priority: "Medium",
       ownerId: "",
       status: "Open",
-      resolutionNote: "",
       expectedResolutionDate: null,
     },
   });
@@ -83,7 +82,6 @@ export function IssueForm({
         dueDate: toDateOnly(issue.dueDate)!,
         expectedResolutionDate: toDateOnly(issue.expectedResolutionDate) ?? null,
         status: (issue.status as IssueFormValues["status"]) || "Open",
-        resolutionNote: issue.resolutionNote ?? "",
       });
       return;
     }
@@ -95,7 +93,6 @@ export function IssueForm({
       dueDate: undefined as unknown as Date,
       expectedResolutionDate: null,
       status: "Open",
-      resolutionNote: "",
     });
   }, [mode, issue, defaultProjectId, projects, form]);
 
@@ -152,7 +149,6 @@ export function IssueForm({
         ? toApiDate(values.expectedResolutionDate)
         : undefined,
       status: values.status,
-      resolutionNote: values.resolutionNote || undefined,
     };
     try {
       if (mode === "edit" && issue) {
@@ -184,7 +180,7 @@ export function IssueForm({
       title={mode === "edit" ? "Edit issue" : "New issue"}
       description={
         mode === "edit"
-          ? "Update issue details, priority, and resolution."
+          ? "Update issue details, priority, and expected resolution."
           : "Log a new issue with owner, due date, and priority."
       }
     >
@@ -370,11 +366,20 @@ export function IssueForm({
                   <SelectValue>{field.value}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {ISSUE_STATUS_OPTIONS.map((s) => (
+                  {ISSUE_STATUS_OPTIONS.filter(
+                    (s) => s !== "Closed" && s !== "Resolved",
+                  ).map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}
                     </SelectItem>
                   ))}
+                  {mode === "edit" &&
+                    (issue?.status === "Closed" ||
+                      issue?.status === "Resolved") && (
+                      <SelectItem value={issue.status} disabled>
+                        {issue.status}
+                      </SelectItem>
+                    )}
                 </SelectContent>
               </Select>
             )}
@@ -383,34 +388,27 @@ export function IssueForm({
 
         <div className="md:col-span-2 rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
           <p className="text-xs font-medium text-muted-foreground">
-            Resolution details
+            Schedule
           </p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">
-                Expected resolution
-              </label>
-              <Controller
-                control={form.control}
-                name="expectedResolutionDate"
-                render={({ field }) => (
-                  <ProjectDatePicker
-                    value={field.value ?? undefined}
-                    onChange={field.onChange}
-                    minDate={new Date(2000, 0, 1)}
-                  />
-                )}
-              />
-            </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs text-muted-foreground">
-                Resolution note
-              </label>
-              <Input
-                {...form.register("resolutionNote")}
-                placeholder="Optional resolution / evidence note"
-              />
-            </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              Expected resolution
+            </label>
+            <Controller
+              control={form.control}
+              name="expectedResolutionDate"
+              render={({ field }) => (
+                <ProjectDatePicker
+                  value={field.value ?? undefined}
+                  onChange={field.onChange}
+                  minDate={new Date(2000, 0, 1)}
+                />
+              )}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Optional forecast of when this will be resolved. Overdue uses this
+              date when set; otherwise due date.
+            </p>
           </div>
         </div>
       </div>
