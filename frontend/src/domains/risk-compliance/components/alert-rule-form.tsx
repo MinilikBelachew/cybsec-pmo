@@ -20,6 +20,7 @@ import {
   ALERT_CHANNELS,
   ALERT_ESCALATION_ROLE_CODES,
   ALERT_EVENT_TYPES,
+  ALERT_RECIPIENT_EXCLUDED_ROLE_CODES,
   createAlertRuleSchema,
   type AlertRuleFormValues,
 } from "../schemas/alert.schema";
@@ -68,6 +69,16 @@ export function AlertRuleForm({
       ),
     [roles],
   );
+  const recipientRoles = useMemo(
+    () =>
+      roles.filter(
+        (r) =>
+          !(ALERT_RECIPIENT_EXCLUDED_ROLE_CODES as readonly string[]).includes(
+            r.code,
+          ),
+      ),
+    [roles],
+  );
 
   const {
     register,
@@ -107,9 +118,9 @@ export function AlertRuleForm({
   const selectedRecipientLabels = useMemo(() => {
     if (recipientRoleIds.length === 0) return "None selected";
     return recipientRoleIds
-      .map((id) => roles.find((r) => r.id === id)?.label ?? String(id))
+      .map((id) => recipientRoles.find((r) => r.id === id)?.label ?? String(id))
       .join(", ");
-  }, [recipientRoleIds, roles]);
+  }, [recipientRoleIds, recipientRoles]);
 
   const onSubmit = handleSubmit(async (values) => {
     try {
@@ -339,12 +350,12 @@ export function AlertRuleForm({
                   errors.recipientRoleIds && "border-rose-500",
                 )}
               >
-                {roles.length === 0 ? (
+                {recipientRoles.length === 0 ? (
                   <span className="text-xs text-muted-foreground">
                     No roles available
                   </span>
                 ) : (
-                  roles.map((role) => {
+                  recipientRoles.map((role) => {
                     const checked = (field.value ?? []).includes(role.id);
                     return (
                       <label

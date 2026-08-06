@@ -18,6 +18,12 @@ export const ALERT_ESCALATION_ROLE_CODES = [
 
 export const ALERT_INSTANCE_ROLE_CODES = ALERT_ESCALATION_ROLE_CODES;
 
+/** External roles excluded from alert recipient role selection. */
+export const ALERT_RECIPIENT_EXCLUDED_ROLE_CODES = [
+  "client",
+  "vendor",
+] as const;
+
 export const createAlertRuleSchema = z
   .object({
     eventType: z.enum(ALERT_EVENT_TYPES, {
