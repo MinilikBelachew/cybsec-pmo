@@ -18,6 +18,7 @@ import { cn } from "@/shared/utils/cn";
 import { useCreateAlertRuleMutation } from "../api/alerts.api";
 import {
   ALERT_CHANNELS,
+  ALERT_ESCALATION_ROLE_CODES,
   ALERT_EVENT_TYPES,
   createAlertRuleSchema,
   type AlertRuleFormValues,
@@ -39,8 +40,6 @@ const DEFAULT_VALUES: AlertRuleFormValues = {
 const EVENT_TYPE_LABELS: Record<(typeof ALERT_EVENT_TYPES)[number], string> = {
   RISK_SCORE_BREACHED: "Risk score breached",
   ISSUE_ESCALATED: "Issue escalated",
-  ALERT_FIRED: "Alert fired",
-  ALERT_ESCALATED: "Alert escalated",
 };
 
 const CHANNEL_LABELS: Record<(typeof ALERT_CHANNELS)[number], string> = {
@@ -62,6 +61,14 @@ export function AlertRuleForm({
   onSuccess,
 }: AlertRuleFormProps) {
   const [createRule, { isLoading: isCreating }] = useCreateAlertRuleMutation();
+  const escalationRoles = useMemo(
+    () =>
+      roles.filter((r) =>
+        (ALERT_ESCALATION_ROLE_CODES as readonly string[]).includes(r.code),
+      ),
+    [roles],
+  );
+
   const {
     register,
     control,
@@ -75,7 +82,7 @@ export function AlertRuleForm({
     ) as import("react-hook-form").Resolver<AlertRuleFormValues>,
     defaultValues: {
       ...DEFAULT_VALUES,
-      escalationRole: roles[0]?.code ?? "",
+      escalationRole: escalationRoles[0]?.code ?? "",
     },
   });
 
@@ -83,18 +90,19 @@ export function AlertRuleForm({
     if (!open) return;
     reset({
       ...DEFAULT_VALUES,
-      escalationRole: roles[0]?.code ?? "",
+      escalationRole: escalationRoles[0]?.code ?? "",
     });
-  }, [open, roles, reset]);
+  }, [open, escalationRoles, reset]);
 
   const eventType = watch("eventType");
   const escalationRole = watch("escalationRole");
   const recipientRoleIds = watch("recipientRoleIds") ?? [];
+  const requiresScoreThreshold = eventType === "RISK_SCORE_BREACHED";
 
   const selectedEscalationLabel = useMemo(() => {
-    const role = roles.find((r) => r.code === escalationRole);
+    const role = escalationRoles.find((r) => r.code === escalationRole);
     return role ? role.label : escalationRole || undefined;
-  }, [roles, escalationRole]);
+  }, [escalationRoles, escalationRole]);
 
   const selectedRecipientLabels = useMemo(() => {
     if (recipientRoleIds.length === 0) return "None selected";
@@ -107,7 +115,10 @@ export function AlertRuleForm({
     try {
       await createRule({
         eventType: values.eventType,
-        thresholdConfig: { scoreGte: values.scoreThreshold },
+        thresholdConfig:
+          values.eventType === "RISK_SCORE_BREACHED"
+            ? { scoreGte: values.scoreThreshold }
+            : {},
         channels: values.channels,
         escalationRole: values.escalationRole,
         reminderCadenceHrs: values.reminderCadenceHrs,
@@ -180,21 +191,23 @@ export function AlertRuleForm({
             <p className={fieldErrorClass}>{errors.eventType.message}</p>
           )}
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">
-            Score threshold (≥){" "}
-            <span className="text-destructive font-bold">*</span>
-          </label>
-          <Input
-            type="number"
-            min={1}
-            {...register("scoreThreshold", { valueAsNumber: true })}
-            className={cn(errors.scoreThreshold && "border-rose-500")}
-          />
-          {errors.scoreThreshold && (
-            <p className={fieldErrorClass}>{errors.scoreThreshold.message}</p>
-          )}
-        </div>
+        {requiresScoreThreshold && (
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              Score threshold (≥){" "}
+              <span className="text-destructive font-bold">*</span>
+            </label>
+            <Input
+              type="number"
+              min={1}
+              {...register("scoreThreshold", { valueAsNumber: true })}
+              className={cn(errors.scoreThreshold && "border-rose-500")}
+            />
+            {errors.scoreThreshold && (
+              <p className={fieldErrorClass}>{errors.scoreThreshold.message}</p>
+            )}
+          </div>
+        )}
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
             Channels <span className="text-destructive font-bold">*</span>
@@ -262,12 +275,12 @@ export function AlertRuleForm({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.length === 0 ? (
+                  {escalationRoles.length === 0 ? (
                     <SelectItem value="__none" disabled>
                       No roles available
                     </SelectItem>
                   ) : (
-                    roles.map((role) => (
+                    escalationRoles.map((role) => (
                       <SelectItem key={role.id} value={role.code}>
                         {role.label}
                       </SelectItem>
@@ -313,13 +326,19 @@ export function AlertRuleForm({
         </div>
         <div className="space-y-1 md:col-span-2">
           <label className="text-xs text-muted-foreground">
-            Recipient roles ({selectedRecipientLabels})
+            Recipient roles ({selectedRecipientLabels}){" "}
+            <span className="text-destructive font-bold">*</span>
           </label>
           <Controller
             control={control}
             name="recipientRoleIds"
             render={({ field }) => (
-              <div className="flex flex-wrap gap-2 rounded-lg border border-border/60 p-2 max-h-32 overflow-y-auto">
+              <div
+                className={cn(
+                  "flex flex-wrap gap-2 rounded-lg border border-border/60 p-2 max-h-32 overflow-y-auto",
+                  errors.recipientRoleIds && "border-rose-500",
+                )}
+              >
                 {roles.length === 0 ? (
                   <span className="text-xs text-muted-foreground">
                     No roles available
@@ -352,6 +371,9 @@ export function AlertRuleForm({
               </div>
             )}
           />
+          {errors.recipientRoleIds && (
+            <p className={fieldErrorClass}>{errors.recipientRoleIds.message}</p>
+          )}
         </div>
       </div>
       </div>

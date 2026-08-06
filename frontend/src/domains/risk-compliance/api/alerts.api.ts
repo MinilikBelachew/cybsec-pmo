@@ -35,10 +35,24 @@ export const alertsApi = api.injectEndpoints({
 
     disableAlertRule: builder.mutation<void, string>({
       query: (id) => ({
+        url: `/alerts/catalogue/${id}/disable`,
+        method: "PATCH",
+      }),
+      invalidatesTags: [
+        { type: "AlertRules", id: "LIST" },
+        { type: "AlertEvents", id: "LIST" },
+      ],
+    }),
+
+    deleteAlertRule: builder.mutation<void, string>({
+      query: (id) => ({
         url: `/alerts/catalogue/${id}`,
         method: "DELETE",
       }),
-      invalidatesTags: [{ type: "AlertRules", id: "LIST" }],
+      invalidatesTags: [
+        { type: "AlertRules", id: "LIST" },
+        { type: "AlertEvents", id: "LIST" },
+      ],
     }),
 
     getAlertInstances: builder.query<AlertEvent[], { ruleId?: string } | void>({
@@ -65,6 +79,7 @@ export const {
   useCreateAlertRuleMutation,
   useUpdateAlertRuleMutation,
   useDisableAlertRuleMutation,
+  useDeleteAlertRuleMutation,
   useGetAlertInstancesQuery,
   useAcknowledgeAlertEventMutation,
 } = alertsApi;

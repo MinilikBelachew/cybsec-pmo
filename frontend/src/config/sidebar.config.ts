@@ -179,6 +179,7 @@ export const sidebarNav: NavSection[] = [
         icon: Bell,
         href: "/dashboard/alerts",
         permission: { action: "read", subject: "Notification" },
+        roles: ["pm", "pmo_lead", "team_lead", "super_admin", "it_admin"],
       },
       {
         id: "escalations",

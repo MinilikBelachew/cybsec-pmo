@@ -449,6 +449,7 @@ export class IssuesService {
         projectId: issue.projectId,
         issueId: issue.id,
         priority: issue.priority,
+        link: '/dashboard/alerts',
       },
       sourceObjectType: 'Issue',
       sourceObjectId: issue.id,
@@ -466,6 +467,7 @@ export class IssuesService {
         projectId: issue.projectId,
         issueId: issue.id,
         priority: issue.priority,
+        link: '/dashboard/alerts',
       },
       actorId,
     });

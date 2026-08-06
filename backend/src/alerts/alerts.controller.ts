@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -28,6 +29,12 @@ import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
 import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { ModulePermissionGuard } from '../casl/module-permission.guard';
+import { Roles } from '../roles/roles.decorator';
+import { RolesGuard } from '../roles/roles.guard';
+import {
+  ALERT_INSTANCE_ROLE_CODES,
+  isAlertInstanceRole,
+} from './alert-roles.constants';
 import { AlertsService } from './alerts.service';
 import {
   AcknowledgeAlertEventDto,
@@ -75,22 +82,39 @@ export class AlertsController {
 
   @CheckAbility('manage', 'Notification')
   @CheckModulePermission('notifications', 'manage')
-  @Delete('catalogue/:id')
+  @Patch('catalogue/:id/disable')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiNoContentResponse()
   disable(@Param('id') id: string): Promise<void> {
     return this.alertsService.disableRule(id);
   }
 
+  @CheckAbility('manage', 'Notification')
+  @CheckModulePermission('notifications', 'manage')
+  @Delete('catalogue/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse()
+  remove(@Param('id') id: string): Promise<void> {
+    return this.alertsService.deleteRule(id);
+  }
+
+  @Roles(...ALERT_INSTANCE_ROLE_CODES)
+  @UseGuards(RolesGuard)
   @CheckAbility('read', 'Notification')
   @CheckModulePermission('notifications', 'view')
   @Get('instances')
   @ApiQuery({ name: 'ruleId', required: false })
   @ApiOkResponse({ type: [AlertEventDto] })
-  listInstances(@Query('ruleId') ruleId?: string): Promise<AlertEventDto[]> {
+  listInstances(
+    @Query('ruleId') ruleId: string | undefined,
+    @Request() request: RequestWithAbility,
+  ): Promise<AlertEventDto[]> {
+    this.assertInstanceRole(request);
     return this.alertsService.listInstances({ ruleId });
   }
 
+  @Roles(...ALERT_INSTANCE_ROLE_CODES)
+  @UseGuards(RolesGuard)
   @CheckAbility('read', 'Notification')
   @CheckModulePermission('notifications', 'view')
   @Patch('instances/:id/acknowledge')
@@ -100,6 +124,16 @@ export class AlertsController {
     @Body() dto: AcknowledgeAlertEventDto,
     @Request() request: RequestWithAbility,
   ): Promise<AlertEventDto> {
+    this.assertInstanceRole(request);
     return this.alertsService.acknowledge(id, request.user!.id, dto);
+  }
+
+  private assertInstanceRole(request: RequestWithAbility): void {
+    const roleCode = request.user?.role?.code ?? request.user?.roleCode;
+    if (!isAlertInstanceRole(roleCode)) {
+      throw new ForbiddenException(
+        'Only PM, PMO Lead, Team Lead, Super Admin, and IT Admin can access alert instances',
+      );
+    }
   }
 }

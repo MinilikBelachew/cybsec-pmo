@@ -5,6 +5,7 @@
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { isAlertEscalationRole } from './alert-roles.constants';
 import {
   AcknowledgeAlertEventDto,
   AlertEventDto,
@@ -41,7 +42,11 @@ export class AlertsService {
     if (!dto.channels?.length) {
       throw new BadRequestException('At least one channel is required');
     }
-    await this.assertRolesExist(dto.recipientRoleIds ?? []);
+    if (!dto.recipientRoleIds?.length) {
+      throw new BadRequestException('At least one recipient role is required');
+    }
+    this.assertEscalationRole(dto.escalationRole);
+    await this.assertRolesExist(dto.recipientRoleIds);
 
     const created = await this.prisma.alertRule.create({
       data: {
@@ -75,7 +80,13 @@ export class AlertsService {
       throw new NotFoundException('Alert rule not found');
     }
 
+    if (dto.escalationRole !== undefined) {
+      this.assertEscalationRole(dto.escalationRole);
+    }
     if (dto.recipientRoleIds) {
+      if (dto.recipientRoleIds.length === 0) {
+        throw new BadRequestException('At least one recipient role is required');
+      }
       await this.assertRolesExist(dto.recipientRoleIds);
     }
 
@@ -139,6 +150,23 @@ export class AlertsService {
     });
   }
 
+  /** Permanently remove a catalogue rule and its events / recipients. */
+  async deleteRule(ruleId: string): Promise<void> {
+    const existing = await this.prisma.alertRule.findUnique({
+      where: { id: ruleId },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Alert rule not found');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.alertEvent.deleteMany({ where: { ruleId } });
+      await tx.alertRuleRecipient.deleteMany({ where: { ruleId } });
+      await tx.alertRule.delete({ where: { id: ruleId } });
+    });
+  }
+
   async listInstances(filters?: {
     ruleId?: string;
   }): Promise<AlertEventDto[]> {
@@ -152,12 +180,18 @@ export class AlertsService {
       orderBy: { firedAt: 'desc' },
       take: 200,
     });
+
+    const titleByKey = await this.resolveObjectTitles(rows);
+
     return rows.map((row) => ({
       id: row.id,
       ruleId: row.ruleId,
       eventType: row.rule.eventType,
       objectType: row.objectType,
       objectId: row.objectId,
+      objectTitle: row.objectId
+        ? (titleByKey.get(`${row.objectType}:${row.objectId}`) ?? null)
+        : null,
       channel: row.channel,
       deliveryStatus: row.deliveryStatus,
       acknowledgedBy: row.acknowledgedBy,
@@ -192,12 +226,17 @@ export class AlertsService {
       include: { rule: { select: { eventType: true } } },
     });
 
+    const titleByKey = await this.resolveObjectTitles([updated]);
+
     return {
       id: updated.id,
       ruleId: updated.ruleId,
       eventType: updated.rule.eventType,
       objectType: updated.objectType,
       objectId: updated.objectId,
+      objectTitle: updated.objectId
+        ? (titleByKey.get(`${updated.objectType}:${updated.objectId}`) ?? null)
+        : null,
       channel: updated.channel,
       deliveryStatus: updated.deliveryStatus,
       acknowledgedBy: updated.acknowledgedBy,
@@ -206,6 +245,47 @@ export class AlertsService {
       ackedAt: updated.ackedAt?.toISOString() ?? null,
       nextReminderAt: updated.nextReminderAt?.toISOString() ?? null,
     };
+  }
+
+  private async resolveObjectTitles(
+    rows: Array<{ objectType: string; objectId: string | null }>,
+  ): Promise<Map<string, string>> {
+    const riskIds = new Set<string>();
+    const issueIds = new Set<string>();
+    for (const row of rows) {
+      if (!row.objectId) continue;
+      if (row.objectType === 'Risk') riskIds.add(row.objectId);
+      if (row.objectType === 'Issue') issueIds.add(row.objectId);
+    }
+
+    const map = new Map<string, string>();
+    if (riskIds.size > 0) {
+      const risks = await this.prisma.risk.findMany({
+        where: { id: { in: Array.from(riskIds) } },
+        select: { id: true, title: true },
+      });
+      for (const risk of risks) {
+        map.set(`Risk:${risk.id}`, risk.title);
+      }
+    }
+    if (issueIds.size > 0) {
+      const issues = await this.prisma.issue.findMany({
+        where: { id: { in: Array.from(issueIds) } },
+        select: { id: true, title: true },
+      });
+      for (const issue of issues) {
+        map.set(`Issue:${issue.id}`, issue.title);
+      }
+    }
+    return map;
+  }
+
+  private assertEscalationRole(roleCode: string): void {
+    if (!isAlertEscalationRole(roleCode.trim())) {
+      throw new BadRequestException(
+        'Escalation role must be pm, pmo_lead, team_lead, super_admin, or it_admin',
+      );
+    }
   }
 
   private async assertRolesExist(roleIds: number[]): Promise<void> {
