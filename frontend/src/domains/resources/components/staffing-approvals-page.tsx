@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { type SortingState } from "@tanstack/react-table";
-import { CheckCircle2, Loader2, Search, X } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
@@ -11,6 +11,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { getApiErrorMessage } from "@/core/errors/api-error";
+import { TASKS_POLLING_INTERVAL_MS } from "@/domains/projects/constants/tasks-polling";
 import {
   useApproveAllocationMutation,
   useGetAllocationApprovalsQuery,
@@ -19,11 +20,18 @@ import {
 import type { AllocationApprovalRow } from "../types/resources.types";
 import type { ColumnDef } from "@tanstack/react-table";
 
+type PendingAction = {
+  id: string;
+  type: "approve" | "reject";
+};
+
 export function StaffingApprovalsPage() {
   const [search, setSearch] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [sorting, setSorting] = useState<SortingState>([{ id: "requestedAt", desc: true }]);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const debouncedSearch = useDebounce(search, 300);
 
   const activeSort = sorting[0];
@@ -34,42 +42,68 @@ export function StaffingApprovalsPage() {
       ? activeSort.id
       : "requestedAt";
 
-  const { data, isLoading, isFetching, refetch } = useGetAllocationApprovalsQuery({
-    search: debouncedSearch.trim() || undefined,
-    page: pageIndex + 1,
-    limit: pageSize,
-    sortBy,
-    sortOrder: activeSort?.desc ? "desc" : "asc",
-  });
+  const { data, isLoading, refetch } = useGetAllocationApprovalsQuery(
+    {
+      search: debouncedSearch.trim() || undefined,
+      page: pageIndex + 1,
+      limit: pageSize,
+      sortBy,
+      sortOrder: activeSort?.desc ? "desc" : "asc",
+    },
+    { pollingInterval: TASKS_POLLING_INTERVAL_MS },
+  );
 
-  const [approveAllocation, { isLoading: isApproving }] = useApproveAllocationMutation();
-  const [rejectAllocation, { isLoading: isRejecting }] = useRejectAllocationMutation();
+  const [approveAllocation] = useApproveAllocationMutation();
+  const [rejectAllocation] = useRejectAllocationMutation();
 
   const total = data?.total ?? 0;
   const pageCount = Math.ceil(total / pageSize) || 0;
 
-  const handleApprove = async (row: AllocationApprovalRow) => {
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
     try {
-      const result = await approveAllocation(row.id).unwrap();
-      toast.success(
-        result.kekaSyncRef
-          ? `Approved and synced to Keka (${result.kekaSyncRef})`
-          : "Staffing request approved",
-      );
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, "Could not approve staffing request"));
+      await refetch();
+    } finally {
+      setIsRefreshing(false);
     }
-  };
+  }, [refetch]);
 
-  const handleReject = async (id: string, comment: string) => {
-    try {
-      await rejectAllocation({ id, comment: comment.trim() || undefined }).unwrap();
-      toast.success("Staffing request rejected");
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, "Could not reject staffing request"));
-      throw error;
-    }
-  };
+  const handleApprove = useCallback(
+    async (row: AllocationApprovalRow) => {
+      setPendingAction({ id: row.id, type: "approve" });
+      try {
+        const result = await approveAllocation(row.id).unwrap();
+        toast.success(
+          result.kekaSyncRef
+            ? `Approved and synced to Keka (${result.kekaSyncRef})`
+            : "Staffing request approved",
+        );
+        await refetch();
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, "Could not approve staffing request"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [approveAllocation, refetch],
+  );
+
+  const handleReject = useCallback(
+    async (id: string, comment: string) => {
+      setPendingAction({ id, type: "reject" });
+      try {
+        await rejectAllocation({ id, comment: comment.trim() || undefined }).unwrap();
+        toast.success("Staffing request rejected");
+        await refetch();
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, "Could not reject staffing request"));
+        throw error;
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [rejectAllocation, refetch],
+  );
 
   const columns = useMemo<ColumnDef<AllocationApprovalRow>[]>(
     () => [
@@ -140,18 +174,26 @@ export function StaffingApprovalsPage() {
         id: "actions",
         header: "",
         enableSorting: false,
-        cell: ({ row }) => (
-          <AllocationApprovalActions
-            item={row.original}
-            isApproving={isApproving}
-            isRejecting={isRejecting}
-            onApprove={handleApprove}
-            onReject={handleReject}
-          />
-        ),
+        cell: ({ row }) => {
+          const item = row.original;
+          const isApproving =
+            pendingAction?.id === item.id && pendingAction.type === "approve";
+          const isRejecting =
+            pendingAction?.id === item.id && pendingAction.type === "reject";
+          return (
+            <AllocationApprovalActions
+              item={item}
+              isApproving={isApproving}
+              isRejecting={isRejecting}
+              isBusy={pendingAction?.id === item.id}
+              onApprove={handleApprove}
+              onReject={handleReject}
+            />
+          );
+        },
       },
     ],
-    [isApproving, isRejecting],
+    [handleApprove, handleReject, pendingAction],
   );
 
   return (
@@ -163,10 +205,16 @@ export function StaffingApprovalsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void refetch()}
-            disabled={isFetching}
+            className="gap-1.5"
+            onClick={() => void handleRefresh()}
+            disabled={isRefreshing}
           >
-            {isFetching ? <Loader2 className="size-3.5 animate-spin" /> : "Refresh"}
+            {isRefreshing ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
+            Refresh
           </Button>
         }
       />
@@ -206,12 +254,14 @@ function AllocationApprovalActions({
   item,
   isApproving,
   isRejecting,
+  isBusy,
   onApprove,
   onReject,
 }: {
   item: AllocationApprovalRow;
   isApproving: boolean;
   isRejecting: boolean;
+  isBusy: boolean;
   onApprove: (row: AllocationApprovalRow) => Promise<void>;
   onReject: (id: string, comment: string) => Promise<void>;
 }) {
@@ -219,6 +269,7 @@ function AllocationApprovalActions({
   const [rejectComment, setRejectComment] = useState("");
 
   const closeReject = () => {
+    if (isRejecting) return;
     setRejectOpen(false);
     setRejectComment("");
   };
@@ -233,22 +284,38 @@ function AllocationApprovalActions({
             placeholder="Rejection reason (optional)"
             className="h-8 text-xs"
             autoFocus
+            disabled={isRejecting}
           />
           <div className="flex justify-end gap-1">
-            <Button type="button" size="sm" variant="ghost" onClick={closeReject}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={isRejecting}
+              onClick={closeReject}
+            >
               Cancel
             </Button>
             <Button
               type="button"
               size="sm"
               variant="destructive"
+              className="gap-1"
               disabled={isRejecting}
               onClick={() => {
                 void onReject(item.id, rejectComment)
-                  .then(() => closeReject())
+                  .then(() => {
+                    setRejectOpen(false);
+                    setRejectComment("");
+                  })
                   .catch(() => undefined);
               }}
             >
+              {isRejecting ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <X className="size-3.5" />
+              )}
               Confirm reject
             </Button>
           </div>
@@ -263,11 +330,15 @@ function AllocationApprovalActions({
         type="button"
         size="sm"
         className="gap-1"
-        disabled={isApproving}
+        disabled={isBusy}
         onClick={() => void onApprove(item)}
         data-testid="staffing-approve"
       >
-        <CheckCircle2 className="size-3.5" />
+        {isApproving ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <CheckCircle2 className="size-3.5" />
+        )}
         Approve
       </Button>
       <Button
@@ -275,6 +346,7 @@ function AllocationApprovalActions({
         size="sm"
         variant="outline"
         className="gap-1"
+        disabled={isBusy}
         onClick={() => setRejectOpen(true)}
         data-testid="staffing-reject"
       >

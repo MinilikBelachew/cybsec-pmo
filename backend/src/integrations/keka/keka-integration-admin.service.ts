@@ -191,13 +191,48 @@ export class KekaIntegrationAdminService {
           errorMsg: true,
           retryCount: true,
           createdAt: true,
+          payload: true,
         },
       }),
       this.prisma.kekaSyncLog.count({ where }),
     ]);
 
+    const contextByKey = await this.resolveEntityContext(
+      rows.map((row) => ({
+        entityType: row.entityType,
+        entityId: row.entityId,
+        payload: row.payload,
+      })),
+    );
+
     return {
-      data: rows,
+      data: rows.map((row) => {
+        const context =
+          contextByKey.get(entityContextKey(row.entityType, row.entityId)) ??
+          emptyEntityContext(row.payload);
+        return {
+          id: row.id,
+          entityType: row.entityType,
+          entityId: row.entityId,
+          direction: row.direction,
+          status: row.status,
+          errorMsg: row.errorMsg,
+          retryCount: row.retryCount,
+          createdAt: row.createdAt,
+          payload: row.payload ?? null,
+          entityName: context.entityName,
+          projectId: context.projectId,
+          projectName: context.projectName,
+          summary: buildSyncLogSummary({
+            entityType: row.entityType,
+            direction: row.direction,
+            status: row.status,
+            entityName: context.entityName,
+            projectName: context.projectName,
+            errorMsg: row.errorMsg,
+          }),
+        };
+      }),
       page,
       limit,
       total,
@@ -231,8 +266,23 @@ export class KekaIntegrationAdminService {
       }),
     ]);
 
+    const contextByKey = await this.resolveEntityContext(
+      rows.map((row) => ({
+        entityType: row.entityType,
+        entityId: row.entityId,
+        payload: row.payload,
+      })),
+    );
+
     return {
-      data: rows.map((row) => this.mapFailedSyncRow(row)),
+      data: rows.map((row) =>
+        this.mapFailedSyncRow(
+          row,
+          contextByKey.get(
+            entityContextKey(row.entityType, row.entityId),
+          ) ?? emptyEntityContext(row.payload),
+        ),
+      ),
       page,
       limit,
       total,
@@ -622,10 +672,12 @@ export class KekaIntegrationAdminService {
     row: Prisma.FailedSyncRecordGetPayload<{
       include: { resolver: { select: { displayName: true } } };
     }>,
+    context?: EntityContext,
   ): FailedSyncRecordRowDto {
     const isDeadLetter =
       row.deadLetteredAt != null ||
       row.failureClass === KEKA_FAILURE_CLASS.PERMANENT;
+    const resolved = context ?? emptyEntityContext(row.payload);
 
     return {
       id: row.id,
@@ -643,8 +695,291 @@ export class KekaIntegrationAdminService {
       resolvedAt: row.resolvedAt,
       lastAttempted: row.lastAttempted,
       createdAt: row.createdAt,
+      payload: row.payload ?? null,
+      entityName: resolved.entityName,
+      projectId: resolved.projectId,
+      projectName: resolved.projectName,
     };
   }
+
+  private async resolveEntityContext(
+    rows: Array<{
+      entityType: string;
+      entityId: string | null;
+      payload: Prisma.JsonValue | null;
+    }>,
+  ): Promise<Map<string, EntityContext>> {
+    const result = new Map<string, EntityContext>();
+    if (rows.length === 0) return result;
+
+    const idsByType = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const id = row.entityId?.trim();
+      if (!id) continue;
+      const set = idsByType.get(row.entityType) ?? new Set<string>();
+      set.add(id);
+      idsByType.set(row.entityType, set);
+    }
+
+    const projectIds = [
+      ...(idsByType.get(KEKA_ENTITY_TYPE.PROJECT) ?? []),
+    ].filter(isUuid);
+    const taskIds = [...(idsByType.get(KEKA_ENTITY_TYPE.TASK) ?? [])].filter(
+      isUuid,
+    );
+    const clientIds = [...(idsByType.get(KEKA_ENTITY_TYPE.CLIENT) ?? [])];
+    const clientUuids = clientIds.filter(isUuid);
+    const employeeIds = [
+      ...(idsByType.get(KEKA_ENTITY_TYPE.EMPLOYEE) ?? []),
+    ];
+    const employeeUuids = employeeIds.filter(isUuid);
+    const departmentIds = [
+      ...(idsByType.get(KEKA_ENTITY_TYPE.DEPARTMENT) ?? []),
+    ].filter(isUuid);
+
+    const emptyProjects: Array<{ id: string; name: string }> = [];
+    const emptyTasks: Array<{
+      id: string;
+      title: string;
+      projectId: string;
+      project: { name: string };
+    }> = [];
+    const emptyCustomers: Array<{
+      id: string;
+      displayName: string;
+      kekaClientId: string | null;
+    }> = [];
+    const emptyEmployees: Array<{
+      id: string;
+      name: string;
+      displayName: string | null;
+      kekaEmployeeId: string;
+    }> = [];
+    const emptyDepartments: Array<{ id: string; name: string }> = [];
+
+    const [projects, tasks, customers, employees, departments] =
+      await Promise.all([
+        projectIds.length
+          ? this.prisma.project.findMany({
+              where: { id: { in: projectIds } },
+              select: { id: true, name: true },
+            })
+          : Promise.resolve(emptyProjects),
+        taskIds.length
+          ? this.prisma.task.findMany({
+              where: { id: { in: taskIds } },
+              select: {
+                id: true,
+                title: true,
+                projectId: true,
+                project: { select: { name: true } },
+              },
+            })
+          : Promise.resolve(emptyTasks),
+        clientIds.length
+          ? this.prisma.customer.findMany({
+              where: {
+                OR: [
+                  ...(clientUuids.length
+                    ? [{ id: { in: clientUuids } }]
+                    : []),
+                  { kekaClientId: { in: clientIds } },
+                ],
+              },
+              select: {
+                id: true,
+                displayName: true,
+                kekaClientId: true,
+              },
+            })
+          : Promise.resolve(emptyCustomers),
+        employeeIds.length
+          ? this.prisma.employee.findMany({
+              where: {
+                OR: [
+                  ...(employeeUuids.length
+                    ? [{ id: { in: employeeUuids } }]
+                    : []),
+                  { kekaEmployeeId: { in: employeeIds } },
+                ],
+              },
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                kekaEmployeeId: true,
+              },
+            })
+          : Promise.resolve(emptyEmployees),
+        departmentIds.length
+          ? this.prisma.department.findMany({
+              where: { id: { in: departmentIds } },
+              select: { id: true, name: true },
+            })
+          : Promise.resolve(emptyDepartments),
+      ]);
+
+    const projectById = new Map(
+      projects.map((p) => [p.id, p] as const),
+    );
+    const taskById = new Map(tasks.map((t) => [t.id, t] as const));
+    const customerById = new Map<string, (typeof customers)[number]>();
+    for (const customer of customers) {
+      customerById.set(customer.id, customer);
+      if (customer.kekaClientId) {
+        customerById.set(customer.kekaClientId, customer);
+      }
+    }
+    const employeeById = new Map<string, (typeof employees)[number]>();
+    for (const employee of employees) {
+      employeeById.set(employee.id, employee);
+      employeeById.set(employee.kekaEmployeeId, employee);
+    }
+    const departmentById = new Map(
+      departments.map((d) => [d.id, d] as const),
+    );
+
+    for (const row of rows) {
+      const entityId = row.entityId?.trim() ?? '';
+      const key = entityContextKey(row.entityType, entityId || null);
+      const fromPayload = emptyEntityContext(row.payload);
+      let entityName = fromPayload.entityName;
+      let projectId = fromPayload.projectId;
+      let projectName = fromPayload.projectName;
+
+      switch (row.entityType) {
+        case KEKA_ENTITY_TYPE.PROJECT: {
+          const project = projectById.get(entityId);
+          if (project) {
+            entityName = project.name;
+            projectId = project.id;
+            projectName = project.name;
+          }
+          break;
+        }
+        case KEKA_ENTITY_TYPE.TASK: {
+          const task = taskById.get(entityId);
+          if (task) {
+            entityName = task.title;
+            projectId = task.projectId;
+            projectName = task.project.name;
+          }
+          break;
+        }
+        case KEKA_ENTITY_TYPE.CLIENT: {
+          const customer = customerById.get(entityId);
+          if (customer) {
+            entityName = customer.displayName;
+          }
+          break;
+        }
+        case KEKA_ENTITY_TYPE.EMPLOYEE: {
+          const employee = employeeById.get(entityId);
+          if (employee) {
+            entityName = employee.displayName?.trim() || employee.name;
+          }
+          break;
+        }
+        case KEKA_ENTITY_TYPE.DEPARTMENT: {
+          const department = departmentById.get(entityId);
+          if (department) {
+            entityName = department.name;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+
+      result.set(key, { entityName, projectId, projectName });
+    }
+
+    return result;
+  }
+}
+
+type EntityContext = {
+  entityName: string | null;
+  projectId: string | null;
+  projectName: string | null;
+};
+
+function entityContextKey(
+  entityType: string,
+  entityId: string | null,
+): string {
+  return `${entityType}:${entityId ?? ''}`;
+}
+
+function emptyEntityContext(
+  payload: Prisma.JsonValue | null | undefined,
+): EntityContext {
+  return {
+    entityName: pickPayloadString(payload, [
+      'name',
+      'title',
+      'displayName',
+      'companyName',
+    ]),
+    projectId: pickPayloadString(payload, ['projectId']),
+    projectName: pickPayloadString(payload, ['projectName']),
+  };
+}
+
+function pickPayloadString(
+  payload: Prisma.JsonValue | null | undefined,
+  keys: string[],
+): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+  const row = payload as Record<string, unknown>;
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
+function buildSyncLogSummary(input: {
+  entityType: string;
+  direction: string;
+  status: string;
+  entityName: string | null;
+  projectName: string | null;
+  errorMsg: string | null;
+}): string {
+  const label = input.entityName?.trim() || input.entityType;
+  const projectBit = input.projectName
+    ? ` in project "${input.projectName}"`
+    : '';
+  const directionBit =
+    input.direction === KEKA_SYNC_DIRECTION.OUTBOUND
+      ? 'to Keka'
+      : input.direction === KEKA_SYNC_DIRECTION.INBOUND
+        ? 'from Keka'
+        : input.direction;
+
+  if (input.status === KEKA_SYNC_STATUS.FAILED) {
+    const reason = input.errorMsg?.trim();
+    return reason
+      ? `Failed syncing ${label}${projectBit} ${directionBit}: ${reason}`
+      : `Failed syncing ${label}${projectBit} ${directionBit}`;
+  }
+
+  if (input.status === KEKA_SYNC_STATUS.PENDING) {
+    return `Pending sync for ${label}${projectBit} ${directionBit}`;
+  }
+
+  return `Synced ${label}${projectBit} ${directionBit}`;
 }
 
 function parseDateOnly(value: string): Date {

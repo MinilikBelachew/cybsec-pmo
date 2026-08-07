@@ -63,6 +63,7 @@ import {
   KEKA_SYNC_JOB_POLLING_INTERVAL_MS,
 } from "../../constants/integration-polling";
 import { RECONCILE_STATUS_CONFIG } from "@/domains/reports/utils/utilization-ui.config";
+import { KekaSyncLogDetailSheet } from "./keka-sync-log-detail-sheet";
 
 type IntegrationSubTab = "logs" | "failures";
 
@@ -122,6 +123,11 @@ function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function capitalizeLabel(value: string) {
+  if (!value) return value;
+  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatSyncTimestamp(value: string | null | undefined) {
@@ -257,6 +263,8 @@ export function KekaIntegrationPanel() {
     "all" | "pending" | "dead_letter"
   >("all");
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [selectedLog, setSelectedLog] = useState<KekaSyncLogEntry | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeSyncJob, setActiveSyncJob] = useState<ActiveSyncJob | null>(null);
   const handledJobOutcomeRef = useRef<string | null>(null);
 
@@ -364,17 +372,20 @@ export function KekaIntegrationPanel() {
     reconcilingTimesheets;
 
   const activeQuery = subTab === "logs" ? logsQuery : failuresQuery;
-  const isFetching =
-    activeQuery.isFetching ||
-    syncStatusQuery.isFetching ||
-    reconcileQuery.isFetching;
   const hasFailuresError = subTab === "failures" && Boolean(failuresQuery.error);
   const syncStatus = syncStatusQuery.data;
 
-  const refetchAll = useCallback(() => {
-    void syncStatusQuery.refetch();
-    void reconcileQuery.refetch();
-    void activeQuery.refetch();
+  const refetchAll = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        syncStatusQuery.refetch(),
+        reconcileQuery.refetch(),
+        activeQuery.refetch(),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
   }, [activeQuery, reconcileQuery, syncStatusQuery]);
 
   useEffect(() => {
@@ -403,9 +414,16 @@ export function KekaIntegrationPanel() {
       }
 
       setActiveSyncJob(null);
-      refetchAll();
+      void refetchAll();
     }
   }, [activeSyncJob, jobStatusQuery.data, refetchAll]);
+
+  const selectedLogId = selectedLog?.id;
+  useEffect(() => {
+    if (!selectedLogId) return;
+    const next = logsQuery.data?.data.find((row) => row.id === selectedLogId);
+    if (next) setSelectedLog(next);
+  }, [logsQuery.data, selectedLogId]);
 
   const jobProgressLabel = useMemo(() => {
     if (!activeSyncJob) return null;
@@ -470,10 +488,10 @@ export function KekaIntegrationPanel() {
           variant="outline"
           size="sm"
           className="gap-1.5"
-          disabled={isFetching}
-          onClick={() => refetchAll()}
+          disabled={isRefreshing}
+          onClick={() => void refetchAll()}
         >
-          {isFetching ? (
+          {isRefreshing ? (
             <Loader2 className="size-3.5 animate-spin" />
           ) : (
             <RefreshCw className="size-3.5" />
@@ -520,8 +538,7 @@ export function KekaIntegrationPanel() {
 
   const handleRetryLog = useCallback(
     async (log: KekaSyncLogEntry) => {
-      const key = `${log.entityType}:${log.entityId}`;
-      setRetryingId(key);
+      setRetryingId(log.id);
       try {
         const result = await retrySync({
           entityType: log.entityType,
@@ -553,20 +570,22 @@ export function KekaIntegrationPanel() {
         ),
       },
       {
-        accessorKey: "entityType",
+        id: "entity",
         header: "Entity",
-        cell: ({ row }) => (
-          <span className="text-sm font-medium capitalize">{row.original.entityType}</span>
-        ),
-      },
-      {
-        accessorKey: "entityId",
-        header: "Entity ID",
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {row.original.entityId.slice(0, 8)}…
-          </span>
-        ),
+        cell: ({ row }) => {
+          const { entityType, entityName, projectName } = row.original;
+          return (
+            <div className="min-w-0 max-w-[240px]">
+              <p className="truncate text-sm font-medium">
+                {entityName?.trim() || capitalizeLabel(entityType)}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {capitalizeLabel(entityType)}
+                {projectName ? ` · ${projectName}` : ""}
+              </p>
+            </div>
+          );
+        },
       },
       {
         accessorKey: "direction",
@@ -590,21 +609,22 @@ export function KekaIntegrationPanel() {
         ),
       },
       {
-        accessorKey: "errorMsg",
-        header: "Error",
+        id: "summary",
+        header: "What happened",
         cell: ({ row }) => {
-          const errorMsg = row.original.errorMsg;
-          if (!errorMsg) {
-            return (
-              <span className="text-xs text-muted-foreground">—</span>
-            );
+          const summary =
+            row.original.summary?.trim() ||
+            row.original.errorMsg?.trim() ||
+            null;
+          if (!summary) {
+            return <span className="text-xs text-muted-foreground">—</span>;
           }
           return (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <span className="line-clamp-2 max-w-xs cursor-default text-xs text-muted-foreground">
-                    {errorMsg}
+                    {summary}
                   </span>
                 }
               />
@@ -613,7 +633,7 @@ export function KekaIntegrationPanel() {
                 sideOffset={6}
                 className="max-w-md whitespace-pre-wrap break-words text-left"
               >
-                {errorMsg}
+                {summary}
               </TooltipContent>
             </Tooltip>
           );
@@ -629,18 +649,20 @@ export function KekaIntegrationPanel() {
           if (row.original.status !== "failed") {
             return <span className="block text-right text-xs text-muted-foreground">—</span>;
           }
-          const key = `${row.original.entityType}:${row.original.entityId}`;
           return (
             <div className="flex justify-end">
               <Button
                 variant="outline"
                 size="sm"
                 className="h-7 gap-1 text-xs"
-                disabled={retryingId === key}
-                onClick={() => void handleRetryLog(row.original)}
+                disabled={retryingId === row.original.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleRetryLog(row.original);
+                }}
                 data-testid="keka-retry"
               >
-                {retryingId === key ? (
+                {retryingId === row.original.id ? (
                   <Loader2 className="size-3 animate-spin" />
                 ) : (
                   <RotateCcw className="size-3" />
@@ -677,9 +699,20 @@ export function KekaIntegrationPanel() {
       {
         accessorKey: "entityType",
         header: "Entity",
-        cell: ({ row }) => (
-          <span className="text-sm capitalize">{row.original.entityType}</span>
-        ),
+        cell: ({ row }) => {
+          const { entityType, entityName, projectName } = row.original;
+          return (
+            <div className="min-w-0 max-w-[240px]">
+              <p className="truncate text-sm font-medium">
+                {entityName?.trim() || capitalizeLabel(entityType)}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {capitalizeLabel(entityType)}
+                {projectName ? ` · ${projectName}` : ""}
+              </p>
+            </div>
+          );
+        },
       },
       {
         accessorKey: "entityId",
@@ -780,7 +813,10 @@ export function KekaIntegrationPanel() {
                 size="sm"
                 className="h-7 gap-1 text-xs"
                 disabled={retryingId === row.original.id}
-                onClick={() => void handleRetryRecord(row.original)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleRetryRecord(row.original);
+                }}
                 data-testid="keka-retry"
               >
                 {retryingId === row.original.id ? (
@@ -841,9 +877,10 @@ export function KekaIntegrationPanel() {
               </p>
             )}
           </div>
-          {(reconcileQuery.isLoading || reconcileQuery.isFetching) && (
+          {(reconcileQuery.isLoading && !reconcileResult) ||
+          reconcilingTimesheets ? (
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          )}
+          ) : null}
         </div>
 
         {reconcileResult ? (
@@ -1278,10 +1315,10 @@ export function KekaIntegrationPanel() {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              disabled={isFetching}
-              onClick={() => refetchAll()}
+              disabled={isRefreshing}
+              onClick={() => void refetchAll()}
             >
-              {isFetching ? (
+              {isRefreshing ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <RefreshCw className="size-3.5" />
@@ -1302,6 +1339,7 @@ export function KekaIntegrationPanel() {
           totalRows={logsQuery.data?.total ?? 0}
           isLoading={logsQuery.isLoading}
           emptyMessage="No Keka sync log entries match your filters."
+          onRowClick={(row) => setSelectedLog(row)}
         />
       ) : (
         <DataTable
@@ -1326,6 +1364,17 @@ export function KekaIntegrationPanel() {
           No unresolved Keka sync failures.
         </div>
       )}
+
+      <KekaSyncLogDetailSheet
+        entry={selectedLog}
+        open={Boolean(selectedLog)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedLog(null);
+        }}
+        canRetry={canConfigureIntegrations}
+        isRetrying={Boolean(selectedLog && retryingId === selectedLog.id)}
+        onRetry={(entry) => void handleRetryLog(entry)}
+      />
     </div>
   );
 }

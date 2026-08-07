@@ -79,6 +79,27 @@ export class KekaSyncLogRowDto {
 
   @ApiProperty()
   createdAt: Date;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Stored sync request/response context' })
+  payload: unknown | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Resolved local display name for the entity when available',
+  })
+  entityName: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectName: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Short human-readable description of what happened',
+  })
+  summary: string | null;
 }
 
 export class KekaSyncLogListResponseDto {
@@ -152,6 +173,18 @@ export class FailedSyncRecordRowDto {
 
   @ApiProperty()
   integration: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  payload?: unknown | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  entityName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectName?: string | null;
 
   @ApiProperty()
   entityType: string;

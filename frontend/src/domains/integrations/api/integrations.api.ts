@@ -58,7 +58,7 @@ export const integrationsApi = api.injectEndpoints({
       query: () => ({
         url: "/audit/integrations/keka/sync-status",
       }),
-      providesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      providesTags: ["KekaSyncStatus"],
     }),
 
     getKekaSyncJobStatus: builder.query<KekaSyncJobStatusResponse, string>({
@@ -113,7 +113,12 @@ export const integrationsApi = api.injectEndpoints({
         method: "POST",
         body,
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "TimesheetApprovals"],
+      invalidatesTags: [
+        "KekaSyncLogs",
+        "FailedSyncRecords",
+        "KekaSyncStatus",
+        "TimesheetApprovals",
+      ],
     }),
 
     triggerKekaEmployeeSync: builder.mutation<{ jobId: string | number }, void>({
@@ -121,7 +126,7 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/employees",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "KekaSyncStatus"],
     }),
 
     triggerKekaLeaveSync: builder.mutation<{ jobId: string | number }, void>({
@@ -129,7 +134,7 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/leave",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "KekaSyncStatus"],
     }),
 
     triggerKekaAttendanceSync: builder.mutation<{ jobId: string | number }, void>({
@@ -137,7 +142,7 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/attendance",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "KekaSyncStatus"],
     }),
 
     triggerKekaHolidaysSync: builder.mutation<{ jobId: string | number }, void>({
@@ -145,7 +150,12 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/holidays",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "HolidayCalendars"],
+      invalidatesTags: [
+        "KekaSyncLogs",
+        "FailedSyncRecords",
+        "KekaSyncStatus",
+        "HolidayCalendars",
+      ],
     }),
 
     triggerKekaSalarySync: builder.mutation<{ jobId: string | number }, void>({
@@ -153,7 +163,7 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/salary",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "KekaSyncStatus"],
     }),
 
     triggerKekaClientsSync: builder.mutation<{ jobId: string | number }, void>({
@@ -161,7 +171,12 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/clients",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "Customers"],
+      invalidatesTags: [
+        "KekaSyncLogs",
+        "FailedSyncRecords",
+        "KekaSyncStatus",
+        "Customers",
+      ],
     }),
 
     triggerKekaProjectsSync: builder.mutation<{ jobId: string | number }, void>({
@@ -169,7 +184,7 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/projects",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords"],
+      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "KekaSyncStatus"],
     }),
 
     triggerKekaFullSync: builder.mutation<{ jobId: string | number }, void>({
@@ -177,7 +192,12 @@ export const integrationsApi = api.injectEndpoints({
         url: "/audit/integrations/keka/sync/all",
         method: "POST",
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "HolidayCalendars"],
+      invalidatesTags: [
+        "KekaSyncLogs",
+        "FailedSyncRecords",
+        "KekaSyncStatus",
+        "HolidayCalendars",
+      ],
     }),
 
     reconcileKekaTimesheets: builder.mutation<
@@ -192,7 +212,12 @@ export const integrationsApi = api.injectEndpoints({
           ...(body ?? {}),
         },
       }),
-      invalidatesTags: ["KekaSyncLogs", "FailedSyncRecords", "UtilisationReport"],
+      invalidatesTags: [
+        "KekaSyncLogs",
+        "FailedSyncRecords",
+        "KekaSyncStatus",
+        "UtilisationReport",
+      ],
       async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;

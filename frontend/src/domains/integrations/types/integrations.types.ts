@@ -7,6 +7,11 @@ export type KekaSyncLogEntry = {
   errorMsg: string | null;
   retryCount: number;
   createdAt: string;
+  payload?: unknown | null;
+  entityName?: string | null;
+  projectId?: string | null;
+  projectName?: string | null;
+  summary?: string | null;
 };
 
 export type KekaSyncLogsResponse = {
@@ -42,6 +47,10 @@ export type FailedSyncRecordEntry = {
   resolvedAt: string | null;
   lastAttempted: string;
   createdAt: string;
+  payload?: unknown | null;
+  entityName?: string | null;
+  projectId?: string | null;
+  projectName?: string | null;
 };
 
 export type FailedSyncRecordsResponse = {

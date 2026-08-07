@@ -115,18 +115,20 @@ export function createProjectListColumns({
       header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
       cell: ({ row }) => {
         const deptName = row.original.department?.name ?? "";
+        const label = deptName || "Direct";
         return (
           <span
+            title={label}
             className={cn(
-              "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              "block max-w-full truncate rounded-full px-2.5 py-1.5 text-[10px] font-semibold leading-none whitespace-nowrap",
               PROJECT_DEPT_COLOR[deptName] || DEFAULT_PROJECT_DEPT_COLOR,
             )}
           >
-            {deptName || "Direct"}
+            {label}
           </span>
         );
       },
-      meta: { className: "min-w-[140px]", label: "Department" },
+      meta: { className: "w-[160px] max-w-[160px]", label: "Department" },
     },
     {
       id: "team",
