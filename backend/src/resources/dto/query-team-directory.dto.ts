@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
@@ -80,4 +81,12 @@ export class QueryTeamDirectoryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({
+    description: 'When true, only employees linked to a platform user are returned',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  requireUserId?: boolean;
 }

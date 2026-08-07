@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
@@ -28,7 +27,6 @@ type EscalationRow = Prisma.CustomerEscalationGetPayload<{
   include: {
     owner: { select: { id: true; displayName: true; email: true } };
     customer: { select: { id: true; displayName: true } };
-    project: { select: { id: true; name: true } };
     communications: {
       include: {
         logger: { select: { id: true; displayName: true; email: true } };
@@ -48,21 +46,18 @@ function isOverdue(createdAt: Date, slaTargetHrs: number, status: string): boole
 export class EscalationsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly notifications: NotificationsService,
   ) {}
 
   async list(
-    caslUser: CaslUserContext,
-    filters?: { projectId?: string; status?: string; severity?: string },
+    _caslUser: CaslUserContext,
+    filters?: { customerId?: string; status?: string; severity?: string },
   ): Promise<EscalationDto[]> {
-    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     const rows = await this.prisma.customerEscalation.findMany({
       where: {
-        ...(filters?.projectId ? { projectId: filters.projectId } : {}),
+        ...(filters?.customerId ? { customerId: filters.customerId } : {}),
         ...(filters?.status ? { status: filters.status } : {}),
         ...(filters?.severity ? { severity: filters.severity } : {}),
-        project: { AND: [scopeWhere] },
       },
       include: this.include(),
       orderBy: [{ createdAt: 'desc' }],
@@ -73,9 +68,8 @@ export class EscalationsService {
   async create(
     dto: CreateEscalationDto,
     actorId: string,
-    caslUser: CaslUserContext,
+    _caslUser: CaslUserContext,
   ): Promise<EscalationDto> {
-    await this.assertProjectAccess(dto.projectId, caslUser);
     await this.assertOwnerExists(dto.ownerId);
 
     const customer = await this.prisma.customer.findFirst({
@@ -88,7 +82,6 @@ export class EscalationsService {
 
     const created = await this.prisma.customerEscalation.create({
       data: {
-        projectId: dto.projectId,
         customerId: dto.customerId,
         severity: dto.severity,
         slaTargetHrs: dto.slaTargetHrs,
@@ -113,7 +106,7 @@ export class EscalationsService {
       title: 'Customer escalation opened',
       body: `Escalation (${dto.severity}) assigned to you — SLA ${dto.slaTargetHrs}h.`,
       payload: {
-        projectId: dto.projectId,
+        customerId: dto.customerId,
         escalationId: created.id,
         severity: dto.severity,
       },
@@ -138,15 +131,15 @@ export class EscalationsService {
     escalationId: string,
     dto: AddEscalationCommunicationDto,
     actorId: string,
-    caslUser: CaslUserContext,
+    _caslUser: CaslUserContext,
   ): Promise<EscalationDto> {
     const existing = await this.prisma.customerEscalation.findUnique({
       where: { id: escalationId },
+      select: { id: true },
     });
     if (!existing) {
       throw new NotFoundException('Escalation not found');
     }
-    await this.assertProjectAccess(existing.projectId, caslUser);
 
     await this.prisma.escalationCommunication.create({
       data: {
@@ -168,7 +161,7 @@ export class EscalationsService {
     escalationId: string,
     dto: CloseEscalationDto,
     actorId: string,
-    caslUser: CaslUserContext,
+    _caslUser: CaslUserContext,
   ): Promise<EscalationDto> {
     const existing = await this.prisma.customerEscalation.findUnique({
       where: { id: escalationId },
@@ -176,7 +169,6 @@ export class EscalationsService {
     if (!existing) {
       throw new NotFoundException('Escalation not found');
     }
-    await this.assertProjectAccess(existing.projectId, caslUser);
 
     const breached = isOverdue(
       existing.createdAt,
@@ -201,7 +193,7 @@ export class EscalationsService {
       title: 'Customer escalation closed',
       body: `Escalation closed: ${dto.resolutionSummary.trim().slice(0, 120)}`,
       payload: {
-        projectId: updated.projectId,
+        customerId: updated.customerId,
         escalationId: updated.id,
       },
       sourceObjectType: 'CustomerEscalation',
@@ -224,7 +216,7 @@ export class EscalationsService {
       },
       select: {
         id: true,
-        projectId: true,
+        customerId: true,
         severity: true,
         ownerId: true,
         createdAt: true,
@@ -250,7 +242,12 @@ export class EscalationsService {
   }
 
   private async notifyManagement(
-    escalation: { id: string; projectId: string; severity: string; ownerId: string },
+    escalation: {
+      id: string;
+      customerId?: string;
+      severity: string;
+      ownerId: string;
+    },
     actorId: string,
   ): Promise<void> {
     const managers = await this.prisma.user.findMany({
@@ -270,7 +267,7 @@ export class EscalationsService {
       title: 'Escalation requires management attention',
       body: `High/overdue customer escalation (${escalation.severity}) needs review.`,
       payload: {
-        projectId: escalation.projectId,
+        customerId: escalation.customerId,
         escalationId: escalation.id,
         severity: escalation.severity,
       },
@@ -285,7 +282,6 @@ export class EscalationsService {
     return {
       owner: { select: { id: true, displayName: true, email: true } },
       customer: { select: { id: true, displayName: true } },
-      project: { select: { id: true, name: true } },
       communications: {
         include: {
           logger: { select: { id: true, displayName: true, email: true } },
@@ -293,20 +289,6 @@ export class EscalationsService {
         orderBy: { createdAt: 'desc' as const },
       },
     };
-  }
-
-  private async assertProjectAccess(
-    projectId: string,
-    caslUser: CaslUserContext,
-  ): Promise<void> {
-    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
-    const project = await this.prisma.project.findFirst({
-      where: { AND: [{ id: projectId }, scopeWhere] },
-      select: { id: true },
-    });
-    if (!project) {
-      throw new NotFoundException('Project not found or not accessible');
-    }
   }
 
   private async assertOwnerExists(ownerId: string): Promise<void> {
@@ -322,8 +304,6 @@ export class EscalationsService {
   private toDto(row: EscalationRow): EscalationDto {
     return {
       id: row.id,
-      projectId: row.projectId,
-      projectName: row.project?.name,
       customerId: row.customerId,
       customerName: row.customer?.displayName,
       severity: row.severity,

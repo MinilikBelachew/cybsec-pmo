@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -15,7 +15,12 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
-import { useGetProjectTaskAssigneesQuery } from "@/domains/projects/api/projects.api";
+import { useDebounce } from "@/shared/hooks/use-debounce";
+import {
+  EmployeePickerSelect,
+  type EmployeePickerOption,
+} from "@/shared/components/employee-picker-select";
+import { useGetTeamDirectoryQuery } from "@/domains/resources";
 import {
   useAddEscalationCommunicationMutation,
   useCloseEscalationMutation,
@@ -33,12 +38,11 @@ import { FormSheet } from "./form-sheet";
 
 const SEVERITIES = ["Low", "Medium", "High", "Critical"] as const;
 const COMM_CHANNELS = ["Call", "Email", "Meeting", "Chat", "Other"] as const;
+const EMPLOYEE_PAGE_SIZE = 30;
 
-type ProjectOption = { id: string; name: string };
 type CustomerOption = { id: string; displayName?: string | null };
 
 const CREATE_DEFAULTS: EscalationFormValues = {
-  projectId: "",
   customerId: "",
   severity: "High",
   slaTargetHrs: 24,
@@ -49,7 +53,6 @@ const CREATE_DEFAULTS: EscalationFormValues = {
 
 type EscalationFormProps = {
   open: boolean;
-  projects: ProjectOption[];
   customers: CustomerOption[];
   onCancel: () => void;
   onSuccess: () => void;
@@ -57,20 +60,22 @@ type EscalationFormProps = {
 
 export function EscalationForm({
   open,
-  projects,
   customers,
   onCancel,
   onSuccess,
 }: EscalationFormProps) {
   const [createEscalation, { isLoading: isCreating }] =
     useCreateEscalationMutation();
+  const [ownerSearch, setOwnerSearch] = useState("");
+  const [ownerPage, setOwnerPage] = useState(1);
+  const [ownerPages, setOwnerPages] = useState<EmployeePickerOption[][]>([]);
+  const debouncedOwnerSearch = useDebounce(ownerSearch, 300);
 
   const {
     register,
     control,
     handleSubmit,
     watch,
-    setValue,
     reset,
     formState: { errors },
   } = useForm<EscalationFormValues>({
@@ -81,54 +86,81 @@ export function EscalationForm({
   });
 
   useEffect(() => {
-    if (open) reset(CREATE_DEFAULTS);
+    if (!open) return;
+    reset(CREATE_DEFAULTS);
+    setOwnerSearch("");
+    setOwnerPage(1);
+    setOwnerPages([]);
   }, [open, reset]);
 
-  const projectId = watch("projectId");
+  useEffect(() => {
+    setOwnerPage(1);
+    setOwnerPages([]);
+  }, [debouncedOwnerSearch]);
+
+  const {
+    data: teamDirectoryData,
+    isLoading: isEmployeesLoading,
+    isFetching: isEmployeesFetching,
+  } = useGetTeamDirectoryQuery(
+    {
+      page: ownerPage,
+      limit: EMPLOYEE_PAGE_SIZE,
+      search: debouncedOwnerSearch.trim() || undefined,
+      sortBy: "name",
+      sortOrder: "asc",
+      requireUserId: true,
+    },
+    { skip: !open, refetchOnMountOrArgChange: true },
+  );
+
+  useEffect(() => {
+    const members = teamDirectoryData?.members;
+    if (!members || teamDirectoryData.page !== ownerPage) return;
+
+    const mapped = members
+      .filter((m) => Boolean(m.userId))
+      .map((m) => ({
+        id: m.userId as string,
+        name: m.name,
+        profileImageUrl: m.profileImageUrl,
+        subtitle: `${m.department.name} · ${m.designation}`,
+      }));
+
+    setOwnerPages((prev) => {
+      const next = prev.slice(0, Math.max(0, ownerPage - 1));
+      next[ownerPage - 1] = mapped;
+      return next;
+    });
+  }, [teamDirectoryData, ownerPage]);
+
+  const ownerOptions = useMemo(
+    () => ownerPages.flat(),
+    [ownerPages],
+  );
+
   const customerId = watch("customerId");
   const ownerId = watch("ownerId");
   const severity = watch("severity");
   const initialChannel = watch("initialChannel");
 
-  const {
-    data: assignees = [],
-    isFetching: assigneesFetching,
-    isLoading: assigneesLoading,
-  } = useGetProjectTaskAssigneesQuery(projectId, {
-    skip: !projectId,
-  });
-
-  useEffect(() => {
-    if (!projectId || assigneesLoading || assigneesFetching) return;
-    if (!ownerId) return;
-    if (!assignees.some((a) => a.userId === ownerId)) {
-      setValue("ownerId", "");
-    }
-  }, [
-    projectId,
-    assignees,
-    assigneesLoading,
-    assigneesFetching,
-    ownerId,
-    setValue,
-  ]);
-
-  const assigneesPending =
-    Boolean(projectId) && (assigneesLoading || (assigneesFetching && assignees.length === 0));
-
-  const selectedProjectName = projects.find((p) => p.id === projectId)?.name;
   const selectedCustomerName =
     customers.find((c) => c.id === customerId)?.displayName || undefined;
-  const selectedOwner = assignees.find((a) => a.userId === ownerId);
-  const selectedOwnerLabel =
-    selectedOwner?.displayName ||
-    selectedOwner?.name ||
-    selectedOwner?.email;
+  const selectedOwner = useMemo(
+    () => ownerOptions.find((o) => o.id === ownerId) ?? null,
+    [ownerOptions, ownerId],
+  );
+
+  const totalEmployees = teamDirectoryData?.total ?? 0;
+  const hasMoreOwners = ownerOptions.length < totalEmployees;
+  const isFetchingMoreOwners =
+    isEmployeesFetching && ownerOptions.length > 0 && ownerPage > 1;
+  const isOwnerListLoading =
+    (isEmployeesLoading || isEmployeesFetching) && ownerOptions.length === 0;
 
   const onSubmit = handleSubmit(async (values) => {
     try {
       await createEscalation({
-        projectId: values.projectId,
         customerId: values.customerId,
         severity: values.severity,
         slaTargetHrs: Number(values.slaTargetHrs),
@@ -161,40 +193,6 @@ export function EscalationForm({
     >
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">
-            Project <span className="text-destructive font-bold">*</span>
-          </label>
-          <Controller
-            control={control}
-            name="projectId"
-            render={({ field }) => (
-              <Select
-                value={field.value || undefined}
-                onValueChange={(v) => {
-                  field.onChange(v ?? "");
-                  setValue("ownerId", "");
-                }}
-              >
-                <SelectTrigger className={cn(errors.projectId && "border-rose-500", "w-full")}>
-                  <SelectValue placeholder="Select project">
-                    {selectedProjectName}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-          {errors.projectId && (
-            <p className={fieldErrorClass}>{errors.projectId.message}</p>
-          )}
-        </div>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
             Customer <span className="text-destructive font-bold">*</span>
@@ -276,41 +274,30 @@ export function EscalationForm({
             control={control}
             name="ownerId"
             render={({ field }) => (
-              <Select
-                key={`escalation-owner-${projectId || "none"}`}
-                value={
-                  field.value && selectedOwnerLabel
-                    ? field.value
-                    : undefined
-                }
-                onValueChange={(v) => {
-                  if (!v || v === "__none") return;
-                  field.onChange(v);
+              <EmployeePickerSelect
+                value={field.value || null}
+                onValueChange={(v) => field.onChange(v ?? "")}
+                options={ownerOptions}
+                selectedOption={selectedOwner}
+                placeholder="Select owner"
+                noneLabel="Select owner"
+                searchable
+                remoteSearch
+                searchValue={ownerSearch}
+                onSearchChange={setOwnerSearch}
+                searchPlaceholder="Search employee..."
+                onLoadMore={() => {
+                  if (!hasMoreOwners || isEmployeesFetching) return;
+                  setOwnerPage((p) => p + 1);
                 }}
-              >
-                <SelectTrigger className={cn(errors.ownerId && "border-rose-500", "w-full")}>
-                  <SelectValue placeholder="Select owner">
-                    {selectedOwnerLabel}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {assigneesPending ? (
-                    <SelectItem value="__none" disabled>
-                      Loading assignees…
-                    </SelectItem>
-                  ) : assignees.length === 0 ? (
-                    <SelectItem value="__none" disabled>
-                      Select a project first
-                    </SelectItem>
-                  ) : (
-                    assignees.map((a) => (
-                      <SelectItem key={a.userId} value={a.userId}>
-                        {a.displayName || a.name || a.email}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+                hasMore={hasMoreOwners}
+                isLoading={isOwnerListLoading}
+                isFetchingMore={isFetchingMoreOwners}
+                triggerClassName={cn(
+                  "h-9 w-full min-w-0",
+                  errors.ownerId && "border-rose-500",
+                )}
+              />
             )}
           />
           {errors.ownerId && (

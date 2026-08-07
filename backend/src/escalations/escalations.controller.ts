@@ -49,18 +49,18 @@ export class EscalationsController {
     { module: 'projects', action: 'view' },
   )
   @Get()
-  @ApiQuery({ name: 'projectId', required: false })
+  @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'severity', required: false })
   @ApiOkResponse({ type: [EscalationDto] })
   list(
     @Request() request: RequestWithAbility,
-    @Query('projectId') projectId?: string,
+    @Query('customerId') customerId?: string,
     @Query('status') status?: string,
     @Query('severity') severity?: string,
   ): Promise<EscalationDto[]> {
     return this.escalationsService.list(request.caslUser!, {
-      projectId,
+      customerId,
       status,
       severity,
     });

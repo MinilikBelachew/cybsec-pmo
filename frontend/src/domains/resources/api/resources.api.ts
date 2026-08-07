@@ -33,6 +33,8 @@ export type QueryTeamDirectoryParams = {
   sortOrder?: "asc" | "desc";
   page?: number;
   limit?: number;
+  /** Only employees linked to a platform user account. */
+  requireUserId?: boolean;
 };
 
 export type QueryTeamLeaveParams = {
@@ -129,6 +131,7 @@ export const resourcesApi = api.injectEndpoints({
           sortOrder: p.sortOrder,
           page: p.page,
           limit: p.limit,
+          ...(p.requireUserId ? { requireUserId: "true" } : {}),
         });
         const qs = queryParams.toString();
         return `/resources/team${qs ? `?${qs}` : ""}`;

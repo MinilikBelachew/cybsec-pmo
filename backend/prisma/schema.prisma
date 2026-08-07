@@ -462,7 +462,6 @@ model Project {
   invoices              Invoice[]
   risks                 Risk[]
   issues                Issue[]
-  customerEscalations   CustomerEscalation[]
   actionPoints          ActionPoint[]
   lessonsLearned        LessonsLearned[]
   kpiSnapshots          KpiSnapshot[]
@@ -1243,7 +1242,6 @@ model AlertEvent {
 
 model CustomerEscalation {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId         String    @map("project_id") @db.Uuid
   customerId        String    @map("customer_id") @db.Uuid
   severity          String    @db.VarChar(20)
   slaTargetHrs      Int       @map("sla_target_hrs")
@@ -1254,13 +1252,12 @@ model CustomerEscalation {
   closedAt          DateTime? @map("closed_at") @db.Timestamptz
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id])
   owner    User     @relation(fields: [ownerId], references: [id])
 
   communications EscalationCommunication[]
 
-  @@index([projectId], map: "idx_escalations_project")
+  @@index([customerId], map: "idx_escalations_customer")
   @@index([status], map: "idx_escalations_status")
   @@index([severity], map: "idx_escalations_severity")
   @@map("customer_escalations")

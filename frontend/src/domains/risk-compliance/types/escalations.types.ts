@@ -1,7 +1,5 @@
 export type Escalation = {
   id: string;
-  projectId: string;
-  projectName?: string;
   customerId: string;
   customerName?: string;
   severity: string;
@@ -25,7 +23,6 @@ export type Escalation = {
 };
 
 export type CreateEscalationPayload = {
-  projectId: string;
   customerId: string;
   severity: "Low" | "Medium" | "High" | "Critical";
   slaTargetHrs: number;

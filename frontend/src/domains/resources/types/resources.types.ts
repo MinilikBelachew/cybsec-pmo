@@ -42,6 +42,7 @@ export interface TeamDirectoryAssignment {
 
 export interface ApiTeamDirectoryMember {
   id: string;
+  userId?: string | null;
   name: string;
   email: string;
   designation: string;

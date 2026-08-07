@@ -8,7 +8,7 @@ export const escalationsApi = api.injectEndpoints({
   endpoints: (builder) => ({
     getEscalations: builder.query<
       Escalation[],
-      { projectId?: string; status?: string; severity?: string } | void
+      { customerId?: string; status?: string; severity?: string } | void
     >({
       query: (params) => ({
         url: "/escalations",

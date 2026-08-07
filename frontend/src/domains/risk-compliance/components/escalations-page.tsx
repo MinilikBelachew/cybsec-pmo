@@ -14,10 +14,7 @@ import {
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
-import {
-  useGetCustomersQuery,
-  useGetProjectsQuery,
-} from "@/domains/projects/api/projects.api";
+import { useGetCustomersQuery } from "@/domains/projects/api/projects.api";
 import { useGetEscalationsQuery } from "../api/escalations.api";
 import type { Escalation } from "../types/escalations.types";
 import {
@@ -26,32 +23,41 @@ import {
   EscalationForm,
 } from "./escalation-form";
 
+const SEVERITIES = ["Low", "Medium", "High", "Critical"] as const;
+
 export function EscalationsPage() {
   const { canEditIssues, canViewRisks, canEditRisks } = useModulePermissions();
   const canManage = canEditIssues || canEditRisks;
   const canView = canManage || canViewRisks;
 
-  const [projectFilter, setProjectFilter] = useState("all");
+  const [customerFilter, setCustomerFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
   const [showForm, setShowForm] = useState(false);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
 
-  const { data: projectsResponse } = useGetProjectsQuery({ page: 1, limit: 200 });
-  const projects = projectsResponse?.data ?? [];
   const { data: customers = [] } = useGetCustomersQuery();
 
-  const listParams = useMemo(
-    () => (projectFilter !== "all" ? { projectId: projectFilter } : undefined),
-    [projectFilter],
-  );
-  const { data: escalations = [], isLoading } = useGetEscalationsQuery(listParams, {
-    skip: !canView,
-  });
+  const listParams = useMemo(() => {
+    const params: { customerId?: string; severity?: string } = {};
+    if (customerFilter !== "all") params.customerId = customerFilter;
+    if (severityFilter !== "all") params.severity = severityFilter;
+    return Object.keys(params).length > 0 ? params : undefined;
+  }, [customerFilter, severityFilter]);
 
-  const selectedFilterProjectName =
-    projectFilter === "all"
-      ? "All projects"
-      : projects.find((p) => p.id === projectFilter)?.name;
+  const { data: escalations = [], isLoading } = useGetEscalationsQuery(
+    listParams,
+    { skip: !canView },
+  );
+
+  const selectedCustomerName =
+    customerFilter === "all"
+      ? "All customers"
+      : customers.find((c) => c.id === customerFilter)?.displayName ||
+        "Customer";
+
+  const selectedSeverityLabel =
+    severityFilter === "all" ? "All severities" : severityFilter;
 
   function toggleLogAccordion(id: string) {
     setExpandedLogIds((prev) => {
@@ -85,29 +91,49 @@ export function EscalationsPage() {
         }
       />
 
-      <Select
-        value={projectFilter}
-        onValueChange={(v) => setProjectFilter(v ?? "all")}
-      >
-        <SelectTrigger className="w-[240px]">
-          <SelectValue placeholder="Project">
-            {selectedFilterProjectName}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All projects</SelectItem>
-          {projects.map((p) => (
-            <SelectItem key={p.id} value={p.id}>
-              {p.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="flex flex-wrap gap-3">
+        <Select
+          value={customerFilter}
+          onValueChange={(v) => setCustomerFilter(v ?? "all")}
+        >
+          <SelectTrigger className="w-[240px]">
+            <SelectValue placeholder="Customer">
+              {selectedCustomerName}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All customers</SelectItem>
+            {customers.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.displayName || c.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={severityFilter}
+          onValueChange={(v) => setSeverityFilter(v ?? "all")}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Severity">
+              {selectedSeverityLabel}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All severities</SelectItem>
+            {SEVERITIES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {canManage && (
         <EscalationForm
           open={showForm}
-          projects={projects}
           customers={customers}
           onCancel={() => setShowForm(false)}
           onSuccess={() => setShowForm(false)}
@@ -193,9 +219,21 @@ function EscalationCard({
             )}
           </div>
           <div className="text-xs text-muted-foreground">
-            {esc.projectName} · Owner {esc.owner?.displayName ?? "—"} · SLA{" "}
-            {esc.slaTargetHrs}h
+            Owner {esc.owner?.displayName ?? "—"} · SLA {esc.slaTargetHrs}h
+            {esc.closedAt
+              ? ` · Closed ${new Date(esc.closedAt).toLocaleString()}`
+              : ""}
           </div>
+          {esc.status === "Closed" && esc.resolutionSummary && (
+            <div className="mt-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Resolution summary
+              </div>
+              <p className="mt-1 text-foreground whitespace-pre-wrap">
+                {esc.resolutionSummary}
+              </p>
+            </div>
+          )}
         </div>
         {canManage && esc.status !== "Closed" && !isClosing && (
           <Button size="sm" variant="outline" onClick={onStartClose}>
