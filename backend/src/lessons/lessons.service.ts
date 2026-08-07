@@ -20,6 +20,8 @@ type LessonRow = Prisma.LessonsLearnedGetPayload<{
   };
 }>;
 
+const LESSON_MANAGER_ROLES = new Set(['super_admin', 'pmo_lead', 'pm']);
+
 @Injectable()
 export class LessonsService {
   constructor(
@@ -43,10 +45,7 @@ export class LessonsService {
       where: {
         AND: [
           {
-            OR: [
-              { projectId: null },
-              { project: { AND: [scopeWhere] } },
-            ],
+            OR: [{ projectId: null }, { project: { AND: [scopeWhere] } }],
           },
           ...(filters?.category ? [{ category: filters.category }] : []),
           ...(filters?.projectId ? [{ projectId: filters.projectId }] : []),
@@ -55,14 +54,25 @@ export class LessonsService {
             ? [
                 {
                   OR: [
-                    { description: { contains: q, mode: 'insensitive' as const } },
+                    {
+                      description: {
+                        contains: q,
+                        mode: 'insensitive' as const,
+                      },
+                    },
                     {
                       recommendation: {
                         contains: q,
                         mode: 'insensitive' as const,
                       },
                     },
-                    { category: { contains: q, mode: 'insensitive' as const } },
+                    {
+                      category: {
+                        contains: q,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                    { tags: { has: q } },
                   ],
                 },
               ]
@@ -136,12 +146,7 @@ export class LessonsService {
     if (existing.projectId) {
       await this.assertProjectAccess(existing.projectId, caslUser);
     }
-    if (
-      existing.authorId !== caslUser.id &&
-      !['super_admin', 'pmo_lead', 'pm'].includes(caslUser.roleCode)
-    ) {
-      throw new ForbiddenException('You can only edit lessons you authored');
-    }
+    this.assertCanMutate(existing.authorId, caslUser);
 
     const updated = await this.prisma.lessonsLearned.update({
       where: { id },
@@ -167,18 +172,33 @@ export class LessonsService {
     return this.toDto(updated);
   }
 
+  async delete(id: string, caslUser: CaslUserContext): Promise<void> {
+    const existing = await this.prisma.lessonsLearned.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Lesson not found');
+    }
+    if (existing.projectId) {
+      await this.assertProjectAccess(existing.projectId, caslUser);
+    }
+    this.assertCanMutate(existing.authorId, caslUser);
+    await this.prisma.lessonsLearned.delete({ where: { id } });
+  }
+
   /**
    * Surface relevant lessons for project setup/closure (M4.6-03).
+   * Always scoped like list(); optional department narrows further.
    */
   async surface(
     caslUser: CaslUserContext,
     opts: { projectId?: string; category?: string; departmentId?: string },
   ): Promise<LessonDto[]> {
+    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     let departmentId = opts.departmentId;
-    let category = opts.category;
+    const category = opts.category;
 
     if (opts.projectId) {
-      const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
       const project = await this.prisma.project.findFirst({
         where: { AND: [{ id: opts.projectId }, scopeWhere] },
         select: { id: true, departmentId: true },
@@ -191,15 +211,22 @@ export class LessonsService {
 
     const rows = await this.prisma.lessonsLearned.findMany({
       where: {
-        ...(category ? { category } : {}),
-        ...(departmentId
-          ? {
-              OR: [
-                { projectId: null },
-                { project: { departmentId } },
-              ],
-            }
-          : {}),
+        AND: [
+          {
+            OR: [{ projectId: null }, { project: { AND: [scopeWhere] } }],
+          },
+          ...(category ? [{ category }] : []),
+          ...(departmentId
+            ? [
+                {
+                  OR: [
+                    { projectId: null },
+                    { project: { departmentId } },
+                  ],
+                },
+              ]
+            : []),
+        ],
       },
       include: {
         author: { select: { id: true, displayName: true, email: true } },
@@ -209,6 +236,15 @@ export class LessonsService {
       take: 20,
     });
     return rows.map((row) => this.toDto(row));
+  }
+
+  private assertCanMutate(authorId: string, caslUser: CaslUserContext): void {
+    if (
+      authorId !== caslUser.id &&
+      !LESSON_MANAGER_ROLES.has(caslUser.roleCode)
+    ) {
+      throw new ForbiddenException('You can only edit lessons you authored');
+    }
   }
 
   private async assertProjectAccess(

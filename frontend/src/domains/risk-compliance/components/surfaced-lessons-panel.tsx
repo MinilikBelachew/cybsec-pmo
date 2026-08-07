@@ -18,11 +18,15 @@ export function SurfacedLessonsPanel({
   title = "Relevant lessons learned",
   description = "Review prior lessons before setup or closure.",
 }: SurfacedLessonsPanelProps) {
-  const { data: lessons = [], isLoading, isError } = useGetSurfacedLessonsQuery({
-    projectId: projectId || undefined,
-    departmentId: departmentId || undefined,
-    category: category || undefined,
-  });
+  const canQuery = Boolean(projectId || departmentId || category);
+  const { data: lessons = [], isLoading, isError } = useGetSurfacedLessonsQuery(
+    {
+      projectId: projectId || undefined,
+      departmentId: departmentId || undefined,
+      category: category || undefined,
+    },
+    { skip: !canQuery },
+  );
 
   return (
     <div className="rounded-xl border border-border/60 bg-card/60 p-4 space-y-3">
@@ -41,6 +45,10 @@ export function SurfacedLessonsPanel({
       ) : isError ? (
         <p className="text-xs text-muted-foreground py-2">
           Lessons could not be loaded.
+        </p>
+      ) : !canQuery ? (
+        <p className="text-xs text-muted-foreground py-2">
+          Select a department to see related lessons.
         </p>
       ) : lessons.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2">

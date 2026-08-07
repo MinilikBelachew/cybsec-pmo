@@ -47,6 +47,17 @@ export const lessonsApi = api.injectEndpoints({
         { type: "Lessons", id: "SURFACE" },
       ],
     }),
+
+    deleteLesson: builder.mutation<void, string>({
+      query: (id) => ({
+        url: `/lessons/${id}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: [
+        { type: "Lessons", id: "LIST" },
+        { type: "Lessons", id: "SURFACE" },
+      ],
+    }),
   }),
 });
 
@@ -55,4 +66,5 @@ export const {
   useGetSurfacedLessonsQuery,
   useCreateLessonMutation,
   useUpdateLessonMutation,
+  useDeleteLessonMutation,
 } = lessonsApi;

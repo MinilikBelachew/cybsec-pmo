@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -15,6 +16,7 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiQuery,
   ApiTags,
@@ -120,5 +122,17 @@ export class LessonsController {
     @Request() request: RequestWithAbility,
   ): Promise<LessonDto> {
     return this.lessonsService.update(id, dto, request.caslUser!);
+  }
+
+  @CheckAbility('update', 'Project')
+  @CheckModulePermission('projects', 'edit')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse()
+  async remove(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<void> {
+    await this.lessonsService.delete(id, request.caslUser!);
   }
 }
