@@ -323,6 +323,8 @@ export function ProjectWorkspace() {
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) {
       params.search = trimmedSearch;
+      // Include nested tasks so title search finds sub-tasks.
+      params.topLevelOnly = false;
     }
     if (statusFilter !== "ALL") {
       params.status = statusFilter;

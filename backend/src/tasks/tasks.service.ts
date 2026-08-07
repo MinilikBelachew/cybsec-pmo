@@ -1363,7 +1363,9 @@ export class TasksService {
     }
     if (query.parentTaskId) {
       filters.push({ parentTaskId: query.parentTaskId });
-    } else if (query.topLevelOnly !== false) {
+    } else if (query.topLevelOnly !== false && !query.search?.trim()) {
+      // Default list/board = top-level only. When searching by title/description,
+      // include nested tasks so sub-tasks are findable.
       filters.push({ parentTaskId: null });
     }
     if (query.phaseId) {
