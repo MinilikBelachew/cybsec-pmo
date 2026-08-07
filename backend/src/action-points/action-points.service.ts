@@ -90,7 +90,7 @@ export class ActionPointsService {
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
     });
-    return rows.map((row) => this.toDto(row));
+    return this.withLinkedLabels(rows.map((row) => this.toDto(row)));
   }
 
   async listPortfolio(
@@ -120,7 +120,7 @@ export class ActionPointsService {
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
     });
-    return rows.map((row) => this.toDto(row));
+    return this.withLinkedLabels(rows.map((row) => this.toDto(row)));
   }
 
   async closureReport(
@@ -680,6 +680,10 @@ export class ActionPointsService {
       sourceId: row.sourceId,
       projectId: row.projectId,
       projectName: row.project?.name,
+      linkedLabel:
+        row.sourceType === ActionPointSourceType.Project
+          ? row.project?.name
+          : undefined,
       ownerId: row.ownerId,
       owner: row.owner
         ? {
@@ -696,5 +700,83 @@ export class ActionPointsService {
       createdAt: row.createdAt.toISOString(),
       isOverdue: isOverdue(row.dueDate, row.status),
     };
+  }
+
+  private async withLinkedLabels(
+    items: ActionPointDto[],
+  ): Promise<ActionPointDto[]> {
+    if (items.length === 0) return items;
+
+    const taskIds = new Set<string>();
+    const riskIds = new Set<string>();
+    const issueIds = new Set<string>();
+    const meetingIds = new Set<string>();
+
+    for (const item of items) {
+      if (!item.sourceId) continue;
+      switch (item.sourceType) {
+        case ActionPointSourceType.Task:
+          taskIds.add(item.sourceId);
+          break;
+        case ActionPointSourceType.Risk:
+          riskIds.add(item.sourceId);
+          break;
+        case ActionPointSourceType.Issue:
+          issueIds.add(item.sourceId);
+          break;
+        case ActionPointSourceType.Meeting:
+        case ActionPointSourceType.MoM:
+          meetingIds.add(item.sourceId);
+          break;
+        default:
+          break;
+      }
+    }
+
+    const [tasks, risks, issues, meetings] = await Promise.all([
+      taskIds.size
+        ? this.prisma.task.findMany({
+            where: { id: { in: [...taskIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      riskIds.size
+        ? this.prisma.risk.findMany({
+            where: { id: { in: [...riskIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      issueIds.size
+        ? this.prisma.issue.findMany({
+            where: { id: { in: [...issueIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      meetingIds.size
+        ? this.prisma.meeting.findMany({
+            where: { id: { in: [...meetingIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const labels = new Map<string, string>();
+    for (const row of tasks) labels.set(row.id, row.title);
+    for (const row of risks) labels.set(row.id, row.title);
+    for (const row of issues) labels.set(row.id, row.title);
+    for (const row of meetings) labels.set(row.id, row.title);
+
+    return items.map((item) => {
+      if (item.sourceType === ActionPointSourceType.Project) {
+        return {
+          ...item,
+          linkedLabel: item.projectName ?? item.linkedLabel ?? '—',
+        };
+      }
+      return {
+        ...item,
+        linkedLabel: labels.get(item.sourceId) ?? item.linkedLabel ?? '—',
+      };
+    });
   }
 }

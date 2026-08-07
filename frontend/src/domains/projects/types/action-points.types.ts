@@ -15,6 +15,7 @@ export type ActionPoint = {
   sourceId: string;
   projectId: string | null;
   projectName?: string;
+  linkedLabel?: string;
   ownerId: string;
   owner?: {
     id: string;

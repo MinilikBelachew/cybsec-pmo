@@ -48,6 +48,7 @@ import {
 import { useGetProjectIssuesQuery } from "@/domains/risk-compliance/api/issues.api";
 import { useGetProjectRisksQuery } from "@/domains/risk-compliance/api/risks.api";
 import { useGetTasksQuery } from "@/domains/projects/api/tasks.api";
+import { useGetMeetingsQuery } from "@/domains/projects/api/meetings.api";
 
 const STATUS_OPTIONS: ActionPointStatus[] = [
   "Open",
@@ -73,6 +74,7 @@ const PRIORITY_OPTIONS: ActionPointPriority[] = [
 const SOURCE_TYPE_OPTIONS: ActionPointSourceType[] = [
   "Project",
   "Task",
+  "Meeting",
   "Risk",
   "Issue",
 ];
@@ -147,6 +149,7 @@ export function ActionPointsPanel({
   const { data: projectIssues = [] } = useGetProjectIssuesQuery(projectId);
   const { data: tasksResponse } = useGetTasksQuery({ projectId, limit: 100 });
   const projectTasks = tasksResponse?.data ?? [];
+  const { data: projectMeetings = [] } = useGetMeetingsQuery(projectId);
   const [createActionPoint, { isLoading: isCreating }] = useCreateActionPointMutation();
   const [updateActionPoint, { isLoading: isUpdating }] = useUpdateActionPointMutation();
   const [deleteActionPoint, { isLoading: isDeleting }] = useDeleteActionPointMutation();
@@ -226,10 +229,14 @@ export function ActionPointsPanel({
     for (const issue of projectIssues) {
       map.set(issue.id, issue.title);
     }
+    for (const meeting of projectMeetings) {
+      map.set(meeting.id, meeting.title);
+    }
     return map;
-  }, [projectTasks, projectRisks, projectIssues]);
+  }, [projectTasks, projectRisks, projectIssues, projectMeetings]);
 
   function getLinkedLabel(ap: ActionPoint): string {
+    if (ap.linkedLabel) return ap.linkedLabel;
     if (ap.sourceType === "Project") {
       return ap.projectName || "This project";
     }
@@ -297,6 +304,7 @@ export function ActionPointsPanel({
     try {
       const linkRequired =
         values.sourceType === "Task" ||
+        values.sourceType === "Meeting" ||
         values.sourceType === "Risk" ||
         values.sourceType === "Issue";
       const sourcePayload = {
@@ -378,6 +386,7 @@ export function ActionPointsPanel({
   const isSaving = isCreating || isUpdating;
   const needsSourceLink =
     watchedSourceType === "Task" ||
+    watchedSourceType === "Meeting" ||
     watchedSourceType === "Risk" ||
     watchedSourceType === "Issue";
 
@@ -504,7 +513,7 @@ export function ActionPointsPanel({
         <div
           className={cn(
             "grid gap-3",
-            needsSourceLink ? "sm:grid-cols-2" : "sm:grid-cols-1",
+            "sm:grid-cols-3",
           )}
         >
           <div className="space-y-1.5 min-w-0">
@@ -553,6 +562,11 @@ export function ActionPointsPanel({
                         id: t.id,
                         label: t.title || t.id,
                       }))
+                      : watchedSourceType === "Meeting"
+                        ? projectMeetings.map((m) => ({
+                          id: m.id,
+                          label: m.title,
+                        }))
                       : watchedSourceType === "Risk"
                         ? projectRisks.map((r) => ({
                           id: r.id,

@@ -2,9 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
-import { CheckSquare, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CheckSquare,
+  ListChecks,
+  Loader2,
+} from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { ListPagination, paginateItems } from "@/shared/components/list-pagination";
+import {
+  KpiStatCard,
+  KPI_CARD_THEMES,
+} from "@/shared/components/kpi-stat-card";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import {
@@ -69,6 +79,16 @@ export function ActionsPortfolioPage() {
       ? "All projects"
       : projects.find((p) => p.id === projectFilter)?.name;
 
+  const closedRate =
+    report && report.total > 0
+      ? Math.round((report.closed / report.total) * 100)
+      : 0;
+  const overdueRate =
+    report && report.total > 0
+      ? Math.round((report.overdueOpen / report.total) * 100)
+      : 0;
+  const openCount = report ? Math.max(0, report.total - report.closed) : 0;
+
   if (!canViewProjects) {
     return (
       <div className="mx-auto max-w-lg py-16 text-center text-muted-foreground">
@@ -103,21 +123,38 @@ export function ActionsPortfolioPage() {
       />
 
       {report && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-border/60 p-4">
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="text-2xl font-semibold">{report.total}</p>
-          </div>
-          <div className="rounded-xl border border-border/60 p-4">
-            <p className="text-xs text-muted-foreground">Closed</p>
-            <p className="text-2xl font-semibold">{report.closed}</p>
-          </div>
-          <div className="rounded-xl border border-border/60 p-4">
-            <p className="text-xs text-muted-foreground">Overdue open</p>
-            <p className="text-2xl font-semibold text-rose-600">
-              {report.overdueOpen}
-            </p>
-          </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <KpiStatCard
+            title="Total"
+            subtitle="all action points"
+            value={report.total}
+            numericValue={report.total}
+            chartMax={Math.max(report.total, 1)}
+            icon={ListChecks}
+            theme={KPI_CARD_THEMES.primary}
+          />
+          <KpiStatCard
+            title="Closed"
+            subtitle={`${closedRate}% of total`}
+            value={report.closed}
+            numericValue={report.closed}
+            chartMax={Math.max(report.total, 1)}
+            icon={CheckCircle2}
+            theme={KPI_CARD_THEMES.emerald}
+          />
+          <KpiStatCard
+            title="Overdue open"
+            subtitle={
+              openCount > 0
+                ? `${overdueRate}% of total · ${openCount} open`
+                : "none overdue"
+            }
+            value={report.overdueOpen}
+            numericValue={report.overdueOpen}
+            chartMax={Math.max(report.total, 1)}
+            icon={AlertTriangle}
+            theme={KPI_CARD_THEMES.rose}
+          />
         </div>
       )}
 
@@ -178,6 +215,7 @@ export function ActionsPortfolioPage() {
                   <th className="text-start px-4 py-3">Action</th>
                   <th className="text-start px-4 py-3">Project</th>
                   <th className="text-start px-4 py-3">Source</th>
+                  <th className="text-start px-4 py-3">Linked</th>
                   <th className="text-start px-4 py-3">Owner</th>
                   <th className="text-start px-4 py-3">Due</th>
                   <th className="text-start px-4 py-3">Status</th>
@@ -202,6 +240,12 @@ export function ActionsPortfolioPage() {
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant="outline">{action.sourceType}</Badge>
+                    </td>
+                    <td
+                      className="px-4 py-3 text-muted-foreground max-w-[220px] truncate"
+                      title={action.linkedLabel ?? undefined}
+                    >
+                      {action.linkedLabel ?? "—"}
                     </td>
                     <td className="px-4 py-3">
                       {action.owner?.displayName ?? "—"}
