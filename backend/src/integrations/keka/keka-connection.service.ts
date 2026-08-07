@@ -295,6 +295,7 @@ export class KekaConnectionService {
         'User-Agent': 'Mozilla',
       },
       body,
+      signal: AbortSignal.timeout(20_000),
     });
 
     if (!response.ok) {

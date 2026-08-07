@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   FileUp,
   Loader2,
+  Minimize2,
   Upload,
   X,
 } from "lucide-react";
@@ -25,6 +26,12 @@ import {
   useImportMppPortfolioMutation,
   usePreviewMppImportMutation,
 } from "../../api/mpp-import.api";
+import {
+  isImportQueueFullError,
+  importQueueFullMax,
+  type ImportEnqueueResult,
+} from "../../api/imports.api";
+import { useImportProgress } from "../import/import-progress-provider";
 import type { MppImportPreview } from "../../types/mpp-import.types";
 import {
   MppImportPreviewPanel,
@@ -207,6 +214,7 @@ export function ImportMppDialog({
   const [importMppPortfolio, { isLoading: isImportingPortfolio }] =
     useImportMppPortfolioMutation();
   const [createProject, { isLoading: isCreatingProject }] = useCreateProjectMutation();
+  const { trackImport, trackQueuedImport, showQueueFull } = useImportProgress();
 
   // Metadata only needed when creating a new project / portfolio creates.
   const { data: departments = [] } = useGetDepartmentsQuery(undefined, { skip: !isNewProject });
@@ -431,6 +439,48 @@ export function ImportMppDialog({
     );
   };
 
+  const finishInBackground = (
+    enqueue: ImportEnqueueResult,
+    kind: "mpp" | "mpp-portfolio",
+    label: string,
+    onComplete: (summary: Record<string, unknown>) => void,
+  ) => {
+    const trackArgs = {
+      label,
+      kind,
+      onComplete: (status: { result: Record<string, unknown> | null }) => {
+        onComplete((status.result ?? {}) as Record<string, unknown>);
+        onCompleted?.();
+      },
+      onError: (message: string) => {
+        toast.error(message);
+      },
+    };
+
+    if (enqueue.status === "queued" && enqueue.queueId) {
+      trackQueuedImport({
+        queueId: enqueue.queueId,
+        position: enqueue.position,
+        maxPerUser: enqueue.maxPerUser,
+        ...trackArgs,
+      });
+      onClose();
+      return;
+    }
+
+    if (!enqueue.jobId) {
+      toast.error("Import did not return a job id");
+      return;
+    }
+
+    trackImport({
+      jobId: enqueue.jobId,
+      ...trackArgs,
+    });
+    toast.success("Import started — continue working; progress is shown below.");
+    onClose();
+  };
+
   const handleConfirm = async () => {
     const file = selectedFile;
     if (!file) return;
@@ -443,10 +493,9 @@ export function ImportMppDialog({
 
         const createRows = editableProjects.filter((p) => p.importMode === "create");
         const first = createRows[0];
-        const summary = await importMppPortfolio({
+        const enqueue = await importMppPortfolio({
           file,
           defaults: {
-            // Shared fallbacks if a row name fails to match
             objective: first?.objective.trim(),
             departmentId: first?.departmentId,
             customerId: first?.customerId,
@@ -479,22 +528,29 @@ export function ImportMppDialog({
           },
         }).unwrap();
 
-        setResult({
-          tasksCreated: summary.tasksCreated,
-          tasksUpdated: summary.tasksUpdated ?? 0,
-          dependenciesCreated: summary.dependenciesCreated,
-          dependenciesUpdated: summary.dependenciesUpdated ?? 0,
-          phasesCreated: summary.phasesCreated ?? 0,
-          phasesUpdated: summary.phasesUpdated ?? 0,
-          projectsCreated: summary.projectsCreated ?? 0,
-          projectsUpdated: summary.projectsUpdated ?? 0,
-          projectCreated: (summary.projectsCreated ?? 0) > 0,
-        });
-        setStep("done");
-        toast.success(
-          `Portfolio import — created ${summary.projectsCreated ?? 0} project(s), updated ${summary.projectsUpdated ?? 0}`,
+        finishInBackground(
+          enqueue,
+          "mpp-portfolio",
+          `Importing ${editableProjects.length || createRows.length} projects from MPP`,
+          (summary) => {
+            const projectsCreated = Number(summary.projectsCreated ?? 0);
+            const projectsUpdated = Number(summary.projectsUpdated ?? 0);
+            setResult({
+              tasksCreated: Number(summary.tasksCreated ?? 0),
+              tasksUpdated: Number(summary.tasksUpdated ?? 0),
+              dependenciesCreated: Number(summary.dependenciesCreated ?? 0),
+              dependenciesUpdated: Number(summary.dependenciesUpdated ?? 0),
+              phasesCreated: Number(summary.phasesCreated ?? 0),
+              phasesUpdated: Number(summary.phasesUpdated ?? 0),
+              projectsCreated,
+              projectsUpdated,
+              projectCreated: projectsCreated > 0,
+            });
+            toast.success(
+              `Portfolio import — created ${projectsCreated} project(s), updated ${projectsUpdated}`,
+            );
+          },
         );
-        onCompleted?.();
         return;
       }
 
@@ -536,52 +592,64 @@ export function ImportMppDialog({
 
       if (!targetProjectId) return;
 
-      const summary = await importMpp({ projectId: targetProjectId, file }).unwrap();
-      setResult({
-        tasksCreated: summary.tasksCreated,
-        tasksUpdated: summary.tasksUpdated ?? 0,
-        dependenciesCreated: summary.dependenciesCreated,
-        dependenciesUpdated: summary.dependenciesUpdated ?? 0,
-        phasesCreated: summary.phasesCreated ?? 0,
-        phasesUpdated: summary.phasesUpdated ?? 0,
-        projectsCreated: isNewProject ? 1 : 0,
-        projectsUpdated: 0,
-        projectCreated: isNewProject,
-      });
-      setStep("done");
-      const createdBits = [
-        summary.phasesCreated ? `${summary.phasesCreated} phases` : null,
-        summary.tasksCreated ? `${summary.tasksCreated} tasks` : null,
-        summary.dependenciesCreated
-          ? `${summary.dependenciesCreated} dependencies`
-          : null,
-      ].filter(Boolean);
-      const updatedBits = [
-        summary.phasesUpdated ? `${summary.phasesUpdated} phases` : null,
-        summary.tasksUpdated ? `${summary.tasksUpdated} tasks` : null,
-        summary.dependenciesUpdated
-          ? `${summary.dependenciesUpdated} dependencies`
-          : null,
-      ].filter(Boolean);
-      const toastParts = [
-        createdBits.length ? `created ${createdBits.join(", ")}` : null,
-        updatedBits.length ? `updated ${updatedBits.join(", ")}` : null,
-      ].filter(Boolean);
-      toast.success(
-        isNewProject
-          ? `Created project${toastParts.length ? ` — ${toastParts.join("; ")}` : ""}`
-          : toastParts.length
-            ? `Import complete — ${toastParts.join("; ")}`
-            : "Import complete",
+      const enqueue = await importMpp({ projectId: targetProjectId, file }).unwrap();
+      finishInBackground(
+        enqueue,
+        "mpp",
+        isNewProject ? "Importing schedule into new project" : "Importing MS Project schedule",
+        (summary) => {
+          setResult({
+            tasksCreated: Number(summary.tasksCreated ?? 0),
+            tasksUpdated: Number(summary.tasksUpdated ?? 0),
+            dependenciesCreated: Number(summary.dependenciesCreated ?? 0),
+            dependenciesUpdated: Number(summary.dependenciesUpdated ?? 0),
+            phasesCreated: Number(summary.phasesCreated ?? 0),
+            phasesUpdated: Number(summary.phasesUpdated ?? 0),
+            projectsCreated: isNewProject ? 1 : 0,
+            projectsUpdated: 0,
+            projectCreated: isNewProject,
+          });
+          const createdBits = [
+            summary.phasesCreated ? `${summary.phasesCreated} phases` : null,
+            summary.tasksCreated ? `${summary.tasksCreated} tasks` : null,
+            summary.dependenciesCreated
+              ? `${summary.dependenciesCreated} dependencies`
+              : null,
+          ].filter(Boolean);
+          const updatedBits = [
+            summary.phasesUpdated ? `${summary.phasesUpdated} phases` : null,
+            summary.tasksUpdated ? `${summary.tasksUpdated} tasks` : null,
+            summary.dependenciesUpdated
+              ? `${summary.dependenciesUpdated} dependencies`
+              : null,
+          ].filter(Boolean);
+          const toastParts = [
+            createdBits.length ? `created ${createdBits.join(", ")}` : null,
+            updatedBits.length ? `updated ${updatedBits.join(", ")}` : null,
+          ].filter(Boolean);
+          toast.success(
+            isNewProject
+              ? `Created project${toastParts.length ? ` — ${toastParts.join("; ")}` : ""}`
+              : toastParts.length
+                ? `Import complete — ${toastParts.join("; ")}`
+                : "Import complete",
+          );
+        },
       );
-      onCompleted?.();
     } catch (error) {
-      toast.error(extractError(error, "Failed to import MPP file"));
+      if (isImportQueueFullError(error)) {
+        showQueueFull(importQueueFullMax(error));
+      } else {
+        toast.error(extractError(error, "Failed to import MPP file"));
+      }
     }
   };
 
   const handleClose = () => {
-    if (isBusy) return;
+    if (isPreviewing) return;
+    // Allow leave while enqueue/create is in flight once user chooses minimize,
+    // and always allow leave after background hand-off.
+    if (isCreatingProject) return;
     onClose();
   };
 
@@ -594,6 +662,7 @@ export function ImportMppDialog({
   const footerHint = (() => {
     if (parseError) return "File cannot be imported until a valid MS Project file is selected.";
     if (isPreviewing) return "Parsing schedule…";
+    if (isSaving) return "Starting import…";
     if (step === "preview" && preview) {
       if (hasRowErrors) {
         return `${editableProjects.filter((p) => p.errors.length > 0).length} project row(s) need fixes before import.`;
@@ -629,13 +698,23 @@ export function ImportMppDialog({
                 {isNewProject ? "Import MPP / MSPDI" : "Import MPP into project"}
               </DialogPrimitive.Title>
             </div>
-            {!isBusy && (
+            {!isBusy ? (
               <button
                 type="button"
                 onClick={handleClose}
                 className="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
               >
                 <X className="size-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleClose}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Continue working — progress stays visible"
+              >
+                <Minimize2 className="size-3.5" />
+                Minimize
               </button>
             )}
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GitBranch, Loader2, Search } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { cn } from "@/shared/utils/cn";
@@ -19,6 +19,7 @@ import type {
   TaskDependency,
   TaskDependencyType,
 } from "@/domains/projects/types/tasks.types";
+import { useLazyGetTaskOptionsQuery } from "@/domains/projects/api/tasks.api";
 import { useSyncPredecessors } from "@/domains/projects/hooks/use-sync-predecessors";
 import type {
   DesiredPredecessorLink,
@@ -31,6 +32,9 @@ const DEP_TYPES: { value: TaskDependencyType; label: string }[] = [
   { value: "FF", label: "FF" },
   { value: "SF", label: "SF" },
 ];
+
+const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export type DepTaskOption = {
   id: string;
@@ -50,7 +54,7 @@ type PredDraft = {
 
 type TaskDependenciesPickerProps = {
   taskId: string;
-  taskOptions: DepTaskOption[];
+  projectId: string;
   dependencies: TaskDependency[];
   canEdit: boolean;
 };
@@ -90,17 +94,28 @@ function formatLinkSummary(
 
 export function TaskDependenciesPicker({
   taskId,
-  taskOptions,
+  projectId,
   dependencies,
   canEdit,
 }: TaskDependenciesPickerProps) {
   const { applyPredecessorLinks, applySuccessorLinks } = useSyncPredecessors();
+  const [fetchOptions] = useLazyGetTaskOptionsQuery();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<LinkMode>("predecessors");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [predDraft, setPredDraft] = useState<PredDraft[]>([]);
   const [succDraft, setSuccDraft] = useState<PredDraft[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const [options, setOptions] = useState<DepTaskOption[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nameById, setNameById] = useState<Map<string, string>>(() => new Map());
+  const listRef = useRef<HTMLDivElement>(null);
+  const requestSeq = useRef(0);
 
   const existingPred = useMemo((): DesiredPredecessorLink[] => {
     return dependencies
@@ -121,12 +136,6 @@ export function TaskDependenciesPicker({
         lagDays: d.lagDays ?? 0,
       }));
   }, [dependencies, taskId]);
-
-  const nameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const t of taskOptions) m.set(t.id, t.name);
-    return m;
-  }, [taskOptions]);
 
   const summary = useMemo(() => {
     const parts: string[] = [];
@@ -156,6 +165,75 @@ export function TaskDependenciesPicker({
     return parts.join(" · ");
   }, [existingPred, existingSucc, nameById]);
 
+  const mergeNames = useCallback(
+    (rows: Array<{ id: string; name?: string; title?: string }>) => {
+      setNameById((prev) => {
+        const next = new Map(prev);
+        for (const row of rows) {
+          const name = row.name ?? row.title;
+          if (name) next.set(row.id, name);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const loadPage = useCallback(
+    async (offset: number, search: string, append: boolean) => {
+      const seq = ++requestSeq.current;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      try {
+        const page = await fetchOptions({
+          projectId,
+          excludeTaskId: taskId,
+          search: search || undefined,
+          offset,
+          limit: PAGE_SIZE,
+        }).unwrap();
+        if (seq !== requestSeq.current) return;
+
+        const mapped = page.rows.map((r) => ({ id: r.id, name: r.title }));
+        mergeNames(mapped);
+        setOptions((prev) => (append ? [...prev, ...mapped] : mapped));
+        setHasMore(page.hasMore);
+        setTotal(page.total);
+      } catch {
+        if (seq !== requestSeq.current) return;
+        if (!append) {
+          setOptions([]);
+          setHasMore(false);
+          setTotal(0);
+        }
+        toast.error("Failed to load tasks for dependencies");
+      } finally {
+        if (seq === requestSeq.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [fetchOptions, projectId, taskId, mergeNames],
+  );
+
+  const resolveSelectedNames = useCallback(
+    async (ids: string[]) => {
+      const unique = [...new Set(ids.filter(Boolean))];
+      if (unique.length === 0) return;
+      try {
+        const page = await fetchOptions({
+          projectId,
+          ids: unique,
+        }).unwrap();
+        mergeNames(page.rows.map((r) => ({ id: r.id, name: r.title })));
+      } catch {
+        // keep fallback "Task" label
+      }
+    },
+    [fetchOptions, projectId, mergeNames],
+  );
+
   useEffect(() => {
     if (!open) return;
     setPredDraft(
@@ -173,26 +251,46 @@ export function TaskDependenciesPicker({
       })),
     );
     setQuery("");
+    setDebouncedQuery("");
     setMode("predecessors");
-  }, [open, existingPred, existingSucc]);
+    setOptions([]);
+    void loadPage(0, "", false);
+    void resolveSelectedNames([
+      ...existingPred.map((l) => l.predecessorId),
+      ...existingSucc.map((l) => l.successorId),
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when opening
+  }, [open]);
+
+  useEffect(() => {
+    const t = window.setTimeout(
+      () => setDebouncedQuery(query),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open) return;
+    void loadPage(0, debouncedQuery, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
 
   const activeDraft = mode === "predecessors" ? predDraft : succDraft;
   const setActiveDraft =
     mode === "predecessors" ? setPredDraft : setSuccDraft;
 
   const candidates = useMemo(() => {
-    const q = query.trim().toLowerCase();
     const blocked =
       mode === "predecessors"
         ? new Set(succDraft.map((d) => d.otherId))
         : new Set(predDraft.map((d) => d.otherId));
-    return taskOptions.filter((t) => {
+    return options.filter((t) => {
       if (t.id === taskId) return false;
       if (blocked.has(t.id)) return false;
-      if (!q) return true;
-      return t.name.toLowerCase().includes(q);
+      return true;
     });
-  }, [taskOptions, taskId, query, mode, predDraft, succDraft]);
+  }, [options, taskId, mode, predDraft, succDraft]);
 
   const selectedIds = useMemo(
     () => new Set(activeDraft.map((d) => d.otherId)),
@@ -245,23 +343,29 @@ export function TaskDependenciesPicker({
         : await applyPredecessorLinks(taskId, desiredPred, dependencies);
       if (!predOk) return;
 
-      // Refresh-aware: after pred changes, pass same deps snapshot for succ
-      // (diff uses original ids; created/deleted pred links don't affect succ set).
       const succOk = succEqual(desiredSucc, existingSucc)
         ? true
         : await applySuccessorLinks(taskId, desiredSucc, dependencies);
       if (!succOk) return;
 
-      const total = desiredPred.length + desiredSucc.length;
+      const totalLinks = desiredPred.length + desiredSucc.length;
       toast.success(
-        total
-          ? `Saved ${total} dependenc${total === 1 ? "y" : "ies"}`
+        totalLinks
+          ? `Saved ${totalLinks} dependenc${totalLinks === 1 ? "y" : "ies"}`
           : "Dependencies cleared",
       );
       setOpen(false);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleScroll = () => {
+    const el = listRef.current;
+    if (!el || loading || loadingMore || !hasMore) return;
+    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 48;
+    if (!nearBottom) return;
+    void loadPage(options.length, debouncedQuery, true);
   };
 
   const count = existingPred.length + existingSucc.length;
@@ -333,6 +437,7 @@ export function TaskDependenciesPicker({
               onClick={() => {
                 setMode(tab.id);
                 setQuery("");
+                setDebouncedQuery("");
               }}
               className={cn(
                 "flex-1 px-3 py-2 text-xs font-medium transition-colors",
@@ -368,31 +473,56 @@ export function TaskDependenciesPicker({
           </div>
         </div>
 
-        <div className="max-h-40 overflow-y-auto py-1">
-          {candidates.length === 0 ? (
+        <div
+          ref={listRef}
+          onScroll={handleScroll}
+          className="max-h-40 overflow-y-auto py-1"
+        >
+          {loading && options.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 px-3 py-4 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Loading tasks…
+            </div>
+          ) : candidates.length === 0 ? (
             <p className="px-3 py-4 text-xs text-muted-foreground text-center">
               No matching tasks
             </p>
           ) : (
-            candidates.map((t) => {
-              const checked = selectedIds.has(t.id);
-              return (
-                <label
-                  key={t.id}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-muted/60",
-                    !canEdit && "cursor-default opacity-80",
-                  )}
-                >
-                  <Checkbox
-                    checked={checked}
-                    disabled={!canEdit || saving}
-                    onCheckedChange={(v) => toggleTask(t.id, v === true)}
-                  />
-                  <span className="text-xs truncate flex-1">{t.name}</span>
-                </label>
-              );
-            })
+            <>
+              {candidates.map((t) => {
+                const checked = selectedIds.has(t.id);
+                return (
+                  <label
+                    key={t.id}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-muted/60",
+                      !canEdit && "cursor-default opacity-80",
+                    )}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={!canEdit || saving}
+                      onCheckedChange={(v) => toggleTask(t.id, v === true)}
+                    />
+                    <span className="text-xs truncate flex-1">{t.name}</span>
+                  </label>
+                );
+              })}
+              {loadingMore ? (
+                <div className="flex items-center justify-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" />
+                  Loading more…
+                </div>
+              ) : hasMore ? (
+                <p className="px-3 py-2 text-[10px] text-center text-muted-foreground">
+                  Scroll for more · {options.length} of {total}
+                </p>
+              ) : total > 0 ? (
+                <p className="px-3 py-2 text-[10px] text-center text-muted-foreground">
+                  {total} task{total === 1 ? "" : "s"}
+                </p>
+              ) : null}
+            </>
           )}
         </div>
 

@@ -31,10 +31,12 @@ import { useDebounce } from "@/shared/hooks/use-debounce";
 import { useGetDepartmentsQuery, useGetProjectsQuery } from "@/domains/projects";
 import { useGetTeamDirectoryQuery } from "@/domains/resources";
 import {
+  reportsApi,
   useGetUtilisationReportQuery,
   useLazyGetUtilisationReportQuery,
   type QueryUtilisationParams,
 } from "../api/reports.api";
+import { useAppDispatch } from "@/store/hooks";
 import type { UtilisationEmployeeRow } from "../types/reports.types";
 import {
   formatPeriodLabel,
@@ -78,6 +80,7 @@ function formatHours(value: number) {
 }
 
 export function UtilizationReportPage() {
+  const dispatch = useAppDispatch();
   const [preset, setPreset] = useState<PeriodPreset>("this-month");
   const [search, setSearch] = useState("");
   const [employeeId, setEmployeeId] = useState("");
@@ -230,16 +233,49 @@ export function UtilizationReportPage() {
     sortOrder: activeSort?.desc ? "desc" : "asc",
   });
 
-  const { data: chartData } = useGetUtilisationReportQuery({
-    ...baseFilters,
-    page: 1,
-    limit: 100,
-    sortBy: "billableUtilisation",
-    sortOrder: "desc",
-  });
-
   const [fetchUtilisationPage, { isFetching: isExporting }] =
     useLazyGetUtilisationReportQuery();
+
+  const [fetchLiveReconcile, { isFetching: isLiveReconciling }] =
+    useLazyGetUtilisationReportQuery();
+
+  const handleLiveKekaReconcile = useCallback(async () => {
+    const queryArgs: QueryUtilisationParams = {
+      ...baseFilters,
+      page: pageIndex + 1,
+      limit: pageSize,
+      sortBy,
+      sortOrder: activeSort?.desc ? "desc" : "asc",
+    };
+    try {
+      const result = await fetchLiveReconcile({
+        ...queryArgs,
+        liveReconcile: true,
+      }).unwrap();
+      dispatch(
+        reportsApi.util.updateQueryData(
+          "getUtilisationReport",
+          queryArgs,
+          () => result,
+        ),
+      );
+      toast.success(
+        result.reconcileSource === "keka-live"
+          ? "Live Keka reconcile applied."
+          : "Keka live pull unavailable/timed out — showing local push-ack.",
+      );
+    } catch {
+      toast.error("Live Keka reconcile failed — keeping current report.");
+    }
+  }, [
+    activeSort?.desc,
+    baseFilters,
+    dispatch,
+    fetchLiveReconcile,
+    pageIndex,
+    pageSize,
+    sortBy,
+  ]);
 
   const handleExportCsv = useCallback(async () => {
     try {
@@ -275,8 +311,8 @@ export function UtilizationReportPage() {
 
   const summary = data?.summary;
   const rows = data?.rows ?? [];
-  const chartRows = chartData?.rows ?? rows;
-  const departments = data?.departments ?? chartData?.departments ?? [];
+  const chartRows = rows;
+  const departments = data?.departments ?? [];
   const total = data?.total ?? 0;
   const pageCount = Math.ceil(total / pageSize) || 0;
   const periodLabel = data
@@ -451,21 +487,36 @@ export function UtilizationReportPage() {
 
       <PageHeader
         title="Resource Utilization"
-        description={`${periodLabel} · Billable utilisation = approved billable ÷ available hours`}
+        description={`${periodLabel} · Billable utilisation = approved billable ÷ available hours · Hours near real-time from PMO; Keka status cached (push-ack) unless you run live reconcile`}
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void refetch()}
-            disabled={isFetching}
-          >
-            {isFetching ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="size-3.5" />
-            )}
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refetch()}
+              disabled={isFetching || isLiveReconciling}
+            >
+              {isFetching && !isLiveReconciling ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3.5" />
+              )}
+              Refresh
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleLiveKekaReconcile()}
+              disabled={isFetching || isLiveReconciling}
+            >
+              {isLiveReconciling ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="size-3.5" />
+              )}
+              Reconcile with Keka
+            </Button>
+          </div>
         }
       />
 
@@ -714,8 +765,8 @@ export function UtilizationReportPage() {
             <p className="text-sm font-bold">Keka reconciliation</p>
             <p className="text-xs text-muted-foreground">
               {data?.reconcileSource === "keka-live"
-                ? "Bi-directional: Cybsec approved hours vs hours pulled from Keka PSA."
-                : "Push acknowledgement only (Keka pull unavailable) — approved vs locally synced."}
+                ? "Live pull: Cybsec approved hours vs hours from Keka PSA (time-bounded)."
+                : "Cached push acknowledgement (M3.1-05): hours are near real-time from PMO; Keka match uses local sync markers. Use “Reconcile with Keka” for an optional live pull."}
             </p>
             {reconcileIssues.length === 0 ? (
               <p className="text-sm text-emerald-600 dark:text-emerald-400">

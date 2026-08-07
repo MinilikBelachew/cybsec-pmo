@@ -16,6 +16,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private client: Redis | null = null;
   private readonly memory = new Map<string, { value: string; expiresAt: number }>();
+  /** In-memory list fallback when Redis is unavailable. */
+  private readonly memoryLists = new Map<string, string[]>();
 
   constructor(private readonly configService: ConfigService<AllConfigType>) {}
 
@@ -91,6 +93,20 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** SET key NX EX — returns true if the key was set. */
+  async setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+    if (this.client?.status === 'ready') {
+      const result = await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    }
+    if (this.memoryGet(key) != null) return false;
+    this.memory.set(key, {
+      value,
+      expiresAt: Date.now() + ttlSeconds * 1000,
+    });
+    return true;
+  }
+
   async del(...keys: string[]): Promise<void> {
     if (!keys.length) return;
     if (this.client?.status === 'ready') {
@@ -99,7 +115,50 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
     for (const key of keys) {
       this.memory.delete(key);
+      this.memoryLists.delete(key);
     }
+  }
+
+  /** Append to list tail (FIFO queue with lpop). */
+  async rpush(key: string, value: string): Promise<number> {
+    if (this.client?.status === 'ready') {
+      return this.client.rpush(key, value);
+    }
+    const list = this.memoryLists.get(key) ?? [];
+    list.push(value);
+    this.memoryLists.set(key, list);
+    return list.length;
+  }
+
+  /** Prepend to list head. */
+  async lpush(key: string, value: string): Promise<number> {
+    if (this.client?.status === 'ready') {
+      return this.client.lpush(key, value);
+    }
+    const list = this.memoryLists.get(key) ?? [];
+    list.unshift(value);
+    this.memoryLists.set(key, list);
+    return list.length;
+  }
+
+  /** Pop from list head. */
+  async lpop(key: string): Promise<string | null> {
+    if (this.client?.status === 'ready') {
+      return this.client.lpop(key);
+    }
+    const list = this.memoryLists.get(key);
+    if (!list?.length) return null;
+    const value = list.shift() ?? null;
+    if (!list.length) this.memoryLists.delete(key);
+    else this.memoryLists.set(key, list);
+    return value;
+  }
+
+  async llen(key: string): Promise<number> {
+    if (this.client?.status === 'ready') {
+      return this.client.llen(key);
+    }
+    return this.memoryLists.get(key)?.length ?? 0;
   }
 
   private memoryGet(key: string): string | null {

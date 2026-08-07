@@ -1223,7 +1223,7 @@ function ProjectListView({
       onSortingChange={onSortingChange}
       isLoading={isLoading}
       emptyMessage="No projects match your filters."
-      minTableWidth="min-w-[1100px]"
+      minTableWidth="min-w-[1400px]"
       enableColumnReorder
       columnOrderStorageKey="cybsec-projects-list-column-order"
     />

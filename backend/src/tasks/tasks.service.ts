@@ -1399,6 +1399,88 @@ export class TasksService {
     return tasks.map((task) => this.formatTask(task, viewerRoleCode));
   }
 
+  /**
+   * Lightweight id+title pages for dependency pickers.
+   * Avoids heavy includes that exceed Postgres bind limits on large projects.
+   */
+  async findOptions(
+    query: {
+      projectId: string;
+      excludeTaskId?: string;
+      search?: string;
+      offset?: number;
+      limit?: number;
+      ids?: string[];
+    },
+    caslUser: CaslUserContext,
+  ): Promise<{
+    rows: Array<{ id: string; title: string }>;
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+  }> {
+    const scope = this.recordScopeWhere.taskWhere(caslUser, 'read');
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = Math.max(query.offset ?? 0, 0);
+
+    if (query.ids?.length) {
+      const uniqueIds = [...new Set(query.ids)].slice(0, 100);
+      const rows = await this.prisma.task.findMany({
+        where: {
+          AND: [
+            scope,
+            { projectId: query.projectId },
+            { id: { in: uniqueIds } },
+          ],
+        },
+        select: { id: true, title: true },
+      });
+      return {
+        rows: rows.map((r) => ({ id: r.id, title: r.title })),
+        total: rows.length,
+        offset: 0,
+        limit: rows.length,
+        hasMore: false,
+      };
+    }
+
+    const filters: Prisma.TaskWhereInput[] = [
+      scope,
+      { projectId: query.projectId },
+    ];
+    if (query.excludeTaskId) {
+      filters.push({ id: { not: query.excludeTaskId } });
+    }
+    const search = query.search?.trim();
+    if (search) {
+      filters.push({
+        title: { contains: search, mode: 'insensitive' },
+      });
+    }
+
+    const where: Prisma.TaskWhereInput = { AND: filters };
+
+    const [total, rows] = await Promise.all([
+      this.prisma.task.count({ where }),
+      this.prisma.task.findMany({
+        where,
+        select: { id: true, title: true },
+        orderBy: { title: 'asc' },
+        skip: offset,
+        take: limit,
+      }),
+    ]);
+
+    return {
+      rows: rows.map((r) => ({ id: r.id, title: r.title })),
+      total,
+      offset,
+      limit,
+      hasMore: offset + rows.length < total,
+    };
+  }
+
   async findById(
     id: string,
     caslUser: CaslUserContext,

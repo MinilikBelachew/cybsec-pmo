@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
+  KEKA_HTTP_TIMEOUT_MS,
   KEKA_RATE_LIMIT_MAX_RETRIES,
   KEKA_RATE_LIMIT_PER_MINUTE,
   KEKA_RATE_LIMIT_WINDOW_MS,
@@ -90,16 +91,34 @@ export class KekaHttpClient implements OnModuleInit {
       const token = await this.getAccessToken();
       const url = await this.buildUrl(path, params);
       const hasBody = method === 'POST' || method === 'PUT';
-      const response = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-          'User-Agent': 'Mozilla',
-          ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-        },
-        body: hasBody ? JSON.stringify(body) : undefined,
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        KEKA_HTTP_TIMEOUT_MS,
+      );
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+            'User-Agent': 'Mozilla',
+            ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+          },
+          body: hasBody ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error(
+            `Keka request timed out after ${KEKA_HTTP_TIMEOUT_MS}ms for ${path}`,
+          );
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (response.status === 429) {
         attempt += 1;

@@ -38,9 +38,10 @@ import { CreateMppImportDto } from './dto/create-mpp-import.dto';
 import { CreateMppPortfolioImportDto } from './dto/create-mpp-portfolio-import.dto';
 import { PreviewMppImportDto } from './dto/preview-mpp-import.dto';
 import { MppImportPreviewDto } from './dto/mpp-import-preview.dto';
-import { MppImportResultDto } from './dto/mpp-import-result.dto';
 import { MPP_IMPORT_ALLOWED_EXTENSIONS } from './mpp-import.constants';
 import { MppImportService } from './mpp-import.service';
+import { ImportsJobsService } from '../imports/imports-jobs.service';
+import { ImportEnqueueResultDto } from '../imports/dto/import-job-status.dto';
 
 const UPLOAD_BODY_SCHEMA = {
   type: 'object',
@@ -54,7 +55,7 @@ const UPLOAD_BODY_SCHEMA = {
 const PORTFOLIO_BODY_SCHEMA = {
   type: 'object',
   required: ['file'],
-    properties: {
+  properties: {
     objective: { type: 'string' },
     departmentId: { type: 'string', format: 'uuid' },
     customerId: { type: 'string', format: 'uuid' },
@@ -96,6 +97,7 @@ const PREVIEW_BODY_SCHEMA = {
 export class MppImportController {
   constructor(
     private readonly mppImportService: MppImportService,
+    private readonly importsJobsService: ImportsJobsService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -126,49 +128,49 @@ export class MppImportController {
   @CheckAbility('create', 'Project')
   @CheckModulePermission('project_import', 'import')
   @Post('mpp')
-  @HttpCode(HttpStatus.CREATED)
+  @HttpCode(HttpStatus.ACCEPTED)
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: UPLOAD_BODY_SCHEMA })
-  @ApiCreatedResponse({ type: MppImportResultDto })
+  @ApiCreatedResponse({ type: ImportEnqueueResultDto })
   @UseInterceptors(FileInterceptor('file'))
   async import(
     @Request() request: RequestWithAbility,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateMppImportDto,
-  ): Promise<MppImportResultDto> {
+  ): Promise<ImportEnqueueResultDto> {
     this.assertValidFile(file);
     const user = await resolveCaslUser(this.prisma, request);
 
-    return this.mppImportService.import(
-      user,
-      dto.projectId,
-      file.originalname,
-      file.path,
-    );
+    return this.importsJobsService.enqueueMppImport({
+      userId: user.id,
+      projectId: dto.projectId,
+      fileName: file.originalname,
+      filePath: file.path,
+    });
   }
 
   @CheckAbility('create', 'Project')
   @CheckModulePermission('project_import', 'import')
   @Post('mpp/portfolio')
-  @HttpCode(HttpStatus.CREATED)
+  @HttpCode(HttpStatus.ACCEPTED)
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: PORTFOLIO_BODY_SCHEMA })
-  @ApiCreatedResponse({ type: MppImportResultDto })
+  @ApiCreatedResponse({ type: ImportEnqueueResultDto })
   @UseInterceptors(FileInterceptor('file'))
   async importPortfolio(
     @Request() request: RequestWithAbility,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateMppPortfolioImportDto,
-  ): Promise<MppImportResultDto> {
+  ): Promise<ImportEnqueueResultDto> {
     this.assertValidFile(file);
     const user = await resolveCaslUser(this.prisma, request);
 
-    return this.mppImportService.importPortfolio(
-      user,
-      dto,
-      file.originalname,
-      file.path,
-    );
+    return this.importsJobsService.enqueueMppPortfolioImport({
+      userId: user.id,
+      fileName: file.originalname,
+      filePath: file.path,
+      portfolioDto: dto,
+    });
   }
 
   @CheckAbility('read', 'Project')
@@ -203,7 +205,8 @@ export class MppImportController {
       });
     }
 
-    const extension = file.originalname.match(/\.[^.]+$/)?.[0]?.toLowerCase() ?? '';
+    const extension =
+      file.originalname.match(/\.[^.]+$/)?.[0]?.toLowerCase() ?? '';
     if (
       !MPP_IMPORT_ALLOWED_EXTENSIONS.includes(
         extension as (typeof MPP_IMPORT_ALLOWED_EXTENSIONS)[number],

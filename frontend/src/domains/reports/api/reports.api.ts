@@ -16,6 +16,8 @@ export type QueryUtilisationParams = {
   sortOrder?: "asc" | "desc";
   page?: number;
   limit?: number;
+  /** Optional live Keka pull (slow). Default omitted = PMO DB + push-ack only. */
+  liveReconcile?: boolean;
 };
 
 function appendQueryParams(
@@ -50,6 +52,7 @@ export const reportsApi = api.injectEndpoints({
           sortOrder: p.sortOrder,
           page: p.page,
           limit: p.limit,
+          liveReconcile: p.liveReconcile ? "true" : undefined,
         });
         const qs = queryParams.toString();
         return qs ? `/reports/utilisation?${qs}` : "/reports/utilisation";

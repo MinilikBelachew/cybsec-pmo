@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import dns from 'dns';
 import cookieParser from 'cookie-parser';
+import { json, urlencoded } from 'express';
 import {
   ClassSerializerInterceptor,
   RequestMethod,
@@ -32,8 +33,13 @@ try {
 };
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Disable default 100kb parser so large Excel import JSON payloads are accepted.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
   app.set('trust proxy', true);
+  app.use(json({ limit: '20mb' }));
+  app.use(urlencoded({ extended: true, limit: '20mb' }));
   app.useWebSocketAdapter(new IoAdapter(app));
   app.enableCors({
     origin: process.env.FRONTEND_DOMAIN || 'http://localhost:3000',

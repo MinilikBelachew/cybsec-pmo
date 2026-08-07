@@ -8,6 +8,7 @@ import { ThemeColorInitializer } from "@/shared/components/theme-color-initializ
 import { Toaster } from "react-hot-toast";
 import { NotificationSocketProvider } from "./notification-socket-provider";
 import { TooltipProvider } from "@/shared/ui/tooltip";
+import { ImportProgressProvider } from "@/domains/projects/components/import/import-progress-provider";
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -21,7 +22,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         <ThemeColorInitializer />
         <TooltipProvider>
           <NotificationSocketProvider>
-            {children}
+            <ImportProgressProvider>{children}</ImportProgressProvider>
           </NotificationSocketProvider>
         </TooltipProvider>
         <Toaster position="top-right" reverseOrder={false} />

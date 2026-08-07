@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { TimesheetReconcileService } from '../integrations/keka/sync/timesheet-reconcile.service';
+import { UTILISATION_LIVE_RECONCILE_TIMEOUT_MS } from '../integrations/keka/keka.constants';
 import { TIMESHEET_STATUS } from '../timesheets/timesheets.constants';
 import {
   allocationWeeklyHours,
@@ -33,6 +34,8 @@ export const UTILISATION_FORMULA_VERSION = 'cybsec-2026-v1';
 
 @Injectable()
 export class UtilisationService {
+  private readonly logger = new Logger(UtilisationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
@@ -120,12 +123,18 @@ export class UtilisationService {
       orderBy: { name: 'asc' },
     });
 
-    const remote = await this.timesheetReconcileService.getRemoteHoursByEmployeeId({
-      start,
-      end,
-      employeeIds: employees.map((employee) => employee.id),
-      projectId: query.projectId,
-    });
+    // Default: PMO DB + local push-ack (M3.1-05 cached reconcile). Live Keka is opt-in.
+    const remote = query.liveReconcile
+      ? await this.tryLiveReconcile({
+          start,
+          end,
+          employeeIds: employees.map((employee) => employee.id),
+          projectId: query.projectId,
+        })
+      : {
+          source: 'local-push-ack' as const,
+          hoursByEmployeeId: new Map<string, number>(),
+        };
 
     const allRows = employees.map((employee) =>
       this.buildEmployeeRow(
@@ -482,6 +491,46 @@ export class UtilisationService {
     });
 
     return employees.map((row) => row.id);
+  }
+
+  /**
+   * Optional live Keka enrichment — time-bounded so the report never hangs.
+   * On timeout/failure falls back to local push-ack (M3.1-05 cached behaviour).
+   */
+  private async tryLiveReconcile(options: {
+    start: Date;
+    end: Date;
+    employeeIds: string[];
+    projectId?: string;
+  }): Promise<{
+    source: 'keka-live' | 'local-push-ack';
+    hoursByEmployeeId: Map<string, number>;
+  }> {
+    const fallback = {
+      source: 'local-push-ack' as const,
+      hoursByEmployeeId: new Map<string, number>(),
+    };
+
+    try {
+      return await Promise.race([
+        this.timesheetReconcileService.getRemoteHoursByEmployeeId(options),
+        new Promise<typeof fallback>((resolve) => {
+          setTimeout(() => {
+            this.logger.warn(
+              `Utilisation live Keka reconcile timed out after ${UTILISATION_LIVE_RECONCILE_TIMEOUT_MS}ms; using local push-ack`,
+            );
+            resolve(fallback);
+          }, UTILISATION_LIVE_RECONCILE_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (error) {
+      this.logger.warn(
+        `Utilisation live Keka reconcile skipped: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return fallback;
+    }
   }
 
   private resolvePeriod(startDate?: string, endDate?: string) {

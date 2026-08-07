@@ -20,8 +20,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
-import { useExportTasksQuery } from "@/domains/projects/api/tasks.api";
 import type { TaskDependency } from "@/domains/projects/types/tasks.types";
 import { type ProjectTaskAssignee } from "../../../types/projects.types";
 import {
@@ -29,10 +34,7 @@ import {
   getPriorityColors,
   type ApiPriority,
 } from "./task-cell-pickers";
-import {
-  TaskDependenciesPicker,
-  type DepTaskOption,
-} from "./task-predecessors-cell";
+import { TaskDependenciesPicker } from "./task-predecessors-cell";
 
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
@@ -130,40 +132,6 @@ export function TableView({
   const [selectedRows, setSelectedRows] = useState<Task[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const { canEditDependencies } = useModulePermissions();
-
-  const { data: exportTasksForPred = [] } = useExportTasksQuery(
-    { projectId: projectId!, topLevelOnly: false },
-    { skip: !projectId },
-  );
-
-  const dependencyTaskOptions = useMemo((): DepTaskOption[] => {
-    if (exportTasksForPred.length > 0) {
-      const out: DepTaskOption[] = [];
-      const seen = new Set<string>();
-      const push = (id: string, name: string) => {
-        if (seen.has(id)) return;
-        seen.add(id);
-        out.push({ id, name });
-      };
-      for (const t of exportTasksForPred) {
-        push(t.id, t.title);
-        for (const s of t.subTasks ?? []) {
-          push(s.id, s.title);
-          for (const ss of s.subTasks ?? []) {
-            push(ss.id, ss.title);
-          }
-        }
-      }
-      return out;
-    }
-    const out: DepTaskOption[] = [];
-    const walk = (t: Task) => {
-      out.push({ id: t.id, name: t.name });
-      for (const c of t.children ?? []) walk(c);
-    };
-    for (const t of tasks) walk(t);
-    return out;
-  }, [exportTasksForPred, tasks]);
 
   useEffect(() => {
     const ids: string[] = [];
@@ -371,7 +339,10 @@ export function TableView({
           const isExpanded = expandedParents.has(task.id);
 
           return (
-            <div className="flex items-center gap-2" style={{ paddingLeft: depth * 20 }}>
+            <div
+              className="flex w-full max-w-[18rem] items-center gap-2 overflow-hidden"
+              style={{ paddingLeft: depth * 20 }}
+            >
               {depth < 2 && hasChildren ? (
                 <button
                   type="button"
@@ -404,25 +375,38 @@ export function TableView({
                   <Circle className="size-4 text-muted-foreground hover:text-primary transition-colors" />
                 )}
               </button>
-              <button
-                type="button"
-                onClick={() => onTaskClick?.(task.id)}
-                className={cn(
-                  "text-sm font-medium truncate text-left hover:text-primary transition-colors",
-                  task.done && "line-through text-muted-foreground",
-                  depth > 0 && "font-normal",
-                )}
-              >
-                {depth > 0 && (
-                  <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {depth >= 2 ? "Sub²" : "Sub"}
-                  </span>
-                )}
-                {task.name}
-              </button>
+              <TooltipProvider delay={300}>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        onClick={() => onTaskClick?.(task.id)}
+                        className={cn(
+                          "min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-primary transition-colors",
+                          task.done && "line-through text-muted-foreground",
+                          depth > 0 && "font-normal",
+                        )}
+                      />
+                    }
+                  >
+                    {depth > 0 && (
+                      <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {depth >= 2 ? "Sub²" : "Sub"}
+                      </span>
+                    )}
+                    {task.name}
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-sm break-words">
+                    {task.name}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           );
         },
+        size: 280,
+        meta: { className: "w-[18rem] max-w-[18rem]" },
       },
       {
         id: "dependencies",
@@ -431,12 +415,13 @@ export function TableView({
           <div onClick={(e) => e.stopPropagation()}>
             <TaskDependenciesPicker
               taskId={row.original.id}
-              taskOptions={dependencyTaskOptions}
+              projectId={projectId!}
               dependencies={dependencies}
               canEdit={canEditDependencies}
             />
           </div>
         ),
+        meta: { className: "w-[4.5rem]" },
       },
       {
         id: "assignee",
@@ -684,7 +669,7 @@ export function TableView({
     onTaskClick,
     onDuplicateTask,
     onDeleteTask,
-    dependencyTaskOptions,
+    projectId,
     dependencies,
     canEditDependencies,
   ]);
@@ -699,6 +684,9 @@ export function TableView({
           searchKey="title"
           hideSearch
           emptyMessage="No tasks found"
+          mobileLayout="scroll"
+          minTableWidth="min-w-[1400px]"
+          tableClassName="table-auto"
           onSelectionChange={bulkActive ? setSelectedRows : undefined}
           bulkSelect={
             canBulkEdit

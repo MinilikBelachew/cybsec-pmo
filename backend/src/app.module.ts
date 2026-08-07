@@ -40,6 +40,7 @@ import { CurrenciesModule } from './currencies/currencies.module';
 import { SearchModule } from './search/search.module';
 import { MppImportModule } from './mpp-import/mpp-import.module';
 import mppImportConfig from './mpp-import/config/mpp-import.config';
+import { ImportsModule } from './imports/imports.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { ResourcesModule } from './resources/resources.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
@@ -131,6 +132,7 @@ import kekaConfig from './integrations/keka/config/keka.config';
     CurrenciesModule,
     SearchModule,
     MppImportModule,
+    ImportsModule,
     ResourcesModule,
     TimesheetsModule,
     ReportsModule,

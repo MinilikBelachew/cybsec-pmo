@@ -57,15 +57,16 @@ export class MppImportService {
 
   /**
    * Parse the uploaded file and write its tasks/dependencies into the project.
-   * Runs synchronously and returns a summary of what was created.
    */
   async import(
     user: CaslUserContext,
     projectId: string,
     fileName: string,
     filePath: string,
+    options?: { deleteFile?: boolean },
   ): Promise<MppImportResultSummary> {
     await this.assertProjectAccessible(user, projectId);
+    const deleteFile = options?.deleteFile !== false;
 
     try {
       const parsed = await this.parserClient.parseFile(filePath, fileName);
@@ -100,7 +101,9 @@ export class MppImportService {
 
       return await this.mapper.persistParsedProject(projectId, parsed);
     } finally {
-      await this.safeDeleteFile(filePath);
+      if (deleteFile) {
+        await this.safeDeleteFile(filePath);
+      }
     }
   }
 
@@ -113,7 +116,9 @@ export class MppImportService {
     dto: CreateMppPortfolioImportDto,
     fileName: string,
     filePath: string,
+    options?: { deleteFile?: boolean },
   ): Promise<MppImportResultSummary> {
+    const deleteFile = options?.deleteFile !== false;
     try {
       const parsed = await this.parserClient.parseFile(filePath, fileName);
       if (!this.mapper.isPortfolio(parsed)) {
@@ -256,7 +261,9 @@ export class MppImportService {
       );
       return totals;
     } finally {
-      await this.safeDeleteFile(filePath);
+      if (deleteFile) {
+        await this.safeDeleteFile(filePath);
+      }
     }
   }
 
