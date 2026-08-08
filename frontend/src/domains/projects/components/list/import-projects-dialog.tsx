@@ -436,7 +436,7 @@ export function ImportProjectsDialog({
     try {
       const result = await previewExcelProjectsImport({ file: selectedFile }).unwrap();
 
-      const projects = result.projects as ParsedProjectRow[];
+      const projects = (result.projects as unknown) as ParsedProjectRow[];
       setPreviewId(result.previewId);
       setCounts(result.counts);
       setNestedCounts(result.nestedCounts);
