@@ -21,10 +21,9 @@ export const LESSON_CATEGORIES = [
 export type LessonCategory = (typeof LESSON_CATEGORIES)[number];
 
 export class CreateLessonDto {
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
+  @ApiProperty({ format: 'uuid' })
   @IsUUID()
-  projectId?: string;
+  projectId: string;
 
   @ApiProperty({ enum: LESSON_CATEGORIES, example: 'DEPLOYMENT' })
   @IsString()

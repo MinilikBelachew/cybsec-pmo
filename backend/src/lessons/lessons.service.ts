@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -124,13 +125,14 @@ export class LessonsService {
     caslUser: CaslUserContext,
   ): Promise<LessonDto> {
     this.assertCanAccessLessons(caslUser);
-    if (dto.projectId) {
-      await this.assertProjectAccess(dto.projectId, caslUser);
+    if (!dto.projectId) {
+      throw new BadRequestException('Project is required');
     }
+    await this.assertProjectAccess(dto.projectId, caslUser);
 
     const created = await this.prisma.lessonsLearned.create({
       data: {
-        projectId: dto.projectId ?? null,
+        projectId: dto.projectId,
         category: dto.category.trim(),
         description: dto.description.trim(),
         recommendation: dto.recommendation.trim(),

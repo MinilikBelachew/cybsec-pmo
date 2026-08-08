@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
+import { Badge } from "@/shared/ui/badge";
 import { Input } from "@/shared/ui/input";
 import {
   Select,
@@ -33,8 +34,8 @@ const CREATE_DEFAULTS: LessonFormValues = {
   category: "DEPLOYMENT",
   description: "",
   recommendation: "",
-  tags: "",
-  projectId: "none",
+  tags: [],
+  projectId: "",
 };
 
 type LessonFormProps = {
@@ -54,6 +55,7 @@ export function LessonForm({
 }: LessonFormProps) {
   const [createLesson, { isLoading: isCreating }] = useCreateLessonMutation();
   const [updateLesson, { isLoading: isUpdating }] = useUpdateLessonMutation();
+  const [tagDraft, setTagDraft] = useState("");
   const isSaving = isCreating || isUpdating;
   const isEdit = Boolean(editing);
 
@@ -62,6 +64,7 @@ export function LessonForm({
     control,
     handleSubmit,
     watch,
+    setValue,
     reset,
     formState: { errors },
   } = useForm<LessonFormValues>({
@@ -71,6 +74,7 @@ export function LessonForm({
 
   useEffect(() => {
     if (!open) return;
+    setTagDraft("");
     if (editing) {
       reset({
         category: (LESSON_CATEGORIES.includes(
@@ -80,8 +84,8 @@ export function LessonForm({
           : "OTHER") as LessonFormValues["category"],
         description: editing.description,
         recommendation: editing.recommendation,
-        tags: editing.tags?.join(", ") ?? "",
-        projectId: editing.projectId || "none",
+        tags: editing.tags ?? [],
+        projectId: editing.projectId || "",
       });
     } else {
       reset(CREATE_DEFAULTS);
@@ -90,23 +94,42 @@ export function LessonForm({
 
   const projectId = watch("projectId");
   const category = watch("category");
-  const selectedProjectName =
-    projectId && projectId !== "none"
-      ? projects.find((p) => p.id === projectId)?.name
-      : "No project";
+  const tags = watch("tags") ?? [];
+  const selectedProjectName = projectId
+    ? projects.find((p) => p.id === projectId)?.name
+    : undefined;
+
+  function addTag() {
+    const next = tagDraft.trim();
+    if (!next) return;
+    const exists = tags.some((t) => t.toLowerCase() === next.toLowerCase());
+    if (exists) {
+      setTagDraft("");
+      return;
+    }
+    if (tags.length >= 20) {
+      toast.error("Maximum 20 tags");
+      return;
+    }
+    setValue("tags", [...tags, next], { shouldDirty: true, shouldValidate: true });
+    setTagDraft("");
+  }
+
+  function removeTag(tag: string) {
+    setValue(
+      "tags",
+      tags.filter((t) => t !== tag),
+      { shouldDirty: true, shouldValidate: true },
+    );
+  }
 
   const onSubmit = handleSubmit(async (values) => {
     const payload = {
       category: values.category,
       description: values.description.trim(),
       recommendation: values.recommendation.trim(),
-      tags: (values.tags ?? "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-      ...(values.projectId && values.projectId !== "none"
-        ? { projectId: values.projectId }
-        : {}),
+      tags: values.tags.map((t) => t.trim()).filter(Boolean),
+      projectId: values.projectId,
     };
 
     try {
@@ -181,33 +204,49 @@ export function LessonForm({
             </div>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">
-                Project (optional)
+                Project <span className="text-destructive font-bold">*</span>
               </label>
               <Controller
                 control={control}
                 name="projectId"
                 render={({ field }) => (
                   <Select
-                    value={field.value || "none"}
-                    onValueChange={(v) => field.onChange(v ?? "none")}
-                    disabled={isEdit}
+                    value={field.value || null}
+                    onValueChange={(v) => {
+                      if (!v) return;
+                      field.onChange(v);
+                    }}
+                    disabled={isEdit && Boolean(editing?.projectId)}
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Optional project">
+                    <SelectTrigger
+                      className={cn(
+                        "w-full",
+                        errors.projectId && "border-rose-500",
+                      )}
+                    >
+                      <SelectValue placeholder="Select project">
                         {selectedProjectName}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">No project</SelectItem>
-                      {projects.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
+                      {projects.length === 0 ? (
+                        <SelectItem value="__none" disabled>
+                          No projects available
                         </SelectItem>
-                      ))}
+                      ) : (
+                        projects.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 )}
               />
+              {errors.projectId && (
+                <p className={fieldErrorClass}>{errors.projectId.message}</p>
+              )}
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-xs text-muted-foreground">
@@ -246,11 +285,60 @@ export function LessonForm({
                 </p>
               )}
             </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs text-muted-foreground">
-                Tags (comma-separated)
-              </label>
-              <Input {...register("tags")} />
+            <div className="space-y-1.5 md:col-span-2">
+              <label className="text-xs text-muted-foreground">Tags</label>
+              <div className="flex gap-2">
+                <Input
+                  value={tagDraft}
+                  onChange={(e) => setTagDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addTag();
+                    }
+                  }}
+                  placeholder="Type a tag and press Add"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1.5 shrink-0"
+                  onClick={addTag}
+                  disabled={!tagDraft.trim()}
+                >
+                  <Plus className="size-3.5" />
+                  Add
+                </Button>
+              </div>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {tags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="outline"
+                      className="gap-1 pe-1 font-normal"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        className="rounded-sm p-0.5 hover:bg-muted"
+                        aria-label={`Remove tag ${tag}`}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {errors.tags && (
+                <p className={fieldErrorClass}>
+                  {typeof errors.tags.message === "string"
+                    ? errors.tags.message
+                    : "Invalid tags"}
+                </p>
+              )}
             </div>
           </div>
         </div>
