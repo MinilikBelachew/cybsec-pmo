@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
+import { useAuth } from "@/domains/auth";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useGetCustomersQuery } from "@/domains/projects/api/projects.api";
 import { useGetEscalationsQuery } from "../api/escalations.api";
@@ -26,9 +27,11 @@ import {
 const SEVERITIES = ["Low", "Medium", "High", "Critical"] as const;
 
 export function EscalationsPage() {
+  const { user } = useAuth();
   const { canEditIssues, canViewRisks, canEditRisks } = useModulePermissions();
-  const canManage = canEditIssues || canEditRisks;
-  const canView = canManage || canViewRisks;
+  const isEngineer = (user?.backendRoleCode ?? "") === "engineer";
+  const canCreate = (canEditIssues || canEditRisks) && !isEngineer;
+  const canView = canCreate || canViewRisks || canEditIssues;
 
   const [customerFilter, setCustomerFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
@@ -68,6 +71,11 @@ export function EscalationsPage() {
     });
   }
 
+  function canActOnEscalation(esc: Escalation): boolean {
+    if (canCreate) return true;
+    return Boolean(user?.id && esc.ownerId === user.id);
+  }
+
   if (!canView) {
     return (
       <div className="mx-auto max-w-lg py-16 text-center text-muted-foreground">
@@ -82,7 +90,7 @@ export function EscalationsPage() {
         title="Customer Escalations"
         description="Track customer escalations with severity, SLA, communication log, and closure."
         actions={
-          canManage ? (
+          canCreate ? (
             <Button onClick={() => setShowForm((v) => !v)} className="gap-2">
               <Plus className="size-4" />
               New escalation
@@ -131,7 +139,7 @@ export function EscalationsPage() {
         </Select>
       </div>
 
-      {canManage && (
+      {canCreate && (
         <EscalationForm
           open={showForm}
           customers={customers}
@@ -155,7 +163,7 @@ export function EscalationsPage() {
             <EscalationCard
               key={esc.id}
               escalation={esc}
-              canManage={canManage}
+              canAct={canActOnEscalation(esc)}
               isClosing={closingId === esc.id}
               logsExpanded={expandedLogIds.has(esc.id)}
               onToggleLogs={() => toggleLogAccordion(esc.id)}
@@ -172,7 +180,7 @@ export function EscalationsPage() {
 
 type EscalationCardProps = {
   escalation: Escalation;
-  canManage: boolean;
+  canAct: boolean;
   isClosing: boolean;
   logsExpanded: boolean;
   onToggleLogs: () => void;
@@ -183,7 +191,7 @@ type EscalationCardProps = {
 
 function EscalationCard({
   escalation: esc,
-  canManage,
+  canAct,
   isClosing,
   logsExpanded,
   onToggleLogs,
@@ -235,7 +243,7 @@ function EscalationCard({
             </div>
           )}
         </div>
-        {canManage && esc.status !== "Closed" && !isClosing && (
+        {canAct && esc.status !== "Closed" && !isClosing && (
           <Button size="sm" variant="outline" onClick={onStartClose}>
             Close
           </Button>
@@ -296,7 +304,7 @@ function EscalationCard({
               </div>
             )}
 
-            {canManage && esc.status !== "Closed" && (
+            {canAct && esc.status !== "Closed" && (
               <EscalationCommForm escalationId={esc.id} />
             )}
           </div>

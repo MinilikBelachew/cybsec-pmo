@@ -127,6 +127,11 @@ export class ActionPointsService {
     caslUser: CaslUserContext,
     filters?: { projectId?: string },
   ) {
+    if (this.isAssigneeOnlyRole(caslUser.roleCode)) {
+      throw new ForbiddenException(
+        'You do not have permission to view action point KPI reports',
+      );
+    }
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     const rows = await this.prisma.actionPoint.findMany({
       where: {

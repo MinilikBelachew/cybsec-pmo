@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { useAuth } from "@/domains/auth";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useGetProjectsQuery } from "@/domains/projects/api/projects.api";
 import {
@@ -33,7 +34,10 @@ import {
 } from "../api/actions-portfolio.api";
 
 export function ActionsPortfolioPage() {
+  const { user } = useAuth();
   const { canViewProjects, canEditProjects } = useModulePermissions();
+  const isEngineer = (user?.backendRoleCode ?? "") === "engineer";
+  const canViewKpis = canViewProjects && !isEngineer;
   const [projectFilter, setProjectFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [page, setPage] = useState(1);
@@ -55,7 +59,7 @@ export function ActionsPortfolioPage() {
   });
   const { data: report } = useGetActionClosureReportQuery(
     projectFilter !== "all" ? { projectId: projectFilter } : undefined,
-    { skip: !canViewProjects },
+    { skip: !canViewKpis },
   );
   const [sendReminders, { isLoading: isReminding }] =
     useSendActionRemindersMutation();
@@ -122,7 +126,7 @@ export function ActionsPortfolioPage() {
         }
       />
 
-      {report && (
+      {canViewKpis && report && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <KpiStatCard
             title="Total"

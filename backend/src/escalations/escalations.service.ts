@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -22,6 +23,9 @@ const MANAGEMENT_ROLES = [
   RoleEnum.super_admin,
   RoleEnum.pm,
 ];
+
+/** Engineers only see escalations they own; they cannot create. */
+const ESCALATION_ASSIGNEE_ROLES = new Set<string>([RoleEnum.engineer]);
 
 type EscalationRow = Prisma.CustomerEscalationGetPayload<{
   include: {
@@ -49,8 +53,12 @@ export class EscalationsService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  private isAssigneeOnlyRole(roleCode?: string | null): boolean {
+    return Boolean(roleCode && ESCALATION_ASSIGNEE_ROLES.has(roleCode));
+  }
+
   async list(
-    _caslUser: CaslUserContext,
+    caslUser: CaslUserContext,
     filters?: { customerId?: string; status?: string; severity?: string },
   ): Promise<EscalationDto[]> {
     const rows = await this.prisma.customerEscalation.findMany({
@@ -58,6 +66,9 @@ export class EscalationsService {
         ...(filters?.customerId ? { customerId: filters.customerId } : {}),
         ...(filters?.status ? { status: filters.status } : {}),
         ...(filters?.severity ? { severity: filters.severity } : {}),
+        ...(this.isAssigneeOnlyRole(caslUser.roleCode)
+          ? { ownerId: caslUser.id }
+          : {}),
       },
       include: this.include(),
       orderBy: [{ createdAt: 'desc' }],
@@ -68,8 +79,14 @@ export class EscalationsService {
   async create(
     dto: CreateEscalationDto,
     actorId: string,
-    _caslUser: CaslUserContext,
+    caslUser: CaslUserContext,
   ): Promise<EscalationDto> {
+    if (this.isAssigneeOnlyRole(caslUser.roleCode)) {
+      throw new ForbiddenException(
+        'You do not have permission to create escalations',
+      );
+    }
+
     await this.assertOwnerExists(dto.ownerId);
 
     const customer = await this.prisma.customer.findFirst({
@@ -131,15 +148,16 @@ export class EscalationsService {
     escalationId: string,
     dto: AddEscalationCommunicationDto,
     actorId: string,
-    _caslUser: CaslUserContext,
+    caslUser: CaslUserContext,
   ): Promise<EscalationDto> {
     const existing = await this.prisma.customerEscalation.findUnique({
       where: { id: escalationId },
-      select: { id: true },
+      select: { id: true, ownerId: true },
     });
     if (!existing) {
       throw new NotFoundException('Escalation not found');
     }
+    this.assertCanActOnEscalation(existing.ownerId, caslUser);
 
     await this.prisma.escalationCommunication.create({
       data: {
@@ -161,7 +179,7 @@ export class EscalationsService {
     escalationId: string,
     dto: CloseEscalationDto,
     actorId: string,
-    _caslUser: CaslUserContext,
+    caslUser: CaslUserContext,
   ): Promise<EscalationDto> {
     const existing = await this.prisma.customerEscalation.findUnique({
       where: { id: escalationId },
@@ -169,6 +187,7 @@ export class EscalationsService {
     if (!existing) {
       throw new NotFoundException('Escalation not found');
     }
+    this.assertCanActOnEscalation(existing.ownerId, caslUser);
 
     const breached = isOverdue(
       existing.createdAt,
@@ -239,6 +258,18 @@ export class EscalationsService {
       breached += 1;
     }
     return { breached };
+  }
+
+  private assertCanActOnEscalation(
+    ownerId: string,
+    caslUser: CaslUserContext,
+  ): void {
+    if (!this.isAssigneeOnlyRole(caslUser.roleCode)) return;
+    if (ownerId !== caslUser.id) {
+      throw new ForbiddenException(
+        'You can only act on escalations assigned to you',
+      );
+    }
   }
 
   private async notifyManagement(

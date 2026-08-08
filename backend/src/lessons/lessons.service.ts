@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CaslUserContext } from '../casl/casl.types';
+import { RoleEnum } from '../roles/roles.enum';
 import {
   CreateLessonDto,
   LessonDto,
@@ -21,6 +22,7 @@ type LessonRow = Prisma.LessonsLearnedGetPayload<{
 }>;
 
 const LESSON_MANAGER_ROLES = new Set(['super_admin', 'pmo_lead', 'pm']);
+const LESSON_DENIED_ROLES = new Set<string>([RoleEnum.engineer]);
 
 @Injectable()
 export class LessonsService {
@@ -28,6 +30,14 @@ export class LessonsService {
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
   ) {}
+
+  private assertCanAccessLessons(caslUser: CaslUserContext): void {
+    if (caslUser.roleCode && LESSON_DENIED_ROLES.has(caslUser.roleCode)) {
+      throw new ForbiddenException(
+        'You do not have permission to access lessons learned',
+      );
+    }
+  }
 
   async list(
     caslUser: CaslUserContext,
@@ -38,6 +48,7 @@ export class LessonsService {
       tag?: string;
     },
   ): Promise<LessonDto[]> {
+    this.assertCanAccessLessons(caslUser);
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     const q = filters?.q?.trim();
 
@@ -90,6 +101,7 @@ export class LessonsService {
   }
 
   async getById(id: string, caslUser: CaslUserContext): Promise<LessonDto> {
+    this.assertCanAccessLessons(caslUser);
     const row = await this.prisma.lessonsLearned.findUnique({
       where: { id },
       include: {
@@ -111,6 +123,7 @@ export class LessonsService {
     authorId: string,
     caslUser: CaslUserContext,
   ): Promise<LessonDto> {
+    this.assertCanAccessLessons(caslUser);
     if (dto.projectId) {
       await this.assertProjectAccess(dto.projectId, caslUser);
     }
@@ -137,6 +150,7 @@ export class LessonsService {
     dto: UpdateLessonDto,
     caslUser: CaslUserContext,
   ): Promise<LessonDto> {
+    this.assertCanAccessLessons(caslUser);
     const existing = await this.prisma.lessonsLearned.findUnique({
       where: { id },
     });
@@ -173,6 +187,7 @@ export class LessonsService {
   }
 
   async delete(id: string, caslUser: CaslUserContext): Promise<void> {
+    this.assertCanAccessLessons(caslUser);
     const existing = await this.prisma.lessonsLearned.findUnique({
       where: { id },
     });
@@ -194,6 +209,7 @@ export class LessonsService {
     caslUser: CaslUserContext,
     opts: { projectId?: string; category?: string; departmentId?: string },
   ): Promise<LessonDto[]> {
+    this.assertCanAccessLessons(caslUser);
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     let departmentId = opts.departmentId;
     const category = opts.category;

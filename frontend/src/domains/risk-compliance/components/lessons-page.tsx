@@ -32,6 +32,9 @@ const LESSON_MANAGER_ROLES = new Set(["super_admin", "pmo_lead", "pm"]);
 export function LessonsPage() {
   const { user } = useAuth();
   const { canViewProjects, canEditProjects } = useModulePermissions();
+  const isEngineer = (user?.backendRoleCode ?? "") === "engineer";
+  const canViewLessons = canViewProjects && !isEngineer;
+  const canCaptureLessons = canEditProjects && !isEngineer;
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
@@ -43,7 +46,10 @@ export function LessonsPage() {
   const debouncedQ = useDebounce(q, 300);
   const debouncedTag = useDebounce(tag, 300);
 
-  const { data: projectsResponse } = useGetProjectsQuery({ page: 1, limit: 200 });
+  const { data: projectsResponse } = useGetProjectsQuery(
+    { page: 1, limit: 200 },
+    { skip: !canViewLessons },
+  );
   const projects = projectsResponse?.data ?? [];
 
   const listParams = useMemo(
@@ -57,7 +63,7 @@ export function LessonsPage() {
   );
 
   const { data: lessons = [], isLoading } = useGetLessonsQuery(listParams, {
-    skip: !canViewProjects,
+    skip: !canViewLessons,
   });
   const [deleteLesson, { isLoading: isDeleting }] = useDeleteLessonMutation();
 
@@ -65,7 +71,7 @@ export function LessonsPage() {
   const currentUserId = user?.id;
 
   function canMutateLesson(lesson: Lesson): boolean {
-    if (!canEditProjects) return false;
+    if (!canCaptureLessons) return false;
     if (LESSON_MANAGER_ROLES.has(roleCode)) return true;
     return Boolean(currentUserId && lesson.authorId === currentUserId);
   }
@@ -86,7 +92,7 @@ export function LessonsPage() {
       ? "All projects"
       : projects.find((p) => p.id === projectFilter)?.name ?? "Project";
 
-  if (!canViewProjects) {
+  if (!canViewLessons) {
     return (
       <div className="mx-auto max-w-lg py-16 text-center text-muted-foreground">
         You do not have permission to view lessons learned.
@@ -100,7 +106,7 @@ export function LessonsPage() {
         title="Lessons Learned"
         description="Searchable knowledge base with categories, tags, and surfacing for project setup/closure."
         actions={
-          canEditProjects ? (
+          canCaptureLessons ? (
             <Button
               onClick={() => {
                 setEditing(null);
@@ -166,7 +172,7 @@ export function LessonsPage() {
         />
       </div>
 
-      {canEditProjects && (
+      {canCaptureLessons && (
         <LessonForm
           open={showForm}
           projects={projects}
