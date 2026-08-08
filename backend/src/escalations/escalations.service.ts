@@ -18,11 +18,6 @@ import {
 } from './dto/escalation.dto';
 
 const CLOSED_STATUSES = new Set(['Closed', 'Resolved', 'Cancelled']);
-const MANAGEMENT_ROLES = [
-  RoleEnum.pmo_lead,
-  RoleEnum.super_admin,
-  RoleEnum.pm,
-];
 
 /** Engineers only see escalations they own; they cannot create. */
 const ESCALATION_ASSIGNEE_ROLES = new Set<string>([RoleEnum.engineer]);
@@ -119,7 +114,11 @@ export class EscalationsService {
 
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ESCALATION_OPENED,
-      recipientUserIds: [dto.ownerId],
+      recipientUserIds:
+        await this.notifications.recipientsWithCustomerProjectPms(
+          dto.customerId,
+          dto.ownerId,
+        ),
       title: 'Customer escalation opened',
       body: `Escalation (${dto.severity}) assigned to you — SLA ${dto.slaTargetHrs}h.`,
       payload: {
@@ -208,7 +207,11 @@ export class EscalationsService {
 
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ESCALATION_CLOSED,
-      recipientUserIds: [updated.ownerId],
+      recipientUserIds:
+        await this.notifications.recipientsWithCustomerProjectPms(
+          updated.customerId,
+          updated.ownerId,
+        ),
       title: 'Customer escalation closed',
       body: `Escalation closed: ${dto.resolutionSummary.trim().slice(0, 120)}`,
       payload: {
@@ -281,16 +284,30 @@ export class EscalationsService {
     },
     actorId: string,
   ): Promise<void> {
+    // Org management (not project-scoped) + owner + PMs of the customer's projects.
     const managers = await this.prisma.user.findMany({
       where: {
         isActive: true,
-        role: { code: { in: MANAGEMENT_ROLES } },
+        role: {
+          code: {
+            in: [RoleEnum.pmo_lead, RoleEnum.super_admin],
+          },
+        },
       },
       select: { id: true },
       take: 50,
     });
+    const customerPmIds = escalation.customerId
+      ? await this.notifications.resolveCustomerProjectPmUserIds(
+          escalation.customerId,
+        )
+      : [];
     const recipientUserIds = Array.from(
-      new Set(managers.map((m) => m.id).concat(escalation.ownerId)),
+      new Set([
+        ...managers.map((m) => m.id),
+        ...customerPmIds,
+        escalation.ownerId,
+      ]),
     );
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ESCALATION_MANAGEMENT,

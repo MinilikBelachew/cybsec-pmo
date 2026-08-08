@@ -193,7 +193,10 @@ export class IssuesService {
 
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ISSUE_ASSIGNED,
-      recipientUserIds: [dto.ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        projectId,
+        dto.ownerId,
+      ),
       title: 'Issue assigned',
       body: `You were assigned issue “${created.title}” (${created.priority}).`,
       payload: {
@@ -333,7 +336,10 @@ export class IssuesService {
     if (!isAssigneeOnly && dto.ownerId && dto.ownerId !== existing.ownerId) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.ISSUE_ASSIGNED,
-        recipientUserIds: [dto.ownerId],
+        recipientUserIds: await this.notifications.recipientsWithProjectPms(
+          projectId,
+          dto.ownerId,
+        ),
         title: 'Issue assigned',
         body: `You were assigned issue “${updated.title}” (${updated.priority}).`,
         payload: {
@@ -442,7 +448,10 @@ export class IssuesService {
   ): Promise<void> {
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ISSUE_ESCALATED,
-      recipientUserIds: [issue.ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        issue.projectId,
+        issue.ownerId,
+      ),
       title: 'Issue escalated',
       body: `Issue “${issue.title}” requires escalation (${issue.priority} / overdue).`,
       payload: {
@@ -483,12 +492,13 @@ export class IssuesService {
     },
     actorId: string,
   ): Promise<void> {
-    const recipients = Array.from(
-      new Set([issue.raisedBy, issue.ownerId].filter(Boolean)),
-    );
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ISSUE_CLOSED,
-      recipientUserIds: recipients,
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        issue.projectId,
+        issue.raisedBy,
+        issue.ownerId,
+      ),
       title: 'Issue closed',
       body: `Issue “${issue.title}” was closed.`,
       payload: {

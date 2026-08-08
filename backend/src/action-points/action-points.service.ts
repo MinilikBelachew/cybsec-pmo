@@ -259,7 +259,10 @@ export class ActionPointsService {
     for (const row of dueSoon) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_REMINDER,
-        recipientUserIds: [row.ownerId],
+        recipientUserIds: await this.notifications.recipientsWithProjectPms(
+          row.projectId,
+          row.ownerId,
+        ),
         title: 'Action point reminder',
         body: `Action “${row.title}” is due on ${toIsoDate(row.dueDate)}.`,
         payload: {
@@ -324,7 +327,10 @@ export class ActionPointsService {
 
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_ASSIGNED,
-      recipientUserIds: [dto.ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        projectId,
+        dto.ownerId,
+      ),
       title: 'Action point assigned',
       body: `You were assigned action point “${created.title}” (due ${toIsoDate(created.dueDate)}).`,
       payload: {
@@ -466,7 +472,10 @@ export class ActionPointsService {
     if (isManager && dto.ownerId && dto.ownerId !== existing.ownerId) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_ASSIGNED,
-        recipientUserIds: [dto.ownerId],
+        recipientUserIds: await this.notifications.recipientsWithProjectPms(
+          projectId,
+          dto.ownerId,
+        ),
         title: 'Action point assigned',
         body: `You were assigned action point “${updated.title}” (due ${toIsoDate(updated.dueDate)}).`,
         payload: {
@@ -600,7 +609,10 @@ export class ActionPointsService {
   ): Promise<void> {
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_OVERDUE,
-      recipientUserIds: [ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        projectId,
+        ownerId,
+      ),
       title: 'Action point overdue',
       body: `Action point “${title}” is overdue.`,
       payload: { projectId, actionPointId },

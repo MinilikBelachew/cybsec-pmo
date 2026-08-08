@@ -188,7 +188,10 @@ export class RisksService {
 
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.RISK_ASSIGNED,
-      recipientUserIds: [dto.ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        projectId,
+        dto.ownerId,
+      ),
       title: 'Risk assigned',
       body: `You own risk “${created.title}” (score ${created.score}).`,
       payload: {
@@ -332,7 +335,10 @@ export class RisksService {
     if (!isAssigneeOnly && dto.ownerId && dto.ownerId !== existing.ownerId) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.RISK_ASSIGNED,
-        recipientUserIds: [dto.ownerId],
+        recipientUserIds: await this.notifications.recipientsWithProjectPms(
+          projectId,
+          dto.ownerId,
+        ),
         title: 'Risk assigned',
         body: `You own risk “${updated.title}” (score ${updated.score}).`,
         payload: { projectId, riskId: updated.id, score: updated.score },
@@ -392,7 +398,10 @@ export class RisksService {
   ): Promise<void> {
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.RISK_THRESHOLD_BREACHED,
-      recipientUserIds: [risk.ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        risk.projectId,
+        risk.ownerId,
+      ),
       title: 'High risk score',
       body: `Risk “${risk.title}” scored ${risk.score} (threshold ${RISK_HIGH_SCORE_THRESHOLD}).`,
       payload: {
