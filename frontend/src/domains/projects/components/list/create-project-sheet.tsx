@@ -30,6 +30,7 @@ import {
   type Project,
   type ProjectTeamSectionHandle,
 } from "@/domains/projects";
+import { useGetBrandingProfileOptionsQuery } from "@/domains/settings/api/branding.api";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useAuth } from "@/domains/auth/hooks/use-auth";
 import {
@@ -100,6 +101,7 @@ function projectToFormValues(project: Project): CreateProjectFormValues {
     customerId: project.customerId,
     primaryPmId: project.primaryPmId,
     secondaryPmId: project.secondaryPmId ?? "",
+    brandingProfileId: project.brandingProfileId ?? "",
     startDate: new Date(project.startDate),
     endDate: new Date(project.endDate),
     value: project.value ?? ("" as any),
@@ -250,6 +252,7 @@ export function CreateProjectSheet({
   const { data: departments = [] } = useGetDepartmentsQuery();
   const { data: customers = [] } = useGetCustomersQuery();
   const { data: managers = [] } = useGetProjectManagersQuery();
+  const { data: brandingOptions = [] } = useGetBrandingProfileOptionsQuery();
   const { data: currencies = [] } = useGetCurrenciesQuery();
 
   const {
@@ -272,6 +275,7 @@ export function CreateProjectSheet({
       customerId: "",
       primaryPmId: "",
       secondaryPmId: "",
+      brandingProfileId: "",
       startDate: undefined,
       endDate: undefined,
       value: "" as any,
@@ -306,6 +310,7 @@ export function CreateProjectSheet({
         customerId: "",
         primaryPmId: "",
         secondaryPmId: "",
+        brandingProfileId: "",
         startDate: undefined,
         endDate: undefined,
         value: "" as any,
@@ -637,6 +642,7 @@ export function CreateProjectSheet({
   const watchedCustomerId = watch("customerId");
   const watchedPmId = watch("primaryPmId");
   const watchedSecondaryPmId = watch("secondaryPmId");
+  const watchedBrandingProfileId = watch("brandingProfileId");
   const watchedEngagementType = watch("engagementType");
   const watchedBillingModel = watch("billingModel");
   const watchedMethodology = watch("methodology");
@@ -660,6 +666,10 @@ export function CreateProjectSheet({
   const activeCustomer = customers.find((c) => c.id === watchedCustomerId);
   const activePM = managers.find((m) => m.id === watchedPmId);
   const activeSecondaryPM = managers.find((m) => m.id === watchedSecondaryPmId);
+  const activeBranding = brandingOptions.find(
+    (profile) => profile.id === watchedBrandingProfileId,
+  );
+  const defaultBranding = brandingOptions.find((profile) => profile.isDefault);
 
   const endDateMin = (() => {
     const today = startOfToday();
@@ -957,6 +967,60 @@ export function CreateProjectSheet({
                 {errors.secondaryPmId && (
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.secondaryPmId.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Branding profile
+                </label>
+                <Controller
+                  control={control}
+                  name="brandingProfileId"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value || "none"}
+                      onValueChange={(val) =>
+                        field.onChange(val === "none" ? "" : val)
+                      }
+                      disabled={isViewOnly}
+                    >
+                      <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                        <SelectValue placeholder="Platform default">
+                          {activeBranding
+                            ? `${activeBranding.name}${activeBranding.isDefault ? " (default)" : ""}`
+                            : defaultBranding
+                              ? `Default — ${defaultBranding.name}`
+                              : "Platform default"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent
+                        alignItemWithTrigger={false}
+                        className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg max-h-60 overflow-y-auto"
+                      >
+                        <SelectItem value="none">
+                          {defaultBranding
+                            ? `Default — ${defaultBranding.name}`
+                            : "Platform default"}
+                        </SelectItem>
+                        {brandingOptions.map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.name}
+                            {profile.isDefault ? " (default)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <p className="text-[11px] text-slate-500">
+                  Letterhead, colours and logo come from this brand. Manage
+                  brands in Settings.
+                </p>
+                {errors.brandingProfileId && (
+                  <p className="text-[11px] font-semibold text-rose-500 mt-1">
+                    {errors.brandingProfileId.message}
                   </p>
                 )}
               </div>

@@ -22,6 +22,12 @@ export interface DashboardStats {
   resources: {
     total: number;
   };
+  pendingTimesheets: number;
+  collectionPct: number;
+  dataFreshness: {
+    source: "live" | "snapshot";
+    asOf: string;
+  };
 }
 
 export interface ProjectHealthItem {
@@ -37,6 +43,7 @@ export interface ProjectHealthItem {
 
 export interface MilestoneItem {
   id: string;
+  projectId: string;
   project: string;
   label: string;
   date: string;

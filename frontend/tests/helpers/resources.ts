@@ -39,11 +39,56 @@ export async function gotoWithCommit(page: Page, path: string) {
   }
 }
 
-/** Wait until dashboard shell finished loading (avoids stuck "Loading workspace details..."). */
-export async function waitForAppReady(page: Page, timeout = 60000) {
+/**
+ * Wait until the dashboard shell is interactive.
+ *
+ * AppShell mounts <main> only once RequireAuth has resolved /auth/me; until then
+ * it renders a bare full-screen spinner carrying no text at all. Waiting only on
+ * the "Loading workspace details" copy therefore returns while the page is still
+ * blank, and the caller's assertion burns its whole timeout against an empty DOM.
+ *
+ * Next.js cold-compile on first visit to a route can also leave the spinner up
+ * past a single navigation — one reload recovers once the route is warm.
+ */
+export async function waitForAppReady(page: Page, timeout = 120000) {
+  const main = page.locator("main").first();
+  const deadline = Date.now() + timeout;
+  let reloaded = false;
+
+  while (Date.now() < deadline) {
+    if (/\/login/.test(page.url())) {
+      throw new Error(
+        `Session was rejected — app redirected to ${page.url()}. ` +
+          "Check that the injected access_token cookie matches a live session.",
+      );
+    }
+
+    if (await main.isVisible().catch(() => false)) break;
+
+    const remaining = Math.max(1000, deadline - Date.now());
+    try {
+      await expect(main).toBeVisible({ timeout: Math.min(remaining, 45000) });
+      break;
+    } catch (error) {
+      if (/\/login/.test(page.url())) {
+        throw new Error(
+          `Session was rejected — app redirected to ${page.url()}. ` +
+            "Check that the injected access_token cookie matches a live session.",
+        );
+      }
+      if (reloaded) throw error;
+      reloaded = true;
+      await page.reload({ waitUntil: "commit" }).catch(() => undefined);
+    }
+  }
+
+  await expect(main).toBeVisible({ timeout: Math.max(1000, deadline - Date.now()) });
+
   const loading = page.getByText(/Loading workspace details/i);
   if (await loading.isVisible().catch(() => false)) {
-    await expect(loading).toBeHidden({ timeout });
+    await expect(loading).toBeHidden({
+      timeout: Math.max(1000, deadline - Date.now()),
+    });
   }
 }
 

@@ -39,6 +39,7 @@ const baseProjectSchema = z
     currency: z.string().min(2).max(4).toUpperCase(),
     primaryPmId: z.string().uuid("Please assign a primary PM"),
     secondaryPmId: z.string().uuid().or(z.literal("")).nullable().optional(),
+    brandingProfileId: z.string().uuid().or(z.literal("")).nullable().optional(),
     status: z.enum([
       "Draft",
       "Active",
@@ -115,6 +116,10 @@ export function toCreateProjectPayload(values: CreateProjectFormValues) {
     secondaryPmId:
       values.secondaryPmId && values.secondaryPmId !== ""
         ? values.secondaryPmId
+        : null,
+    brandingProfileId:
+      values.brandingProfileId && values.brandingProfileId !== ""
+        ? values.brandingProfileId
         : null,
     status: values.status,
   };

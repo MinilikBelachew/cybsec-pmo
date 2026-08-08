@@ -114,6 +114,15 @@ export class CreateProjectDto {
   @IsUUID()
   secondaryPmId?: string | null;
 
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description: 'Branding profile used for status reports and MoMs',
+  })
+  @IsOptional()
+  @IsUUID()
+  brandingProfileId?: string | null;
+
   @ApiPropertyOptional({ enum: ApiProjectStatus, default: ApiProjectStatus.Draft })
   @IsOptional()
   @IsEnum(ApiProjectStatus)

@@ -15,6 +15,10 @@ import {
   KEKA_MOCK_EMPLOYEE_IDS,
   KEKA_MOCK_JOB_TITLE_IDS,
 } from '../src/integrations/keka/mock/keka-mock.ids';
+import {
+  DEFAULT_HEALTH_RULES,
+  HEALTH_RULE_VERSION,
+} from '../src/reports/health/health-rules.constants';
 
 const prisma = new PrismaClient();
 
@@ -429,6 +433,30 @@ async function main() {
     create: { id: 'default' },
   });
   console.log('App settings seeded successfully.');
+
+  console.log('Ensuring default health rules...');
+  const healthRuleAdmin = await prisma.user.findFirst({
+    where: { isActive: true },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (healthRuleAdmin) {
+    for (const rule of DEFAULT_HEALTH_RULES) {
+      const existing = await prisma.healthRuleConfig.findFirst({
+        where: { dimension: rule.dimension, isActive: true },
+      });
+      if (!existing) {
+        await prisma.healthRuleConfig.create({
+          data: {
+            ...rule,
+            version: HEALTH_RULE_VERSION,
+            updatedBy: healthRuleAdmin.id,
+          },
+        });
+      }
+    }
+  }
+  console.log('Default health rules ensured.');
 
   console.log('Seeding currencies from SQL file...');
   const sqlPath = path.join(__dirname, 'currencies.sql');

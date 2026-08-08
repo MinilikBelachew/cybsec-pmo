@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import {
-  BarChart3,
   Calendar,
   Clock,
   FileText,
+  ListChecks,
   PieChart,
   Play,
   TrendingUp,
   Users,
   Wallet,
+  Workflow,
 } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { cn } from "@/shared/utils/cn";
@@ -34,21 +35,34 @@ const TEMPLATES: ReportTemplate[] = [
     icon: PieChart,
     href: "/dashboard/reports/utilization",
     live: true,
-    tags: ["Utilization", "M2.6", "Keka"],
-  },
-  {
-    id: "executive",
-    name: "Executive Summary",
-    description: "Portfolio health, budget vs actual, and top risks for leadership.",
-    icon: BarChart3,
-    tags: ["Executive", "Coming soon"],
+    tags: ["Utilization", "Keka"],
   },
   {
     id: "wsr",
     name: "Weekly Status Report (WSR)",
     description: "Week-on-week progress, milestones, risks, and burn rate.",
     icon: Calendar,
-    tags: ["WSR", "Coming soon"],
+    href: "/dashboard/reports/status",
+    live: true,
+    tags: ["WSR", "MSR"],
+  },
+  {
+    id: "data-quality",
+    name: "Data Quality",
+    description: "Scan project records, inspect quality flags, and resolve exceptions.",
+    icon: ListChecks,
+    href: "/dashboard/reports/data-quality",
+    live: true,
+    tags: ["Quality"],
+  },
+  {
+    id: "schedules",
+    name: "Report Schedules",
+    description: "Automate recurring weekly and monthly status report generation.",
+    icon: Workflow,
+    href: "/dashboard/reports/schedules",
+    live: true,
+    tags: ["Automation"],
   },
   {
     id: "timesheets",
@@ -80,16 +94,8 @@ export function ReportsHubPage() {
     <div className="space-y-6 pb-10">
       <PageHeader
         title="Reports"
-        description={`${liveCount} live report · ${TEMPLATES.length - liveCount} planned for Phase 3`}
+        description={`${liveCount} live reports · ${TEMPLATES.length - liveCount} planned`}
       />
-
-      <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-        <p className="font-medium text-foreground">M2.6 Utilisation is live</p>
-        <p className="mt-1 text-muted-foreground">
-          Start with the Resource Utilization report. Additional report types from the PBO
-          reference will ship in Phase 3.
-        </p>
-      </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {TEMPLATES.map((template) => {
@@ -178,9 +184,8 @@ export function ReportsHubPage() {
           <div>
             <p className="text-sm font-semibold">Need a custom report?</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Scheduled reports, status packs, and analytics dashboards are planned for Phase 3
-              (M3.1). The utilization report already uses the Gate 2 formula and six hour
-              categories.
+              Status packs, scheduled reports, data quality scans, and utilization
+              are available now. Additional finance and timesheet templates remain planned.
             </p>
           </div>
           <FileText className="ms-auto size-5 shrink-0 text-muted-foreground/50" />

@@ -3,6 +3,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Query,
   Request,
   UseGuards,
   UseInterceptors,
@@ -15,6 +16,7 @@ import { CheckModulePermission } from '../casl/decorators/check-module-permissio
 import { CheckAnyModulePermission } from '../casl/decorators/check-any-module-permission.decorator';
 import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { DashboardService } from './dashboard.service';
+import { QueryDashboardDto } from './dto/query-dashboard.dto';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
@@ -34,15 +36,21 @@ export class DashboardController {
   )
   @Get('stats')
   @HttpCode(HttpStatus.OK)
-  getStats(@Request() request: RequestWithAbility) {
-    return this.dashboardService.getStats(request.caslUser!);
+  getStats(
+    @Request() request: RequestWithAbility,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.getStats(request.caslUser!, query);
   }
 
   @CheckModulePermission('projects', 'view')
   @Get('project-health')
   @HttpCode(HttpStatus.OK)
-  getProjectHealth(@Request() request: RequestWithAbility) {
-    return this.dashboardService.getProjectHealth(request.caslUser!);
+  getProjectHealth(
+    @Request() request: RequestWithAbility,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.getProjectHealth(request.caslUser!, query);
   }
 
   @CheckAnyModulePermission(
@@ -51,8 +59,11 @@ export class DashboardController {
   )
   @Get('milestones')
   @HttpCode(HttpStatus.OK)
-  getMilestones(@Request() request: RequestWithAbility) {
-    return this.dashboardService.getMilestones(request.caslUser!);
+  getMilestones(
+    @Request() request: RequestWithAbility,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.getMilestones(request.caslUser!, query);
   }
 
   @CheckAnyModulePermission(
@@ -61,15 +72,21 @@ export class DashboardController {
   )
   @Get('resources')
   @HttpCode(HttpStatus.OK)
-  getResources(@Request() request: RequestWithAbility) {
-    return this.dashboardService.getResources(request.caslUser!);
+  getResources(
+    @Request() request: RequestWithAbility,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.getResources(request.caslUser!, query);
   }
 
   @CheckModulePermission('financials', 'view')
   @Get('burn-rate')
   @HttpCode(HttpStatus.OK)
-  getBurnRate(@Request() request: RequestWithAbility) {
-    return this.dashboardService.getBurnRate(request.caslUser!);
+  getBurnRate(
+    @Request() request: RequestWithAbility,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.getBurnRate(request.caslUser!, query);
   }
 
   @CheckModulePermission('audit', 'view')

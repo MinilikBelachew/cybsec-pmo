@@ -14,6 +14,7 @@ import { ApiPriorityLevel } from '../../projects/enums/project-api.enum';
 export enum ActionPointSourceType {
   Project = 'Project',
   Task = 'Task',
+  Meeting = 'Meeting',
 }
 
 export class CreateActionPointDto {

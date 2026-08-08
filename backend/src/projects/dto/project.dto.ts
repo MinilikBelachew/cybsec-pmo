@@ -114,6 +114,13 @@ export class ProjectDto {
   @ApiPropertyOptional({ nullable: true })
   secondaryPmId: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    format: 'uuid',
+    description: 'Branding profile used for status reports and MoMs',
+  })
+  brandingProfileId: string | null;
+
   @ApiProperty({ enum: ApiProjectStatus })
   status: ApiProjectStatus;
 

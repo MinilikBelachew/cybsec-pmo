@@ -29,8 +29,10 @@ export function MilestoneTimeline({ data }: { data: MilestoneItem[] }) {
             const s = STATUS_CONFIG[m.status] || STATUS_CONFIG["on-track"];
             return (
               <div
-                key={i}
-                onClick={() => router.push("/dashboard/projects")}
+                key={m.id || i}
+                onClick={() =>
+                  router.push(`/dashboard/projects/${m.projectId}?view=milestones`)
+                }
                 className="flex items-start gap-3 group cursor-pointer py-2 hover:bg-muted/30 rounded-lg px-1 transition-colors"
               >
                 <div className={cn("size-3.5 rounded-full border-2 border-background shrink-0 mt-0.5 z-10", s.dot)} />

@@ -13,6 +13,10 @@ export type DashboardLayout = {
   showAuditFeed: boolean;
   showRiskMatrix: boolean;
   showSimulation: boolean;
+  /** Portfolio filters (department / status / PM). Hidden for engineer-style roles. */
+  showFilters: boolean;
+  /** When false, hide the primary-PM filter (e.g. own_projects PM scope). */
+  showPmFilter: boolean;
   canLoadStats: boolean;
   canLoadProjectHealth: boolean;
   canLoadMilestones: boolean;
@@ -32,6 +36,8 @@ function buildLayout(
     showAuditFeed: false,
     showRiskMatrix: false,
     showSimulation: false,
+    showFilters: false,
+    showPmFilter: false,
     canLoadStats: true,
     canLoadProjectHealth: false,
     canLoadMilestones: false,
@@ -41,6 +47,16 @@ function buildLayout(
     isTasksOnly: false,
     ...partial,
   };
+}
+
+function projectsViewScope(
+  permissions: PermissionRow[],
+): string | null {
+  const row = permissions.find(
+    (permission) =>
+      permission.module === "projects" && permission.action === "view",
+  );
+  return row?.recordScope ?? null;
 }
 
 export function resolveDashboardLayout(
@@ -54,6 +70,8 @@ export function resolveDashboardLayout(
   const canViewTeam = hasModulePermission(permissions, "team", "view");
   const canViewMilestones = hasModulePermission(permissions, "milestones", "view");
   const canViewAudit = hasModulePermission(permissions, "audit", "view");
+  const projectScope = projectsViewScope(permissions);
+  const isOwnProjectsScope = projectScope === "own_projects";
 
   const canLoadStats = canViewProjects || canViewTasks || canViewReports;
   const canLoadProjectHealth = canViewProjects;
@@ -75,6 +93,8 @@ export function resolveDashboardLayout(
       canLoadResources: false,
       showRiskMatrix: false,
       showSimulation: false,
+      showFilters: false,
+      showPmFilter: false,
     });
   }
 
@@ -87,6 +107,8 @@ export function resolveDashboardLayout(
       showPortfolioBudget: canViewFinancials,
       showBurnRate: canLoadBurnRate,
       showAuditFeed: false,
+      showFilters: canLoadProjectHealth,
+      showPmFilter: canLoadProjectHealth && !isOwnProjectsScope,
       canLoadStats,
       canLoadProjectHealth,
       canLoadMilestones,
@@ -106,6 +128,8 @@ export function resolveDashboardLayout(
       canLoadMilestones,
       showRiskMatrix: true,
       showSimulation: false,
+      showFilters: false,
+      showPmFilter: false,
     });
   }
 
@@ -121,6 +145,8 @@ export function resolveDashboardLayout(
       canLoadResources,
       showRiskMatrix: false,
       showSimulation: false,
+      showFilters: canLoadProjectHealth,
+      showPmFilter: canLoadProjectHealth && !isOwnProjectsScope,
     });
   }
 
@@ -135,6 +161,8 @@ export function resolveDashboardLayout(
       canLoadMilestones,
       showRiskMatrix: false,
       showSimulation: false,
+      showFilters: false,
+      showPmFilter: false,
     });
   }
 
@@ -146,6 +174,8 @@ export function resolveDashboardLayout(
       defaultTab: "portfolio",
       showPortfolioBudget: canViewFinancials,
       showBurnRate: canLoadBurnRate,
+      showFilters: canLoadProjectHealth,
+      showPmFilter: canLoadProjectHealth,
       canLoadStats,
       canLoadProjectHealth,
       canLoadMilestones,
@@ -162,6 +192,9 @@ export function resolveDashboardLayout(
       defaultTab: "portfolio",
       showPortfolioBudget: canViewFinancials,
       showBurnRate: canLoadBurnRate,
+      // PM own_projects: filters for status/department only — not cross-PM.
+      showFilters: canLoadProjectHealth,
+      showPmFilter: canLoadProjectHealth && !isOwnProjectsScope,
       canLoadStats,
       canLoadProjectHealth,
       canLoadMilestones,
@@ -183,6 +216,8 @@ export function resolveDashboardLayout(
       showAuditFeed: canLoadAuditFeed,
       showRiskMatrix: true,
       showSimulation: true,
+      showFilters: canLoadProjectHealth,
+      showPmFilter: canLoadProjectHealth,
       canLoadStats,
       canLoadProjectHealth,
       canLoadMilestones,
@@ -201,5 +236,7 @@ export function resolveDashboardLayout(
     canLoadProjectHealth,
     canLoadMilestones,
     canLoadResources,
+    showFilters: false,
+    showPmFilter: false,
   });
 }

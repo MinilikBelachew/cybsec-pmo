@@ -13,7 +13,9 @@ import { fileURLToPath } from "url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
-const phase = process.env.PLAYWRIGHT_PHASE === "2" ? "2" : "1";
+const phase = ["2", "3"].includes(process.env.PLAYWRIGHT_PHASE ?? "")
+  ? process.env.PLAYWRIGHT_PHASE
+  : "1";
 const RESULTS = resolve(
   process.argv[2] ||
     process.env.PLAYWRIGHT_OUTPUT_DIR ||
@@ -200,6 +202,74 @@ const MAP = [
   ["TC-M2-6-04",                            "TC-M2.6-04"],
   ["Reconciles-to-Keka",                    "TC-M2.6-04"],
 
+  // ─── Phase 3 — Executive dashboard & KPIs (M3.1) ─────────────────────
+  ["TC-M3-1-01",                            "TC-M3.1-01"],
+  ["ones-budget-and-utilisation",           "TC-M3.1-01"],
+  ["TC-M3-1-02",                            "TC-M3.1-02"],
+  ["d-dashboard-access-enforced",           "TC-M3.1-02"],
+  ["TC-M3-1-03",                            "TC-M3.1-03"],
+  ["s-available-and-role-scoped",           "TC-M3.1-03"],
+  ["TC-M3-1-04",                            "TC-M3.1-04"],
+  ["ject-and-utilisation-detail",           "TC-M3.1-04"],
+  ["TC-M3-1-05",                            "TC-M3.1-05"],
+  ["nd-Reload-refetch-live-data",           "TC-M3.1-05"],
+  ["TC-M3-1-06",                            "TC-M3.1-06"],
+  ["t-ID-returns-structured-404",           "TC-M3.1-06"],
+
+  // ─── Phase 3 — Project health RAG rules (M3.2) ───────────────────────
+  ["TC-M3-2-01",                            "TC-M3.2-01"],
+  ["-all-five-health-dimensions",           "TC-M3.2-01"],
+  ["TC-M3-2-02",                            "TC-M3.2-02"],
+  ["change-RAG-on-re-evaluation",           "TC-M3.2-02"],
+  ["TC-M3-2-03",                            "TC-M3.2-03"],
+  ["-records-and-move-on-change",           "TC-M3.2-03"],
+
+  // ─── Phase 3 — WSR / MSR status reports (M3.3) ───────────────────────
+  ["TC-M3-3-01",                            "TC-M3.3-01"],
+  ["ft-and-exports-PDF-and-DOCX",           "TC-M3.3-01"],
+  ["TC-M3-3-02",                            "TC-M3.3-02"],
+  ["-monthly-period-and-exports",           "TC-M3.3-02"],
+  ["TC-M3-3-03",                            "TC-M3.3-03"],
+  ["pear-in-preview-and-exports",           "TC-M3.3-03"],
+  ["TC-M3-3-04",                            "TC-M3.3-04"],
+  ["ce-then-clear-after-resolve",           "TC-M3.3-04"],
+  ["TC-M3-3-05",                            "TC-M3.3-05"],
+  ["-required-before-Distribute",           "TC-M3.3-05"],
+  ["TC-M3-3-06",                            "TC-M3.3-06"],
+  ["s-to-PDF-DOCX-Excel-and-CSV",           "TC-M3.3-06"],
+  ["TC-M3-3-07",                            "TC-M3.3-07"],
+  ["w-version-and-keeps-history",           "TC-M3.3-07"],
+
+  // ─── Phase 3 — Meetings & MoM (M3.4) ─────────────────────────────────
+  ["TC-M3-4-01",                            "TC-M3.4-01"],
+  ["ndees-decisions-and-actions",           "TC-M3.4-01"],
+  ["TC-M3-4-02",                            "TC-M3.4-02"],
+  ["-Draft-and-exports-PDF-DOCX",           "TC-M3.4-02"],
+  ["TC-M3-4-03",                            "TC-M3.4-03"],
+  ["raft-to-Reviewed-via-Review",           "TC-M3.4-03"],
+  ["TC-M3-4-04",                            "TC-M3.4-04"],
+  ["ions-under-the-same-meeting",           "TC-M3.4-04"],
+  ["TC-M3-4-05",                            "TC-M3.4-05"],
+  ["nd-engineer-can-acknowledge",           "TC-M3.4-05"],
+
+  // ─── Phase 3 — Export & scheduled distribution (M3.5) ────────────────
+  ["TC-M3-5-01",                            "TC-M3.5-01"],
+  ["ation-and-portfolio-reports",           "TC-M3.5-01"],
+  ["TC-M3-5-02",                            "TC-M3.5-02"],
+  ["ents-with-toggle-and-delete",           "TC-M3.5-02"],
+  ["TC-M3-5-03",                            "TC-M3.5-03"],
+  ["he-schedule-and-audit-trail",           "TC-M3.5-03"],
+
+  // ─── Phase 3 — Data quality (M3.6) ───────────────────────────────────
+  ["TC-M3-6-01",                            "TC-M3.6-01"],
+  ["oved-timesheets-are-flagged",           "TC-M3.6-01"],
+  ["TC-M3-6-02",                            "TC-M3.6-02"],
+  ["Data-qua-cecce",                        "TC-M3.6-02"],
+  ["TC-M3-6-03",                            "TC-M3.6-03"],
+  ["Data-qua-26732",                        "TC-M3.6-03"],
+  ["TC-M3-6-04",                            "TC-M3.6-04"],
+  ["s-persist-and-gate-the-scan",           "TC-M3.6-04"],
+
   // ─── 10 New E2E Test Cases (Added) ──────────────────────────────────
   ["roject-Value-Boundary-Limit",           "TC-M1.2-05"],
   ["tone-target-date-validation",           "TC-M1.3-08"],
@@ -255,9 +325,16 @@ for (const folder of folders) {
     continue;
   }
 
-  renameSync(oldPath, newPath);
-  console.log(`  →  ${folder}\n     ↳  [${tcCode}]`);
-  renamed++;
+  try {
+    renameSync(oldPath, newPath);
+    console.log(`  →  ${folder}\n     ↳  [${tcCode}]`);
+    renamed++;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Windows often locks a results folder while Explorer / the HTML report
+    // still has a handle on video.webm — non-fatal for the suite.
+    console.warn(`  ⚠  Rename skipped (${message}): ${folder}`);
+  }
 }
 
 console.log(`\nDone — ${renamed} folder(s) renamed, ${skipped} already tagged.`);

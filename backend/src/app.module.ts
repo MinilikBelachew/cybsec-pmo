@@ -38,6 +38,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { CurrenciesModule } from './currencies/currencies.module';
 import { SearchModule } from './search/search.module';
+import { BrandingModule } from './branding/branding.module';
 import { MppImportModule } from './mpp-import/mpp-import.module';
 import mppImportConfig from './mpp-import/config/mpp-import.config';
 import { ImportsModule } from './imports/imports.module';
@@ -46,6 +47,7 @@ import { ResourcesModule } from './resources/resources.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
 import { ReportsModule } from './reports/reports.module';
 import kekaConfig from './integrations/keka/config/keka.config';
+import { MeetingsModule } from './meetings/meetings.module';
 
 @Module({
   imports: [
@@ -136,6 +138,8 @@ import kekaConfig from './integrations/keka/config/keka.config';
     ResourcesModule,
     TimesheetsModule,
     ReportsModule,
+    MeetingsModule,
+    BrandingModule,
     ScheduleModule.forRoot(),
   ],
 })

@@ -1,6 +1,7 @@
 export type UtilisationStatus = "over" | "optimal" | "under";
 
-export type ReconcileStatus = "matched" | "pending" | "mismatch" | "unavailable";
+export type ReconcileStatus =
+  "matched" | "pending" | "mismatch" | "unavailable";
 
 export type ReconcileSource = "keka-live" | "local-push-ack";
 
@@ -69,4 +70,118 @@ export interface UtilisationReportResponse {
   reconcileSource?: ReconcileSource;
 }
 
-export type UtilisationSortField = "name" | "billableUtilisation" | "approvedHours";
+export type UtilisationSortField =
+  "name" | "billableUtilisation" | "approvedHours";
+
+export type ReportType = "WSR" | "MSR";
+
+export interface HealthRule {
+  id: string;
+  dimension: string;
+  greenThreshold: number;
+  amberThreshold: number;
+  redThreshold: number | null;
+  unit: string | null;
+  version: string;
+  isActive: boolean;
+  updatedAt?: string;
+}
+
+export type UpdateHealthRule = Pick<
+  HealthRule,
+  "dimension" | "greenThreshold" | "amberThreshold"
+> & { redThreshold?: number; unit?: string; isActive?: boolean };
+
+export interface ProjectHealthReport {
+  projectId: string;
+  projectName: string;
+  overallRag: string;
+  dimensions: Array<{
+    dimension: string;
+    score: number;
+    ragStatus: string;
+    value: Record<string, unknown>;
+    ruleVersion: string;
+  }>;
+  evaluatedAt: string;
+  source: "live" | "snapshot";
+}
+
+export interface DataQualityFlag {
+  id: string;
+  flagType: string;
+  objectType: string;
+  objectId: string;
+  projectId: string | null;
+  severity: "low" | "medium" | "high" | "critical" | string;
+  description: string;
+  isResolved: boolean;
+  flaggedAt: string;
+  resolvedAt: string | null;
+  project?: { id: string; name: string } | null;
+}
+
+export interface DataQualityFlagsListResponse {
+  data: DataQualityFlag[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type DataQualityFlagType =
+  | "MISSING_TIMESHEET"
+  | "UNAPPROVED_TIMESHEET"
+  | "STALE_INTEGRATION"
+  | "INCOMPLETE_PROJECT";
+
+export interface DataQualityRules {
+  includeFlagTypes?: DataQualityFlagType[];
+  excludeFlagTypes?: DataQualityFlagType[];
+  enabled?: Partial<Record<DataQualityFlagType, boolean>>;
+}
+
+export interface StatusReport {
+  id: string;
+  reportType: ReportType;
+  projectId: string;
+  version: number;
+  status: "Draft" | "Approved" | "Distributed" | string;
+  dataSnapshot?: Record<string, unknown> | null;
+  generatedAt: string;
+  approvedAt?: string | null;
+  distributedAt?: string | null;
+  project?: { id: string; name: string } | null;
+}
+
+export interface StatusReportsListResponse {
+  data: StatusReport[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ReportSchedule {
+  id: string;
+  reportType: ReportType;
+  cronExpression: string;
+  projectId: string | null;
+  isActive: boolean;
+  lastRun: string | null;
+  nextRun: string | null;
+  lastError?: string | null;
+  createdAt: string;
+  project?: { id: string; name: string } | null;
+  recipients?: Array<{
+    id: string;
+    roleId?: number | null;
+    role?: { id: number; code: string; label: string } | null;
+  }>;
+}
+
+export interface ReportScheduleInput {
+  reportType: ReportType;
+  cronExpression: string;
+  projectId: string;
+  isActive: boolean;
+  recipients?: Array<{ roleId: number }>;
+}

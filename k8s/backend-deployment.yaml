@@ -58,9 +58,9 @@ spec:
             - name: MPXJ_SERVICE_URL
               value: "http://mpxj-service:8080"
             - name: FRONTEND_DOMAIN
-              value: "https://cybsec.addisanalytics.com"
+              value: "https://cybsec-stage.learnica.net"
             - name: BACKEND_DOMAIN
-              value: "https://cybsec.addisanalytics.com"
+              value: "https://cybsec-stage.learnica.net"
             - name: AUTH_JWT_SECRET
               value: "change-me-to-a-secure-random-key"
             - name: AUTH_REFRESH_SECRET
@@ -80,7 +80,7 @@ spec:
             - name: ENTRA_CLIENT_SECRET
               value: "change-me-to-your-entra-client-secret"
             - name: ENTRA_REDIRECT_URI
-              value: "https://cybsec.addisanalytics.com/api/v1/auth/entra/callback"
+              value: "https://cybsec-stage.learnica.net/api/v1/auth/entra/callback"
             - name: MAIL_HOST
               value: "smtp.gmail.com"
             - name: MAIL_PORT
