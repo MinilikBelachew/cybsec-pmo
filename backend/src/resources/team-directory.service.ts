@@ -133,6 +133,7 @@ export class TeamDirectoryService {
         AND: [
           { isActive: true },
           employeeScope,
+          ...(query.requireUserId ? [{ userId: { not: null } }] : []),
           ...(query.departmentId ? [{ departmentId: query.departmentId }] : []),
           ...(query.search
             ? [
@@ -358,6 +359,7 @@ export class TeamDirectoryService {
 
     return {
       id: employee.id,
+      userId: employee.userId,
       name: employee.name,
       email: employee.email,
       designation: employee.designation,

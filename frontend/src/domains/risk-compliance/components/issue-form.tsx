@@ -29,14 +29,17 @@ import {
 } from "../schemas/issue.schema";
 import type { Issue } from "../types/issues.types";
 import {
+  assigneeLabel,
   getApiErrorMessage,
   toApiDate,
   toDateOnly,
 } from "../utils/form-utils";
+import { FormSheet } from "./form-sheet";
 
 type ProjectOption = { id: string; name: string };
 
 type IssueFormProps = {
+  open: boolean;
   mode: "create" | "edit";
   issue?: Issue | null;
   projects: ProjectOption[];
@@ -46,6 +49,7 @@ type IssueFormProps = {
 };
 
 export function IssueForm({
+  open,
   mode,
   issue,
   projects,
@@ -64,7 +68,7 @@ export function IssueForm({
       priority: "Medium",
       ownerId: "",
       status: "Open",
-      resolutionNote: "",
+      expectedResolutionDate: null,
     },
   });
 
@@ -76,9 +80,8 @@ export function IssueForm({
         priority: (issue.priority as IssueFormValues["priority"]) || "Medium",
         ownerId: issue.ownerId,
         dueDate: toDateOnly(issue.dueDate)!,
-        expectedResolutionDate: toDateOnly(issue.expectedResolutionDate),
+        expectedResolutionDate: toDateOnly(issue.expectedResolutionDate) ?? null,
         status: (issue.status as IssueFormValues["status"]) || "Open",
-        resolutionNote: issue.resolutionNote ?? "",
       });
       return;
     }
@@ -88,18 +91,39 @@ export function IssueForm({
       priority: "Medium",
       ownerId: "",
       dueDate: undefined as unknown as Date,
-      expectedResolutionDate: undefined,
+      expectedResolutionDate: null,
       status: "Open",
-      resolutionNote: "",
     });
   }, [mode, issue, defaultProjectId, projects, form]);
 
   const projectId = form.watch("projectId");
   const ownerId = form.watch("ownerId");
 
-  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
+  const {
+    data: assignees = [],
+    isFetching: assigneesFetching,
+    isLoading: assigneesLoading,
+  } = useGetProjectTaskAssigneesQuery(projectId, {
     skip: !projectId,
   });
+
+  useEffect(() => {
+    if (!projectId || assigneesLoading || assigneesFetching) return;
+    if (!ownerId) return;
+    if (!assignees.some((a) => a.userId === ownerId)) {
+      form.setValue("ownerId", "");
+    }
+  }, [
+    projectId,
+    assignees,
+    assigneesLoading,
+    assigneesFetching,
+    ownerId,
+    form,
+  ]);
+
+  const assigneesPending =
+    Boolean(projectId) && (assigneesLoading || (assigneesFetching && assignees.length === 0));
 
   const selectedProjectName =
     projects.find((p) => p.id === projectId)?.name ??
@@ -107,10 +131,13 @@ export function IssueForm({
     undefined;
   const selectedOwner = assignees.find((a) => a.userId === ownerId);
   const selectedOwnerLabel =
-    selectedOwner?.displayName ||
-    selectedOwner?.name ||
-    selectedOwner?.email ||
-    issue?.owner?.displayName;
+    assigneeLabel(selectedOwner) ||
+    (mode === "edit" &&
+    issue &&
+    issue.projectId === projectId &&
+    issue.ownerId === ownerId
+      ? issue.owner?.displayName
+      : undefined);
 
   const onSubmit = form.handleSubmit(async (values) => {
     const body = {
@@ -122,7 +149,6 @@ export function IssueForm({
         ? toApiDate(values.expectedResolutionDate)
         : undefined,
       status: values.status,
-      resolutionNote: values.resolutionNote || undefined,
     };
     try {
       if (mode === "edit" && issue) {
@@ -146,18 +172,29 @@ export function IssueForm({
   const isSaving = isCreating || isUpdating;
 
   return (
+    <FormSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+      title={mode === "edit" ? "Edit issue" : "New issue"}
+      description={
+        mode === "edit"
+          ? "Update issue details, priority, and expected resolution."
+          : "Log a new issue with owner, due date, and priority."
+      }
+    >
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 space-y-4"
+      className="flex min-h-0 flex-1 flex-col"
       noValidate
     >
-      <p className="text-sm font-semibold">
-        {mode === "edit" ? "Edit issue" : "New issue"}
-      </p>
-
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
       {mode === "create" && (
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Project</label>
+          <label className="text-xs text-muted-foreground">
+            Project <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="projectId"
@@ -170,7 +207,10 @@ export function IssueForm({
                 }}
               >
                 <SelectTrigger
-                  className={cn(form.formState.errors.projectId && "border-rose-500")}
+                  className={cn(
+                    "w-full",
+                    form.formState.errors.projectId && "border-rose-500",
+                  )}
                 >
                   <SelectValue placeholder="Select project">
                     {selectedProjectName}
@@ -196,14 +236,18 @@ export function IssueForm({
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1 md:col-span-2">
-          <label className="text-xs text-muted-foreground">Title</label>
+          <label className="text-xs text-muted-foreground">
+            Title <span className="text-destructive font-bold">*</span>
+          </label>
           <Input {...form.register("title")} placeholder="Issue title" />
           {form.formState.errors.title && (
             <p className={fieldErrorClass}>{form.formState.errors.title.message}</p>
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Priority</label>
+          <label className="text-xs text-muted-foreground">
+            Priority <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="priority"
@@ -212,7 +256,7 @@ export function IssueForm({
                 value={field.value}
                 onValueChange={(v) => field.onChange(v ?? field.value)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue>{field.value}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -227,24 +271,41 @@ export function IssueForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Owner</label>
+          <label className="text-xs text-muted-foreground">
+            Owner <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="ownerId"
             render={({ field }) => (
               <Select
-                value={field.value || undefined}
-                onValueChange={(v) => field.onChange(v ?? "")}
+                key={`issue-owner-${projectId || "none"}`}
+                value={
+                  field.value && selectedOwnerLabel
+                    ? field.value
+                    : undefined
+                }
+                onValueChange={(v) => {
+                  if (!v || v === "__none") return;
+                  field.onChange(v);
+                }}
               >
                 <SelectTrigger
-                  className={cn(form.formState.errors.ownerId && "border-rose-500")}
+                  className={cn(
+                    "w-full",
+                    form.formState.errors.ownerId && "border-rose-500",
+                  )}
                 >
                   <SelectValue placeholder="Select owner">
                     {selectedOwnerLabel}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {assignees.length === 0 ? (
+                  {assigneesPending ? (
+                    <SelectItem value="__none" disabled>
+                      Loading assignees…
+                    </SelectItem>
+                  ) : assignees.length === 0 ? (
                     <SelectItem value="__none" disabled>
                       {projectId
                         ? "No assignees — add team members first"
@@ -253,7 +314,7 @@ export function IssueForm({
                   ) : (
                     assignees.map((a) => (
                       <SelectItem key={a.userId} value={a.userId}>
-                        {a.displayName || a.name || a.email}
+                        {assigneeLabel(a) || a.userId}
                       </SelectItem>
                     ))
                   )}
@@ -268,7 +329,9 @@ export function IssueForm({
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Due date</label>
+          <label className="text-xs text-muted-foreground">
+            Due date <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={form.control}
             name="dueDate"
@@ -289,22 +352,8 @@ export function IssueForm({
         </div>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">
-            Expected resolution
+            Status <span className="text-destructive font-bold">*</span>
           </label>
-          <Controller
-            control={form.control}
-            name="expectedResolutionDate"
-            render={({ field }) => (
-              <ProjectDatePicker
-                value={field.value ?? undefined}
-                onChange={field.onChange}
-                minDate={new Date(2000, 0, 1)}
-              />
-            )}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Status</label>
           <Controller
             control={form.control}
             name="status"
@@ -313,32 +362,59 @@ export function IssueForm({
                 value={field.value}
                 onValueChange={(v) => field.onChange(v ?? field.value)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue>{field.value}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {ISSUE_STATUS_OPTIONS.map((s) => (
+                  {ISSUE_STATUS_OPTIONS.filter(
+                    (s) => s !== "Closed" && s !== "Resolved",
+                  ).map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}
                     </SelectItem>
                   ))}
+                  {mode === "edit" &&
+                    (issue?.status === "Closed" ||
+                      issue?.status === "Resolved") && (
+                      <SelectItem value={issue.status} disabled>
+                        {issue.status}
+                      </SelectItem>
+                    )}
                 </SelectContent>
               </Select>
             )}
           />
         </div>
-        <div className="space-y-1 md:col-span-2">
-          <label className="text-xs text-muted-foreground">
-            Resolution note
-          </label>
-          <Input
-            {...form.register("resolutionNote")}
-            placeholder="Optional resolution / evidence note"
-          />
+
+        <div className="md:col-span-2 rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            Schedule
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              Expected resolution
+            </label>
+            <Controller
+              control={form.control}
+              name="expectedResolutionDate"
+              render={({ field }) => (
+                <ProjectDatePicker
+                  value={field.value ?? undefined}
+                  onChange={field.onChange}
+                  minDate={new Date(2000, 0, 1)}
+                />
+              )}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Optional forecast of when this will be resolved. Overdue uses this
+              date when set; otherwise due date.
+            </p>
+          </div>
         </div>
       </div>
+      </div>
 
-      <div className="flex gap-2 justify-end">
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -348,5 +424,6 @@ export function IssueForm({
         </Button>
       </div>
     </form>
+    </FormSheet>
   );
 }

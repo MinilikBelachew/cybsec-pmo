@@ -29,10 +29,6 @@ export enum EscalationCommChannel {
 export class CreateEscalationDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
-  projectId: string;
-
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
   customerId: string;
 
   @ApiProperty({ enum: EscalationSeverity })
@@ -116,12 +112,6 @@ export class EscalationCommunicationDto {
 export class EscalationDto {
   @ApiProperty()
   id: string;
-
-  @ApiProperty()
-  projectId: string;
-
-  @ApiPropertyOptional()
-  projectName?: string;
 
   @ApiProperty()
   customerId: string;

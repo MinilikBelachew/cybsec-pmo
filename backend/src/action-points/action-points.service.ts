@@ -90,7 +90,7 @@ export class ActionPointsService {
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
     });
-    return rows.map((row) => this.toDto(row));
+    return this.withLinkedLabels(rows.map((row) => this.toDto(row)));
   }
 
   async listPortfolio(
@@ -120,13 +120,18 @@ export class ActionPointsService {
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
     });
-    return rows.map((row) => this.toDto(row));
+    return this.withLinkedLabels(rows.map((row) => this.toDto(row)));
   }
 
   async closureReport(
     caslUser: CaslUserContext,
     filters?: { projectId?: string },
   ) {
+    if (this.isAssigneeOnlyRole(caslUser.roleCode)) {
+      throw new ForbiddenException(
+        'You do not have permission to view action point KPI reports',
+      );
+    }
     const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
     const rows = await this.prisma.actionPoint.findMany({
       where: {
@@ -254,7 +259,10 @@ export class ActionPointsService {
     for (const row of dueSoon) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_REMINDER,
-        recipientUserIds: [row.ownerId],
+        recipientUserIds: await this.notifications.recipientsWithProjectPms(
+          row.projectId,
+          row.ownerId,
+        ),
         title: 'Action point reminder',
         body: `Action “${row.title}” is due on ${toIsoDate(row.dueDate)}.`,
         payload: {
@@ -290,63 +298,11 @@ export class ActionPointsService {
     await this.assertOwnerExists(dto.ownerId);
     this.assertDueDateWithinProject(dto.dueDate, project.startDate, project.endDate);
 
-    const sourceType = dto.sourceType ?? ActionPointSourceType.Project;
-    let sourceId = dto.sourceId ?? projectId;
-
-    if (sourceType === ActionPointSourceType.Task) {
-      if (!dto.sourceId) {
-        throw new BadRequestException('sourceId (task id) is required when sourceType is Task');
-      }
-      const task = await this.prisma.task.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!task) {
-        throw new BadRequestException('Task not found on this project');
-      }
-      sourceId = task.id;
-    } else if (sourceType === ActionPointSourceType.Risk) {
-      if (!dto.sourceId) {
-        throw new BadRequestException('sourceId (risk id) is required when sourceType is Risk');
-      }
-      const risk = await this.prisma.risk.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!risk) {
-        throw new BadRequestException('Risk not found on this project');
-      }
-      sourceId = risk.id;
-    } else if (sourceType === ActionPointSourceType.Issue) {
-      if (!dto.sourceId) {
-        throw new BadRequestException('sourceId (issue id) is required when sourceType is Issue');
-      }
-      const issue = await this.prisma.issue.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!issue) {
-        throw new BadRequestException('Issue not found on this project');
-      }
-      sourceId = issue.id;
-    } else if (
-      sourceType === ActionPointSourceType.Meeting ||
-      sourceType === ActionPointSourceType.MoM
-    ) {
-      if (!dto.sourceId) {
-        throw new BadRequestException(
-          `sourceId (meeting id) is required when sourceType is ${sourceType}`,
-        );
-      }
-      const meeting = await this.prisma.meeting.findFirst({
-        where: { id: dto.sourceId, projectId },
-        select: { id: true },
-      });
-      if (!meeting) {
-        throw new BadRequestException('Meeting not found on this project');
-      }
-      sourceId = meeting.id;
-    }
+    const { sourceType, sourceId } = await this.resolveSourceLink(
+      projectId,
+      dto.sourceType ?? ActionPointSourceType.Project,
+      dto.sourceId,
+    );
 
     const status = dto.status?.trim() || 'Open';
     this.assertStatus(status);
@@ -371,7 +327,10 @@ export class ActionPointsService {
 
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_ASSIGNED,
-      recipientUserIds: [dto.ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        projectId,
+        dto.ownerId,
+      ),
       title: 'Action point assigned',
       body: `You were assigned action point “${created.title}” (due ${toIsoDate(created.dueDate)}).`,
       payload: {
@@ -427,7 +386,14 @@ export class ActionPointsService {
       }
       // Assignees may only change status (and optional closure note).
       const forbiddenKeys = (
-        ['title', 'ownerId', 'dueDate', 'priority'] as const
+        [
+          'title',
+          'ownerId',
+          'dueDate',
+          'priority',
+          'sourceType',
+          'sourceId',
+        ] as const
       ).filter((key) => dto[key] !== undefined);
       if (forbiddenKeys.length > 0) {
         throw new ForbiddenException(
@@ -458,6 +424,20 @@ export class ActionPointsService {
       );
     }
 
+    let resolvedSource:
+      | { sourceType: ActionPointSourceType; sourceId: string }
+      | undefined;
+    if (isManager && (dto.sourceType !== undefined || dto.sourceId !== undefined)) {
+      resolvedSource = await this.resolveSourceLink(
+        projectId,
+        dto.sourceType ?? (existing.sourceType as ActionPointSourceType),
+        dto.sourceId ??
+          (dto.sourceType === ActionPointSourceType.Project
+            ? projectId
+            : existing.sourceId),
+      );
+    }
+
     const nextStatus = dto.status?.trim() ?? existing.status;
     const wasClosed = CLOSED_STATUSES.has(existing.status);
     const willClose = CLOSED_STATUSES.has(nextStatus);
@@ -473,6 +453,12 @@ export class ActionPointsService {
         ...(isManager && dto.priority !== undefined
           ? { priority: dto.priority as PriorityLevel }
           : {}),
+        ...(resolvedSource
+          ? {
+              sourceType: resolvedSource.sourceType,
+              sourceId: resolvedSource.sourceId,
+            }
+          : {}),
         ...(dto.status !== undefined ? { status: nextStatus } : {}),
         ...(dto.closureNote !== undefined ? { closureNote: dto.closureNote } : {}),
         closedAt: willClose ? existing.closedAt ?? new Date() : null,
@@ -486,7 +472,10 @@ export class ActionPointsService {
     if (isManager && dto.ownerId && dto.ownerId !== existing.ownerId) {
       await this.notifications.notify({
         eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_ASSIGNED,
-        recipientUserIds: [dto.ownerId],
+        recipientUserIds: await this.notifications.recipientsWithProjectPms(
+          projectId,
+          dto.ownerId,
+        ),
         title: 'Action point assigned',
         body: `You were assigned action point “${updated.title}” (due ${toIsoDate(updated.dueDate)}).`,
         payload: {
@@ -531,6 +520,79 @@ export class ActionPointsService {
     await this.prisma.actionPoint.delete({ where: { id: actionPointId } });
   }
 
+  private async resolveSourceLink(
+    projectId: string,
+    sourceType: ActionPointSourceType,
+    sourceId?: string,
+  ): Promise<{ sourceType: ActionPointSourceType; sourceId: string }> {
+    let resolvedId = sourceId ?? projectId;
+
+    if (sourceType === ActionPointSourceType.Task) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          'sourceId (task id) is required when sourceType is Task',
+        );
+      }
+      const task = await this.prisma.task.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!task) {
+        throw new BadRequestException('Task not found on this project');
+      }
+      resolvedId = task.id;
+    } else if (sourceType === ActionPointSourceType.Risk) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          'sourceId (risk id) is required when sourceType is Risk',
+        );
+      }
+      const risk = await this.prisma.risk.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!risk) {
+        throw new BadRequestException('Risk not found on this project');
+      }
+      resolvedId = risk.id;
+    } else if (sourceType === ActionPointSourceType.Issue) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          'sourceId (issue id) is required when sourceType is Issue',
+        );
+      }
+      const issue = await this.prisma.issue.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!issue) {
+        throw new BadRequestException('Issue not found on this project');
+      }
+      resolvedId = issue.id;
+    } else if (
+      sourceType === ActionPointSourceType.Meeting ||
+      sourceType === ActionPointSourceType.MoM
+    ) {
+      if (!sourceId) {
+        throw new BadRequestException(
+          `sourceId (meeting id) is required when sourceType is ${sourceType}`,
+        );
+      }
+      const meeting = await this.prisma.meeting.findFirst({
+        where: { id: sourceId, projectId },
+        select: { id: true },
+      });
+      if (!meeting) {
+        throw new BadRequestException('Meeting not found on this project');
+      }
+      resolvedId = meeting.id;
+    } else {
+      resolvedId = projectId;
+    }
+
+    return { sourceType, sourceId: resolvedId };
+  }
+
   private assertCanManageActionPoints(caslUser: CaslUserContext): void {
     if (!this.isActionPointManager(caslUser.roleCode)) {
       throw new ForbiddenException(
@@ -547,7 +609,10 @@ export class ActionPointsService {
   ): Promise<void> {
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ACTION_POINT_OVERDUE,
-      recipientUserIds: [ownerId],
+      recipientUserIds: await this.notifications.recipientsWithProjectPms(
+        projectId,
+        ownerId,
+      ),
       title: 'Action point overdue',
       body: `Action point “${title}” is overdue.`,
       payload: { projectId, actionPointId },
@@ -632,6 +697,10 @@ export class ActionPointsService {
       sourceId: row.sourceId,
       projectId: row.projectId,
       projectName: row.project?.name,
+      linkedLabel:
+        row.sourceType === ActionPointSourceType.Project
+          ? row.project?.name
+          : undefined,
       ownerId: row.ownerId,
       owner: row.owner
         ? {
@@ -648,5 +717,83 @@ export class ActionPointsService {
       createdAt: row.createdAt.toISOString(),
       isOverdue: isOverdue(row.dueDate, row.status),
     };
+  }
+
+  private async withLinkedLabels(
+    items: ActionPointDto[],
+  ): Promise<ActionPointDto[]> {
+    if (items.length === 0) return items;
+
+    const taskIds = new Set<string>();
+    const riskIds = new Set<string>();
+    const issueIds = new Set<string>();
+    const meetingIds = new Set<string>();
+
+    for (const item of items) {
+      if (!item.sourceId) continue;
+      switch (item.sourceType) {
+        case ActionPointSourceType.Task:
+          taskIds.add(item.sourceId);
+          break;
+        case ActionPointSourceType.Risk:
+          riskIds.add(item.sourceId);
+          break;
+        case ActionPointSourceType.Issue:
+          issueIds.add(item.sourceId);
+          break;
+        case ActionPointSourceType.Meeting:
+        case ActionPointSourceType.MoM:
+          meetingIds.add(item.sourceId);
+          break;
+        default:
+          break;
+      }
+    }
+
+    const [tasks, risks, issues, meetings] = await Promise.all([
+      taskIds.size
+        ? this.prisma.task.findMany({
+            where: { id: { in: [...taskIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      riskIds.size
+        ? this.prisma.risk.findMany({
+            where: { id: { in: [...riskIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      issueIds.size
+        ? this.prisma.issue.findMany({
+            where: { id: { in: [...issueIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      meetingIds.size
+        ? this.prisma.meeting.findMany({
+            where: { id: { in: [...meetingIds] } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const labels = new Map<string, string>();
+    for (const row of tasks) labels.set(row.id, row.title);
+    for (const row of risks) labels.set(row.id, row.title);
+    for (const row of issues) labels.set(row.id, row.title);
+    for (const row of meetings) labels.set(row.id, row.title);
+
+    return items.map((item) => {
+      if (item.sourceType === ActionPointSourceType.Project) {
+        return {
+          ...item,
+          linkedLabel: item.projectName ?? item.linkedLabel ?? '—',
+        };
+      }
+      return {
+        ...item,
+        linkedLabel: labels.get(item.sourceId) ?? item.linkedLabel ?? '—',
+      };
+    });
   }
 }

@@ -12,7 +12,7 @@ export type Lesson = {
 };
 
 export type CreateLessonPayload = {
-  projectId?: string;
+  projectId: string;
   category: string;
   description: string;
   recommendation: string;

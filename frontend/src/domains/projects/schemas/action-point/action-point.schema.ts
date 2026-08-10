@@ -64,12 +64,13 @@ export function createActionPointSchema(options?: {
         .uuid("Owner is required"),
       dueDate: requiredDueDate,
       priority: z.enum(["Low", "Medium", "High", "Critical"]),
-      sourceType: z.enum(["Project", "Task", "Risk", "Issue"]),
+      sourceType: z.enum(["Project", "Task", "Meeting", "Risk", "Issue"]),
       sourceId: z.string().optional(),
     })
     .superRefine((data, ctx) => {
       if (
         data.sourceType === "Task" ||
+        data.sourceType === "Meeting" ||
         data.sourceType === "Risk" ||
         data.sourceType === "Issue"
       ) {

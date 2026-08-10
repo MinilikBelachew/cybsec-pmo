@@ -25,6 +25,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
+import { CheckAnyModulePermission } from '../casl/decorators/check-any-module-permission.decorator';
 import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { RisksService } from './risks.service';
@@ -45,15 +46,18 @@ export class RisksController {
   @Get('risks')
   @ApiQuery({ name: 'projectId', required: false })
   @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'category', required: false })
   @ApiOkResponse({ type: [RiskDto] })
   listPortfolio(
     @Request() request: RequestWithAbility,
     @Query('projectId') projectId?: string,
     @Query('status') status?: string,
+    @Query('category') category?: string,
   ): Promise<RiskDto[]> {
     return this.risksService.listPortfolio(request.caslUser!, {
       projectId,
       status,
+      category,
     });
   }
 
@@ -97,8 +101,15 @@ export class RisksController {
     );
   }
 
-  @CheckAbility('update', 'Project')
-  @CheckModulePermission('risks', 'edit')
+  /**
+   * Engineers (risks:view) may update status on risks they own.
+   * Full field updates still require risks:edit; enforced in the service.
+   */
+  @CheckAbility('read', 'Project')
+  @CheckAnyModulePermission(
+    { module: 'risks', action: 'edit' },
+    { module: 'risks', action: 'view' },
+  )
   @Patch('projects/:projectId/risks/:riskId')
   @ApiOkResponse({ type: RiskDto })
   update(

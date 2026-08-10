@@ -25,6 +25,7 @@ export type AlertEvent = {
   eventType?: string;
   objectType: string;
   objectId: string | null;
+  objectTitle?: string | null;
   channel: string;
   deliveryStatus: string;
   acknowledgedBy: string | null;

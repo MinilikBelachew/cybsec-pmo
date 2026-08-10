@@ -48,6 +48,8 @@ export type NavChild = {
   permission?: NavPermission;
   /** When set, only these role codes can see the item (in addition to permission). */
   roles?: string[];
+  /** When set, these role codes cannot see the item. */
+  excludeRoles?: string[];
 };
 
 export type NavSection = {
@@ -179,6 +181,7 @@ export const sidebarNav: NavSection[] = [
         icon: Bell,
         href: "/dashboard/alerts",
         permission: { action: "read", subject: "Notification" },
+        roles: ["pm", "pmo_lead", "team_lead", "super_admin", "it_admin"],
       },
       {
         id: "escalations",
@@ -200,6 +203,7 @@ export const sidebarNav: NavSection[] = [
         icon: BookOpen,
         href: "/dashboard/lessons",
         permission: { action: "read", subject: "Project" },
+        excludeRoles: ["engineer"],
       },
     ],
   },
@@ -384,7 +388,11 @@ function canSee(
   permission?: NavPermission,
   roles?: string[],
   roleCode?: string | null,
+  excludeRoles?: string[],
 ): boolean {
+  if (excludeRoles?.length && roleCode && excludeRoles.includes(roleCode)) {
+    return false;
+  }
   if (roles?.length) {
     if (!roleCode || !roles.includes(roleCode)) return false;
   }
@@ -411,6 +419,7 @@ export function getVisibleSections(
             child.permission ?? section.permission,
             child.roles ?? section.roles,
             roleCode,
+            child.excludeRoles,
           ),
         );
         if (children.length === 0) return null;

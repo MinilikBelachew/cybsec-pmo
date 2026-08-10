@@ -186,6 +186,12 @@ export class AlertEventDto {
   @ApiPropertyOptional({ nullable: true })
   objectId: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Risk or issue title when objectType is Risk/Issue',
+  })
+  objectTitle?: string | null;
+
   @ApiProperty()
   channel: string;
 

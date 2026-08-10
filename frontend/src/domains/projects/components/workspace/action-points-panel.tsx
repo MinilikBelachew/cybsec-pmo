@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
@@ -21,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { ListPagination, paginateItems } from "@/shared/components/list-pagination";
 import { cn } from "@/shared/utils/cn";
 import { useAuth } from "@/domains/auth";
 import {
@@ -46,6 +48,7 @@ import {
 import { useGetProjectIssuesQuery } from "@/domains/risk-compliance/api/issues.api";
 import { useGetProjectRisksQuery } from "@/domains/risk-compliance/api/risks.api";
 import { useGetTasksQuery } from "@/domains/projects/api/tasks.api";
+import { useGetMeetingsQuery } from "@/domains/projects/api/meetings.api";
 
 const STATUS_OPTIONS: ActionPointStatus[] = [
   "Open",
@@ -71,6 +74,7 @@ const PRIORITY_OPTIONS: ActionPointPriority[] = [
 const SOURCE_TYPE_OPTIONS: ActionPointSourceType[] = [
   "Project",
   "Task",
+  "Meeting",
   "Risk",
   "Issue",
 ];
@@ -141,17 +145,11 @@ export function ActionPointsPanel({
   const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
     skip: !canManage,
   });
-  const { data: projectRisks = [] } = useGetProjectRisksQuery(projectId, {
-    skip: !canManage,
-  });
-  const { data: projectIssues = [] } = useGetProjectIssuesQuery(projectId, {
-    skip: !canManage,
-  });
-  const { data: tasksResponse } = useGetTasksQuery(
-    { projectId, limit: 100 },
-    { skip: !canManage },
-  );
+  const { data: projectRisks = [] } = useGetProjectRisksQuery(projectId);
+  const { data: projectIssues = [] } = useGetProjectIssuesQuery(projectId);
+  const { data: tasksResponse } = useGetTasksQuery({ projectId, limit: 100 });
   const projectTasks = tasksResponse?.data ?? [];
+  const { data: projectMeetings = [] } = useGetMeetingsQuery(projectId);
   const [createActionPoint, { isLoading: isCreating }] = useCreateActionPointMutation();
   const [updateActionPoint, { isLoading: isUpdating }] = useUpdateActionPointMutation();
   const [deleteActionPoint, { isLoading: isDeleting }] = useDeleteActionPointMutation();
@@ -159,6 +157,8 @@ export function ActionPointsPanel({
   const [formMode, setFormMode] = useState<"closed" | "create" | "edit">("closed");
   const [editingPoint, setEditingPoint] = useState<ActionPoint | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ActionPoint | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const projectStart = useMemo(() => toDateOnly(projectStartDate), [projectStartDate]);
   const projectEnd = useMemo(() => toDateOnly(projectEndDate), [projectEndDate]);
@@ -177,6 +177,7 @@ export function ActionPointsPanel({
     control,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<ActionPointFormValues>({
@@ -215,6 +216,48 @@ export function ActionPointsPanel({
         label: a.displayName || a.name || a.email || a.userId,
       })),
     [assignees],
+  );
+
+  const linkedLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const task of projectTasks) {
+      map.set(task.id, task.title || task.id);
+    }
+    for (const risk of projectRisks) {
+      map.set(risk.id, risk.title);
+    }
+    for (const issue of projectIssues) {
+      map.set(issue.id, issue.title);
+    }
+    for (const meeting of projectMeetings) {
+      map.set(meeting.id, meeting.title);
+    }
+    return map;
+  }, [projectTasks, projectRisks, projectIssues, projectMeetings]);
+
+  function getLinkedLabel(ap: ActionPoint): string {
+    if (ap.linkedLabel) return ap.linkedLabel;
+    if (ap.sourceType === "Project") {
+      return ap.projectName || "This project";
+    }
+    return (
+      linkedLabelById.get(ap.sourceId) ||
+      (ap.sourceId ? `${ap.sourceId.slice(0, 8)}…` : "—")
+    );
+  }
+
+  useEffect(() => {
+    setPage(1);
+  }, [projectId, pageSize, actionPoints.length]);
+
+  const pageCount = Math.max(1, Math.ceil(actionPoints.length / pageSize));
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const pagedActionPoints = useMemo(
+    () => paginateItems(actionPoints, page, pageSize),
+    [actionPoints, page, pageSize],
   );
 
   const overdueCount = actionPoints.filter((ap) => ap.isOverdue).length;
@@ -259,6 +302,16 @@ export function ActionPointsPanel({
 
   const onValidSubmit = async (values: ActionPointFormValues) => {
     try {
+      const linkRequired =
+        values.sourceType === "Task" ||
+        values.sourceType === "Meeting" ||
+        values.sourceType === "Risk" ||
+        values.sourceType === "Issue";
+      const sourcePayload = {
+        sourceType: values.sourceType,
+        sourceId: linkRequired ? values.sourceId : undefined,
+      };
+
       if (formMode === "edit" && editingPoint) {
         await updateActionPoint({
           projectId,
@@ -268,14 +321,11 @@ export function ActionPointsPanel({
             ownerId: values.ownerId,
             dueDate: toApiDate(values.dueDate),
             priority: values.priority,
+            ...sourcePayload,
           },
         }).unwrap();
         toast.success("Action point updated");
       } else {
-        const needsSourceLink =
-          values.sourceType === "Task" ||
-          values.sourceType === "Risk" ||
-          values.sourceType === "Issue";
         await createActionPoint({
           projectId,
           body: {
@@ -283,8 +333,7 @@ export function ActionPointsPanel({
             ownerId: values.ownerId,
             dueDate: toApiDate(values.dueDate),
             priority: values.priority,
-            sourceType: values.sourceType,
-            sourceId: needsSourceLink ? values.sourceId : undefined,
+            ...sourcePayload,
             status: "Open",
           },
         }).unwrap();
@@ -335,22 +384,25 @@ export function ActionPointsPanel({
 
   const fieldErrorClass = "text-[11px] font-medium text-rose-500";
   const isSaving = isCreating || isUpdating;
+  const needsSourceLink =
+    watchedSourceType === "Task" ||
+    watchedSourceType === "Meeting" ||
+    watchedSourceType === "Risk" ||
+    watchedSourceType === "Issue";
 
   const actionPointForm = (
     <form
       onSubmit={handleSubmit(onValidSubmit)}
-      className="space-y-3 rounded-2xl border border-border/60 bg-card p-4"
+      className="space-y-4 rounded-xl border border-border/60 bg-card p-4"
       noValidate
     >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-foreground">
-          {formMode === "edit" ? "Edit action point" : "New action point"}
-        </p>
-      </div>
+      <p className="text-sm font-semibold text-foreground">
+        {formMode === "edit" ? "Edit action point" : "New action point"}
+      </p>
 
       <div className="space-y-1.5">
-        <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Name *
+        <label className="text-xs text-muted-foreground">
+          Name <span className="text-destructive font-bold">*</span>
         </label>
         <input
           {...register("name")}
@@ -366,21 +418,21 @@ export function ActionPointsPanel({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Owner *
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-xs text-muted-foreground">
+            Owner <span className="text-destructive font-bold">*</span>
           </label>
           <Controller
             control={control}
             name="ownerId"
             render={({ field }) => (
               <Select
-                value={field.value || undefined}
+                value={field.value || null}
                 onValueChange={(v) => field.onChange(v ?? "")}
               >
                 <SelectTrigger
                   className={cn(
-                    "h-9",
+                    "h-9 w-full min-w-0",
                     errors.ownerId && "border-rose-500 ring-2 ring-rose-500/20",
                   )}
                 >
@@ -407,9 +459,9 @@ export function ActionPointsPanel({
           {errors.ownerId && <p className={fieldErrorClass}>{errors.ownerId.message}</p>}
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Due date *
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-xs text-muted-foreground">
+            Due date <span className="text-destructive font-bold">*</span>
           </label>
           <Controller
             control={control}
@@ -429,10 +481,8 @@ export function ActionPointsPanel({
           {errors.dueDate && <p className={fieldErrorClass}>{errors.dueDate.message}</p>}
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Priority
-          </label>
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-xs text-muted-foreground">Priority</label>
           <Controller
             control={control}
             name="priority"
@@ -443,8 +493,8 @@ export function ActionPointsPanel({
                   field.onChange((v as ActionPointPriority) || "Medium")
                 }
               >
-                <SelectTrigger className="h-9">
-                  <SelectValue />
+                <SelectTrigger className="h-9 w-full min-w-0">
+                  <SelectValue>{field.value}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {PRIORITY_OPTIONS.map((p) => (
@@ -459,12 +509,15 @@ export function ActionPointsPanel({
         </div>
       </div>
 
-      {formMode === "create" && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Source
-            </label>
+      {(formMode === "create" || formMode === "edit") && (
+        <div
+          className={cn(
+            "grid gap-3",
+            "sm:grid-cols-3",
+          )}
+        >
+          <div className="space-y-1.5 min-w-0">
+            <label className="text-xs text-muted-foreground">Source</label>
             <Controller
               control={control}
               name="sourceType"
@@ -472,11 +525,14 @@ export function ActionPointsPanel({
                 <Select
                   value={field.value}
                   onValueChange={(v) => {
-                    field.onChange((v as ActionPointSourceType) || "Project");
+                    const next =
+                      (v as ActionPointSourceType) || "Project";
+                    field.onChange(next);
+                    setValue("sourceId", "");
                   }}
                 >
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
+                  <SelectTrigger className="h-9 w-full min-w-0">
+                    <SelectValue>{field.value}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {SOURCE_TYPE_OPTIONS.map((s) => (
@@ -490,12 +546,11 @@ export function ActionPointsPanel({
             />
           </div>
 
-          {(watchedSourceType === "Task" ||
-            watchedSourceType === "Risk" ||
-            watchedSourceType === "Issue") && (
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Linked {watchedSourceType} *
+          {needsSourceLink && (
+            <div className="space-y-1.5 min-w-0">
+              <label className="text-xs text-muted-foreground">
+                Linked {watchedSourceType}{" "}
+                <span className="text-destructive font-bold">*</span>
               </label>
               <Controller
                 control={control}
@@ -504,30 +559,42 @@ export function ActionPointsPanel({
                   const options =
                     watchedSourceType === "Task"
                       ? projectTasks.map((t) => ({
-                          id: t.id,
-                          label: t.title || t.id,
+                        id: t.id,
+                        label: t.title || t.id,
+                      }))
+                      : watchedSourceType === "Meeting"
+                        ? projectMeetings.map((m) => ({
+                          id: m.id,
+                          label: m.title,
                         }))
                       : watchedSourceType === "Risk"
                         ? projectRisks.map((r) => ({
-                            id: r.id,
-                            label: r.title,
-                          }))
+                          id: r.id,
+                          label: r.title,
+                        }))
                         : projectIssues.map((i) => ({
-                            id: i.id,
-                            label: i.title,
-                          }));
+                          id: i.id,
+                          label: i.title,
+                        }));
                   return (
                     <Select
-                      value={field.value || undefined}
-                      onValueChange={(v) => field.onChange(v ?? "")}
+                      key={`source-${watchedSourceType}`}
+                      value={field.value || null}
+                      onValueChange={(v) => {
+                        if (!v || v === "__none") return;
+                        field.onChange(v);
+                      }}
                     >
                       <SelectTrigger
                         className={cn(
-                          "h-9",
-                          errors.sourceId && "border-rose-500 ring-2 ring-rose-500/20",
+                          "h-9 w-full min-w-0",
+                          errors.sourceId &&
+                          "border-rose-500 ring-2 ring-rose-500/20",
                         )}
                       >
-                        <SelectValue placeholder={`Select ${watchedSourceType.toLowerCase()}`}>
+                        <SelectValue
+                          placeholder={`Select ${watchedSourceType.toLowerCase()}`}
+                        >
                           {options.find((o) => o.id === field.value)?.label}
                         </SelectValue>
                       </SelectTrigger>
@@ -630,15 +697,17 @@ export function ActionPointsPanel({
 
           {!isLoading && actionPoints.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
-              <div className="sticky top-0 z-10 grid grid-cols-[1fr_140px_120px_140px_72px] gap-2 border-b border-border/50 bg-muted/80 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground backdrop-blur-sm">
+              <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1.4fr)_90px_minmax(0,1fr)_120px_100px_130px_72px] gap-2 border-b border-border/50 bg-muted/80 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground backdrop-blur-sm">
                 <span>Name</span>
+                <span>Source</span>
+                <span>Linked</span>
                 <span>Owner</span>
                 <span>Due</span>
                 <span>Status</span>
                 <span />
               </div>
               <ul className="divide-y divide-border/40">
-                {actionPoints.map((ap) => {
+                {pagedActionPoints.map((ap) => {
                   const allowStatus = canUpdateStatus(ap);
                   const isEditingRow =
                     formMode === "edit" && editingPoint?.id === ap.id;
@@ -650,7 +719,7 @@ export function ActionPointsPanel({
                     <li key={ap.id} className="block">
                       <div
                         className={cn(
-                          "grid grid-cols-[1fr_140px_120px_140px_72px] items-center gap-2 px-4 py-3",
+                          "grid grid-cols-[minmax(0,1.4fr)_90px_minmax(0,1fr)_120px_100px_130px_72px] items-center gap-2 px-4 py-3",
                           ap.isOverdue && "bg-rose-500/5",
                           isEditingRow && "bg-primary/5",
                         )}
@@ -669,11 +738,16 @@ export function ActionPointsPanel({
                             <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                               {ap.priority}
                             </span>
-                            <span className="rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                              {ap.sourceType}
-                            </span>
                           </div>
                         </div>
+                        <div>
+                          <span className="rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                            {ap.sourceType}
+                          </span>
+                        </div>
+                        <p className="truncate text-xs text-muted-foreground" title={getLinkedLabel(ap)}>
+                          {getLinkedLabel(ap)}
+                        </p>
                         <p className="truncate text-xs text-foreground">
                           {ap.owner?.displayName || "—"}
                         </p>
@@ -696,8 +770,8 @@ export function ActionPointsPanel({
                               }}
                               disabled={isUpdating}
                             >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
+                              <SelectTrigger className="h-8 w-full min-w-0 text-xs">
+                                <SelectValue>{ap.status}</SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 {statusChoices.map((s) => (
@@ -749,6 +823,16 @@ export function ActionPointsPanel({
                   );
                 })}
               </ul>
+              <ListPagination
+                page={page}
+                pageSize={pageSize}
+                total={actionPoints.length}
+                onPageChange={setPage}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+              />
             </div>
           )}
         </div>

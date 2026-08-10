@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -8,26 +9,38 @@ import {
   MaxLength,
 } from 'class-validator';
 
-export class CreateLessonDto {
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
-  projectId?: string;
+export const LESSON_CATEGORIES = [
+  'DEPLOYMENT',
+  'SECURITY',
+  'PROCESS',
+  'COMMUNICATION',
+  'TECHNICAL',
+  'OTHER',
+] as const;
 
-  @ApiProperty({ example: 'DEPLOYMENT' })
+export type LessonCategory = (typeof LESSON_CATEGORIES)[number];
+
+export class CreateLessonDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  projectId: string;
+
+  @ApiProperty({ enum: LESSON_CATEGORIES, example: 'DEPLOYMENT' })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
-  category: string;
+  @IsIn(LESSON_CATEGORIES)
+  category: LessonCategory;
 
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(4000)
   description: string;
 
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(4000)
   recommendation: string;
 
   @ApiPropertyOptional({ type: [String], example: ['docker', 'networking'] })
@@ -38,20 +51,22 @@ export class CreateLessonDto {
 }
 
 export class UpdateLessonDto {
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: LESSON_CATEGORIES })
   @IsOptional()
   @IsString()
-  @MaxLength(100)
-  category?: string;
+  @IsIn(LESSON_CATEGORIES)
+  category?: LessonCategory;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   description?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   recommendation?: string;
 
   @ApiPropertyOptional({ type: [String] })

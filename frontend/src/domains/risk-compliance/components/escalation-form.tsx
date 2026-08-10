@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
@@ -14,7 +15,12 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
-import { useGetProjectTaskAssigneesQuery } from "@/domains/projects/api/projects.api";
+import { useDebounce } from "@/shared/hooks/use-debounce";
+import {
+  EmployeePickerSelect,
+  type EmployeePickerOption,
+} from "@/shared/components/employee-picker-select";
+import { useGetTeamDirectoryQuery } from "@/domains/resources";
 import {
   useAddEscalationCommunicationMutation,
   useCloseEscalationMutation,
@@ -28,15 +34,15 @@ import {
   type EscalationCommunicationFormValues,
   type EscalationFormValues,
 } from "../schemas/escalation.schema";
+import { FormSheet } from "./form-sheet";
 
 const SEVERITIES = ["Low", "Medium", "High", "Critical"] as const;
 const COMM_CHANNELS = ["Call", "Email", "Meeting", "Chat", "Other"] as const;
+const EMPLOYEE_PAGE_SIZE = 30;
 
-type ProjectOption = { id: string; name: string };
 type CustomerOption = { id: string; displayName?: string | null };
 
 const CREATE_DEFAULTS: EscalationFormValues = {
-  projectId: "",
   customerId: "",
   severity: "High",
   slaTargetHrs: 24,
@@ -46,27 +52,31 @@ const CREATE_DEFAULTS: EscalationFormValues = {
 };
 
 type EscalationFormProps = {
-  projects: ProjectOption[];
+  open: boolean;
   customers: CustomerOption[];
   onCancel: () => void;
   onSuccess: () => void;
 };
 
 export function EscalationForm({
-  projects,
+  open,
   customers,
   onCancel,
   onSuccess,
 }: EscalationFormProps) {
   const [createEscalation, { isLoading: isCreating }] =
     useCreateEscalationMutation();
+  const [ownerSearch, setOwnerSearch] = useState("");
+  const [ownerPage, setOwnerPage] = useState(1);
+  const [ownerPages, setOwnerPages] = useState<EmployeePickerOption[][]>([]);
+  const debouncedOwnerSearch = useDebounce(ownerSearch, 300);
 
   const {
     register,
     control,
     handleSubmit,
     watch,
-    setValue,
+    reset,
     formState: { errors },
   } = useForm<EscalationFormValues>({
     resolver: zodResolver(
@@ -75,28 +85,82 @@ export function EscalationForm({
     defaultValues: CREATE_DEFAULTS,
   });
 
-  const projectId = watch("projectId");
+  useEffect(() => {
+    if (!open) return;
+    reset(CREATE_DEFAULTS);
+    setOwnerSearch("");
+    setOwnerPage(1);
+    setOwnerPages([]);
+  }, [open, reset]);
+
+  useEffect(() => {
+    setOwnerPage(1);
+    setOwnerPages([]);
+  }, [debouncedOwnerSearch]);
+
+  const {
+    data: teamDirectoryData,
+    isLoading: isEmployeesLoading,
+    isFetching: isEmployeesFetching,
+  } = useGetTeamDirectoryQuery(
+    {
+      page: ownerPage,
+      limit: EMPLOYEE_PAGE_SIZE,
+      search: debouncedOwnerSearch.trim() || undefined,
+      sortBy: "name",
+      sortOrder: "asc",
+      requireUserId: true,
+    },
+    { skip: !open, refetchOnMountOrArgChange: true },
+  );
+
+  useEffect(() => {
+    const members = teamDirectoryData?.members;
+    if (!members || teamDirectoryData.page !== ownerPage) return;
+
+    const mapped = members
+      .filter((m) => Boolean(m.userId))
+      .map((m) => ({
+        id: m.userId as string,
+        name: m.name,
+        profileImageUrl: m.profileImageUrl,
+        subtitle: `${m.department.name} · ${m.designation}`,
+      }));
+
+    setOwnerPages((prev) => {
+      const next = prev.slice(0, Math.max(0, ownerPage - 1));
+      next[ownerPage - 1] = mapped;
+      return next;
+    });
+  }, [teamDirectoryData, ownerPage]);
+
+  const ownerOptions = useMemo(
+    () => ownerPages.flat(),
+    [ownerPages],
+  );
+
   const customerId = watch("customerId");
   const ownerId = watch("ownerId");
   const severity = watch("severity");
+  const initialChannel = watch("initialChannel");
 
-  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, {
-    skip: !projectId,
-  });
-
-  const selectedProjectName = projects.find((p) => p.id === projectId)?.name;
   const selectedCustomerName =
     customers.find((c) => c.id === customerId)?.displayName || undefined;
-  const selectedOwner = assignees.find((a) => a.userId === ownerId);
-  const selectedOwnerLabel =
-    selectedOwner?.displayName ||
-    selectedOwner?.name ||
-    selectedOwner?.email;
+  const selectedOwner = useMemo(
+    () => ownerOptions.find((o) => o.id === ownerId) ?? null,
+    [ownerOptions, ownerId],
+  );
+
+  const totalEmployees = teamDirectoryData?.total ?? 0;
+  const hasMoreOwners = ownerOptions.length < totalEmployees;
+  const isFetchingMoreOwners =
+    isEmployeesFetching && ownerOptions.length > 0 && ownerPage > 1;
+  const isOwnerListLoading =
+    (isEmployeesLoading || isEmployeesFetching) && ownerOptions.length === 0;
 
   const onSubmit = handleSubmit(async (values) => {
     try {
       await createEscalation({
-        projectId: values.projectId,
         customerId: values.customerId,
         severity: values.severity,
         slaTargetHrs: Number(values.slaTargetHrs),
@@ -114,46 +178,25 @@ export function EscalationForm({
   const fieldErrorClass = "text-[11px] font-medium text-rose-500";
 
   return (
+    <FormSheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+      title="New escalation"
+      description="Open a customer escalation with severity, SLA, and owner."
+    >
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 space-y-3"
+      className="flex min-h-0 flex-1 flex-col"
       noValidate
     >
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Project</label>
-          <Controller
-            control={control}
-            name="projectId"
-            render={({ field }) => (
-              <Select
-                value={field.value || undefined}
-                onValueChange={(v) => {
-                  field.onChange(v ?? "");
-                  setValue("ownerId", "");
-                }}
-              >
-                <SelectTrigger className={cn(errors.projectId && "border-rose-500")}>
-                  <SelectValue placeholder="Select project">
-                    {selectedProjectName}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-          {errors.projectId && (
-            <p className={fieldErrorClass}>{errors.projectId.message}</p>
-          )}
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Customer</label>
+          <label className="text-xs text-muted-foreground">
+            Customer <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="customerId"
@@ -162,7 +205,7 @@ export function EscalationForm({
                 value={field.value || undefined}
                 onValueChange={(v) => field.onChange(v ?? "")}
               >
-                <SelectTrigger className={cn(errors.customerId && "border-rose-500")}>
+                <SelectTrigger className={cn(errors.customerId && "border-rose-500", "w-full")}>
                   <SelectValue placeholder="Select customer">
                     {selectedCustomerName}
                   </SelectValue>
@@ -182,7 +225,9 @@ export function EscalationForm({
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Severity</label>
+          <label className="text-xs text-muted-foreground">
+            Severity <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="severity"
@@ -193,7 +238,7 @@ export function EscalationForm({
                   field.onChange((v as (typeof SEVERITIES)[number]) || "High")
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger className={cn(errors.severity && "border-rose-500", "w-full")}>
                   <SelectValue>{severity}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -208,7 +253,9 @@ export function EscalationForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">SLA hours</label>
+          <label className="text-xs text-muted-foreground">
+            SLA hours <span className="text-destructive font-bold">*</span>
+          </label>
           <Input
             type="number"
             min={1}
@@ -220,34 +267,37 @@ export function EscalationForm({
           )}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Owner</label>
+          <label className="text-xs text-muted-foreground">
+            Owner <span className="text-destructive font-bold">*</span>
+          </label>
           <Controller
             control={control}
             name="ownerId"
             render={({ field }) => (
-              <Select
-                value={field.value || undefined}
+              <EmployeePickerSelect
+                value={field.value || null}
                 onValueChange={(v) => field.onChange(v ?? "")}
-              >
-                <SelectTrigger className={cn(errors.ownerId && "border-rose-500")}>
-                  <SelectValue placeholder="Select owner">
-                    {selectedOwnerLabel}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {assignees.length === 0 ? (
-                    <SelectItem value="__none" disabled>
-                      Select a project first
-                    </SelectItem>
-                  ) : (
-                    assignees.map((a) => (
-                      <SelectItem key={a.userId} value={a.userId}>
-                        {a.displayName || a.name || a.email}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+                options={ownerOptions}
+                selectedOption={selectedOwner}
+                placeholder="Select owner"
+                noneLabel="Select owner"
+                searchable
+                remoteSearch
+                searchValue={ownerSearch}
+                onSearchChange={setOwnerSearch}
+                searchPlaceholder="Search employee..."
+                onLoadMore={() => {
+                  if (!hasMoreOwners || isEmployeesFetching) return;
+                  setOwnerPage((p) => p + 1);
+                }}
+                hasMore={hasMoreOwners}
+                isLoading={isOwnerListLoading}
+                isFetchingMore={isFetchingMoreOwners}
+                triggerClassName={cn(
+                  "h-9 w-full min-w-0",
+                  errors.ownerId && "border-rose-500",
+                )}
+              />
             )}
           />
           {errors.ownerId && (
@@ -258,13 +308,42 @@ export function EscalationForm({
           <label className="text-xs text-muted-foreground">
             Initial communication
           </label>
-          <Input
-            {...register("initialCommunication")}
-            placeholder="Optional first customer communication"
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+            <Controller
+              control={control}
+              name="initialChannel"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={(v) =>
+                    field.onChange(
+                      (v as EscalationFormValues["initialChannel"]) || "Email",
+                    )
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-[140px]">
+                    <SelectValue>{initialChannel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMM_CHANNELS.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <Input
+              {...register("initialCommunication")}
+              placeholder="Optional first customer communication"
+              className="flex-1"
+            />
+          </div>
         </div>
       </div>
-      <div className="flex justify-end gap-2">
+      </div>
+      <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -274,6 +353,7 @@ export function EscalationForm({
         </Button>
       </div>
     </form>
+    </FormSheet>
   );
 }
 
@@ -395,7 +475,9 @@ export function CloseEscalationForm({
       className="space-y-2 rounded-lg border border-border/50 p-3"
       noValidate
     >
-      <label className="text-xs text-muted-foreground">Resolution summary</label>
+      <label className="text-xs text-muted-foreground">
+        Resolution summary <span className="text-destructive font-bold">*</span>
+      </label>
       <Input
         {...register("resolutionSummary")}
         placeholder="How was this resolved?"

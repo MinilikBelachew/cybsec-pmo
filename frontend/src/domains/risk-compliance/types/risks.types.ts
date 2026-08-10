@@ -57,4 +57,5 @@ export type UpdateRiskPayload = Partial<CreateRiskPayload> & {
 export type ListRisksParams = {
   projectId?: string;
   status?: string;
+  category?: string;
 };

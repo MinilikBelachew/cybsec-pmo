@@ -51,6 +51,12 @@ export class TeamDirectoryMemberDto {
   @ApiProperty()
   id: string;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Linked platform user id when the employee has an account',
+  })
+  userId: string | null;
+
   @ApiProperty()
   name: string;
 

@@ -200,6 +200,7 @@ export function CreateProjectSheet({
   } = useModulePermissions();
   const { user } = useAuth();
   const roleCode = user?.backendRoleCode ?? user?.roles?.[0];
+  const isEngineer = roleCode === "engineer";
   const canEditProject = canEditProjects;
   const canEditTeam = canEditProject && canManageTeam;
   const isViewOnly = isEditMode && !canEditProject;
@@ -1330,7 +1331,9 @@ export function CreateProjectSheet({
             />
           )}
 
-          {open && (!isEditMode || watchedStatus === "PendingClosure") && (
+          {open &&
+            !isEngineer &&
+            (!isEditMode || watchedStatus === "PendingClosure") && (
             <SurfacedLessonsPanel
               projectId={isEditMode ? project?.id : undefined}
               departmentId={watchedDeptId || undefined}

@@ -56,6 +56,12 @@ export class FileAccessAuthService {
       return;
     }
 
+    const issueProjectId = await this.findIssueProjectIdForKey(normalizedKey);
+    if (issueProjectId) {
+      await this.assertProjectReadable(issueProjectId, caslUser);
+      return;
+    }
+
     throw new NotFoundException({
       status: HttpStatus.NOT_FOUND,
       errors: { file: 'fileNotFound' },
@@ -77,6 +83,25 @@ export class FileAccessAuthService {
     `;
 
     return rows[0]?.taskId ?? null;
+  }
+
+  private async findIssueProjectIdForKey(
+    storageKey: string,
+  ): Promise<string | null> {
+    const legacy = await this.prisma.issue.findFirst({
+      where: { s3EvidenceKey: storageKey },
+      select: { projectId: true },
+    });
+    if (legacy) return legacy.projectId;
+
+    const rows = await this.prisma.$queryRaw<{ projectId: string }[]>`
+      SELECT project_id AS "projectId"
+      FROM issues
+      WHERE evidence_files @> ${JSON.stringify([{ storageKey }])}::jsonb
+      LIMIT 1
+    `;
+
+    return rows[0]?.projectId ?? null;
   }
 
   private async assertTaskReadable(

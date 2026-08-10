@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 export const createEscalationSchema = z.object({
-  projectId: z.string().uuid("Project is required"),
   customerId: z.string().uuid("Customer is required"),
   severity: z.enum(["Low", "Medium", "High", "Critical"]),
   slaTargetHrs: z.coerce

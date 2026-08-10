@@ -15,6 +15,7 @@ export type ActionPoint = {
   sourceId: string;
   projectId: string | null;
   projectName?: string;
+  linkedLabel?: string;
   ownerId: string;
   owner?: {
     id: string;
@@ -45,6 +46,8 @@ export type UpdateActionPointPayload = {
   ownerId?: string;
   dueDate?: string;
   priority?: ActionPointPriority;
+  sourceType?: ActionPointSourceType;
+  sourceId?: string;
   status?: ActionPointStatus;
   closureNote?: string;
 };

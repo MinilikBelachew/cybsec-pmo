@@ -147,6 +147,51 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Primary/secondary PMs across all projects for a customer
+   * (used when the record is customer-scoped, e.g. escalations).
+   */
+  async resolveCustomerProjectPmUserIds(
+    customerId: string,
+  ): Promise<string[]> {
+    const projects = await this.prisma.project.findMany({
+      where: { customerId },
+      select: { primaryPmId: true, secondaryPmId: true },
+    });
+    const ids = new Set<string>();
+    for (const project of projects) {
+      if (project.primaryPmId) ids.add(project.primaryPmId);
+      if (project.secondaryPmId) ids.add(project.secondaryPmId);
+    }
+    return [...ids];
+  }
+
+  /** Owner/assignee recipients plus primary/secondary PMs of the project. */
+  async recipientsWithProjectPms(
+    projectId: string | null | undefined,
+    ...userIds: Array<string | null | undefined>
+  ): Promise<string[]> {
+    const base = userIds.filter((id): id is string => Boolean(id));
+    if (!projectId) {
+      return [...new Set(base)];
+    }
+    const pms = await this.resolveProjectPmUserIds(projectId);
+    return [...new Set([...base, ...pms])];
+  }
+
+  /** Owner recipients plus PMs of projects belonging to the customer. */
+  async recipientsWithCustomerProjectPms(
+    customerId: string | null | undefined,
+    ...userIds: Array<string | null | undefined>
+  ): Promise<string[]> {
+    const base = userIds.filter((id): id is string => Boolean(id));
+    if (!customerId) {
+      return [...new Set(base)];
+    }
+    const pms = await this.resolveCustomerProjectPmUserIds(customerId);
+    return [...new Set([...base, ...pms])];
+  }
+
   private async createForRecipient(
     userId: string,
     email: string,

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { RecordScopeWhereService } from '../casl/record-scope-where.service';
+import { CaslUserContext } from '../casl/casl.types';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 
@@ -18,6 +20,16 @@ export type FireAlertInput = {
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_BACKOFF_HRS = [1, 4, 12];
+const ALERTS_PAGE_LINK = '/dashboard/alerts';
+
+type AlertObjectContext = {
+  objectLabel: string;
+  objectTitle: string;
+  projectId?: string;
+  projectName?: string;
+  detail?: string;
+  payload: Record<string, unknown>;
+};
 
 @Injectable()
 export class AlertEngineService {
@@ -26,6 +38,7 @@ export class AlertEngineService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly recordScopeWhere: RecordScopeWhereService,
   ) {}
 
   /**
@@ -49,13 +62,23 @@ export class AlertEngineService {
       return 0;
     }
 
+    const enrichedInput = this.withAlertLink(input);
+    const projectId = await this.resolveProjectId(
+      enrichedInput.objectType,
+      enrichedInput.objectId,
+      enrichedInput.payload,
+    );
+
     let fired = 0;
     for (const rule of rules) {
-      if (!this.matchesThreshold(rule.thresholdConfig, input.metricValue)) {
+      if (!this.matchesThreshold(rule.thresholdConfig, enrichedInput.metricValue)) {
         continue;
       }
 
-      const recipientUserIds = await this.resolveRecipientUserIds(rule);
+      const recipientUserIds = await this.resolveRecipientUserIds(
+        rule,
+        projectId,
+      );
       const channels =
         rule.channels.length > 0 ? rule.channels : ['in_app'];
 
@@ -63,8 +86,8 @@ export class AlertEngineService {
         const existing = await this.prisma.alertEvent.findFirst({
           where: {
             ruleId: rule.id,
-            objectType: input.objectType,
-            objectId: input.objectId,
+            objectType: enrichedInput.objectType,
+            objectId: enrichedInput.objectId,
             channel,
             ackedAt: null,
             deliveryStatus: { in: ['queued', 'sent', 'retrying'] },
@@ -82,8 +105,8 @@ export class AlertEngineService {
         const event = await this.prisma.alertEvent.create({
           data: {
             ruleId: rule.id,
-            objectType: input.objectType,
-            objectId: input.objectId,
+            objectType: enrichedInput.objectType,
+            objectId: enrichedInput.objectId,
             channel,
             deliveryStatus: 'queued',
             escalationLevel: 0,
@@ -95,7 +118,7 @@ export class AlertEngineService {
           event.id,
           channel,
           recipientUserIds,
-          input,
+          enrichedInput,
           0,
         );
         if (!delivered) {
@@ -139,7 +162,22 @@ export class AlertEngineService {
 
     let sent = 0;
     for (const event of due) {
-      const recipients = await this.resolveRecipientUserIds(event.rule);
+      const objectId = event.objectId ?? event.id;
+      const message = await this.buildFollowUpMessage({
+        kind: 'reminder',
+        objectType: event.objectType,
+        objectId,
+        escalationRole: event.rule.escalationRole,
+      });
+      const projectId = await this.resolveProjectId(
+        event.objectType,
+        objectId,
+        message.payload,
+      );
+      const recipients = await this.resolveRecipientUserIds(
+        event.rule,
+        projectId,
+      );
       const ok = await this.deliver(
         event.id,
         event.channel,
@@ -147,9 +185,10 @@ export class AlertEngineService {
         {
           eventType: event.rule.eventType,
           objectType: event.objectType,
-          objectId: event.objectId ?? event.id,
-          title: `Reminder: ${event.rule.eventType}`,
-          body: `Alert for ${event.objectType} is still unacknowledged.`,
+          objectId,
+          title: message.title,
+          body: message.body,
+          payload: message.payload,
         },
         event.escalationLevel,
       );
@@ -173,13 +212,24 @@ export class AlertEngineService {
       });
 
       if (escalate) {
-        await this.escalateToHierarchy(event.rule.escalationRole, {
-          eventType: event.rule.eventType,
+        const escalated = await this.buildFollowUpMessage({
+          kind: 'escalation',
           objectType: event.objectType,
-          objectId: event.objectId ?? event.id,
-          title: `Escalated: ${event.rule.eventType}`,
-          body: `Unacknowledged alert escalated to ${event.rule.escalationRole}.`,
+          objectId,
+          escalationRole: event.rule.escalationRole,
         });
+        await this.escalateToHierarchy(
+          event.rule.escalationRole,
+          {
+            eventType: event.rule.eventType,
+            objectType: event.objectType,
+            objectId,
+            title: escalated.title,
+            body: escalated.body,
+            payload: escalated.payload,
+          },
+          projectId,
+        );
       }
       sent += 1;
     }
@@ -214,7 +264,23 @@ export class AlertEngineService {
     let retried = 0;
     for (const event of failed) {
       const attempt = event.escalationLevel;
-      const recipients = await this.resolveRecipientUserIds(event.rule);
+      const objectId = event.objectId ?? event.id;
+      const message = await this.buildFollowUpMessage({
+        kind: 'retry',
+        objectType: event.objectType,
+        objectId,
+        escalationRole: event.rule.escalationRole,
+        attempt: attempt + 1,
+      });
+      const projectId = await this.resolveProjectId(
+        event.objectType,
+        objectId,
+        message.payload,
+      );
+      const recipients = await this.resolveRecipientUserIds(
+        event.rule,
+        projectId,
+      );
       const ok = await this.deliver(
         event.id,
         event.channel,
@@ -222,9 +288,10 @@ export class AlertEngineService {
         {
           eventType: event.rule.eventType,
           objectType: event.objectType,
-          objectId: event.objectId ?? event.id,
-          title: `Retry: ${event.rule.eventType}`,
-          body: `Retrying alert delivery (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS}).`,
+          objectId,
+          title: message.title,
+          body: message.body,
+          payload: message.payload,
         },
         attempt,
       );
@@ -238,7 +305,8 @@ export class AlertEngineService {
       await this.prisma.alertEvent.update({
         where: { id: event.id },
         data: {
-          deliveryStatus: ok ? 'sent' : nextAttempt >= MAX_RETRY_ATTEMPTS ? 'dead' : 'failed',
+          deliveryStatus:
+            ok ? 'sent' : nextAttempt >= MAX_RETRY_ATTEMPTS ? 'dead' : 'failed',
           escalationLevel: nextAttempt,
           nextReminderAt: ok
             ? new Date(
@@ -272,10 +340,17 @@ export class AlertEngineService {
     return true;
   }
 
-  private async resolveRecipientUserIds(rule: {
-    recipients: Array<{ role: { code: string } }>;
-    escalationRole: string;
-  }): Promise<string[]> {
+  /**
+   * Resolve users with the recipient (or escalation) roles who can access the
+   * related project per their matrix recordScope (own_projects, assigned, …).
+   */
+  private async resolveRecipientUserIds(
+    rule: {
+      recipients: Array<{ role: { code: string } }>;
+      escalationRole: string;
+    },
+    projectId: string | null,
+  ): Promise<string[]> {
     const roleCodes = new Set<string>();
     for (const r of rule.recipients) {
       roleCodes.add(r.role.code);
@@ -285,42 +360,111 @@ export class AlertEngineService {
     }
     if (roleCodes.size === 0) return [];
 
-    const users = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        role: { code: { in: Array.from(roleCodes) } },
-      },
-      select: { id: true },
-      take: 100,
-    });
-    return users.map((u) => u.id);
+    return this.resolveScopedUserIds(Array.from(roleCodes), projectId);
   }
 
   private async escalateToHierarchy(
     escalationRole: string,
     input: FireAlertInput,
+    projectId: string | null,
   ): Promise<void> {
-    const users = await this.prisma.user.findMany({
-      where: { isActive: true, role: { code: escalationRole } },
-      select: { id: true },
-      take: 50,
-    });
-    if (users.length === 0) return;
+    const userIds = await this.resolveScopedUserIds(
+      [escalationRole],
+      projectId,
+    );
+    if (userIds.length === 0) return;
+    const enriched = this.withAlertLink(input);
     await this.notifications.notify({
       eventType: NOTIFICATION_EVENT_TYPE.ALERT_ESCALATED,
-      recipientUserIds: users.map((u) => u.id),
-      title: input.title,
-      body: input.body,
+      recipientUserIds: userIds,
+      title: enriched.title,
+      body: enriched.body,
       payload: {
-        ...(input.payload ?? {}),
-        objectType: input.objectType,
-        objectId: input.objectId,
+        ...(enriched.payload ?? {}),
+        objectType: enriched.objectType,
+        objectId: enriched.objectId,
         escalationRole,
+        link: ALERTS_PAGE_LINK,
       },
-      sourceObjectType: input.objectType,
-      sourceObjectId: input.objectId,
+      sourceObjectType: enriched.objectType,
+      sourceObjectId: enriched.objectId,
       includeActorAsRecipient: true,
     });
+  }
+
+  private async resolveScopedUserIds(
+    roleCodes: string[],
+    projectId: string | null,
+  ): Promise<string[]> {
+    if (roleCodes.length === 0) return [];
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { code: { in: roleCodes } },
+      },
+      select: {
+        id: true,
+        roleId: true,
+        role: { select: { code: true } },
+        employees: { select: { departmentId: true } },
+      },
+      take: 200,
+    });
+
+    if (!projectId) {
+      return users.map((u) => u.id);
+    }
+
+    const scoped: string[] = [];
+    await Promise.all(
+      users.map(async (user) => {
+        const caslUser: CaslUserContext = {
+          id: user.id,
+          roleId: user.roleId,
+          roleCode: user.role.code,
+          departmentId: user.employees?.departmentId ?? null,
+        };
+        const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+        const match = await this.prisma.project.findFirst({
+          where: { AND: [{ id: projectId }, scopeWhere] },
+          select: { id: true },
+        });
+        if (match) {
+          scoped.push(user.id);
+        }
+      }),
+    );
+    return scoped;
+  }
+
+  private async resolveProjectId(
+    objectType: string,
+    objectId: string,
+    payload?: Record<string, unknown>,
+  ): Promise<string | null> {
+    const fromPayload = payload?.projectId;
+    if (typeof fromPayload === 'string' && fromPayload.length > 0) {
+      return fromPayload;
+    }
+
+    if (objectType === 'Risk') {
+      const risk = await this.prisma.risk.findFirst({
+        where: { id: objectId },
+        select: { projectId: true },
+      });
+      return risk?.projectId ?? null;
+    }
+
+    if (objectType === 'Issue') {
+      const issue = await this.prisma.issue.findFirst({
+        where: { id: objectId },
+        select: { projectId: true },
+      });
+      return issue?.projectId ?? null;
+    }
+
+    return null;
   }
 
   private async deliver(
@@ -350,6 +494,9 @@ export class AlertEngineService {
             ...(input.payload ?? {}),
             alertEventId: eventId,
             channel,
+            objectType: input.objectType,
+            objectId: input.objectId,
+            link: ALERTS_PAGE_LINK,
           },
           sourceObjectType: input.objectType,
           sourceObjectId: input.objectId,
@@ -371,5 +518,126 @@ export class AlertEngineService {
       );
       return false;
     }
+  }
+
+  private withAlertLink(input: FireAlertInput): FireAlertInput {
+    return {
+      ...input,
+      payload: {
+        ...(input.payload ?? {}),
+        link: ALERTS_PAGE_LINK,
+      },
+    };
+  }
+
+  private async resolveObjectContext(
+    objectType: string,
+    objectId: string,
+  ): Promise<AlertObjectContext> {
+    if (objectType === 'Risk') {
+      const risk = await this.prisma.risk.findFirst({
+        where: { id: objectId },
+        select: {
+          id: true,
+          title: true,
+          score: true,
+          projectId: true,
+          project: { select: { name: true } },
+        },
+      });
+      if (risk) {
+        return {
+          objectLabel: `risk “${risk.title}”`,
+          objectTitle: risk.title,
+          projectId: risk.projectId,
+          projectName: risk.project?.name,
+          detail: `score ${risk.score}`,
+          payload: {
+            riskId: risk.id,
+            projectId: risk.projectId,
+            link: ALERTS_PAGE_LINK,
+          },
+        };
+      }
+    }
+
+    if (objectType === 'Issue') {
+      const issue = await this.prisma.issue.findFirst({
+        where: { id: objectId },
+        select: {
+          id: true,
+          title: true,
+          priority: true,
+          projectId: true,
+          project: { select: { name: true } },
+        },
+      });
+      if (issue) {
+        return {
+          objectLabel: `issue “${issue.title}”`,
+          objectTitle: issue.title,
+          projectId: issue.projectId,
+          projectName: issue.project?.name,
+          detail: issue.priority,
+          payload: {
+            issueId: issue.id,
+            projectId: issue.projectId,
+            priority: issue.priority,
+            link: ALERTS_PAGE_LINK,
+          },
+        };
+      }
+    }
+
+    return {
+      objectLabel: objectType.toLowerCase(),
+      objectTitle: objectType,
+      payload: {
+        objectType,
+        objectId,
+        link: ALERTS_PAGE_LINK,
+      },
+    };
+  }
+
+  private async buildFollowUpMessage(params: {
+    kind: 'reminder' | 'escalation' | 'retry';
+    objectType: string;
+    objectId: string;
+    escalationRole: string;
+    attempt?: number;
+  }): Promise<{
+    title: string;
+    body: string;
+    payload: Record<string, unknown>;
+  }> {
+    const ctx = await this.resolveObjectContext(
+      params.objectType,
+      params.objectId,
+    );
+    const projectSuffix = ctx.projectName ? ` (${ctx.projectName})` : '';
+    const detailSuffix = ctx.detail ? ` · ${ctx.detail}` : '';
+
+    if (params.kind === 'escalation') {
+      return {
+        title: `Escalated: ${ctx.objectTitle}`,
+        body: `Unacknowledged ${ctx.objectLabel}${projectSuffix}${detailSuffix} escalated to ${params.escalationRole}.`,
+        payload: ctx.payload,
+      };
+    }
+
+    if (params.kind === 'retry') {
+      return {
+        title: `Retry: ${ctx.objectTitle}`,
+        body: `Retrying alert delivery for ${ctx.objectLabel}${projectSuffix} (attempt ${params.attempt}/${MAX_RETRY_ATTEMPTS}).`,
+        payload: ctx.payload,
+      };
+    }
+
+    return {
+      title: `Reminder: ${ctx.objectTitle}`,
+      body: `${ctx.objectLabel}${projectSuffix}${detailSuffix} is still unacknowledged.`,
+      payload: ctx.payload,
+    };
   }
 }
