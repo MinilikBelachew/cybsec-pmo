@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { ROLE_ID_BY_CODE } from '../../../roles/role-catalog';
 import { KekaHttpClient } from '../client/keka-http.client';
 import {
   KEKA_ENTITY_TYPE,
@@ -29,6 +30,11 @@ type DepartmentLookup = {
   name: string;
   kekaDepartmentId: string | null;
 };
+
+/** Placeholder until first Entra SSO replaces it with the real oid. */
+export function kekaPendingEntraObjectId(kekaEmployeeId: string): string {
+  return `keka-pending:${kekaEmployeeId}`;
+}
 
 @Injectable()
 export class EmployeeSyncService {
@@ -71,20 +77,24 @@ export class EmployeeSyncService {
         }
 
         const name = resolveKekaEmployeeName(employee);
-        const email = employee.email?.trim();
-        if (!email) {
+        const emailRaw = employee.email?.trim();
+        if (!emailRaw) {
           throw new Error(`Employee ${employeeId} is missing email`);
         }
+        const email = emailRaw.toLowerCase();
 
         const designation = resolveKekaDesignation(employee);
         const weeklyHours = new Prisma.Decimal(40);
         const isActive = isKekaEmployeeActive(employee);
         const kekaFields = mapKekaEmployeeFields(employee);
 
-        const linkedUser = await this.prisma.user.findUnique({
-          where: { email },
-          select: { id: true },
-        });
+        const linkedUserId = isActive
+          ? await this.ensureActiveUserForEmployee({
+              kekaEmployeeId: employeeId,
+              email,
+              displayName: name,
+            })
+          : await this.deactivateLinkedUser(email);
 
         await this.prisma.employee.upsert({
           where: { kekaEmployeeId: employeeId },
@@ -97,7 +107,7 @@ export class EmployeeSyncService {
             isActive,
             syncedAt,
             ...kekaFields,
-            ...(linkedUser ? { userId: linkedUser.id } : {}),
+            ...(linkedUserId ? { userId: linkedUserId } : {}),
           },
           create: {
             kekaEmployeeId: employeeId,
@@ -109,7 +119,7 @@ export class EmployeeSyncService {
             isActive,
             syncedAt,
             ...kekaFields,
-            userId: linkedUser?.id,
+            userId: linkedUserId,
           },
         });
 
@@ -149,6 +159,94 @@ export class EmployeeSyncService {
     }
 
     return { synced, failed };
+  }
+
+  /**
+   * Find or create an active engineer user for an active Keka employee.
+   * Never changes role on an existing user (Settings may have promoted them).
+   */
+  private async ensureActiveUserForEmployee(input: {
+    kekaEmployeeId: string;
+    email: string;
+    displayName: string;
+  }): Promise<string> {
+    const existing = await this.findUserByEmail(input.email);
+    if (existing) {
+      if (!existing.isActive) {
+        await this.prisma.user.update({
+          where: { id: existing.id },
+          data: { isActive: true },
+        });
+      }
+      return existing.id;
+    }
+
+    try {
+      const created = await this.prisma.user.create({
+        data: {
+          email: input.email,
+          displayName: input.displayName || input.email.split('@')[0],
+          entraObjectId: kekaPendingEntraObjectId(input.kekaEmployeeId),
+          roleId: ROLE_ID_BY_CODE.engineer,
+          isActive: true,
+          isExternal: false,
+        },
+        select: { id: true },
+      });
+      this.logger.log(
+        `Created engineer user ${created.id} for Keka employee ${input.kekaEmployeeId} (${input.email})`,
+      );
+      return created.id;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const raced = await this.findUserByEmail(input.email);
+        if (raced) {
+          if (!raced.isActive) {
+            await this.prisma.user.update({
+              where: { id: raced.id },
+              data: { isActive: true },
+            });
+          }
+          return raced.id;
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Deactivate any existing user for this email when Keka marks Relieved/exited.
+   * Does not create users. Returns user id when found so the employee link is kept.
+   */
+  private async deactivateLinkedUser(email: string): Promise<string | null> {
+    const existing = await this.findUserByEmail(email);
+    if (!existing) {
+      return null;
+    }
+
+    if (existing.isActive) {
+      await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { isActive: false },
+      });
+      this.logger.log(
+        `Deactivated user ${existing.id} (${email}) — Keka employee inactive/relieved`,
+      );
+    }
+
+    return existing.id;
+  }
+
+  private async findUserByEmail(
+    email: string,
+  ): Promise<{ id: string; isActive: boolean } | null> {
+    return this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true, isActive: true },
+    });
   }
 
   private resolveDepartmentId(
