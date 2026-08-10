@@ -11,6 +11,7 @@ import { FilterSelect } from "@/shared/components/filter-select";
 import { cn } from "@/shared/utils/cn";
 import { useGetUsersQuery, type GetUsersParams, type User } from "@/domains/users";
 import { getRoleBadgeColor, getRoleLabel } from "@/domains/settings/utils/role-display";
+import { isUserSsoLinked } from "@/domains/settings/components/user-directory-columns";
 import { ROLE_CATALOG, ROLE_CODE_BY_ID, ROLE_ID_BY_CODE } from "@/config/roles.config";
 
 const USER_SORTABLE = new Set(["displayName", "email", "role", "isActive"]);
@@ -137,9 +138,7 @@ export function AdminUsersPanel() {
         meta: { label: "Identity" },
         header: "Identity",
         cell: ({ row }) => {
-          const linked =
-            Boolean(row.original.entraObjectId) &&
-            row.original.entraObjectId !== "pending-first-login";
+          const linked = isUserSsoLinked(row.original);
           return (
             <span className="text-xs text-muted-foreground">
               {linked ? "SSO linked" : "Pending first login"}
