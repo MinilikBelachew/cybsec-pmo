@@ -1,39 +1,51 @@
 import { Prisma } from '@prisma/client';
 
+/** Stay well under Postgres' 32767 bind-variable limit. */
+const IN_CHUNK_SIZE = 5_000;
+
+function chunkIds(ids: string[], size = IN_CHUNK_SIZE): string[][] {
+  if (ids.length === 0) return [];
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function deleteManyByIdIn(
+  ids: string[],
+  run: (chunk: string[]) => Promise<unknown>,
+): Promise<void> {
+  for (const chunk of chunkIds(ids)) {
+    await run(chunk);
+  }
+}
+
 /** Deletes a project and all dependent rows in FK-safe order (no DB migration required). */
 export async function deleteProjectWithDependents(
   tx: Prisma.TransactionClient,
   projectId: string,
 ): Promise<void> {
-  const taskIds = (
-    await tx.task.findMany({
-      where: { projectId },
-      select: { id: true },
-    })
-  ).map((row) => row.id);
-
-  if (taskIds.length > 0) {
-    await tx.taskDependency.deleteMany({
-      where: {
-        OR: [
-          { predecessorId: { in: taskIds } },
-          { successorId: { in: taskIds } },
-        ],
-      },
-    });
-    await tx.taskComment.deleteMany({ where: { taskId: { in: taskIds } } });
-    await tx.taskChecklistItem.deleteMany({ where: { taskId: { in: taskIds } } });
-    await tx.workspaceDocument.deleteMany({ where: { taskId: { in: taskIds } } });
-    await tx.taskProgressUpdate.deleteMany({ where: { taskId: { in: taskIds } } });
-    await tx.timesheet.deleteMany({
-      where: {
-        OR: [{ projectId }, { taskId: { in: taskIds } }],
-      },
-    });
-    await tx.task.deleteMany({ where: { projectId } });
-  } else {
-    await tx.timesheet.deleteMany({ where: { projectId } });
-  }
+  // Prefer relation filters (no giant IN lists) for task-scoped rows — large
+  // projects exceed Postgres' 32767 bind-variable limit otherwise.
+  await tx.taskDependency.deleteMany({
+    where: {
+      OR: [
+        { predecessor: { projectId } },
+        { successor: { projectId } },
+      ],
+    },
+  });
+  await tx.taskComment.deleteMany({ where: { task: { projectId } } });
+  await tx.taskChecklistItem.deleteMany({ where: { task: { projectId } } });
+  await tx.workspaceDocument.deleteMany({
+    where: {
+      OR: [{ projectId }, { task: { projectId } }],
+    },
+  });
+  await tx.taskProgressUpdate.deleteMany({ where: { task: { projectId } } });
+  await tx.timesheet.deleteMany({ where: { projectId } });
+  await tx.task.deleteMany({ where: { projectId } });
 
   await tx.invoice.deleteMany({ where: { projectId } });
   await tx.projectMilestone.deleteMany({ where: { projectId } });
@@ -58,9 +70,11 @@ export async function deleteProjectWithDependents(
   ).map((row) => row.id);
 
   if (scheduleIds.length > 0) {
-    await tx.reportScheduleRecipient.deleteMany({
-      where: { scheduleId: { in: scheduleIds } },
-    });
+    await deleteManyByIdIn(scheduleIds, (chunk) =>
+      tx.reportScheduleRecipient.deleteMany({
+        where: { scheduleId: { in: chunk } },
+      }),
+    );
     await tx.reportSchedule.deleteMany({ where: { projectId } });
   }
 
@@ -72,20 +86,30 @@ export async function deleteProjectWithDependents(
   ).map((row) => row.id);
 
   if (meetingIds.length > 0) {
-    const momIds = (
-      await tx.momDocument.findMany({
-        where: { meetingId: { in: meetingIds } },
+    const momIds: string[] = [];
+    for (const chunk of chunkIds(meetingIds)) {
+      const rows = await tx.momDocument.findMany({
+        where: { meetingId: { in: chunk } },
         select: { id: true },
-      })
-    ).map((row) => row.id);
-
-    if (momIds.length > 0) {
-      await tx.momAcknowledgement.deleteMany({ where: { momId: { in: momIds } } });
-      await tx.momDocument.deleteMany({ where: { id: { in: momIds } } });
+      });
+      momIds.push(...rows.map((r) => r.id));
     }
 
-    await tx.meetingAttendee.deleteMany({ where: { meetingId: { in: meetingIds } } });
-    await tx.meetingItem.deleteMany({ where: { meetingId: { in: meetingIds } } });
+    if (momIds.length > 0) {
+      await deleteManyByIdIn(momIds, (chunk) =>
+        tx.momAcknowledgement.deleteMany({ where: { momId: { in: chunk } } }),
+      );
+      await deleteManyByIdIn(momIds, (chunk) =>
+        tx.momDocument.deleteMany({ where: { id: { in: chunk } } }),
+      );
+    }
+
+    await deleteManyByIdIn(meetingIds, (chunk) =>
+      tx.meetingAttendee.deleteMany({ where: { meetingId: { in: chunk } } }),
+    );
+    await deleteManyByIdIn(meetingIds, (chunk) =>
+      tx.meetingItem.deleteMany({ where: { meetingId: { in: chunk } } }),
+    );
     await tx.meeting.deleteMany({ where: { projectId } });
   }
 
@@ -99,7 +123,9 @@ export async function deleteProjectWithDependents(
   ).map((row) => row.id);
 
   if (threadIds.length > 0) {
-    await tx.workspaceThreadPost.deleteMany({ where: { threadId: { in: threadIds } } });
+    await deleteManyByIdIn(threadIds, (chunk) =>
+      tx.workspaceThreadPost.deleteMany({ where: { threadId: { in: chunk } } }),
+    );
     await tx.workspaceThread.deleteMany({ where: { projectId } });
   }
 
@@ -125,8 +151,12 @@ export async function deleteProjectWithDependents(
   ).map((row) => row.id);
 
   if (ticketIds.length > 0) {
-    await tx.ticketTimerEvent.deleteMany({ where: { ticketId: { in: ticketIds } } });
-    await tx.ticketCustomerUpdate.deleteMany({ where: { ticketId: { in: ticketIds } } });
+    await deleteManyByIdIn(ticketIds, (chunk) =>
+      tx.ticketTimerEvent.deleteMany({ where: { ticketId: { in: chunk } } }),
+    );
+    await deleteManyByIdIn(ticketIds, (chunk) =>
+      tx.ticketCustomerUpdate.deleteMany({ where: { ticketId: { in: chunk } } }),
+    );
     await tx.slaTicket.deleteMany({ where: { projectId } });
   }
 

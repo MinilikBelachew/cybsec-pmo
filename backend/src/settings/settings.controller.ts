@@ -20,9 +20,11 @@ import {
   mapAllocationPoliciesSettingsDto,
   mapAuditSettingsDto,
   mapSessionSecuritySettingsDto,
+  mapTimesheetEscalationSettingsDto,
 } from './app-settings.service';
 import { AllocationPolicyService } from './allocation-policy.service';
 import { SessionSecurityPolicyService } from './session-security-policy.service';
+import { TimesheetEscalationPolicyService } from './timesheet-escalation-policy.service';
 import {
   AuditSettingsDto,
   UpdateAuditSettingsDto,
@@ -35,6 +37,10 @@ import {
   SessionSecuritySettingsDto,
   UpdateSessionSecuritySettingsDto,
 } from './dto/session-security.dto';
+import {
+  TimesheetEscalationSettingsDto,
+  UpdateTimesheetEscalationSettingsDto,
+} from './dto/timesheet-escalation.dto';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard)
@@ -49,6 +55,7 @@ export class SettingsController {
     private readonly appSettingsService: AppSettingsService,
     private readonly allocationPolicyService: AllocationPolicyService,
     private readonly sessionSecurityPolicyService: SessionSecurityPolicyService,
+    private readonly timesheetEscalationPolicyService: TimesheetEscalationPolicyService,
     private readonly auditArchiveService: AuditArchiveService,
   ) {}
 
@@ -136,5 +143,32 @@ export class SettingsController {
     );
     this.sessionSecurityPolicyService.invalidateCache();
     return mapSessionSecuritySettingsDto(settings);
+  }
+
+  @CheckAbility('manage', 'Settings')
+  @Get('timesheet-escalation')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TimesheetEscalationSettingsDto })
+  async getTimesheetEscalationSettings() {
+    const settings =
+      await this.appSettingsService.getTimesheetEscalationSettings();
+    return mapTimesheetEscalationSettingsDto(settings);
+  }
+
+  @CheckAbility('manage', 'Settings')
+  @Patch('timesheet-escalation')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: TimesheetEscalationSettingsDto })
+  async updateTimesheetEscalationSettings(
+    @Body() dto: UpdateTimesheetEscalationSettingsDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    const settings =
+      await this.appSettingsService.updateTimesheetEscalationSettings(
+        dto,
+        request.user?.id,
+      );
+    this.timesheetEscalationPolicyService.invalidateCache();
+    return mapTimesheetEscalationSettingsDto(settings);
   }
 }

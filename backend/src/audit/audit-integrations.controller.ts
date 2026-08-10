@@ -4,7 +4,9 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
+  Put,
   Query,
   Request,
   UseGuards,
@@ -27,8 +29,18 @@ import {
   RetryKekaSyncResultDto,
   TimesheetReconcileResponseDto,
 } from '../integrations/keka/dto/keka-integration.dto';
+import {
+  KekaConnectionResponseDto,
+  KekaConnectionSecretsDto,
+  KekaConnectionTestResultDto,
+  UpdateKekaConnectionDto,
+} from '../integrations/keka/dto/keka-connection.dto';
 import { KekaIntegrationAdminService } from '../integrations/keka/keka-integration-admin.service';
-import { KekaSyncEnqueueResultDto } from '../integrations/keka/dto/keka-sync.dto';
+import { KekaConnectionService } from '../integrations/keka/keka-connection.service';
+import {
+  KekaSyncEnqueueResultDto,
+  KekaSyncJobStatusDto,
+} from '../integrations/keka/dto/keka-sync.dto';
 import { KekaSyncService } from '../integrations/keka/sync/keka-sync.service';
 
 type RequestWithUser = {
@@ -47,7 +59,46 @@ export class AuditIntegrationsController {
   constructor(
     private readonly kekaIntegrationAdminService: KekaIntegrationAdminService,
     private readonly kekaSyncService: KekaSyncService,
+    private readonly kekaConnectionService: KekaConnectionService,
   ) {}
+
+  @CheckModulePermission('audit', 'view')
+  @Get('connection')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaConnectionResponseDto })
+  getConnection(): Promise<KekaConnectionResponseDto> {
+    return this.kekaConnectionService.getConnectionView();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Get('connection/secrets')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaConnectionSecretsDto })
+  getConnectionSecrets(): Promise<KekaConnectionSecretsDto> {
+    return this.kekaConnectionService.getConnectionSecrets();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Put('connection')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaConnectionResponseDto })
+  updateConnection(
+    @Body() dto: UpdateKekaConnectionDto,
+    @Request() request: RequestWithUser,
+  ): Promise<KekaConnectionResponseDto> {
+    return this.kekaConnectionService.updateConnection(dto, request.user!.id);
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('connection/test')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaConnectionTestResultDto })
+  testConnection(
+    @Body() dto: UpdateKekaConnectionDto,
+    @Request() request: RequestWithUser,
+  ): Promise<KekaConnectionTestResultDto> {
+    return this.kekaConnectionService.testConnection(request.user!.id, dto);
+  }
 
   @CheckModulePermission('audit', 'view')
   @Get('sync-status')
@@ -55,6 +106,16 @@ export class AuditIntegrationsController {
   @ApiOkResponse({ type: KekaSyncStatusResponseDto })
   getSyncStatus(): Promise<KekaSyncStatusResponseDto> {
     return this.kekaIntegrationAdminService.getSyncStatus();
+  }
+
+  @CheckModulePermission('audit', 'view')
+  @Get('sync-jobs/:jobId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: KekaSyncJobStatusDto })
+  getSyncJobStatus(
+    @Param('jobId') jobId: string,
+  ): Promise<KekaSyncJobStatusDto> {
+    return this.kekaSyncService.getSyncJobStatus(jobId);
   }
 
   @CheckModulePermission('audit', 'view')

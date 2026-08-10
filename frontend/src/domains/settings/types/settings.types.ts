@@ -28,6 +28,15 @@ export type UpdateSessionSecurityPayload = {
   warningBeforeSec?: number;
 };
 
+export type TimesheetEscalationSettings = {
+  escalationDays: number;
+  updatedAt: string;
+};
+
+export type UpdateTimesheetEscalationPayload = {
+  escalationDays?: number;
+};
+
 export type {
   AllocationPolicies,
   UpdateAllocationPoliciesPayload,

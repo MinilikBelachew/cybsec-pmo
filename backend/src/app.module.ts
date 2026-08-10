@@ -46,6 +46,7 @@ import { SearchModule } from './search/search.module';
 import { BrandingModule } from './branding/branding.module';
 import { MppImportModule } from './mpp-import/mpp-import.module';
 import mppImportConfig from './mpp-import/config/mpp-import.config';
+import { ImportsModule } from './imports/imports.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { ResourcesModule } from './resources/resources.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
@@ -143,6 +144,7 @@ import { MeetingsModule } from './meetings/meetings.module';
     CurrenciesModule,
     SearchModule,
     MppImportModule,
+    ImportsModule,
     ResourcesModule,
     TimesheetsModule,
     ReportsModule,

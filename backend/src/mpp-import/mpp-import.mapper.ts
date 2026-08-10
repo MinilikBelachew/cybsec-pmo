@@ -514,7 +514,8 @@ export class MppImportMapper {
       (task) => this.resolvePhaseSummaryUid(task, byUid) == null,
     );
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(
+      async (tx) => {
       const baselineTaskCount = importableTasks.filter(
         (task) => !!task.baselineStartDate,
       ).length;
@@ -752,7 +753,13 @@ export class MppImportMapper {
       };
       assignmentsApplied = assignmentApply.assignmentsApplied;
       assignmentsSkipped = assignmentApply.assignmentsSkipped;
-    });
+      },
+      {
+        // Large MSPDI/MPP files (1000+ tasks) exceed Prisma's default 5s interactive timeout.
+        maxWait: 20_000,
+        timeout: 300_000,
+      },
+    );
 
     const resourceMatch =
       resourceMatchForResult ?? (await this.countResourceMatches(parsed));

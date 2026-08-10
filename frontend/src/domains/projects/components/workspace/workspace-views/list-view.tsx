@@ -16,7 +16,6 @@ import {
   type StatusColumnFilters,
 } from "@/domains/projects/hooks/use-paginated-status-tasks";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
-import { useExportTasksQuery } from "@/domains/projects/api/tasks.api";
 import { TaskDependenciesPicker } from "./task-predecessors-cell";
 
 type Priority = "high" | "medium" | "low" | "critical";
@@ -189,41 +188,6 @@ export function ListView({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const { canEditDependencies } = useModulePermissions();
-
-  /** Full project task set for predecessor picker options. */
-  const { data: exportTasksForPred = [] } = useExportTasksQuery(
-    { projectId: projectId!, topLevelOnly: false },
-    { skip: !projectId },
-  );
-
-  const predecessorTaskOptions = React.useMemo(() => {
-    if (exportTasksForPred.length > 0) {
-      const out: { id: string; name: string }[] = [];
-      const seen = new Set<string>();
-      const push = (id: string, name: string) => {
-        if (seen.has(id)) return;
-        seen.add(id);
-        out.push({ id, name });
-      };
-      for (const t of exportTasksForPred) {
-        push(t.id, t.title);
-        for (const s of t.subTasks ?? []) {
-          push(s.id, s.title);
-          for (const ss of s.subTasks ?? []) {
-            push(ss.id, ss.title);
-          }
-        }
-      }
-      return out;
-    }
-    const out: { id: string; name: string }[] = [];
-    const walk = (t: Task) => {
-      out.push({ id: t.id, name: t.name });
-      for (const c of t.children ?? []) walk(c);
-    };
-    for (const t of tasks) walk(t);
-    return out;
-  }, [exportTasksForPred, tasks]);
 
   const taskById = React.useMemo(() => {
     const map = new Map<string, Task>();
@@ -512,11 +476,11 @@ export function ListView({
   }
 
   const renderColumnHeaders = () => (
-    <div className="flex items-center gap-4 px-3 py-1.5 border-b border-border/30 bg-slate-50/30 dark:bg-slate-900/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+    <div className="flex min-w-[72rem] items-center gap-4 px-3 py-1.5 border-b border-border/30 bg-slate-50/30 dark:bg-slate-900/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
       {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
       <div className="w-4 shrink-0" />
       <div className="w-4 shrink-0" />
-      <div className="flex-1 text-[11px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider text-left">
+      <div className="flex-1 min-w-[12rem] max-w-[22rem] text-[11px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider text-left">
         Name
       </div>
       <div className="shrink-0 w-8 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
@@ -592,7 +556,7 @@ export function ListView({
       <React.Fragment key={`${task.treeKind ?? "task"}-${task.id}-${depth}`}>
       <div
         className={cn(
-          "flex items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
+          "flex min-w-[72rem] items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
           task.done && "opacity-60",
           depth > 0 && "bg-muted/10",
           isDependencyRow && "bg-violet-50/40 dark:bg-violet-950/20",
@@ -657,10 +621,11 @@ export function ListView({
           type="button"
           onClick={() => onTaskClick?.(task.id, depth > 0 ? "comments" : undefined)}
           className={cn(
-            "flex-1 text-sm min-w-0 truncate text-left hover:text-primary transition-colors",
+            "flex-1 min-w-[12rem] max-w-[22rem] text-sm truncate text-left hover:text-primary transition-colors",
             task.done ? "line-through text-muted-foreground" : "text-foreground",
             depth > 0 && "font-normal"
           )}
+          title={task.name}
         >
           {depth > 0 && (
             <span
@@ -687,7 +652,7 @@ export function ListView({
           ) : (
             <TaskDependenciesPicker
               taskId={task.id}
-              taskOptions={predecessorTaskOptions}
+              projectId={projectId!}
               dependencies={dependencies}
               canEdit={canEditDependencies}
             />
@@ -1079,7 +1044,7 @@ export function ListView({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-auto">
 
         {groupByPhase ? (
           phaseGroups.map((group) => {
@@ -1115,7 +1080,7 @@ export function ListView({
                     {onAddTask && group.id && (
                       <div
                         onClick={() => onAddTask("To_Do", group.id)}
-                        className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+                        className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
                         <div className="w-4 shrink-0" />
@@ -1185,7 +1150,7 @@ export function ListView({
                     {onAddTask && (
                       <div
                         onClick={() => onAddTask(status)}
-                        className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+                        className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
                         <div className="w-4 shrink-0" />
@@ -1291,7 +1256,7 @@ function ListStatusSection({
           {onAddTask && (
             <div
               onClick={() => onAddTask(status)}
-              className="flex items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+              className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
             >
               {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
               <div className="w-4 shrink-0" />

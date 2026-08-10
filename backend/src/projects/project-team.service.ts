@@ -47,6 +47,11 @@ import {
 } from './utils/task-availability.util';
 import { AllocationPolicySummaryDto } from './dto/project-allocation.dto';
 import { AllocationPushService } from '../integrations/keka/sync/allocation-push.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import {
+  notifyStaffingRequested,
+  resolveStaffingApproverUserIds,
+} from '../resources/allocation-notifications.util';
 import {
   AlignProjectAllocationsResultDto,
   AllocationDateIssuesResponseDto,
@@ -93,6 +98,7 @@ export class ProjectTeamService {
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly allocationPolicyService: AllocationPolicyService,
     private readonly allocationPushService: AllocationPushService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findCandidates(
@@ -706,6 +712,7 @@ export class ProjectTeamService {
       where: { id: projectId },
       select: {
         id: true,
+        name: true,
         startDate: true,
         endDate: true,
         department: { select: { code: true } },
@@ -804,6 +811,16 @@ export class ProjectTeamService {
     for (const allocation of createdAllocations) {
       if (allocation.status === 'Active') {
         void this.allocationPushService.pushAllocation(allocation.id);
+      } else if (allocation.status === 'Pending') {
+        void this.notifyPendingStaffingRequest({
+          allocationId: allocation.id,
+          projectId,
+          projectName: project.name,
+          employeeName: allocation.employee.name,
+          role: allocation.role,
+          actorId,
+          overrideReason: allocation.overrideReason,
+        });
       }
     }
 
@@ -1002,6 +1019,7 @@ export class ProjectTeamService {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       select: {
+        name: true,
         startDate: true,
         endDate: true,
         department: { select: { code: true } },
@@ -1187,6 +1205,19 @@ export class ProjectTeamService {
 
     if (updated.status === 'Active') {
       void this.allocationPushService.pushAllocation(updated.id);
+    } else if (
+      updated.status === 'Pending' &&
+      thresholdOutcome?.status === 'Pending'
+    ) {
+      void this.notifyPendingStaffingRequest({
+        allocationId: updated.id,
+        projectId,
+        projectName: project.name,
+        employeeName: updated.employee.name,
+        role: updated.role,
+        actorId,
+        overrideReason: updated.overrideReason,
+      });
     }
 
     return {
@@ -1400,6 +1431,38 @@ export class ProjectTeamService {
       backupEmployeeId: allocation.backupEmployeeId,
       backupEmployeeName: allocation.backupEmployee?.name ?? null,
     };
+  }
+
+  private async notifyPendingStaffingRequest(options: {
+    allocationId: string;
+    projectId: string;
+    projectName: string;
+    employeeName: string;
+    role: string;
+    actorId: string;
+    overrideReason?: string | null;
+  }): Promise<void> {
+    try {
+      const recipientUserIds = await resolveStaffingApproverUserIds(
+        this.notificationsService,
+        this.prisma,
+        options.projectId,
+        [options.actorId],
+      );
+
+      await notifyStaffingRequested(this.notificationsService, {
+        recipientUserIds,
+        projectId: options.projectId,
+        projectName: options.projectName,
+        employeeName: options.employeeName,
+        role: options.role,
+        allocationId: options.allocationId,
+        actorId: options.actorId,
+        overrideReason: options.overrideReason,
+      });
+    } catch {
+      // Notification failures must not block staffing writes.
+    }
   }
 
   private resolveThresholdOutcome(

@@ -5,6 +5,7 @@ import { ProjectTeamService } from './project-team.service';
 import { PrismaModule } from '../database/prisma.module';
 import { AuditLogsModule } from '../audit/audit-logs.module';
 import { SettingsModule } from '../settings/settings.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ResourcesModule } from '../resources/resources.module';
 
 @Module({
@@ -12,6 +13,7 @@ import { ResourcesModule } from '../resources/resources.module';
     PrismaModule,
     AuditLogsModule,
     SettingsModule,
+    NotificationsModule,
     forwardRef(() => ResourcesModule),
   ],
   controllers: [ProjectsController],

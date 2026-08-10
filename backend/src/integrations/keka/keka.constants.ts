@@ -14,6 +14,12 @@ export const KEKA_RATE_LIMIT_PER_MINUTE = 50;
 export const KEKA_RATE_LIMIT_WINDOW_MS = 60_000;
 export const KEKA_RATE_LIMIT_MAX_RETRIES = 3;
 
+
+export const KEKA_HTTP_TIMEOUT_MS = 20_000;
+
+
+export const UTILISATION_LIVE_RECONCILE_TIMEOUT_MS = 8_000;
+
 export const KEKA_SYNC_DIRECTION = {
   INBOUND: 'inbound',
   OUTBOUND: 'outbound',
@@ -43,3 +49,11 @@ export const KEKA_ENTITY_TYPE = {
 
 /** Auto-retry ceiling for unresolved FailedSyncRecord rows (inbound + outbound). */
 export const KEKA_FAILED_SYNC_MAX_RETRIES = 5;
+
+export const KEKA_FAILURE_CLASS = {
+  TRANSIENT: 'transient',
+  PERMANENT: 'permanent',
+} as const;
+
+export type KekaFailureClass =
+  (typeof KEKA_FAILURE_CLASS)[keyof typeof KEKA_FAILURE_CLASS];

@@ -6,6 +6,8 @@ import type {
   UpdateAllocationPoliciesPayload,
   SessionSecuritySettings,
   UpdateSessionSecurityPayload,
+  TimesheetEscalationSettings,
+  UpdateTimesheetEscalationPayload,
 } from "../types/settings.types";
 
 export const settingsApi = api.injectEndpoints({
@@ -68,6 +70,23 @@ export const settingsApi = api.injectEndpoints({
       }),
       invalidatesTags: ["Settings", "Auth"],
     }),
+
+    getTimesheetEscalationSettings: builder.query<TimesheetEscalationSettings, void>({
+      query: () => ({ url: "/settings/timesheet-escalation" }),
+      providesTags: ["Settings"],
+    }),
+
+    updateTimesheetEscalationSettings: builder.mutation<
+      TimesheetEscalationSettings,
+      UpdateTimesheetEscalationPayload
+    >({
+      query: (body) => ({
+        url: "/settings/timesheet-escalation",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["Settings", "Timesheets", "TimesheetApprovals"],
+    }),
   }),
 });
 
@@ -79,4 +98,6 @@ export const {
   useUpdateAllocationPoliciesMutation,
   useGetSessionSecuritySettingsQuery,
   useUpdateSessionSecuritySettingsMutation,
+  useGetTimesheetEscalationSettingsQuery,
+  useUpdateTimesheetEscalationSettingsMutation,
 } = settingsApi;

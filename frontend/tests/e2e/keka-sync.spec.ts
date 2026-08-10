@@ -78,13 +78,19 @@ test.describe("Resource & Time – Keka Sync (Phase 2)", () => {
     });
 
     await page.getByTestId("keka-sync-employees").click();
-    await captureEvidence(page, /Employee sync job queued|queued|sync/i, {
+    await captureEvidence(page, /Employee sync (started|job queued)|queued|sync/i, {
       holdMs: 2500,
+    });
+    await expect(page.getByTestId("keka-sync-leave")).toBeEnabled({
+      timeout: 180000,
     });
 
     await page.getByTestId("keka-sync-leave").click();
-    await captureEvidence(page, /Leave sync job queued|queued|sync/i, {
+    await captureEvidence(page, /Leave sync (started|job queued)|queued|sync/i, {
       holdMs: 2500,
+    });
+    await expect(page.getByTestId("keka-sync-employees")).toBeEnabled({
+      timeout: 180000,
     });
 
     await page.getByTestId("keka-tab-sync-log").click();
@@ -118,7 +124,8 @@ test.describe("Resource & Time – Keka Sync (Phase 2)", () => {
     const syncEmployees = page.getByTestId("keka-sync-employees");
     await expect(syncEmployees).toBeVisible({ timeout: 60000 });
     await syncEmployees.click();
-    await captureEvidence(page, /Employee sync job queued/i);
+    await captureEvidence(page, /Employee sync (started|job queued)/i);
+    await expect(syncEmployees).toBeEnabled({ timeout: 180000 });
 
     await page.getByTestId("keka-tab-sync-log").click();
     await captureEvidence(page, /Sync log/i);

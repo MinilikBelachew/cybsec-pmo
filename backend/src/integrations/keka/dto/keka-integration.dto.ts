@@ -79,6 +79,27 @@ export class KekaSyncLogRowDto {
 
   @ApiProperty()
   createdAt: Date;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Stored sync request/response context' })
+  payload: unknown | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Resolved local display name for the entity when available',
+  })
+  entityName: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectName: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Short human-readable description of what happened',
+  })
+  summary: string | null;
 }
 
 export class KekaSyncLogListResponseDto {
@@ -134,6 +155,16 @@ export class QueryFailedSyncRecordsDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    enum: ['all', 'pending', 'dead_letter'],
+    description:
+      'Filter unresolved rows: pending auto-retry, dead-lettered, or all (default).',
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['all', 'pending', 'dead_letter'])
+  disposition?: 'all' | 'pending' | 'dead_letter';
 }
 
 export class FailedSyncRecordRowDto {
@@ -142,6 +173,18 @@ export class FailedSyncRecordRowDto {
 
   @ApiProperty()
   integration: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  payload?: unknown | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  entityName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectName?: string | null;
 
   @ApiProperty()
   entityType: string;
@@ -157,6 +200,17 @@ export class FailedSyncRecordRowDto {
 
   @ApiProperty()
   retryCount: number;
+
+  @ApiProperty({ enum: ['transient', 'permanent'] })
+  failureClass: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  deadLetteredAt: Date | null;
+
+  @ApiProperty({
+    description: 'True when dead-lettered (permanent error or max retries).',
+  })
+  isDeadLetter: boolean;
 
   @ApiProperty()
   isResolved: boolean;

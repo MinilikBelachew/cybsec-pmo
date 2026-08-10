@@ -337,6 +337,8 @@ export function ProjectWorkspace() {
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) {
       params.search = trimmedSearch;
+      // Include nested tasks so title search finds sub-tasks.
+      params.topLevelOnly = false;
     }
     if (statusFilter !== "ALL") {
       params.status = statusFilter;
@@ -898,10 +900,14 @@ export function ProjectWorkspace() {
   };
 
   const handleBoardQuickCreateTask = async (status: Status, payload: BoardQuickCreatePayload) => {
-    const phaseId = selectedPhaseIdForNewTask ?? phases[0]?.id;
+    const phaseId = payload.phaseId || selectedPhaseIdForNewTask || phases[0]?.id;
     if (!phaseId) {
       toast.error("Add a project phase before creating tasks");
       throw new Error("No phase available");
+    }
+    if (!Number.isInteger(payload.effortHours) || payload.effortHours < 1) {
+      toast.error("Effort hours must be a positive whole number");
+      throw new Error("Invalid effort hours");
     }
 
     try {
@@ -914,11 +920,12 @@ export function ProjectWorkspace() {
         ownerId: payload.ownerId ?? null,
         startDate: payload.startDate,
         endDate: payload.endDate,
+        effortHours: payload.effortHours,
       }).unwrap();
       toast.success("Task created");
     } catch (err) {
       console.error("Failed to create task:", err);
-      toast.error("Failed to create task");
+      toast.error(formatTaskApiError(err, "Failed to create task"));
       throw err;
     }
   };
@@ -1359,6 +1366,7 @@ export function ProjectWorkspace() {
             projectId={id}
             search={debouncedSearch}
             priority={PRIORITY_FILTER_TO_API[priorityFilter]}
+            phases={phases}
             statusCounts={statusCounts}
             toggleTask={toggleTask}
             onTaskClick={openTaskDetail}

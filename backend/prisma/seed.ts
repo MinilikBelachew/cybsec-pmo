@@ -111,6 +111,25 @@ async function main() {
     `Role permissions seeded successfully (${rolePermissionRows.length} grants).`,
   );
 
+  // Drop team_lead staffing approval (over-allocation is project PM / PMO only).
+  const teamApprove = await prisma.permission.findFirst({
+    where: { module: 'team', action: 'approve' },
+    select: { id: true },
+  });
+  if (teamApprove) {
+    const removed = await prisma.rolePermission.deleteMany({
+      where: {
+        roleId: ROLE_ID_BY_CODE.team_lead,
+        permissionId: teamApprove.id,
+      },
+    });
+    if (removed.count > 0) {
+      console.log(
+        `Removed team.approve from team_lead (${removed.count} grant(s)).`,
+      );
+    }
+  }
+
   console.log('Removing unused auth permissions...');
   const authPermissions = await prisma.permission.findMany({
     where: { module: 'auth' },

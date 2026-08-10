@@ -1,29 +1,27 @@
 "use client";
 
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { toast } from "react-hot-toast";
 import {
   useGetPhasesQuery,
   useGetProjectTaskAssigneesQuery,
 } from "../../api/projects.api";
+import type { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
 import {
-  useCreateTaskMutation,
-  useUpdateTaskMutation,
-  useLazyGetTasksQuery,
-  useCreateTaskDependencyMutation,
-  useUpdateTaskDependencyMutation,
-  useLazyGetTaskDependenciesQuery,
-} from "../../api/tasks.api";
-import { ProjectPhase, ProjectTaskAssignee } from "../../types/projects.types";
+  isImportQueueFullError,
+  importQueueFullMax,
+  usePreviewExcelTasksImportMutation,
+  useLazyPageExcelTasksPreviewQuery,
+  usePatchExcelTasksPreviewRowMutation,
+  useConfirmExcelTasksImportMutation,
+  type ExcelTasksPreviewCounts,
+  type ExcelTasksPreviewRow,
+} from "../../api/imports.api";
+import { useImportProgress } from "../import/import-progress-provider";
 import {
-  parseXLSXSheet,
-  processRawTaskCSVRows,
-  detectTaskCsvImportKind,
   revalidateParsedTaskRow,
   generateTasksXLSXTemplate,
-  scheduleFieldsFromParsedTask,
-  planExcelDependencies,
   ParsedTaskRow,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
@@ -38,6 +36,7 @@ import {
   PlayCircle,
   Download,
   ChevronDown,
+  Minimize2,
 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 
@@ -105,6 +104,28 @@ const PRIORITY_CONFIG: Record<string, { label: string; bg: string; text: string 
 const isPriorityValid = (val: string) => ["Low", "Medium", "High", "Critical"].includes(val);
 const isStatusValid = (val: string) => ["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"].includes(val);
 
+const PAGE_SIZE = 50;
+
+function mapPreviewRow(row: ExcelTasksPreviewRow): ParsedTaskRow {
+  return {
+    ...row,
+    predecessors: (row.predecessors ?? []).map((p) => {
+      const dep = String(p.depType ?? "FS").toUpperCase();
+      const depType =
+        dep === "SS" || dep === "FF" || dep === "SF" || dep === "FS"
+          ? dep
+          : "FS";
+      return {
+        title: p.title,
+        depType,
+        lagDays: p.lagDays ?? 0,
+      };
+    }),
+    errors: row.errors ?? [],
+    warnings: row.warnings ?? [],
+  };
+}
+
 const PRIORITY_OPTIONS = [
   { value: "Low", label: "Low" },
   { value: "Medium", label: "Medium" },
@@ -156,10 +177,17 @@ function EnumSelect({ value, options, onChange, placeholder = "Select...", class
 
 export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportTasksDialogProps) {
   const [file, setFile] = useState<File | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedTaskRow[]>([]);
   const [existingTaskCatalog, setExistingTaskCatalog] = useState<{ id: string; title: string }[]>([]);
+  const [previewCounts, setPreviewCounts] = useState<ExcelTasksPreviewCounts | null>(null);
+  const [tasksTotal, setTasksTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [importStatusText, setImportStatusText] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -168,12 +196,11 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   const { data: phases = [] } = useGetPhasesQuery(projectId);
   const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(projectId, { skip: !projectId });
 
-  const [createTask] = useCreateTaskMutation();
-  const [updateTask] = useUpdateTaskMutation();
-  const [triggerGetTasks] = useLazyGetTasksQuery();
-  const [createTaskDependency] = useCreateTaskDependencyMutation();
-  const [updateTaskDependency] = useUpdateTaskDependencyMutation();
-  const [triggerGetDependencies] = useLazyGetTaskDependenciesQuery();
+  const [previewTasksImport] = usePreviewExcelTasksImportMutation();
+  const [pageExcelTasksPreview] = useLazyPageExcelTasksPreviewQuery();
+  const [patchExcelTasksPreviewRow] = usePatchExcelTasksPreviewRowMutation();
+  const [confirmExcelTasksImport] = useConfirmExcelTasksImportMutation();
+  const { trackImport, trackQueuedImport, showQueueFull } = useImportProgress();
 
   const downloadSampleXLSX = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -204,76 +231,75 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
       return;
     }
     setFile(selectedFile);
+    setParsedRows([]);
+    setExistingTaskCatalog([]);
+    setPreviewId(null);
+    setPreviewCounts(null);
+    setTasksTotal(0);
+    setHasMore(false);
     setValidationError(null);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
+    setIsParsing(true);
+
+    void (async () => {
       try {
-        const buffer = event.target?.result as ArrayBuffer;
-        const taskData = parseXLSXSheet(buffer, "Tasks");
-        if (taskData.length <= 1) {
-          setValidationError("The XLSX file is empty or only contains headers.");
-          setParsedRows([]);
-          return;
-        }
+        const result = await previewTasksImport({
+          projectId,
+          file: selectedFile,
+        }).unwrap();
 
-        const importKind = detectTaskCsvImportKind(taskData);
-        if (importKind === "projects") {
-          setValidationError(
-            "This file looks like a Projects export. Use Import Projects on the Projects page, or download the Tasks sample XLSX."
-          );
-          setParsedRows([]);
-          return;
-        }
-        if (importKind === "unknown") {
-          setValidationError(
-            "The uploaded file does not match the expected Tasks format. Please make sure the sheet has headers like 'Title', 'Description', 'Priority', 'Status', etc."
-          );
-          setParsedRows([]);
-          return;
-        }
+        const processed = result.rows.map(mapPreviewRow);
 
-        // Fetch existing tasks for update-matching (include nested titles)
-        let existingTasks: { id: string; title: string }[] = [];
-        try {
-          const result = await triggerGetTasks({
-            projectId,
-            limit: 1000,
-            topLevelOnly: false,
-          }).unwrap();
-          const catalog: { id: string; title: string }[] = [];
-          const walk = (task: {
-            id: string;
-            title: string;
-            subTasks?: { id: string; title: string; subTasks?: any[] }[];
-          }) => {
-            catalog.push({ id: task.id, title: task.title });
-            for (const child of task.subTasks ?? []) walk(child);
-          };
-          for (const task of result.data) walk(task);
-          existingTasks = catalog;
-        } catch {
-          // Non-fatal — missing existing tasks means all rows will be treated as creates
-        }
-
-        const processed = processRawTaskCSVRows(taskData, phases, assignees, existingTasks);
-        setExistingTaskCatalog(existingTasks);
+        setPreviewId(result.previewId);
+        setExistingTaskCatalog(result.existingTasks ?? []);
         setParsedRows(processed);
-        toast.success(`Loaded ${processed.length} rows from XLSX`);
+        setPreviewCounts(result.counts);
+        setTasksTotal(result.total);
+        setHasMore(result.hasMore);
+        toast.success(
+          result.total > processed.length
+            ? `Loaded ${processed.length} of ${result.total} rows — use Load more for the rest`
+            : `Loaded ${processed.length} rows from XLSX`,
+        );
       } catch (err) {
         console.error(err);
-        setValidationError("Failed to parse XLSX file. Please ensure it is not password-protected or corrupted.");
+        const data =
+          err && typeof err === "object" && "data" in err
+            ? (err as { data?: { message?: string | string[] } }).data
+            : undefined;
+        const rawMessage = data?.message;
+        const message = Array.isArray(rawMessage)
+          ? rawMessage.join(" ")
+          : rawMessage
+            ? String(rawMessage)
+            : null;
+        setValidationError(
+          message ||
+            "Failed to parse XLSX file. Please ensure it is not password-protected or corrupted.",
+        );
         setParsedRows([]);
         setExistingTaskCatalog([]);
+        setPreviewId(null);
+        setPreviewCounts(null);
+        setTasksTotal(0);
+        setHasMore(false);
+      } finally {
+        setIsParsing(false);
       }
-    };
-    reader.readAsArrayBuffer(selectedFile);
+    })();
   };
 
   const handleReset = () => {
     setFile(null);
+    setPreviewId(null);
     setParsedRows([]);
     setExistingTaskCatalog([]);
+    setPreviewCounts(null);
+    setTasksTotal(0);
+    setHasMore(false);
+    setLoadingMore(false);
     setImportProgress(0);
+    setImportStatusText("");
+    setIsParsing(false);
     setIsImporting(false);
     setValidationError(null);
     if (fileInputRef.current) {
@@ -282,7 +308,8 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
   };
 
   const handleClose = () => {
-    if (isImporting) return;
+    if (isParsing) return;
+    setIsImporting(false);
     handleReset();
     onClose();
   };
@@ -300,7 +327,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           .filter((title, titleIndex, all) => title && all.indexOf(title) !== titleIndex),
       );
 
-      return prev.map((row, idx) => {
+      const next = prev.map((row, idx) => {
         if (idx !== index) return row;
         const updated = { ...row, [field]: value, ...extra };
         return revalidateParsedTaskRow(
@@ -311,155 +338,154 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
           existingTaskCatalog,
         );
       });
+
+      const updatedRow = next[index];
+      const previousRow = prev[index];
+      if (previewId && updatedRow) {
+        void patchExcelTasksPreviewRow({
+          previewId,
+          index,
+          patch: updatedRow as unknown as Record<string, unknown>,
+        });
+      }
+
+      if (previousRow && updatedRow && previewCounts) {
+        const wasValid = previousRow.errors.length === 0;
+        const isValid = updatedRow.errors.length === 0;
+        if (wasValid !== isValid) {
+          setPreviewCounts((counts) => {
+            if (!counts) return counts;
+            const delta = isValid ? 1 : -1;
+            return {
+              ...counts,
+              valid: Math.max(0, counts.valid + delta),
+              invalid: Math.max(0, counts.invalid - delta),
+            };
+          });
+        }
+        if (previousRow.importMode !== updatedRow.importMode) {
+          setPreviewCounts((counts) => {
+            if (!counts) return counts;
+            return {
+              ...counts,
+              create:
+                counts.create -
+                (previousRow.importMode === "create" ? 1 : 0) +
+                (updatedRow.importMode === "create" ? 1 : 0),
+              update:
+                counts.update -
+                (previousRow.importMode === "update" ? 1 : 0) +
+                (updatedRow.importMode === "update" ? 1 : 0),
+            };
+          });
+        }
+      }
+
+      return next;
     });
   };
 
-  const validRows = useMemo(
-    () => parsedRows.filter((r) => r.errors.length === 0),
-    [parsedRows]
-  );
-  const hasErrors = useMemo(() => parsedRows.some((r) => r.errors.length > 0), [parsedRows]);
+  const handleLoadMore = async () => {
+    if (!previewId || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await pageExcelTasksPreview({
+        previewId,
+        offset: parsedRows.length,
+        limit: PAGE_SIZE,
+      }).unwrap();
+      setParsedRows((prev) => [...prev, ...page.rows.map(mapPreviewRow)]);
+      setTasksTotal(page.total);
+      setHasMore(page.hasMore);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load more rows.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const validCount = previewCounts?.valid ?? parsedRows.filter((r) => r.errors.length === 0).length;
+  const totalCount = previewCounts?.total ?? (tasksTotal || parsedRows.length);
+  const invalidCount = previewCounts?.invalid ?? Math.max(0, totalCount - validCount);
+  const hasErrors = invalidCount > 0;
 
   const handleImport = async () => {
-    if (validRows.length === 0) {
+    if (!previewId) {
+      toast.error("Preview expired. Please re-upload the file.");
+      return;
+    }
+    if (validCount === 0) {
       toast.error("No valid rows to import.");
       return;
     }
 
     setIsImporting(true);
-    let successCreated = 0;
-    let successUpdated = 0;
-    let failCount = 0;
-    let depsCreated = 0;
-    let depsUpdated = 0;
-    let depsFailed = 0;
-    const depWarnings: string[] = [];
+    setImportProgress(0);
+    setImportStatusText(`Queuing ${validCount} tasks…`);
 
-    const titleToId = new Map<string, string>();
-    for (const existing of existingTaskCatalog) {
-      titleToId.set(existing.title.trim().toLowerCase(), existing.id);
-    }
-
-    const taskPassTotal = Math.max(validRows.length, 1);
-    for (let i = 0; i < validRows.length; i++) {
-      const row = validRows[i];
-      try {
-        if (row.importMode === "update" && row.resolvedTaskId) {
-          await updateTask({
-            id: row.resolvedTaskId,
-            body: {
-              title: row.title,
-              description: row.description || undefined,
-              priority: row.priority,
-              status: row.status,
-              ownerId: row.resolvedAssigneeId || undefined,
-              phaseId: row.resolvedPhaseId || phases[0]?.id,
-              startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
-              endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
-              effortHours: row.effortHours || undefined,
-              ...scheduleFieldsFromParsedTask(row),
-            },
-          }).unwrap();
-          titleToId.set(row.title.trim().toLowerCase(), row.resolvedTaskId);
-          successUpdated++;
-        } else {
-          const created = await createTask({
-            projectId,
-            title: row.title,
-            description: row.description || undefined,
-            priority: row.priority,
-            status: row.status,
-            ownerId: row.resolvedAssigneeId || undefined,
-            phaseId: row.resolvedPhaseId || phases[0]?.id,
-            startDate: row.startDate ? new Date(row.startDate).toISOString() : undefined,
-            endDate: row.endDate ? new Date(row.endDate).toISOString() : undefined,
-            effortHours: row.effortHours || undefined,
-            ...scheduleFieldsFromParsedTask(row),
-          }).unwrap();
-          titleToId.set(row.title.trim().toLowerCase(), created.id);
-          successCreated++;
-        }
-      } catch (err) {
-        console.error(`Failed to import task: ${row.title}`, err);
-        failCount++;
-      }
-      setImportProgress(Math.round(((i + 1) / taskPassTotal) * 85));
-    }
-
-    const { plans, warnings } = planExcelDependencies(validRows, titleToId);
-    depWarnings.push(...warnings);
-
-    if (plans.length > 0) {
-      let existingByPair = new Map<string, string>();
-      try {
-        const existingDeps = await triggerGetDependencies({ projectId }).unwrap();
-        existingByPair = new Map(
-          existingDeps.map((d) => [`${d.predecessorId}|${d.successorId}`, d.id]),
-        );
-      } catch (err) {
-        console.error("Failed to load existing dependencies for Excel import", err);
-      }
-
-      for (let i = 0; i < plans.length; i++) {
-        const plan = plans[i];
-        const pairKey = `${plan.predecessorId}|${plan.successorId}`;
-        try {
-          const existingId = existingByPair.get(pairKey);
-          if (existingId) {
-            await updateTaskDependency({
-              id: existingId,
-              body: { depType: plan.depType, lagDays: plan.lagDays },
-            }).unwrap();
-            depsUpdated++;
-          } else {
-            await createTaskDependency({
-              predecessorId: plan.predecessorId,
-              successorId: plan.successorId,
-              depType: plan.depType,
-              lagDays: plan.lagDays,
-            }).unwrap();
-            existingByPair.set(pairKey, "new");
-            depsCreated++;
+    try {
+      const enqueue = await confirmExcelTasksImport({ previewId, projectId }).unwrap();
+      const trackArgs = {
+        label: `Importing ${validCount} tasks`,
+        kind: "excel-tasks" as const,
+        onComplete: (status: { result: Record<string, unknown> | null }) => {
+          const result = status.result ?? {};
+          const parts: string[] = [];
+          if (Number(result.tasksCreated)) parts.push(`${result.tasksCreated} created`);
+          if (Number(result.tasksUpdated)) parts.push(`${result.tasksUpdated} updated`);
+          if (Number(result.dependenciesCreated)) {
+            parts.push(`${result.dependenciesCreated} deps created`);
           }
-        } catch (err) {
-          console.error(
-            `Failed to import dependency ${plan.predecessorTitle} → ${plan.successorTitle}`,
-            err,
+          if (Number(result.dependenciesUpdated)) {
+            parts.push(`${result.dependenciesUpdated} deps updated`);
+          }
+          toast.success(
+            parts.length > 0 ? `Tasks imported: ${parts.join(" · ")}` : "Tasks import completed",
           );
-          depsFailed++;
-          depWarnings.push(
-            `Failed dependency "${plan.predecessorTitle}" → "${plan.successorTitle}".`,
-          );
-        }
-        setImportProgress(85 + Math.round(((i + 1) / plans.length) * 15));
+          if (Number(result.failed) > 0) {
+            toast.error(`Failed to import ${result.failed} task(s).`);
+          }
+          refetch();
+        },
+        onError: (message: string) => toast.error(message),
+      };
+
+      if (enqueue.status === "queued" && enqueue.queueId) {
+        trackQueuedImport({
+          queueId: enqueue.queueId,
+          position: enqueue.position,
+          maxPerUser: enqueue.maxPerUser,
+          ...trackArgs,
+        });
+        setIsImporting(false);
+        handleReset();
+        onClose();
+        return;
       }
-    } else {
-      setImportProgress(100);
-    }
 
-    const parts: string[] = [];
-    if (successCreated > 0) parts.push(`${successCreated} created`);
-    if (successUpdated > 0) parts.push(`${successUpdated} updated`);
-    if (depsCreated > 0) parts.push(`${depsCreated} deps created`);
-    if (depsUpdated > 0) parts.push(`${depsUpdated} deps updated`);
-    if (parts.length > 0) {
-      toast.success(`Tasks imported: ${parts.join(" · ")}`);
-      refetch();
-    }
-    if (failCount > 0) {
-      toast.error(`Failed to import ${failCount} task${failCount === 1 ? "" : "s"}.`);
-    }
-    if (depsFailed > 0 || depWarnings.length > 0) {
-      const preview = depWarnings.slice(0, 3).join(" ");
-      toast.error(
-        depsFailed > 0
-          ? `${depsFailed} predecessor link(s) failed.${preview ? ` ${preview}` : ""}`
-          : preview || "Some predecessor links were skipped.",
-      );
-    }
+      if (!enqueue.jobId) {
+        throw new Error("Import did not return a job id");
+      }
 
-    setIsImporting(false);
-    handleClose();
+      trackImport({
+        jobId: enqueue.jobId,
+        ...trackArgs,
+      });
+      toast.success("Import started — continue working; progress is shown below.");
+      setIsImporting(false);
+      handleReset();
+      onClose();
+    } catch (error) {
+      setIsImporting(false);
+      if (isImportQueueFullError(error)) {
+        showQueueFull(importQueueFullMax(error));
+      } else {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to import tasks.",
+        );
+      }
+    }
   };
 
   return (
@@ -476,7 +502,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
               </DialogPrimitive.Title>
             </div>
             <div className="flex items-center gap-2">
-              {!isImporting && (
+              {!isImporting && !isParsing && (
                 <Button
                   variant="outline"
                   size="xs"
@@ -487,12 +513,23 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   Download Sample XLSX
                 </Button>
               )}
-              {!isImporting && (
+              {!isImporting && !isParsing && (
                 <button
                   onClick={handleClose}
                   className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all cursor-pointer"
                 >
                   <X className="size-4" />
+                </button>
+              )}
+              {isImporting && (
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Continue working — progress stays visible"
+                >
+                  <Minimize2 className="size-3.5" />
+                  Minimize
                 </button>
               )}
             </div>
@@ -537,11 +574,16 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                         {file.name}
                       </p>
                       <p className="text-[10px] text-muted-foreground font-medium">
-                        {(file.size / 1024).toFixed(1)} KB{!validationError && ` · ${parsedRows.length} rows loaded`}
+                        {(file.size / 1024).toFixed(1)} KB
+                        {isParsing
+                          ? " · Parsing…"
+                          : !validationError
+                            ? ` · ${parsedRows.length}${tasksTotal > parsedRows.length ? ` of ${tasksTotal}` : ""} rows loaded`
+                            : ""}
                       </p>
                     </div>
                   </div>
-                  {!isImporting && (
+                  {!isImporting && !isParsing && (
                     <Button variant="outline" size="xs" onClick={handleReset}>
                       Change File
                     </Button>
@@ -561,12 +603,22 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                       Select Another File
                     </Button>
                   </div>
+                ) : isParsing ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4 min-h-[300px]">
+                    <Loader2 className="size-8 text-primary animate-spin" />
+                    <div className="text-center space-y-1">
+                      <p className="text-sm font-bold">Parsing spreadsheet…</p>
+                      <p className="text-xs text-muted-foreground">
+                        Reading and validating rows. Large files can take a minute.
+                      </p>
+                    </div>
+                  </div>
                 ) : isImporting ? (
                   /* Loading Progress UI */
                   <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4">
                     <Loader2 className="size-8 text-primary animate-spin" />
                     <div className="text-center space-y-1">
-                      <p className="text-sm font-bold">Importing tasks...</p>
+                      <p className="text-sm font-bold">{importStatusText || "Importing tasks…"}</p>
                       <p className="text-xs text-muted-foreground">
                         Please do not close this dialog.
                       </p>
@@ -795,6 +847,26 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                         </table>
                       </div>
                     </div>
+                    {hasMore && (
+                      <div className="flex justify-center pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          onClick={handleLoadMore}
+                          disabled={loadingMore}
+                          className="h-8 gap-1.5 rounded-lg text-[11px] font-bold cursor-pointer"
+                        >
+                          {loadingMore ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : null}
+                          Load more
+                          {tasksTotal > parsedRows.length
+                            ? ` (${tasksTotal - parsedRows.length} remaining)`
+                            : ""}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                   </>
                 )}
@@ -808,12 +880,20 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
               {validationError && (
                 <span className="text-rose-500">File cannot be imported due to validation errors.</span>
               )}
-              {file && !validationError && !isImporting && (
+              {file && !validationError && isParsing && (
+                <span>Parsing spreadsheet…</span>
+              )}
+              {file && !validationError && !isImporting && !isParsing && (
                 <span>
-                  {`${validRows.length} of ${parsedRows.length} tasks ready to import.`}
+                  {`${validCount} of ${totalCount} tasks ready to import.`}
                   {hasErrors && (
                     <span className="text-rose-500 ml-1">
-                      ({parsedRows.filter(r => r.errors.length > 0).length} tasks contain errors)
+                      ({invalidCount} tasks contain errors)
+                    </span>
+                  )}
+                  {hasMore && (
+                    <span className="text-muted-foreground ml-1">
+                      · Showing {parsedRows.length} of {totalCount}
                     </span>
                   )}
                 </span>
@@ -824,15 +904,15 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                 variant="outline"
                 size="sm"
                 onClick={handleClose}
-                disabled={isImporting}
+                disabled={isImporting || isParsing}
                 className="font-bold h-9 text-xs rounded-xl"
               >
                 Cancel
               </Button>
-              {file && !isImporting && (
+              {file && !isImporting && !isParsing && (
                 <Button
                   onClick={handleImport}
-                  disabled={validRows.length === 0 || !!validationError}
+                  disabled={validCount === 0 || !!validationError || !previewId}
                   size="sm"
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >

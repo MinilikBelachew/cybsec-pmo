@@ -25,6 +25,7 @@ import {
   FailedSyncRetryService,
 } from './sync/failed-sync-retry.service';
 import { KekaIntegrationAdminService } from './keka-integration-admin.service';
+import { KekaConnectionService } from './keka-connection.service';
 import { EmployeeUserLinkService } from './employee-user-link.service';
 import { KekaSyncController } from './controllers/keka-sync.controller';
 import { KEKA_SYNC_QUEUE } from './keka.constants';
@@ -56,6 +57,7 @@ export class KekaModule {
       ],
       controllers,
       providers: [
+        KekaConnectionService,
         KekaHttpClient,
         DepartmentSyncService,
         EmployeeSyncService,
@@ -79,6 +81,7 @@ export class KekaModule {
       exports: [
         KekaSyncService,
         KekaHttpClient,
+        KekaConnectionService,
         AllocationPushService,
         TimesheetPushService,
         TimesheetReconcileService,

@@ -220,13 +220,20 @@ export class TimesheetReconcileService {
       select: { id: true, kekaEmployeeId: true },
     });
 
+    const kekaEmployeeIds = employees
+      .map((row) => row.kekaEmployeeId)
+      .filter((id): id is string => Boolean(id));
+
+    // Never call Keka without employee filter — empty list would pull company-wide entries.
+    if (kekaEmployeeIds.length === 0) {
+      return { source: 'local-push-ack', hoursByEmployeeId: new Map() };
+    }
+
     try {
       const pull = await this.pullKekaHours({
         start: stripToUtcDay(options.start),
         end: stripToUtcDay(options.end),
-        kekaEmployeeIds: employees
-          .map((row) => row.kekaEmployeeId)
-          .filter((id): id is string => Boolean(id)),
+        kekaEmployeeIds,
         projectId: options.projectId,
       });
 
@@ -262,6 +269,10 @@ export class TimesheetReconcileService {
     const hoursByKekaEmployeeId = new Map<string, number>();
     let entryCount = 0;
 
+    if (options.kekaEmployeeIds.length === 0) {
+      return { hoursByKekaEmployeeId, entryCount };
+    }
+
     const kekaProjectId = options.projectId
       ? (
           await this.prisma.project.findUnique({
@@ -279,32 +290,38 @@ export class TimesheetReconcileService {
         to: window.to.toISOString(),
       };
 
-      if (options.kekaEmployeeIds.length > 0 && options.kekaEmployeeIds.length <= 40) {
-        params.employeeIds = options.kekaEmployeeIds.join(',');
+      // Cap query string size; for larger sets batch by chunks of 40.
+      const chunks: string[][] = [];
+      for (let i = 0; i < options.kekaEmployeeIds.length; i += 40) {
+        chunks.push(options.kekaEmployeeIds.slice(i, i + 40));
       }
-      if (kekaProjectId) {
-        params.projectIds = kekaProjectId;
-      }
 
-      const entries = await this.kekaClient.getAllPages<KekaPsaTimesheetEntry>(
-        '/psa/timeentries',
-        params,
-        100,
-      );
+      for (const chunk of chunks) {
+        params.employeeIds = chunk.join(',');
+        if (kekaProjectId) {
+          params.projectIds = kekaProjectId;
+        }
 
-      for (const entry of entries) {
-        const kekaEmployeeId = entry.employeeId?.trim();
-        if (!kekaEmployeeId) continue;
-
-        const minutes = Number(entry.totalMinutes ?? 0);
-        if (!Number.isFinite(minutes) || minutes <= 0) continue;
-
-        entryCount += 1;
-        const hours = minutes / 60;
-        hoursByKekaEmployeeId.set(
-          kekaEmployeeId,
-          (hoursByKekaEmployeeId.get(kekaEmployeeId) ?? 0) + hours,
+        const entries = await this.kekaClient.getAllPages<KekaPsaTimesheetEntry>(
+          '/psa/timeentries',
+          params,
+          100,
         );
+
+        for (const entry of entries) {
+          const kekaEmployeeId = entry.employeeId?.trim();
+          if (!kekaEmployeeId) continue;
+
+          const minutes = Number(entry.totalMinutes ?? 0);
+          if (!Number.isFinite(minutes) || minutes <= 0) continue;
+
+          entryCount += 1;
+          const hours = minutes / 60;
+          hoursByKekaEmployeeId.set(
+            kekaEmployeeId,
+            (hoursByKekaEmployeeId.get(kekaEmployeeId) ?? 0) + hours,
+          );
+        }
       }
     }
 

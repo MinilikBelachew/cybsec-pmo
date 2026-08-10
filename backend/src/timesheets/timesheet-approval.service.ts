@@ -22,7 +22,6 @@ import {
 } from './dto/timesheet-approval.dto';
 import {
   TIMESHEET_DAILY_THRESHOLD_HOURS,
-  TIMESHEET_ESCALATION_DAYS,
   TIMESHEET_STATUS,
 } from './timesheets.constants';
 import {
@@ -37,6 +36,7 @@ import {
   getWeekStart,
   parseDateOnly,
 } from './utils/week.util';
+import { TimesheetEscalationPolicyService } from '../settings/timesheet-escalation-policy.service';
 
 const TIMESHEET_APPROVAL_INCLUDE = {
   employee: {
@@ -67,6 +67,7 @@ export class TimesheetApprovalService {
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly timesheetPushService: TimesheetPushService,
     private readonly notificationsService: NotificationsService,
+    private readonly escalationPolicy: TimesheetEscalationPolicyService,
   ) {}
 
   async findSubmissions(
@@ -77,6 +78,7 @@ export class TimesheetApprovalService {
     const limit = query.limit ?? 20;
     const statusFilter = query.status ?? 'all';
     const projectWhere = this.recordScopeWhere.timesheetApprovalProjectWhere(caslUser);
+    const { escalationDays } = await this.escalationPolicy.getPolicy();
 
     const rows = await this.prisma.timesheet.findMany({
       where: {
@@ -93,7 +95,7 @@ export class TimesheetApprovalService {
       orderBy: [{ updatedAt: 'desc' }],
     });
 
-    const grouped = this.groupSubmissions(rows);
+    const grouped = this.groupSubmissions(rows, escalationDays);
     const filtered = grouped.filter((submission) => {
       const matchesStatus =
         statusFilter === 'all' || submission.status === statusFilter;
@@ -314,7 +316,10 @@ export class TimesheetApprovalService {
     return entries;
   }
 
-  private groupSubmissions(rows: TimesheetRow[]): TimesheetSubmissionRowDto[] {
+  private groupSubmissions(
+    rows: TimesheetRow[],
+    escalationDays: number,
+  ): TimesheetSubmissionRowDto[] {
     const groups = new Map<string, TimesheetRow[]>();
 
     for (const row of rows) {
@@ -372,7 +377,7 @@ export class TimesheetApprovalService {
         overtimeHours,
         status,
         isOverThreshold: this.isWeekOverThreshold(entries, weekStartDate),
-        isEscalated: this.isEscalated(status, submittedAt),
+        isEscalated: this.isEscalated(status, submittedAt, escalationDays),
         hasSyncFailures: failedSyncCount > 0,
         failedSyncCount,
         entries: mappedEntries,
@@ -448,13 +453,14 @@ export class TimesheetApprovalService {
   private isEscalated(
     status: 'pending' | 'approved' | 'rejected',
     submittedAt: Date,
+    escalationDays: number,
   ) {
     if (status !== 'pending') {
       return false;
     }
 
     const threshold = new Date();
-    threshold.setDate(threshold.getDate() - TIMESHEET_ESCALATION_DAYS);
+    threshold.setDate(threshold.getDate() - escalationDays);
     return submittedAt < threshold;
   }
 

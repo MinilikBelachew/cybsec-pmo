@@ -105,6 +105,43 @@ export const tasksApi = api.injectEndpoints({
       },
     }),
 
+    getTaskOptions: builder.query<
+      {
+        rows: Array<{ id: string; title: string }>;
+        total: number;
+        offset: number;
+        limit: number;
+        hasMore: boolean;
+      },
+      {
+        projectId: string;
+        excludeTaskId?: string;
+        search?: string;
+        offset?: number;
+        limit?: number;
+        ids?: string[];
+      }
+    >({
+      query: (params) => {
+        const queryParams = new URLSearchParams();
+        queryParams.append("projectId", params.projectId);
+        if (params.excludeTaskId) {
+          queryParams.append("excludeTaskId", params.excludeTaskId);
+        }
+        if (params.search) queryParams.append("search", params.search);
+        if (params.offset != null) {
+          queryParams.append("offset", String(params.offset));
+        }
+        if (params.limit != null) {
+          queryParams.append("limit", String(params.limit));
+        }
+        if (params.ids?.length) {
+          queryParams.append("ids", params.ids.join(","));
+        }
+        return `/tasks/options?${queryParams.toString()}`;
+      },
+    }),
+
     getTaskById: builder.query<Task, string>({
       query: (id) => `/tasks/${id}`,
       providesTags: (result, error, id) => [{ type: "Tasks", id }],
@@ -631,6 +668,7 @@ export const {
   useGetActiveTaskStatsQuery,
   useLazyExportTasksQuery,
   useExportTasksQuery,
+  useLazyGetTaskOptionsQuery,
   useGetTaskByIdQuery,
   useCreateTaskMutation,
   useCreateTaskBundleMutation,

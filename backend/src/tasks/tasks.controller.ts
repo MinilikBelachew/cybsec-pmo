@@ -37,6 +37,7 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { BulkTasksDto } from './dto/bulk-tasks.dto';
 import { QueryTaskDto } from './dto/query-task.dto';
+import { QueryTaskOptionsDto } from './dto/query-task-options.dto';
 import { CreateTaskCommentDto } from './dto/create-task-comment.dto';
 import { UpdateTaskCommentDto } from './dto/update-task-comment.dto';
 import {
@@ -170,6 +171,17 @@ export class TasksController {
       request.ability!,
       this.viewerRole(request),
     );
+  }
+
+  /** Lightweight paginated id+title list for dependency pickers. */
+  @CheckAbility('read', 'Task')
+  @Get('options')
+  @HttpCode(HttpStatus.OK)
+  async options(
+    @Query() query: QueryTaskOptionsDto,
+    @Request() request: AuthRequest,
+  ) {
+    return this.tasksService.findOptions(query, request.caslUser!);
   }
 
   @CheckAbility('read', 'Task')

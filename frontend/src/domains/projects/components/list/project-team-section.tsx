@@ -3,6 +3,7 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
 import { AlertTriangle, Calendar, ChevronDown, Loader2, Pencil, Trash2, Users2, X } from "lucide-react";
 import { toast } from "react-hot-toast";
+import { getApiErrorMessage } from "@/core/errors/api-error";
 import {
   useAddProjectTeamMembersMutation,
   useAlignProjectAllocationDatesMutation,
@@ -74,6 +75,8 @@ interface ExistingMemberEditDraft {
 
 const DEFAULT_HOURS = "20";
 const DEFAULT_PERCENT = "50";
+const MAX_WEEKLY_HOURS = 168;
+const MAX_WEEKLY_PERCENT = 100;
 const OVERRIDE_REASON_MIN = 10;
 
 function availabilityLabel(candidate: TeamCandidate): string {
@@ -514,15 +517,7 @@ export const ProjectTeamSection = forwardRef<
         setPickerOpen(false);
         refetchTeam();
       } catch (err: unknown) {
-        const apiError = err as {
-          data?: { errors?: { allocation?: string; overrideReason?: string }; message?: string };
-        };
-        const allocationError =
-          apiError?.data?.errors?.overrideReason ??
-          apiError?.data?.errors?.allocation;
-        toast.error(
-          allocationError ?? apiError?.data?.message ?? "Failed to add team members.",
-        );
+        toast.error(getApiErrorMessage(err, "Failed to add team members."));
       }
       return;
     }
@@ -639,8 +634,16 @@ export const ProjectTeamSection = forwardRef<
       toast.error("Enter valid weekly hours.");
       return;
     }
+    if (editDraft.allocationMode === "hours" && hours > MAX_WEEKLY_HOURS) {
+      toast.error(`Weekly hours cannot exceed ${MAX_WEEKLY_HOURS}.`);
+      return;
+    }
     if (editDraft.allocationMode === "percent" && (!Number.isFinite(percent) || percent <= 0)) {
       toast.error("Enter valid weekly percent.");
+      return;
+    }
+    if (editDraft.allocationMode === "percent" && percent > MAX_WEEKLY_PERCENT) {
+      toast.error(`Weekly percent cannot exceed ${MAX_WEEKLY_PERCENT}%.`);
       return;
     }
     if (!editDraft.startDate) {
@@ -685,14 +688,7 @@ export const ProjectTeamSection = forwardRef<
       setEditDraft(null);
       refetchTeam();
     } catch (err: unknown) {
-      const apiError = err as {
-        data?: { errors?: { allocation?: string }; message?: string };
-      };
-      toast.error(
-        apiError?.data?.errors?.allocation ??
-          apiError?.data?.message ??
-          "Failed to update team member.",
-      );
+      toast.error(getApiErrorMessage(err, "Failed to update team member."));
     }
   };
 

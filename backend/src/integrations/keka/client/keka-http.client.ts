@@ -1,12 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { AllConfigType } from '../../../config/config.type';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
+  KEKA_HTTP_TIMEOUT_MS,
   KEKA_RATE_LIMIT_MAX_RETRIES,
   KEKA_RATE_LIMIT_PER_MINUTE,
   KEKA_RATE_LIMIT_WINDOW_MS,
 } from '../keka.constants';
-import { KekaPagedResponse, KekaTokenResponse } from '../keka.types';
+import { KekaPagedResponse } from '../keka.types';
+import { KekaConnectionService } from '../keka-connection.service';
 
 type QueryParams = Record<string, string | number | undefined>;
 
@@ -16,7 +16,7 @@ type QueryParams = Record<string, string | number | undefined>;
  * Auth token calls hit a different host and are not counted here.
  */
 @Injectable()
-export class KekaHttpClient {
+export class KekaHttpClient implements OnModuleInit {
   private readonly logger = new Logger(KekaHttpClient.name);
   private accessToken: string | null = null;
   private tokenExpiresAt = 0;
@@ -26,7 +26,16 @@ export class KekaHttpClient {
   /** Serialize rate-slot acquisition so concurrent callers don't race. */
   private rateGate: Promise<void> = Promise.resolve();
 
-  constructor(private readonly configService: ConfigService<AllConfigType>) {}
+  constructor(private readonly kekaConnectionService: KekaConnectionService) {}
+
+  onModuleInit(): void {
+    this.kekaConnectionService.onTokenCacheClear(() => this.clearTokenCache());
+  }
+
+  clearTokenCache(): void {
+    this.accessToken = null;
+    this.tokenExpiresAt = 0;
+  }
 
   async get<T>(path: string, params?: QueryParams): Promise<T> {
     return this.requestWithRateLimit('GET', path, params);
@@ -80,18 +89,36 @@ export class KekaHttpClient {
       await this.acquireRateSlot();
 
       const token = await this.getAccessToken();
-      const url = this.buildUrl(path, params);
+      const url = await this.buildUrl(path, params);
       const hasBody = method === 'POST' || method === 'PUT';
-      const response = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-          'User-Agent': 'Mozilla',
-          ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-        },
-        body: hasBody ? JSON.stringify(body) : undefined,
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        KEKA_HTTP_TIMEOUT_MS,
+      );
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+            'User-Agent': 'Mozilla',
+            ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+          },
+          body: hasBody ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error(
+            `Keka request timed out after ${KEKA_HTTP_TIMEOUT_MS}ms for ${path}`,
+          );
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (response.status === 429) {
         attempt += 1;
@@ -110,11 +137,6 @@ export class KekaHttpClient {
     }
   }
 
-  /**
-   * Wait until we can send another request without exceeding
-   * KEKA_RATE_LIMIT_PER_MINUTE in the rolling 60s window.
-   * Uses max-1 as a soft cap so a concurrent retry still has headroom.
-   */
   private async acquireRateSlot(): Promise<void> {
     const run = this.rateGate.then(async () => {
       const softCap = Math.max(1, KEKA_RATE_LIMIT_PER_MINUTE - 1);
@@ -174,46 +196,17 @@ export class KekaHttpClient {
       return this.accessToken;
     }
 
-    const authUrl = this.configService.getOrThrow('keka.authUrl', { infer: true });
-    const clientId = this.configService.getOrThrow('keka.clientId', { infer: true });
-    const clientSecret = this.configService.getOrThrow('keka.clientSecret', {
-      infer: true,
-    });
-    const apiKey = this.configService.getOrThrow('keka.apiKey', { infer: true });
-
-    const body = new URLSearchParams({
-      grant_type: 'kekaapi',
-      client_id: clientId,
-      client_secret: clientSecret,
-      api_key: apiKey,
-      scope: 'kekaapi',
-    });
-
-    const response = await fetch(authUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla',
-      },
-      body,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      this.logger.error(`Keka auth failed (${response.status}): ${text}`);
-      throw new Error(`Keka authentication failed with status ${response.status}`);
-    }
-
-    const payload = (await response.json()) as KekaTokenResponse;
-    this.accessToken = payload.access_token;
-    this.tokenExpiresAt = now + payload.expires_in * 1000;
+    const config = await this.kekaConnectionService.getEffectiveConfig();
+    const { accessToken, expiresIn } =
+      await this.kekaConnectionService.exchangeToken(config);
+    this.accessToken = accessToken;
+    this.tokenExpiresAt = now + expiresIn * 1000;
     return this.accessToken;
   }
 
-  private buildUrl(path: string, params?: QueryParams): string {
-    const baseUrl = this.configService
-      .getOrThrow('keka.apiBaseUrl', { infer: true })
-      .replace(/\/$/, '');
+  private async buildUrl(path: string, params?: QueryParams): Promise<string> {
+    const config = await this.kekaConnectionService.getEffectiveConfig();
+    const baseUrl = config.apiBaseUrl.replace(/\/$/, '');
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     const url = new URL(`${baseUrl}${normalizedPath}`);
 

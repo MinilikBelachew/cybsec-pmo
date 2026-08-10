@@ -1,13 +1,13 @@
 services:
   postgres:
     image: postgres:17.6-alpine
-    container_name: cybersec-postgres
+    container_name: cybersec-postgres-stage
     restart: always
     ports:
       # Host-only bind — do not publish Postgres on 0.0.0.0 (internet-facing VPS risk)
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:5437:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_stage_data:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: ${DATABASE_USERNAME:-root}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret123}
@@ -15,47 +15,48 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: cybersec-redis
+    container_name: cybersec-redis-stage
     restart: always
     ports:
-      # Host-only bind — scanners were hitting public 6378 (Cross Protocol Scripting)
+      # Host-only bind — scanners were hitting public (Cross Protocol Scripting)
       # Backend reaches Redis via the Docker network as redis:6379 (no public publish needed)
-      - "127.0.0.1:6378:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
-      - redis_data:/data
+      - redis_stage_data:/data
 
   mpxj-service:
-    image: aynuayex/cybersec-pmo:mpxj-service
-    container_name: cybersec-mpxj-service
+    build:
+      context: ./mpxj-service
+      dockerfile: Dockerfile
+    # image: aynuayex/cybersec-pmo:mpxj-service
+    container_name: cybersec-mpxj-service-stage
     restart: always
     expose:
       - "8080"
 
   backend:
     # --------------------------------------------------------------------------
-    # OPTION 1: Build Locally on Server
-    # (Uncomment the "build:" block below if you want to build directly on VPS)
+    # OPTION 1: Build Locally on Server (Active)
     # --------------------------------------------------------------------------
-    # build:
-    #   context: ./backend
-    #   dockerfile: Dockerfile
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
 
     # --------------------------------------------------------------------------
-    # OPTION 2: Pull from Docker Hub (Default)
-    # Rebuild & push backend image after backend changes (includes MPP import).
+    # OPTION 2: Pull from Docker Hub (Uncomment if using Docker Hub registry)
     # --------------------------------------------------------------------------
-    image: aynuayex/cybersec-pmo:backend
+    # image: aynuayex/cybersec-pmo:backend
 
-    container_name: cybersec-backend
+    container_name: cybersec-backend-stage
     restart: always
     ports:
-      - "6010:3000"
+      - "6040:3000"
     depends_on:
       - postgres
       - redis
       - mpxj-service
     volumes:
-      - mpp_import_data:/tmp/mpp-imports
+      - mpp_import_stage_data:/tmp/mpp-imports
     env_file:
       - ./backend/.env.prod
     environment:
@@ -72,31 +73,31 @@ services:
 
   frontend:
     # --------------------------------------------------------------------------
-    # OPTION 1: Build Locally on Server
+    # OPTION 1: Build Locally on Server (Active)
     # --------------------------------------------------------------------------
-    # build:
-    #   context: ./frontend
-    #   dockerfile: Dockerfile
-    #   args:
-    #     - NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1
-    #     - NEXT_PUBLIC_WS_URL=https://cybsec.addisanalytics.com
-    #     - NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=https://cybsec-stage.learnica.net/api/v1
+        - NEXT_PUBLIC_WS_URL=https://cybsec-stage.learnica.net
+        - NEXT_PUBLIC_APP_URL=https://cybsec-stage.learnica.net
 
     # --------------------------------------------------------------------------
-    # OPTION 2: Pull from Docker Hub (Default)
+    # OPTION 2: Pull from Docker Hub (Uncomment if using Docker Hub registry)
     # --------------------------------------------------------------------------
-    image: aynuayex/cybersec-pmo:frontend
+    # image: aynuayex/cybersec-pmo:frontend
 
-    container_name: cybersec-frontend
+    container_name: cybersec-frontend-stage
     restart: always
     ports:
-      - "3010:3000"
+      - "3040:3000"
     environment:
       NODE_ENV: production
     depends_on:
       - backend
 
 volumes:
-  postgres_data:
-  redis_data:
-  mpp_import_data:
+  postgres_stage_data:
+  redis_stage_data:
+  mpp_import_stage_data:

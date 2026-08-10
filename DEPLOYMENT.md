@@ -16,10 +16,10 @@ We have created the following files in your repository to assist you:
 
 ## Port Conflict Prevention Summary (VPS Status)
 Your server already has active applications on several ports. To prevent any conflicts:
-- **Postgres**: Exposed on host port **`5433`** (container internal port is 5432). Does not conflict with host Postgres.
-- **Redis**: Exposed on host port **`6378`** (container internal port is 6379). Does not conflict with host Redis.
-- **Backend API**: Exposed on host port **`6010`**.
-- **Frontend App**: Exposed on host port **`3010`**.
+- **Postgres**: Exposed on host port **`5437`** (container internal port is 5432). Does not conflict with existing host Postgres instances.
+- **Redis**: Exposed on host port **`6380`** (container internal port is 6379). Does not conflict with existing host Redis instances.
+- **Backend API**: Exposed on host port **`6040`**.
+- **Frontend App**: Exposed on host port **`3040`**.
 
 ---
 
@@ -28,14 +28,14 @@ Your server already has active applications on several ports. To prevent any con
 ### 1. Frontend Environment Variables (Build-Time Only)
 Next.js compiles environment variables starting with `NEXT_PUBLIC_` **directly into the HTML/JS bundle at build time**. 
 - Because they are compiled into the static assets, they **cannot** be changed dynamically at runtime when the container starts.
-- This is why you must pass your real production domain when building the image. 
+- This is why you must pass your real production/staging domain when building the image. 
 - In [docker-compose.prod.yml](docker-compose.prod.yml), these are defined under the `args:` key of the `build` block. If you build using Docker Compose, it reads them automatically, decreasing the commands you need to run!
 
 ### 2. Backend Environment Variables & Root `.env` (Runtime)
 The backend container reads its runtime configuration from `backend/.env.prod` via the `env_file` directive.
 - **What you must update**: Before running the containers on your VPS, you **MUST** edit the `backend/.env.prod` file on your VPS to replace the placeholder values:
   - Generate secure, random keys for `AUTH_JWT_SECRET`, `AUTH_REFRESH_SECRET`, `AUTH_FORGOT_SECRET`, and `AUTH_CONFIRM_EMAIL_SECRET`.
-  - Update `FRONTEND_DOMAIN` and `BACKEND_DOMAIN` to `https://cybsec.addisanalytics.com`.
+  - Update `FRONTEND_DOMAIN` and `BACKEND_DOMAIN` to `https://cybsec-stage.learnica.net`.
 
 ### 3. Database Credentials Security (Compose Best Practice)
 To avoid hardcoding Postgres credentials directly into the `docker-compose.prod.yml` file, we use Compose environment interpolation:
@@ -139,9 +139,9 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
    ```bash
    cd ../frontend
      docker build \
-       --build-arg NEXT_PUBLIC_API_URL=https://cybsec.addisanalytics.com/api/v1 \
-       --build-arg NEXT_PUBLIC_WS_URL=https://cybsec.addisanalytics.com \
-       --build-arg NEXT_PUBLIC_APP_URL=https://cybsec.addisanalytics.com \
+       --build-arg NEXT_PUBLIC_API_URL=https://cybsec-stage.learnica.net/api/v1 \
+       --build-arg NEXT_PUBLIC_WS_URL=https://cybsec-stage.learnica.net \
+       --build-arg NEXT_PUBLIC_APP_URL=https://cybsec-stage.learnica.net \
        --build-arg NEXT_PUBLIC_ENTRA_CLIENT_ID=1977447d-18f8-4fa3-9be1-4d2b196e0ede \
        --build-arg NEXT_PUBLIC_ENTRA_TENANT_ID=301b9d6d-03a0-4afa-994d-367a03b30b5a \
        -t aynuayex/cybersec-pmo:frontend .

@@ -1,8 +1,22 @@
 import React from "react";
 import { Badge } from "@/shared/ui/badge";
-import { ChevronDown, ChevronRight, FolderOpen, Layers, CheckSquare, Milestone } from "lucide-react";
+import { Button } from "@/shared/ui/button";
+import {
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
+  Layers,
+  CheckSquare,
+  Milestone,
+  Loader2,
+} from "lucide-react";
 import { cn } from "@/shared/utils/cn";
-import { ParsedProjectRow, ParsedPhaseRow, ParsedTaskRow, ParsedMilestoneRow } from "../../utils/import-export";
+import {
+  ParsedProjectRow,
+  ParsedPhaseRow,
+  ParsedTaskRow,
+  ParsedMilestoneRow,
+} from "../../utils/import-export";
 import { PhasesPreviewTable } from "./phases-preview-table";
 import { TasksPreviewTable } from "./tasks-preview-table";
 import { MilestonesPreviewTable } from "./milestones-preview-table";
@@ -23,6 +37,10 @@ interface ProjectAccordionItemProps {
     field: string,
     value: any
   ) => void;
+  badgeCounts?: { phases: number; tasks: number; milestones: number };
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }
 
 export function ProjectAccordionItem({
@@ -35,8 +53,25 @@ export function ProjectAccordionItem({
   activeTab,
   onTabChange,
   handleSubRowChange,
+  badgeCounts,
+  onLoadMore,
+  hasMore,
+  loadingMore,
 }: ProjectAccordionItemProps) {
   const isProjectExisting = proj.errors.some((err) => err.includes("already exists"));
+
+  const phasesCount = badgeCounts?.phases ?? phasesList.length;
+  const tasksCount = badgeCounts?.tasks ?? tasksList.length;
+  const milestonesCount = badgeCounts?.milestones ?? milestonesList.length;
+
+  const activeListLength =
+    activeTab === "phases"
+      ? phasesList.length
+      : activeTab === "tasks"
+        ? tasksList.length
+        : milestonesList.length;
+
+  const showInitialLoading = Boolean(loadingMore && activeListLength === 0);
 
   return (
     <div
@@ -79,22 +114,22 @@ export function ProjectAccordionItem({
         </div>
 
         <div className="flex items-center gap-2">
-          {phasesList.length > 0 && (
+          {phasesCount > 0 && (
             <Badge variant="outline" className="text-[10px] gap-1 font-semibold">
               <Layers className="size-3" />
-              {phasesList.length} Phases
+              {phasesCount} Phases
             </Badge>
           )}
-          {tasksList.length > 0 && (
+          {tasksCount > 0 && (
             <Badge variant="outline" className="text-[10px] gap-1 font-semibold">
               <CheckSquare className="size-3" />
-              {tasksList.length} Tasks
+              {tasksCount} Tasks
             </Badge>
           )}
-          {milestonesList.length > 0 && (
+          {milestonesCount > 0 && (
             <Badge variant="outline" className="text-[10px] gap-1 font-semibold">
               <Milestone className="size-3" />
-              {milestonesList.length} Milestones
+              {milestonesCount} Milestones
             </Badge>
           )}
         </div>
@@ -105,7 +140,7 @@ export function ProjectAccordionItem({
         <div className="p-4 flex flex-col gap-4">
           {/* Sub-Tabs */}
           <div className="flex border-b border-border gap-2">
-            {phasesList.length > 0 && (
+            {phasesCount > 0 && (
               <button
                 onClick={() => onTabChange("phases")}
                 className={cn(
@@ -115,10 +150,10 @@ export function ProjectAccordionItem({
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                Phases ({phasesList.length})
+                Phases ({phasesCount})
               </button>
             )}
-            {tasksList.length > 0 && (
+            {tasksCount > 0 && (
               <button
                 onClick={() => onTabChange("tasks")}
                 className={cn(
@@ -128,10 +163,10 @@ export function ProjectAccordionItem({
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                Tasks ({tasksList.length})
+                Tasks ({tasksCount})
               </button>
             )}
-            {milestonesList.length > 0 && (
+            {milestonesCount > 0 && (
               <button
                 onClick={() => onTabChange("milestones")}
                 className={cn(
@@ -141,35 +176,62 @@ export function ProjectAccordionItem({
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                Milestones ({milestonesList.length})
+                Milestones ({milestonesCount})
               </button>
             )}
           </div>
 
           {/* Table per active tab */}
           <div className="border border-border/60 rounded-lg overflow-x-auto bg-card max-h-[30vh]">
-            {activeTab === "phases" && phasesList.length > 0 && (
-              <PhasesPreviewTable
-                phasesList={phasesList}
-                projName={proj.name}
-                handleSubRowChange={handleSubRowChange}
-              />
-            )}
-            {activeTab === "tasks" && tasksList.length > 0 && (
-              <TasksPreviewTable
-                tasksList={tasksList}
-                projName={proj.name}
-                handleSubRowChange={handleSubRowChange}
-              />
-            )}
-            {activeTab === "milestones" && milestonesList.length > 0 && (
-              <MilestonesPreviewTable
-                milestonesList={milestonesList}
-                projName={proj.name}
-                handleSubRowChange={handleSubRowChange}
-              />
+            {showInitialLoading ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                <span className="text-xs font-medium">Loading…</span>
+              </div>
+            ) : (
+              <>
+                {activeTab === "phases" && phasesList.length > 0 && (
+                  <PhasesPreviewTable
+                    phasesList={phasesList}
+                    projName={proj.name}
+                    handleSubRowChange={handleSubRowChange}
+                  />
+                )}
+                {activeTab === "tasks" && tasksList.length > 0 && (
+                  <TasksPreviewTable
+                    tasksList={tasksList}
+                    projName={proj.name}
+                    handleSubRowChange={handleSubRowChange}
+                  />
+                )}
+                {activeTab === "milestones" && milestonesList.length > 0 && (
+                  <MilestonesPreviewTable
+                    milestonesList={milestonesList}
+                    projName={proj.name}
+                    handleSubRowChange={handleSubRowChange}
+                  />
+                )}
+              </>
             )}
           </div>
+
+          {hasMore && (
+            <div className="flex justify-center">
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className="h-8 gap-1.5 rounded-lg text-[11px] font-bold cursor-pointer"
+              >
+                {loadingMore ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : null}
+                Load more
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -6,11 +6,14 @@ import {
   DEFAULT_ALLOCATION_POLICIES,
   DEFAULT_AUDIT_SETTINGS,
   DEFAULT_SESSION_SECURITY,
+  DEFAULT_TIMESHEET_ESCALATION,
   SESSION_SECURITY_LIMITS,
+  TIMESHEET_ESCALATION_LIMITS,
 } from './app-settings.constants';
 import { UpdateAuditSettingsDto } from './dto/audit-settings.dto';
 import { UpdateAllocationPoliciesDto } from './dto/allocation-policies.dto';
 import { UpdateSessionSecuritySettingsDto } from './dto/session-security.dto';
+import { UpdateTimesheetEscalationSettingsDto } from './dto/timesheet-escalation.dto';
 import { AllocationRuntimePolicies } from './allocation-policy.types';
 import { AllocationPolicySummaryDto } from '../projects/dto/project-allocation.dto';
 import {
@@ -32,6 +35,11 @@ export type AuditRuntimeSettings = {
 export type SessionSecurityRuntimeSettings = {
   idleTimeoutSec: number;
   warningBeforeSec: number;
+  updatedAt: Date;
+};
+
+export type TimesheetEscalationRuntimeSettings = {
+  escalationDays: number;
   updatedAt: Date;
 };
 
@@ -177,6 +185,40 @@ export class AppSettingsService {
     return this.toSessionSecuritySettings(row);
   }
 
+  async getTimesheetEscalationSettings(): Promise<TimesheetEscalationRuntimeSettings> {
+    const row = await this.ensureSettingsRow();
+    return this.toTimesheetEscalationSettings(row);
+  }
+
+  async updateTimesheetEscalationSettings(
+    dto: UpdateTimesheetEscalationSettingsDto,
+    updatedById?: string,
+  ): Promise<TimesheetEscalationRuntimeSettings> {
+    const existing = await this.ensureSettingsRow();
+    const escalationDays =
+      dto.escalationDays ?? existing.timesheetEscalationDays;
+
+    if (
+      escalationDays < TIMESHEET_ESCALATION_LIMITS.escalationDays.min ||
+      escalationDays > TIMESHEET_ESCALATION_LIMITS.escalationDays.max
+    ) {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: { escalationDays: 'escalationDaysOutOfRange' },
+      });
+    }
+
+    const row = await this.prisma.appSetting.update({
+      where: { id: APP_SETTINGS_ID },
+      data: {
+        timesheetEscalationDays: escalationDays,
+        ...(updatedById ? { updatedById } : {}),
+      },
+    });
+
+    return this.toTimesheetEscalationSettings(row);
+  }
+
   private async ensureSettingsRow(): Promise<AppSetting> {
     return this.prisma.appSetting.upsert({
       where: { id: APP_SETTINGS_ID },
@@ -192,6 +234,8 @@ export class AppSettingsService {
           DEFAULT_ALLOCATION_POLICIES.departmentStaffingRules as Prisma.InputJsonValue,
         sessionIdleTimeoutSec: DEFAULT_SESSION_SECURITY.sessionIdleTimeoutSec,
         sessionWarningBeforeSec: DEFAULT_SESSION_SECURITY.sessionWarningBeforeSec,
+        timesheetEscalationDays:
+          DEFAULT_TIMESHEET_ESCALATION.timesheetEscalationDays,
       },
     });
   }
@@ -249,6 +293,15 @@ export class AppSettingsService {
       updatedAt: row.updatedAt,
     };
   }
+
+  private toTimesheetEscalationSettings(
+    row: AppSetting,
+  ): TimesheetEscalationRuntimeSettings {
+    return {
+      escalationDays: row.timesheetEscalationDays,
+      updatedAt: row.updatedAt,
+    };
+  }
 }
 
 export function mapAuditSettingsDto(
@@ -293,6 +346,15 @@ export function mapSessionSecuritySettingsDto(
   return {
     idleTimeoutSec: settings.idleTimeoutSec,
     warningBeforeSec: settings.warningBeforeSec,
+    updatedAt: settings.updatedAt.toISOString(),
+  };
+}
+
+export function mapTimesheetEscalationSettingsDto(
+  settings: TimesheetEscalationRuntimeSettings,
+) {
+  return {
+    escalationDays: settings.escalationDays,
     updatedAt: settings.updatedAt.toISOString(),
   };
 }

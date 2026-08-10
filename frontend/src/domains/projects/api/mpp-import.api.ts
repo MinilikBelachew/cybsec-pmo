@@ -4,6 +4,7 @@ import type {
   MppImportResultSummary,
   MppPortfolioImportDefaults,
 } from "../types/mpp-import.types";
+import type { ImportEnqueueResult } from "./imports.api";
 
 export const mppImportApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -24,7 +25,7 @@ export const mppImportApi = api.injectEndpoints({
     }),
 
     importMpp: builder.mutation<
-      MppImportResultSummary,
+      ImportEnqueueResult,
       { projectId: string; file: File }
     >({
       query: ({ projectId, file }) => {
@@ -45,7 +46,7 @@ export const mppImportApi = api.injectEndpoints({
     }),
 
     importMppPortfolio: builder.mutation<
-      MppImportResultSummary,
+      ImportEnqueueResult,
       { file: File; defaults: MppPortfolioImportDefaults }
     >({
       query: ({ file, defaults }) => {
@@ -73,7 +74,6 @@ export const mppImportApi = api.injectEndpoints({
         if (defaults.projects?.length) {
           const projectsJson = JSON.stringify(defaults.projects);
           formData.append("projectsJson", projectsJson);
-          // Back-compat for older backends
           formData.append("projects", projectsJson);
         }
 
@@ -106,3 +106,6 @@ export const {
   useImportMppPortfolioMutation,
   useExportMspdiMutation,
 } = mppImportApi;
+
+// Re-export for callers that still expect the old summary type name in imports.
+export type { MppImportResultSummary };

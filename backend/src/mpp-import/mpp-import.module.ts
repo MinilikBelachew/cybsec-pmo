@@ -1,5 +1,5 @@
 import { mkdirSync } from 'fs';
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { diskStorage } from 'multer';
@@ -8,6 +8,7 @@ import { extname } from 'path';
 import { PrismaModule } from '../database/prisma.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { AllConfigType } from '../config/config.type';
+import { ImportsModule } from '../imports/imports.module';
 import { MspdiExportBuilder } from './mspdi-export.builder';
 import { MppImportController } from './mpp-import.controller';
 import { MppImportService } from './mpp-import.service';
@@ -18,6 +19,7 @@ import { MppImportMapper } from './mpp-import.mapper';
   imports: [
     PrismaModule,
     ProjectsModule,
+    forwardRef(() => ImportsModule),
     MulterModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -9,6 +9,11 @@ import { PrismaService } from '../database/prisma.service';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { AllocationPushService } from '../integrations/keka/sync/allocation-push.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import {
+  notifyStaffingApproved,
+  notifyStaffingRejected,
+} from './allocation-notifications.util';
 import {
   buildAvailabilitySummary,
   sumOverlappingAllocationHours,
@@ -44,6 +49,7 @@ export class AllocationApprovalService {
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly allocationPushService: AllocationPushService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findPending(
@@ -127,6 +133,18 @@ export class AllocationApprovalService {
     const kekaSyncRef = await this.allocationPushService.pushAllocation(allocationId);
     const row = await this.toApprovalRow(updated);
 
+    if (allocation.requestedBy) {
+      void this.notifyDecision({
+        kind: 'approved',
+        recipientUserId: allocation.requestedBy,
+        projectName: updated.project.name,
+        employeeName: updated.employee.name,
+        allocationId: updated.id,
+        actorId,
+        comment: null,
+      });
+    }
+
     return { allocation: row, kekaSyncRef };
   }
 
@@ -155,7 +173,61 @@ export class AllocationApprovalService {
     });
 
     const row = await this.toApprovalRow(updated);
+
+    if (allocation.requestedBy) {
+      void this.notifyDecision({
+        kind: 'rejected',
+        recipientUserId: allocation.requestedBy,
+        projectName: updated.project.name,
+        employeeName: updated.employee.name,
+        allocationId: updated.id,
+        actorId,
+        comment: dto.comment?.trim() || null,
+      });
+    }
+
     return { allocation: row, kekaSyncRef: null };
+  }
+
+  private async notifyDecision(options: {
+    kind: 'approved' | 'rejected';
+    recipientUserId: string;
+    projectName: string;
+    employeeName: string;
+    allocationId: string;
+    actorId: string;
+    comment?: string | null;
+  }): Promise<void> {
+    try {
+      const reviewer = await this.prisma.user.findUnique({
+        where: { id: options.actorId },
+        select: { displayName: true },
+      });
+      const reviewerName = reviewer?.displayName ?? 'Reviewer';
+
+      if (options.kind === 'approved') {
+        await notifyStaffingApproved(this.notificationsService, {
+          recipientUserId: options.recipientUserId,
+          projectName: options.projectName,
+          employeeName: options.employeeName,
+          reviewerName,
+          allocationId: options.allocationId,
+          actorId: options.actorId,
+        });
+      } else {
+        await notifyStaffingRejected(this.notificationsService, {
+          recipientUserId: options.recipientUserId,
+          projectName: options.projectName,
+          employeeName: options.employeeName,
+          reviewerName,
+          allocationId: options.allocationId,
+          actorId: options.actorId,
+          comment: options.comment,
+        });
+      }
+    } catch {
+      // Notification failures must not block approval decisions.
+    }
   }
 
   private async getPendingAllocation(

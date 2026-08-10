@@ -63,19 +63,19 @@ export function createProjectListColumns({
       cell: ({ row }) => {
         const project = row.original;
         return (
-          <div className="min-w-0 overflow-hidden">
+          <div className="min-w-[16rem] max-w-[28rem]">
             <button
               type="button"
               onClick={() => onNavigate(project.id)}
               title={project.name}
-              className="block w-full max-w-full truncate text-left text-sm font-semibold transition-colors hover:text-primary cursor-pointer"
+              className="block w-full truncate text-left text-sm font-semibold transition-colors hover:text-primary cursor-pointer"
             >
               {project.name}
             </button>
             {project.description ? (
               <p
                 title={project.description}
-                className="mt-0.5 line-clamp-2 break-words text-[11px] leading-snug text-muted-foreground"
+                className="mt-0.5 truncate text-[11px] leading-snug text-muted-foreground"
               >
                 {project.description}
               </p>
@@ -83,7 +83,8 @@ export function createProjectListColumns({
           </div>
         );
       },
-      meta: { className: "w-[24%] max-w-0 overflow-hidden", label: "Project" },
+      size: 280,
+      meta: { className: "min-w-[16rem]", label: "Project" },
     },
     {
       id: "status",
@@ -114,18 +115,20 @@ export function createProjectListColumns({
       header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
       cell: ({ row }) => {
         const deptName = row.original.department?.name ?? "";
+        const label = deptName || "Direct";
         return (
           <span
+            title={label}
             className={cn(
-              "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              "block max-w-full truncate rounded-full px-2.5 py-1.5 text-[10px] font-semibold leading-none whitespace-nowrap",
               PROJECT_DEPT_COLOR[deptName] || DEFAULT_PROJECT_DEPT_COLOR,
             )}
           >
-            {deptName || "Direct"}
+            {label}
           </span>
         );
       },
-      meta: { className: "min-w-[140px]", label: "Department" },
+      meta: { className: "w-[160px] max-w-[160px]", label: "Department" },
     },
     {
       id: "team",

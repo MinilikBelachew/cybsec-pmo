@@ -243,6 +243,10 @@ export function DataTable<TData, TValue>({
   const [dropTargetColumnId, setDropTargetColumnId] = React.useState<string | null>(null);
 
   const defaultColumnOrder = React.useMemo(() => getColumnIds(columns), [columns]);
+  const knownColumnIds = React.useMemo(
+    () => new Set(defaultColumnOrder),
+    [defaultColumnOrder],
+  );
   const [columnOrder, setColumnOrder] = React.useState<string[]>(() => {
     if (!enableColumnReorder) return defaultColumnOrder;
     if (columnOrderStorageKey) {
@@ -250,6 +254,14 @@ export function DataTable<TData, TValue>({
     }
     return defaultColumnOrder;
   });
+
+  // Keep order in sync with the live column defs (permissions / optional columns
+  // like budget/actions can appear and disappear). Derive synchronously so we
+  // never pass stale ids into TanStack Table (getColumn warns loudly).
+  const resolvedColumnOrder = React.useMemo(() => {
+    if (!enableColumnReorder) return defaultColumnOrder;
+    return mergeColumnOrder(columnOrder, defaultColumnOrder);
+  }, [columnOrder, defaultColumnOrder, enableColumnReorder]);
 
   React.useEffect(() => {
     if (!enableColumnReorder) return;
@@ -261,13 +273,28 @@ export function DataTable<TData, TValue>({
 
   React.useEffect(() => {
     if (!enableColumnReorder || !columnOrderStorageKey) return;
-    localStorage.setItem(columnOrderStorageKey, JSON.stringify(columnOrder));
-  }, [columnOrder, columnOrderStorageKey, enableColumnReorder]);
+    localStorage.setItem(columnOrderStorageKey, JSON.stringify(resolvedColumnOrder));
+  }, [resolvedColumnOrder, columnOrderStorageKey, enableColumnReorder]);
 
   React.useEffect(() => {
     if (!visibilityStorageKey) return;
     localStorage.setItem(visibilityStorageKey, JSON.stringify(columnVisibility));
   }, [columnVisibility, visibilityStorageKey]);
+
+  React.useEffect(() => {
+    setColumnVisibility((prev) => {
+      const next: VisibilityState = {};
+      let changed = false;
+      for (const [id, visible] of Object.entries(prev)) {
+        if (id === "select" || knownColumnIds.has(id)) {
+          next[id] = visible;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [knownColumnIds]);
 
   const resolvedPageSize = manual ? pageSize : clientPageSize;
 
@@ -337,7 +364,7 @@ export function DataTable<TData, TValue>({
       columnFilters,
       columnVisibility,
       rowSelection,
-      ...(enableColumnReorder ? { columnOrder } : {}),
+      ...(enableColumnReorder ? { columnOrder: resolvedColumnOrder } : {}),
       ...(manual ? { pagination: { pageIndex, pageSize: resolvedPageSize } } : {}),
     },
   });
@@ -409,8 +436,9 @@ export function DataTable<TData, TValue>({
   const showColumnManager = enableColumnReorder || hideableColumns.length > 0;
 
   const managedColumnIds = React.useMemo(() => {
-    const ids = enableColumnReorder ? columnOrder : getColumnIds(columns);
+    const ids = enableColumnReorder ? resolvedColumnOrder : defaultColumnOrder;
     return ids.filter((id) => {
+      if (!knownColumnIds.has(id)) return false;
       const column = table.getColumn(id);
       if (!column) return false;
       if (column.columnDef.meta?.enableColumnReorder === false && !column.getCanHide()) {
@@ -418,7 +446,7 @@ export function DataTable<TData, TValue>({
       }
       return column.getCanHide() || enableColumnReorder;
     });
-  }, [columnOrder, columns, enableColumnReorder, table]);
+  }, [defaultColumnOrder, enableColumnReorder, knownColumnIds, resolvedColumnOrder, table]);
 
   const handleColumnDragStart = React.useCallback(
     (columnId: string) => (event: React.DragEvent) => {
@@ -480,14 +508,14 @@ export function DataTable<TData, TValue>({
 
   const canReorderColumn = React.useCallback(
     (columnId: string) => {
-      if (!enableColumnReorder) return false;
+      if (!enableColumnReorder || !knownColumnIds.has(columnId)) return false;
       const column = table.getColumn(columnId);
       if (!column) return false;
       if (column.columnDef.meta?.enableColumnReorder === false) return false;
       if (column.columnDef.meta?.sticky) return false;
       return true;
     },
-    [enableColumnReorder, table],
+    [enableColumnReorder, knownColumnIds, table],
   );
 
   const useMobileCards = mobileLayout === "cards";
@@ -703,7 +731,7 @@ export function DataTable<TData, TValue>({
           )}
 
           <div className="overflow-x-auto">
-            <Table className={cn(minTableWidth, "w-full table-fixed", tableClassName)}>
+            <Table className={cn(minTableWidth, "w-full table-auto", tableClassName)}>
               <TableHeader>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id} className={headerRowClass}>

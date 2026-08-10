@@ -1,11 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
+import { cn } from "@/shared/utils/cn";
+import { KekaConnectionForm } from "./keka-connection-form";
 import { KekaIntegrationPanel } from "./keka-integration-panel";
 
+type KekaPageTab = "connection" | "sync";
+
 export function KekaIntegrationPage() {
+  const [tab, setTab] = useState<KekaPageTab>("sync");
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
       <div className="space-y-3">
@@ -18,11 +25,40 @@ export function KekaIntegrationPage() {
         </Link>
         <PageHeader
           title="Keka integration"
-          description="Sync log and unresolved failure records for the Keka HR connector."
+          description="Configure Keka authentication, then run syncs and review logs or failed records."
         />
       </div>
 
-      <KekaIntegrationPanel />
+      <div className="flex gap-2 border-b border-border">
+        <button
+          type="button"
+          onClick={() => setTab("sync")}
+          data-testid="keka-tab-sync"
+          className={cn(
+            "-mb-px border-b-2 px-4 py-2 text-sm font-semibold transition-all",
+            tab === "sync"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Sync
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("connection")}
+          data-testid="keka-tab-connection"
+          className={cn(
+            "-mb-px border-b-2 px-4 py-2 text-sm font-semibold transition-all",
+            tab === "connection"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Connection
+        </button>
+      </div>
+
+      {tab === "connection" ? <KekaConnectionForm /> : <KekaIntegrationPanel />}
     </div>
   );
 }

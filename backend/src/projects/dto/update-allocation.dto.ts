@@ -23,7 +23,7 @@ export class UpdateAllocationDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0.5)
-  @Max(168)
+  @Max(168, { message: 'Weekly hours cannot exceed 168.' })
   hours?: number;
 
   @ApiPropertyOptional({ example: 50, description: 'Weekly percent on this project' })
@@ -31,7 +31,7 @@ export class UpdateAllocationDto {
   @Type(() => Number)
   @IsNumber()
   @Min(1)
-  @Max(100)
+  @Max(100, { message: 'Weekly percent cannot exceed 100%.' })
   percent?: number;
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true })

@@ -12,20 +12,27 @@ import {
   CornerDownLeft,
   Pencil,
   Search,
+  Layers,
+  Clock3,
 } from "lucide-react";
-import type { ProjectTaskAssignee } from "@/domains/projects/types/projects.types";
+import type { ProjectPhase, ProjectTaskAssignee } from "@/domains/projects/types/projects.types";
 import type { TaskDependency, TaskPriority } from "@/domains/projects/types/tasks.types";
 import {
   usePaginatedStatusTasks,
   type StatusColumnFilters,
 } from "@/domains/projects/hooks/use-paginated-status-tasks";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
-import { useExportTasksQuery } from "@/domains/projects/api/tasks.api";
-import { defaultTaskDateRange } from "../../../schemas/task/task-date-fields";
+import {
+  formatTaskDayLabel,
+  taskDatesOutsidePhaseErrors,
+  toTaskDayKey,
+} from "../../../schemas/task/task-date-fields";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { Calendar } from "@/shared/ui/calendar";
 import { Button } from "@/shared/ui/button";
+import { toDateString } from "@/shared/utils/date";
 import { BoardTaskDatePicker } from "./board-task-date-picker";
-import { TaskDependenciesPicker, type DepTaskOption } from "./task-predecessors-cell";
+import { TaskDependenciesPicker } from "./task-predecessors-cell";
 import { filterStatusOptionsForRole } from "../../tasks/task-progress-section";
 import { EmployeeTooltip } from "../../shared/employee-tooltip";
 import {
@@ -197,8 +204,15 @@ function isOverdue(dueDate: string) {
 
 const BOARD_EXTRAS: Record<string, Partial<Task>> = {};
 
+function parseBoardYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
 export type BoardQuickCreatePayload = {
   title: string;
+  phaseId: string;
+  effortHours: number;
   ownerId?: string | null;
   startDate: string;
   endDate: string;
@@ -209,6 +223,7 @@ interface BoardViewProps {
   projectId: string;
   search?: string;
   priority?: TaskPriority;
+  phases?: ProjectPhase[];
   /** Server totals per status (top-level). Falls back to loaded length if omitted. */
   statusCounts?: Partial<Record<Status, number>>;
   toggleTask: (id: string) => void;
@@ -258,8 +273,9 @@ function BoardStatusColumn({
   onMoveTask,
   onUpdateTaskPriority,
   dependencies = [],
-  dependencyTaskOptions = [],
+  projectId,
   canEditDependencies = false,
+  phases = [],
 }: {
   col: ColumnDef;
   filters: StatusColumnFilters;
@@ -288,8 +304,9 @@ function BoardStatusColumn({
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   onUpdateTaskPriority?: BoardViewProps["onUpdateTaskPriority"];
   dependencies?: TaskDependency[];
-  dependencyTaskOptions?: DepTaskOption[];
+  projectId: string;
   canEditDependencies?: boolean;
+  phases?: ProjectPhase[];
 }) {
   const { tasks, total, hasNextPage, isLoading, isFetching, loadMore } =
     usePaginatedStatusTasks(col.id, filters, { pageSize: 20 });
@@ -388,7 +405,7 @@ function BoardStatusColumn({
                   assignees={assignees}
                   onUpdateTaskPriority={onUpdateTaskPriority}
                   dependencies={dependencies}
-                  dependencyTaskOptions={dependencyTaskOptions}
+                  projectId={projectId}
                   canEditDependencies={canEditDependencies}
                   onDragStart={(e) => onDragStart(e, task.id, col.id)}
                   onDragEnd={onDragEnd}
@@ -430,6 +447,7 @@ function BoardStatusColumn({
               onClose={() => setAddingInColumn(null)}
               onCreateTask={onCreateTask}
               assignees={assignees ?? []}
+              phases={phases}
             />
           )}
         </div>
@@ -442,6 +460,7 @@ export function BoardView({
   projectId,
   search,
   priority,
+  phases = [],
   statusCounts,
   toggleTask,
   onCreateTask,
@@ -468,30 +487,6 @@ export function BoardView({
   void onSetDueDate;
 
   const { canEditDependencies } = useModulePermissions();
-  const { data: exportTasksForPred = [] } = useExportTasksQuery(
-    { projectId, topLevelOnly: false },
-    { skip: !projectId },
-  );
-
-  const dependencyTaskOptions = useMemo((): DepTaskOption[] => {
-    const out: DepTaskOption[] = [];
-    const seen = new Set<string>();
-    const push = (id: string, name: string) => {
-      if (seen.has(id)) return;
-      seen.add(id);
-      out.push({ id, name });
-    };
-    for (const t of exportTasksForPred) {
-      push(t.id, t.title);
-      for (const s of t.subTasks ?? []) {
-        push(s.id, s.title);
-        for (const ss of s.subTasks ?? []) {
-          push(ss.id, ss.title);
-        }
-      }
-    }
-    return out;
-  }, [exportTasksForPred]);
 
   const [addingInColumn, setAddingInColumn] = useState<Status | null>(null);
 
@@ -597,8 +592,9 @@ export function BoardView({
           onMoveTask={onMoveTask}
           onUpdateTaskPriority={onUpdateTaskPriority}
           dependencies={dependencies}
-          dependencyTaskOptions={dependencyTaskOptions}
+          projectId={projectId}
           canEditDependencies={canEditDependencies}
+          phases={phases}
         />
       ))}
     </div>
@@ -612,6 +608,7 @@ function ColumnInlineAddTask({
   onClose,
   onCreateTask,
   assignees,
+  phases,
 }: {
   status: Status;
   isActive: boolean;
@@ -619,29 +616,35 @@ function ColumnInlineAddTask({
   onClose: () => void;
   onCreateTask: (status: Status, payload: BoardQuickCreatePayload) => Promise<void>;
   assignees: ProjectTaskAssignee[];
+  phases: ProjectPhase[];
 }) {
   const [title, setTitle] = useState("");
+  const [phaseId, setPhaseId] = useState<string>("");
+  const [effortHours, setEffortHours] = useState("");
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [priority, setPriority] = useState<ApiPriority>("Medium");
-  const [expandedField, setExpandedField] = useState<"assignee" | "dates" | "priority" | null>(null);
+  const [expandedField, setExpandedField] = useState<
+    "assignee" | "dates" | "priority" | "phase" | "effort" | null
+  >(null);
   const [showErrors, setShowErrors] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const resetForm = useCallback(() => {
-    const { startDate: defaultStart, endDate: defaultEnd } = defaultTaskDateRange();
     setTitle("");
+    setPhaseId("");
+    setEffortHours("");
     setOwnerId(null);
-    setStartDate(defaultStart.toISOString().slice(0, 10));
-    setEndDate(defaultEnd.toISOString().slice(0, 10));
+    setStartDate("");
+    setEndDate("");
     setPriority("Medium");
     setExpandedField(null);
     setShowErrors(false);
   }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     if (!isActive) return;
     resetForm();
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
@@ -649,16 +652,55 @@ function ColumnInlineAddTask({
   }, [isActive, resetForm]);
 
   const selectedAssignee = assignees.find((a) => a.userId === ownerId);
+  const selectedPhase = phases.find((p) => p.id === phaseId);
+  const parsedEffort = Number.parseInt(effortHours, 10);
+  const effortMissing = effortHours.trim() === "";
+  const effortInvalid =
+    !effortMissing && (!Number.isInteger(parsedEffort) || parsedEffort < 1);
 
   const titleMissing = !title.trim();
-  const assigneeMissing = expandedField === "assignee" && !ownerId;
-  const datesMissing = expandedField === "dates" && (!startDate || !endDate);
-  const datesInvalid =
-    expandedField === "dates" &&
-    !!startDate &&
-    !!endDate &&
-    new Date(endDate) < new Date(startDate);
+  const phaseMissing = !phaseId;
+  const effortRequiredInvalid = effortMissing || effortInvalid;
+  const datesMissing = !startDate || !endDate;
+  const datesOrderInvalid =
+    !!startDate && !!endDate && startDate > endDate;
+
+  const startAsDate = startDate ? parseBoardYmd(startDate) : undefined;
+  const endAsDate = endDate ? parseBoardYmd(endDate) : undefined;
+  const phaseDateErrors = taskDatesOutsidePhaseErrors({
+    start: startAsDate ?? null,
+    end: endAsDate ?? null,
+    phaseStart: selectedPhase?.startDate,
+    phaseEnd: selectedPhase?.endDate,
+  });
+  const startDateError =
+    (showErrors && !startDate && "Start date is required") ||
+    phaseDateErrors.startDate ||
+    undefined;
+  const endDateError =
+    (showErrors && !endDate && "Due date is required") ||
+    (datesOrderInvalid ? "Due date must be on or after start date" : undefined) ||
+    phaseDateErrors.endDate ||
+    undefined;
+  const datesHaveErrors = Boolean(
+    (showErrors && datesMissing) ||
+      datesOrderInvalid ||
+      phaseDateErrors.startDate ||
+      phaseDateErrors.endDate,
+  );
   const canSave = !isSubmitting;
+
+  const phaseStartYmd = toTaskDayKey(selectedPhase?.startDate);
+  const phaseEndYmd = toTaskDayKey(selectedPhase?.endDate);
+  const phaseMin = phaseStartYmd ? parseBoardYmd(phaseStartYmd) : undefined;
+  const phaseMax = phaseEndYmd ? parseBoardYmd(phaseEndYmd) : undefined;
+
+  const isDateDisabled = (date: Date) => {
+    const day = toDateString(date);
+    if (phaseStartYmd && day < phaseStartYmd) return true;
+    if (phaseEndYmd && day > phaseEndYmd) return true;
+    return false;
+  };
 
   const handleCancel = () => {
     if (isSubmitting) return;
@@ -668,12 +710,28 @@ function ColumnInlineAddTask({
 
   const handleSubmit = async () => {
     setShowErrors(true);
-    if (titleMissing || assigneeMissing || datesMissing || datesInvalid || isSubmitting) return;
+    if (
+      titleMissing ||
+      phaseMissing ||
+      effortRequiredInvalid ||
+      datesMissing ||
+      datesOrderInvalid ||
+      phaseDateErrors.startDate ||
+      phaseDateErrors.endDate ||
+      isSubmitting
+    ) {
+      if (!datesMissing || datesOrderInvalid || phaseDateErrors.startDate || phaseDateErrors.endDate) {
+        setExpandedField("dates");
+      }
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       await onCreateTask(status, {
         title: title.trim(),
+        phaseId,
+        effortHours: parsedEffort,
         ownerId,
         startDate,
         endDate,
@@ -688,8 +746,19 @@ function ColumnInlineAddTask({
 
   const formatDateLabel = (value: string) => {
     if (!value) return "";
-    const d = new Date(value);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return formatTaskDayLabel(value);
+  };
+
+  const setStartFromCalendar = (date: Date | undefined) => {
+    const next = date ? toDateString(date) : "";
+    setStartDate(next);
+    if (next && endDate && next > endDate) {
+      setEndDate(next);
+    }
+  };
+
+  const setEndFromCalendar = (date: Date | undefined) => {
+    setEndDate(date ? toDateString(date) : "");
   };
 
   if (!isActive) {
@@ -725,7 +794,7 @@ function ColumnInlineAddTask({
           disabled={isSubmitting}
           className={cn(
             "flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50 disabled:opacity-50",
-            showErrors && titleMissing && "placeholder:text-destructive/70"
+            showErrors && titleMissing && "placeholder:text-destructive/70",
           )}
         />
         <button
@@ -740,6 +809,111 @@ function ColumnInlineAddTask({
       </div>
 
       <div className="px-2.5 py-1.5 space-y-0.5">
+        {expandedField === "phase" ? (
+          <div className="py-1 space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Phase
+            </p>
+            <div className="max-h-28 overflow-y-auto space-y-0.5 rounded-md border border-border/50 p-1">
+              {phases.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  No phases available — add a phase first
+                </p>
+              ) : (
+                phases.map((phase) => (
+                  <button
+                    key={phase.id}
+                    type="button"
+                    onClick={() => {
+                      setPhaseId(phase.id);
+                      setStartDate("");
+                      setEndDate("");
+                      setExpandedField(null);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60",
+                      phaseId === phase.id && "bg-primary/10 text-primary",
+                    )}
+                  >
+                    <Layers className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-medium">{phase.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+            {showErrors && phaseMissing && (
+              <p className="text-[11px] text-destructive">Select a phase</p>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setExpandedField("phase")}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-xs transition-colors hover:bg-muted/40 hover:text-foreground",
+              showErrors && phaseMissing
+                ? "text-destructive"
+                : "text-muted-foreground",
+            )}
+          >
+            <Layers className="size-3.5 shrink-0" />
+            {selectedPhase ? (
+              <span className="font-medium text-foreground">{selectedPhase.name}</span>
+            ) : (
+              <span>Select phase</span>
+            )}
+          </button>
+        )}
+
+        {expandedField === "effort" ? (
+          <div className="py-1 space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Effort (hours)
+            </p>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={effortHours}
+              onChange={(e) => setEffortHours(e.target.value)}
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-ring"
+              placeholder="e.g. 8"
+            />
+            {showErrors && effortRequiredInvalid && (
+              <p className="text-[11px] text-destructive">
+                {effortMissing
+                  ? "Effort hours are required"
+                  : "Enter a positive whole number of hours"}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpandedField(null)}
+              className="text-[11px] font-medium text-primary hover:underline"
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setExpandedField("effort")}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-xs transition-colors hover:bg-muted/40 hover:text-foreground",
+              showErrors && effortRequiredInvalid
+                ? "text-destructive"
+                : "text-muted-foreground",
+            )}
+          >
+            <Clock3 className="size-3.5 shrink-0" />
+            {!effortMissing && !effortInvalid ? (
+              <span className="font-medium text-foreground">{parsedEffort}h effort</span>
+            ) : (
+              <span>Add effort hours</span>
+            )}
+          </button>
+        )}
+
         {expandedField === "assignee" ? (
           <div className="py-1 space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Assignee</p>
@@ -757,7 +931,7 @@ function ColumnInlineAddTask({
                     }}
                     className={cn(
                       "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60",
-                      ownerId === assignee.userId && "bg-primary/10 text-primary"
+                      ownerId === assignee.userId && "bg-primary/10 text-primary",
                     )}
                   >
                     <User className="size-3.5 shrink-0 text-muted-foreground" />
@@ -766,9 +940,6 @@ function ColumnInlineAddTask({
                 ))
               )}
             </div>
-            {showErrors && assigneeMissing && (
-              <p className="text-[11px] text-destructive">Select an assignee</p>
-            )}
           </div>
         ) : (
           <button
@@ -787,32 +958,81 @@ function ColumnInlineAddTask({
 
         {expandedField === "dates" ? (
           <div className="py-1 space-y-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Dates</p>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="space-y-1">
-                <span className="text-[10px] text-muted-foreground">Start</span>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:border-ring"
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-[10px] text-muted-foreground">Due</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:border-ring"
-                />
-              </label>
-            </div>
-            {showErrors && (datesMissing || datesInvalid) && (
-              <p className="text-[11px] text-destructive">
-                {datesInvalid ? "Due date must be on or after start date" : "Start and due dates are required"}
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Dates
+            </p>
+            {!phaseId ? (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                Select a phase first so dates stay within the phase range.
               </p>
-            )}
+            ) : null}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Start</span>
+                <Popover>
+                  <PopoverTrigger
+                    type="button"
+                    disabled={!phaseId}
+                    className={cn(
+                      "flex h-8 w-full items-center justify-between rounded-md border bg-background px-2 text-xs outline-none disabled:opacity-50",
+                      startDateError ? "border-destructive" : "border-border/60",
+                    )}
+                  >
+                    <span className={startDate ? "text-foreground" : "text-muted-foreground"}>
+                      {startDate ? formatDateLabel(startDate) : "Pick date"}
+                    </span>
+                    <CalendarIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={startAsDate}
+                      onSelect={setStartFromCalendar}
+                      disabled={isDateDisabled}
+                      startMonth={phaseMin}
+                      endMonth={phaseMax}
+                    />
+                  </PopoverContent>
+                </Popover>
+                {startDateError ? (
+                  <p className="text-[10px] leading-snug text-destructive">{startDateError}</p>
+                ) : null}
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Due</span>
+                <Popover>
+                  <PopoverTrigger
+                    type="button"
+                    disabled={!phaseId}
+                    className={cn(
+                      "flex h-8 w-full items-center justify-between rounded-md border bg-background px-2 text-xs outline-none disabled:opacity-50",
+                      endDateError ? "border-destructive" : "border-border/60",
+                    )}
+                  >
+                    <span className={endDate ? "text-foreground" : "text-muted-foreground"}>
+                      {endDate ? formatDateLabel(endDate) : "Pick date"}
+                    </span>
+                    <CalendarIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={endAsDate}
+                      onSelect={setEndFromCalendar}
+                      disabled={(date) => {
+                        if (startAsDate && date < startAsDate) return true;
+                        return isDateDisabled(date);
+                      }}
+                      startMonth={phaseMin}
+                      endMonth={phaseMax}
+                    />
+                  </PopoverContent>
+                </Popover>
+                {endDateError ? (
+                  <p className="text-[10px] leading-snug text-destructive">{endDateError}</p>
+                ) : null}
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => setExpandedField(null)}
@@ -825,7 +1045,10 @@ function ColumnInlineAddTask({
           <button
             type="button"
             onClick={() => setExpandedField("dates")}
-            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-xs transition-colors hover:bg-muted/40 hover:text-foreground",
+              datesHaveErrors ? "text-destructive" : "text-muted-foreground",
+            )}
           >
             <CalendarIcon className="size-3.5 shrink-0" />
             {startDate && endDate ? (
@@ -854,7 +1077,7 @@ function ColumnInlineAddTask({
                     "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
                     priority === option.value
                       ? "border-primary bg-primary/10 text-primary"
-                      : "border-border/60 text-muted-foreground hover:bg-muted/50"
+                      : "border-border/60 text-muted-foreground hover:bg-muted/50",
                   )}
                 >
                   {option.label}
@@ -878,6 +1101,11 @@ function ColumnInlineAddTask({
 
       {showErrors && titleMissing && (
         <p className="px-2.5 pb-2 text-[11px] text-destructive">Task name is required</p>
+      )}
+      {showErrors && phases.length === 0 && (
+        <p className="px-2.5 pb-2 text-[11px] text-destructive">
+          Add a project phase before creating tasks
+        </p>
       )}
     </div>
   );
@@ -907,7 +1135,7 @@ interface BoardCardProps {
   onDrop: (e: React.DragEvent) => void;
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
   dependencies?: TaskDependency[];
-  dependencyTaskOptions?: DepTaskOption[];
+  projectId: string;
   canEditDependencies?: boolean;
 }
 
@@ -922,7 +1150,7 @@ function BoardCardMeta({
   onUpdateTaskPriority,
   compact = false,
   dependencies = [],
-  dependencyTaskOptions = [],
+  projectId,
   canEditDependencies = false,
 }: {
   task: Task;
@@ -935,7 +1163,7 @@ function BoardCardMeta({
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
   compact?: boolean;
   dependencies?: TaskDependency[];
-  dependencyTaskOptions?: DepTaskOption[];
+  projectId: string;
   canEditDependencies?: boolean;
 }) {
   const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
@@ -1017,7 +1245,7 @@ function BoardCardMeta({
 
       <TaskDependenciesPicker
         taskId={task.id}
-        taskOptions={dependencyTaskOptions}
+        projectId={projectId}
         dependencies={dependencies}
         canEdit={canEditDependencies}
       />
@@ -1109,7 +1337,7 @@ function BoardSubtaskCard({
   assignees = [],
   onUpdateTaskPriority,
   dependencies = [],
-  dependencyTaskOptions = [],
+  projectId,
   canEditDependencies = false,
 }: {
   task: Task;
@@ -1122,7 +1350,7 @@ function BoardSubtaskCard({
   assignees?: ProjectTaskAssignee[];
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
   dependencies?: TaskDependency[];
-  dependencyTaskOptions?: DepTaskOption[];
+  projectId: string;
   canEditDependencies?: boolean;
 }) {
   return (
@@ -1157,7 +1385,7 @@ function BoardSubtaskCard({
           onUpdateTaskPriority={onUpdateTaskPriority}
           compact
           dependencies={dependencies}
-          dependencyTaskOptions={dependencyTaskOptions}
+          projectId={projectId}
           canEditDependencies={canEditDependencies}
         />
       </div>
@@ -1184,7 +1412,7 @@ function BoardCard({
   onDrop,
   onUpdateTaskPriority,
   dependencies = [],
-  dependencyTaskOptions = [],
+  projectId,
   canEditDependencies = false,
 }: BoardCardProps) {
   const [isEditingName, setIsEditingName] = useState(false);
@@ -1351,7 +1579,7 @@ function BoardCard({
           assignees={assignees}
           onUpdateTaskPriority={onUpdateTaskPriority}
           dependencies={dependencies}
-          dependencyTaskOptions={dependencyTaskOptions}
+          projectId={projectId}
           canEditDependencies={canEditDependencies}
         />
 
@@ -1390,7 +1618,7 @@ function BoardCard({
                     assignees={assignees}
                     onUpdateTaskPriority={onUpdateTaskPriority}
                     dependencies={dependencies}
-                    dependencyTaskOptions={dependencyTaskOptions}
+                    projectId={projectId}
                     canEditDependencies={canEditDependencies}
                   />
                 ))}

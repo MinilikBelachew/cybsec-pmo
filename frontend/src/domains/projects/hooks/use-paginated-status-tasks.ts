@@ -36,7 +36,10 @@ export function usePaginatedStatusTasks(
       limit: pageSize,
     };
     const trimmed = filters.search?.trim();
-    if (trimmed) params.search = trimmed;
+    if (trimmed) {
+      params.search = trimmed;
+      params.topLevelOnly = false;
+    }
     if (filters.priority) params.priority = filters.priority;
     if (filters.phaseId) params.phaseId = filters.phaseId;
     if (filters.ownerId) params.ownerId = filters.ownerId;

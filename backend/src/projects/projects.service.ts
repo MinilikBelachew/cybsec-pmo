@@ -699,7 +699,11 @@ export class ProjectsService {
       });
     }
 
-    await this.prisma.$transaction((tx) => deleteProjectWithDependents(tx, id));
+    await this.prisma.$transaction(
+      (tx) => deleteProjectWithDependents(tx, id),
+      // Large imported projects can take well beyond the default 5s timeout.
+      { timeout: 180_000, maxWait: 30_000 },
+    );
   }
 
   async findDepartments() {
