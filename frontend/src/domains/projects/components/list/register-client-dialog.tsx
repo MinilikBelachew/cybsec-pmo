@@ -1,10 +1,11 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { Loader2 } from "lucide-react";
+
 import { toast } from "react-hot-toast";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -378,7 +379,7 @@ export function RegisterClientDialog({
               <Button type="submit" disabled={isLoading || loadingCurrencies}>
                 {isLoading ? (
                   <>
-                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    <Spinner size="xs" className="mr-1.5" />
                     Creating…
                   </>
                 ) : (

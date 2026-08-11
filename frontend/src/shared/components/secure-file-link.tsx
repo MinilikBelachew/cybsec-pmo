@@ -1,8 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useState } from "react";
 import { toast } from "react-hot-toast";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { useLazyGetFileAccessUrlQuery } from "@/domains/projects/api/files.api";
 import { cn } from "@/shared/utils/cn";
 
@@ -53,7 +54,7 @@ export function SecureFileLink({
       title={filename ?? label ?? "Open file"}
     >
       {busy ? (
-        <Loader2 className={cn("size-3.5 animate-spin", iconClassName)} />
+        <Spinner size="xs" className={iconClassName} />
       ) : (
         <ExternalLink className={cn("size-3.5", iconClassName)} />
       )}

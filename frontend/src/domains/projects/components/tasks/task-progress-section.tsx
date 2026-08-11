@@ -1,17 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import {
-  CheckCircle2,
-  Clock,
-  Loader2,
-  Paperclip,
-  RotateCcw,
-  Send,
-  X,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Clock, Paperclip, RotateCcw, Send, X, XCircle } from "lucide-react";
 import {
   useGetTaskProgressUpdatesQuery,
   useReviewTaskProgressUpdateMutation,
@@ -454,7 +446,7 @@ export function TaskProgressSection({
               onClick={() => fileInputRef.current?.click()}
             >
               {isUploading ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Paperclip className="size-3.5" />
               )}
@@ -488,7 +480,7 @@ export function TaskProgressSection({
               onClick={() => void handleSubmit()}
             >
               {isSubmitting ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Send className="size-3.5" />
               )}

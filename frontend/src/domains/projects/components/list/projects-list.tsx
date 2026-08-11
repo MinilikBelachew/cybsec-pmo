@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { type SortingState } from "@tanstack/react-table";
@@ -48,17 +49,7 @@ import {
   PROJECT_STATUS_FILTER_OPTIONS,
   getProjectStatusConfig,
 } from "../../utils/project-status";
-import {
-  Search, Plus, LayoutGrid, List, FolderKanban,
-  CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
-  ChevronDown, X, Calendar, Milestone,
-  Pencil, Eye, Trash2, Activity, CheckCircle2, PauseCircle,
-  Upload,
-  Download,
-  Loader2,
-  FileUp,
-  LayoutTemplate,
-} from "lucide-react";
+import { Search, Plus, LayoutGrid, List, FolderKanban, CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle, ChevronDown, X, Calendar, Milestone, Pencil, Eye, Trash2, Activity, CheckCircle2, PauseCircle, Upload, Download, FileUp, LayoutTemplate } from "lucide-react";
 const STATUS_CONFIG = PROJECT_STATUS_CONFIG;
 
 const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: string; text: string }> = {
@@ -802,7 +793,7 @@ export function ProjectsList() {
                   className="h-9 flex-1 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-2.5 text-xs font-semibold shadow-none cursor-pointer sm:flex-none sm:px-3"
                 >
                   {isExporting ? (
-                    <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                    <Spinner size="xs" />
                   ) : (
                     <Download className="size-3.5 shrink-0" />
                   )}

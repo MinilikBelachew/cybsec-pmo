@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useCallback, useMemo, useState } from "react";
-import { Loader2, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useDebounce } from "@/shared/hooks/use-debounce";
 import { cn } from "@/shared/utils/cn";
 import {
@@ -178,7 +179,7 @@ export function PortfolioGanttPage() {
 
         {isFetching && !isLoading && (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
+            <Spinner size="xs" />
             Updating…
           </span>
         )}
@@ -192,7 +193,7 @@ export function PortfolioGanttPage() {
       >
         {isLoading ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
+            <Spinner size="sm" />
             Loading schedule…
           </div>
         ) : ganttTasks.length === 0 ? (

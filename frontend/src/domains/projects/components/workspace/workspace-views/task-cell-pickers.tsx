@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 /**
  * Shared inline task cell pickers.
@@ -6,7 +7,7 @@
  */
 
 import { useState, useMemo, type ReactNode } from "react";
-import { Search, Loader2, Send, MessageSquare, Flag } from "lucide-react";
+import { Search, Send, MessageSquare, Flag } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { cn } from "@/shared/utils/cn";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
@@ -330,7 +331,7 @@ export function TaskCommentPicker({ taskId, commentCount, children }: TaskCommen
         <div className="max-h-52 overflow-y-auto p-2 space-y-2">
           {isLoading || isFetching ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              <Spinner size="sm" />
             </div>
           ) : comments.length === 0 ? (
             <p className="py-4 text-center text-xs text-muted-foreground">No comments yet.</p>
@@ -379,7 +380,7 @@ export function TaskCommentPicker({ taskId, commentCount, children }: TaskCommen
               onClick={() => void handleSubmit()}
             >
               {isAdding ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <>
                   <Send className="size-3" />

@@ -1,18 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  CheckSquare,
-  CircleDollarSign,
-  Flag,
-  Hourglass,
-  Loader2,
-  Milestone,
-  ShieldAlert,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckSquare, CircleDollarSign, Flag, Hourglass, Milestone, ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { cn } from "@/shared/utils/cn";
 import { useGetStatusReportQuery } from "../api/reports.api";
@@ -368,7 +359,7 @@ export function StatusReportPreviewPage({ id }: { id: string }) {
   if (isLoading) {
     return (
       <div className="flex justify-center py-20">
-        <Loader2 className="size-6 animate-spin" />
+        <Spinner size="md" />
       </div>
     );
   }

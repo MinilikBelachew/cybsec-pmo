@@ -1,16 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
-import {
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  Loader2,
-  RotateCcw,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, ExternalLink, RotateCcw, XCircle } from "lucide-react";
 import {
   useGetPendingProgressReviewsQuery,
   useReviewTaskProgressUpdateMutation,
@@ -144,7 +137,7 @@ export function ProgressReviewInbox({
         <div className="space-y-2 border-t border-amber-500/20 px-4 pb-4 pt-3">
           {isLoading ? (
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
               Loading review queue…
             </div>
           ) : (
@@ -183,7 +176,7 @@ export function ProgressReviewInbox({
                       onClick={() => void handleApprove(update)}
                     >
                       {isReviewing ? (
-                        <Loader2 className="size-3.5 animate-spin" />
+                        <Spinner size="xs" />
                       ) : (
                         <CheckCircle2 className="size-3.5" />
                       )}

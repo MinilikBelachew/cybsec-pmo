@@ -1,9 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarClock, Loader2, X } from "lucide-react";
+import { CalendarClock, X } from "lucide-react";
 import {
   Controller,
   useForm,
@@ -15,6 +16,7 @@ import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { FilterSelect } from "@/shared/components/filter-select";
 import {
   Select,
   SelectContent,
@@ -41,6 +43,11 @@ type CreateReportScheduleModalProps = {
 
 const fieldErrorClass = "text-[11px] font-medium text-rose-600";
 
+const WEEKDAY_OPTIONS = WEEKDAYS.map((day) => ({
+  id: String(day.value),
+  label: day.label,
+}));
+
 export function CreateReportScheduleModal({
   open,
   onClose,
@@ -52,6 +59,15 @@ export function CreateReportScheduleModal({
   const internalRoles = useMemo(
     () => (roles?.data ?? []).filter((role) => !role.isExternal),
     [roles?.data],
+  );
+
+  const projectOptions = useMemo(
+    () =>
+      (projects?.data ?? []).map((project) => ({
+        id: project.id,
+        label: project.name,
+      })),
+    [projects?.data],
   );
 
   const {
@@ -170,19 +186,23 @@ export function CreateReportScheduleModal({
 
             <div className="space-y-1.5">
               <Label htmlFor="schedule-project">Project</Label>
-              <select
-                id="schedule-project"
-                className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
-                aria-invalid={Boolean(errors.projectId)}
-                {...register("projectId")}
-              >
-                <option value="">Select project</option>
-                {projects?.data.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="projectId"
+                render={({ field }) => (
+                  <FilterSelect
+                    value={field.value || null}
+                    onValueChange={(next) => field.onChange(next ?? "")}
+                    options={projectOptions}
+                    noneLabel="Select project"
+                    searchable
+                    searchPlaceholder="Search projects..."
+                    allowNone={false}
+                    triggerClassName="h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none"
+                    className="w-full max-w-full"
+                  />
+                )}
+              />
               {errors.projectId && (
                 <p className={fieldErrorClass}>{errors.projectId.message}</p>
               )}
@@ -200,18 +220,25 @@ export function CreateReportScheduleModal({
                 {reportType === "WSR" ? (
                   <div className="space-y-1.5">
                     <Label htmlFor="schedule-weekday">Day of week</Label>
-                    <select
-                      id="schedule-weekday"
-                      className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
-                      aria-invalid={Boolean(errors.weekday)}
-                      {...register("weekday", { valueAsNumber: true })}
-                    >
-                      {WEEKDAYS.map((day) => (
-                        <option key={day.value} value={day.value}>
-                          {day.label}
-                        </option>
-                      ))}
-                    </select>
+                    <Controller
+                      control={control}
+                      name="weekday"
+                      render={({ field }) => (
+                        <FilterSelect
+                          value={
+                            field.value != null ? String(field.value) : null
+                          }
+                          onValueChange={(next) =>
+                            field.onChange(Number(next ?? field.value ?? 1))
+                          }
+                          options={WEEKDAY_OPTIONS}
+                          noneLabel="Select day"
+                          allowNone={false}
+                          triggerClassName="h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none"
+                          className="w-full max-w-full"
+                        />
+                      )}
+                    />
                     {errors.weekday && (
                       <p className={fieldErrorClass}>{errors.weekday.message}</p>
                     )}
@@ -351,7 +378,7 @@ export function CreateReportScheduleModal({
               disabled={isLoading}
             >
               {isLoading ? (
-                <Loader2 className="mr-1 size-4 animate-spin" />
+                <Spinner size="sm" className="mr-1" />
               ) : (
                 <CalendarClock className="mr-1 size-4" />
               )}

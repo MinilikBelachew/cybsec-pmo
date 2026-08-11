@@ -1,17 +1,11 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
-import {
-  AlertTriangle,
-  CheckSquare,
-  Loader2,
-  Pencil,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { AlertTriangle, CheckSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import {
@@ -424,7 +418,7 @@ export function ActionPointsPanel({
           Cancel
         </Button>
         <Button type="submit" disabled={isSaving} className="gap-1.5">
-          {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+          {isSaving ? <Spinner size="sm" /> : null}
           {formMode === "edit" ? "Save changes" : "Save action point"}
         </Button>
       </div>
@@ -468,7 +462,7 @@ export function ActionPointsPanel({
 
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner size="sm" />
               Loading action points…
             </div>
           )}

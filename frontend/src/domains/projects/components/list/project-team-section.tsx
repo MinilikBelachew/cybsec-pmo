@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
-import { AlertTriangle, Calendar, ChevronDown, Loader2, Pencil, Trash2, Users2, X } from "lucide-react";
+import { AlertTriangle, Calendar, ChevronDown, Pencil, Trash2, Users2, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { getApiErrorMessage } from "@/core/errors/api-error";
 import {
@@ -1168,7 +1169,7 @@ export const ProjectTeamSection = forwardRef<
                         disabled={blockedEditSave || isUpdatingMember}
                         onClick={() => handleSaveExisting(member)}
                       >
-                        {isUpdatingMember && <Loader2 className="mr-2 size-4 animate-spin" />}
+                        {isUpdatingMember && <Spinner size="sm" className="mr-2" />}
                         Save changes
                       </Button>
                     </div>
@@ -1364,7 +1365,7 @@ export const ProjectTeamSection = forwardRef<
                 <div className="max-h-72 overflow-y-auto p-2">
                   {loadingCandidates ? (
                     <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">
-                      <Loader2 className="mr-2 size-4 animate-spin text-primary" />
+                      <Spinner size="sm" className="mr-2" />
                       Loading...
                     </div>
                   ) : availableCandidates.length === 0 ? (
@@ -1585,7 +1586,7 @@ export const ProjectTeamSection = forwardRef<
                 disabled={!canAddSelected || isAddingMembers}
                 onClick={handleAddSelected}
               >
-                {isAddingMembers && <Loader2 className="size-4 animate-spin" />}
+                {isAddingMembers && <Spinner size="sm" />}
                 {projectId
                   ? `Add ${checkedCandidates.length} to project`
                   : `Add ${checkedCandidates.length} to team`}

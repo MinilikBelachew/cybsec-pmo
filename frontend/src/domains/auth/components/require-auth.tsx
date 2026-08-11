@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@/shared/components/spinner";
 import { useAppDispatch } from "@/store/hooks";
 import {
   useLazyGetMeQuery,
@@ -58,9 +58,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
+      <Spinner size="md" centered className="h-screen w-full bg-background" />
     );
   }
 

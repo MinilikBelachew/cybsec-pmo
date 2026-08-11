@@ -1,18 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useMemo, useState } from "react";
-import {
-  AlertCircle,
-  Bell,
-  CheckCircle2,
-  ChevronDown,
-  Clock,
-  Loader2,
-  MessageSquare,
-  RefreshCw,
-  Search,
-  X,
-} from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ChevronDown, Clock, MessageSquare, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { KpiStatCard, KPI_CARD_THEMES } from "@/shared/components/kpi-stat-card";
@@ -145,7 +135,7 @@ export function ApprovalQueuePage() {
   if (isLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 size-5 animate-spin" />
+        <Spinner size="md" className="mr-2" />
         Loading approval queue...
       </div>
     );
@@ -433,7 +423,7 @@ export function ApprovalQueuePage() {
                                     data-testid="approval-keka-retry"
                                   >
                                     {retryingId === entry.id ? (
-                                      <Loader2 className="size-3 animate-spin" />
+                                      <Spinner size="xs" />
                                     ) : (
                                       <>
                                         <RefreshCw className="mr-0.5 size-3" />

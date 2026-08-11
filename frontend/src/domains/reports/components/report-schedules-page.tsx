@@ -73,11 +73,13 @@ export function ReportSchedulesPage() {
             return (
               <div
                 key={schedule.id}
-                className="flex flex-wrap items-center gap-4 p-4"
+                className="flex flex-wrap items-center gap-4 overflow-hidden p-4"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold">{label}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <p className="truncate font-semibold" title={label}>
+                    {label}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {describeCronExpression(
                       schedule.cronExpression,
                       schedule.reportType,
@@ -87,7 +89,7 @@ export function ReportSchedulesPage() {
                       ? new Date(schedule.nextRun).toLocaleString()
                       : "pending"}
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="truncate text-xs text-muted-foreground">
                     Recipients:{" "}
                     {schedule.recipients
                       ?.map((recipient) => recipient.role?.label)
@@ -99,7 +101,7 @@ export function ReportSchedulesPage() {
                 <div
                   role="radiogroup"
                   aria-label="Schedule status"
-                  className="inline-flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+                  className="inline-flex shrink-0 rounded-lg border border-border/70 bg-muted/40 p-0.5"
                 >
                   <button
                     type="button"
@@ -144,7 +146,7 @@ export function ReportSchedulesPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-rose-600 hover:text-rose-700"
+                  className="shrink-0 text-rose-600 hover:text-rose-700"
                   onClick={() =>
                     setDeleteConfirm({
                       id: schedule.id,

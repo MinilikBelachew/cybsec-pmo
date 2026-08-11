@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -41,35 +42,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import {
-  ChevronDown,
-  ChevronLeft,
-  Plus,
-  Star,
-  List,
-  LayoutGrid,
-  Calendar as CalendarIcon,
-  ChartGantt,
-  Table2,
-  Search,
-  Loader2,
-  ArrowLeft,
-  Flag,
-  ChevronRight,
-  CheckCircle2,
-  Clock,
-  Upload,
-  Download,
-  FileUp,
-  Maximize2,
-  Minimize2,
-  ScrollText,
-  Users2,
-  FolderOpen,
-  Milestone,
-  CheckSquare,
-  MessageSquareText,
-} from "lucide-react";
+import { ChevronDown, ChevronLeft, Plus, Star, List, LayoutGrid, Calendar as CalendarIcon, ChartGantt, Table2, Search, ArrowLeft, Flag, ChevronRight, CheckCircle2, Clock, Upload, Download, FileUp, Maximize2, Minimize2, ScrollText, Users2, FolderOpen, Milestone, CheckSquare, MessageSquareText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -982,7 +955,7 @@ export function ProjectWorkspace() {
   if (isLoading) {
     return (
       <div className="flex h-96 items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 size-6 animate-spin text-primary" />
+        <Spinner size="md" className="mr-2" />
         Loading workspace details...
       </div>
     );
@@ -1257,7 +1230,7 @@ export function ProjectWorkspace() {
                 className="h-9 flex-1 gap-1.5 rounded-xl border-slate-200/60 px-2.5 text-xs font-semibold hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5 sm:flex-none sm:px-3"
               >
                 {isExporting ? (
-                  <Loader2 className="size-4 shrink-0 animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <Download className="size-4 shrink-0" />
                 )}

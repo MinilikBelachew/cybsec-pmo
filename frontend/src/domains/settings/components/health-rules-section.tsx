@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useState } from "react";
-import { Loader2, Save } from "lucide-react";
+import { Save } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { Button } from "@/shared/ui/button";
 import {
@@ -26,7 +27,7 @@ export function HealthRulesSection() {
   return (
     <section className="space-y-4 rounded-xl border bg-card p-5">
       <div><h2 className="text-base font-bold">Project health rules</h2><p className="text-sm text-muted-foreground">Configure the score thresholds used for live RAG health evaluation.</p></div>
-      {isLoading ? <div className="flex justify-center py-10"><Loader2 className="size-5 animate-spin" /></div> : (
+      {isLoading ? <div className="flex justify-center py-10"><Spinner size="md" /></div> : (
         <div className="space-y-3">
           {rules.map((rule) => (
             <div key={rule.id} className="grid items-end gap-3 rounded-xl border p-4 sm:grid-cols-[1fr_repeat(3,120px)]">

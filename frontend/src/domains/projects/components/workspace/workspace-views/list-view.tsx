@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, ListChecks, Loader2, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, ListChecks, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { Button } from "@/shared/ui/button";
 import {
@@ -1229,7 +1230,7 @@ function ListStatusSection({
         <>
           {isLoading ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner size="sm" />
             </div>
           ) : (
             <>
@@ -1243,7 +1244,7 @@ function ListStatusSection({
                   className="flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border-b border-border/30 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-colors disabled:opacity-50"
                 >
                   {isFetching ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner size="xs" />
                   ) : null}
                   Load more
                   {typeof statusCount === "number" && statusCount > groupTasks.length

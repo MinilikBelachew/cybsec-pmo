@@ -1,19 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type SortingState } from "@tanstack/react-table";
-import {
-  AlertTriangle,
-  Calendar,
-  CheckCircle2,
-  LayoutGrid,
-  List,
-  Loader2,
-  RefreshCw,
-  Search,
-  TrendingUp,
-  Users,
-} from "lucide-react";
+import { AlertTriangle, Calendar, CheckCircle2, LayoutGrid, List, RefreshCw, Search, TrendingUp, Users } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { EmployeeAvatar } from "@/shared/components/employee-avatar";
 import { KpiStatCard, KPI_CARD_THEMES } from "@/shared/components/kpi-stat-card";
@@ -195,7 +185,7 @@ export function TeamDirectoryPage() {
             disabled={isFetching}
           >
             {isFetching ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}
@@ -328,7 +318,7 @@ export function TeamDirectoryPage() {
         view === "grid" ? (
           isDirectoryLoading ? (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner size="sm" />
               Loading team directory…
             </div>
           ) : members.length === 0 ? (

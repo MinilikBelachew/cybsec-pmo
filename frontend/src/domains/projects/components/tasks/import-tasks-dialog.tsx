@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState, useRef } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
@@ -25,19 +26,7 @@ import {
   ParsedTaskRow,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
-import {
-  Upload,
-  FileSpreadsheet,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  X,
-  PlayCircle,
-  Download,
-  ChevronDown,
-  Minimize2,
-} from "lucide-react";
+import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle, XCircle, X, PlayCircle, Download, ChevronDown, Minimize2 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 
 interface ImportTasksDialogProps {
@@ -605,7 +594,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   </div>
                 ) : isParsing ? (
                   <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4 min-h-[300px]">
-                    <Loader2 className="size-8 text-primary animate-spin" />
+                    <Spinner size="lg" />
                     <div className="text-center space-y-1">
                       <p className="text-sm font-bold">Parsing spreadsheet…</p>
                       <p className="text-xs text-muted-foreground">
@@ -616,7 +605,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                 ) : isImporting ? (
                   /* Loading Progress UI */
                   <div className="flex-1 flex flex-col items-center justify-center p-12 gap-4">
-                    <Loader2 className="size-8 text-primary animate-spin" />
+                    <Spinner size="lg" />
                     <div className="text-center space-y-1">
                       <p className="text-sm font-bold">{importStatusText || "Importing tasks…"}</p>
                       <p className="text-xs text-muted-foreground">
@@ -858,7 +847,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                           className="h-8 gap-1.5 rounded-lg text-[11px] font-bold cursor-pointer"
                         >
                           {loadingMore ? (
-                            <Loader2 className="size-3.5 animate-spin" />
+                            <Spinner size="xs" />
                           ) : null}
                           Load more
                           {tasksTotal > parsedRows.length

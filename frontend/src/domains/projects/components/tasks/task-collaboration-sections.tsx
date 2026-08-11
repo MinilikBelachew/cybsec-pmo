@@ -1,27 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import {
-  Loader2,
-  MessageSquare,
-  Paperclip,
-  Plus,
-  Trash2,
-  ListTree,
-  Lock,
-  Circle,
-  CircleCheck,
-  Eye,
-  FileText,
-  FileImage,
-  FileSpreadsheet,
-  FileArchive,
-  FileCode,
-  File,
-  ExternalLink,
-  Pencil,
-} from "lucide-react";
+import { MessageSquare, Paperclip, Plus, Trash2, ListTree, Lock, Circle, CircleCheck, Eye, FileText, FileImage, FileSpreadsheet, FileArchive, FileCode, File, ExternalLink, Pencil } from "lucide-react";
 import { FilePreviewModal } from "./file-preview-modal";
 import { TaskChecklistSection } from "./task-checklist-section";
 import { SecureFileLink } from "@/shared/components/secure-file-link";
@@ -573,7 +555,7 @@ export function TaskCollaborationSections({
             onClick={handleAddSubTask}
           >
             {subTaskMode === "immediate" && isCreatingSubTask ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner size="sm" />
             ) : subTaskMode === "draft" ? (
               "Add to list"
             ) : (
@@ -626,7 +608,7 @@ export function TaskCollaborationSections({
                   title="Delete sub-task"
                 >
                   {isDeleting ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <Spinner size="sm" />
                   ) : (
                     <Trash2 className="size-4" />
                   )}
@@ -694,7 +676,7 @@ export function TaskCollaborationSections({
             onClick={handleAddComment}
           >
             {commentMode === "immediate" && isAddingComment ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner size="sm" />
             ) : commentMode === "draft" ? (
               "Add to list"
             ) : (
@@ -795,7 +777,7 @@ export function TaskCollaborationSections({
                         onClick={() => void saveEditComment()}
                       >
                         {isUpdatingComment ? (
-                          <Loader2 className="size-4 animate-spin" />
+                          <Spinner size="sm" />
                         ) : (
                           "Save"
                         )}
@@ -860,7 +842,7 @@ export function TaskCollaborationSections({
           onClick={() => fileInputRef.current?.click()}
         >
           {attachmentMode === "immediate" && (isUploading || isLinking) ? (
-            <Loader2 className="size-4 animate-spin" />
+            <Spinner size="sm" />
           ) : (
             <>
               <Plus className="mr-1 size-3.5" />
@@ -1198,7 +1180,7 @@ export function TaskAttachmentsBlock({
           className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border text-muted-foreground transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
         >
           {isUploading || isLinking ? (
-            <Loader2 className="size-5 animate-spin" />
+            <Spinner size="md" />
           ) : (
             <>
               <Plus className="size-5" />

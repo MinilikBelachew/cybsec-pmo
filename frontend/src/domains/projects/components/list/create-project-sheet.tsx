@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useEffect, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
@@ -49,15 +50,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { ProjectDatePicker, startOfToday } from "../shared/project-date-picker";
-import {
-  FolderKanban,
-  Briefcase,
-  Users2,
-  DollarSign,
-  GitBranch,
-  Loader2,
-  AlertTriangle,
-} from "lucide-react";
+import { FolderKanban, Briefcase, Users2, DollarSign, GitBranch, AlertTriangle } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -1336,7 +1329,7 @@ export function CreateProjectSheet({
           </Button>
           {!isViewOnly && (
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
+              {isSubmitting && <Spinner size="sm" className="mr-2" />}
               {isEditMode
                 ? "Save Changes"
                 : isFromTemplate

@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Loader2, Search } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import { EmployeeAvatar } from "@/shared/components/employee-avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { cn } from "@/shared/utils/cn";
@@ -178,7 +179,7 @@ export function EmployeePickerSelect({
 
           {isLoading && filtered.length === 0 ? (
             <div className="flex items-center justify-center gap-2 px-2 py-4 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
               Loading...
             </div>
           ) : filtered.length === 0 ? (
@@ -218,7 +219,7 @@ export function EmployeePickerSelect({
 
           {isFetchingMore ? (
             <div className="flex items-center justify-center gap-2 px-2 py-2 text-[11px] text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />
+              <Spinner size="xs" />
               Loading more...
             </div>
           ) : null}

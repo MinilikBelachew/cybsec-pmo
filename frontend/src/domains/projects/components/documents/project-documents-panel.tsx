@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useMemo, useRef, useState } from "react";
-import { Eye, FileText, Loader2, Paperclip, Trash2, Upload } from "lucide-react";
+import { Eye, FileText, Paperclip, Trash2, Upload } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
@@ -291,7 +292,7 @@ export function ProjectDocumentsPanel({
               disabled={uploadBlocked}
               onClick={() => fileInputRef.current?.click()}
             >
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+              {busy ? <Spinner size="xs" /> : <Upload className="size-3.5" />}
               Upload
             </Button>
           </div>
@@ -304,7 +305,7 @@ export function ProjectDocumentsPanel({
 
       {isLoading && (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
-          <Loader2 className="mr-2 size-4 animate-spin" />
+          <Spinner size="sm" className="mr-2" />
           Loading documents...
         </div>
       )}

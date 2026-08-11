@@ -1,8 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useState } from "react";
 import { toast } from "react-hot-toast";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import {
   useGetTaskChecklistQuery,
   useAddTaskChecklistItemMutation,
@@ -105,7 +106,7 @@ export function TaskChecklistSection({ taskId, className }: TaskChecklistSection
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground py-6 justify-center">
-          <Loader2 className="size-3.5 animate-spin" />
+          <Spinner size="xs" />
           Loading checklist…
         </div>
       ) : (
@@ -183,7 +184,7 @@ export function TaskChecklistSection({ taskId, className }: TaskChecklistSection
             disabled={isAdding || !newTitle.trim()}
             onClick={() => void handleAdd()}
           >
-            {isAdding ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+            {isAdding ? <Spinner size="xs" /> : <Plus className="size-3.5" />}
             Add
           </Button>
         </div>

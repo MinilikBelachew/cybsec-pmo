@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GitBranch, Loader2, Search } from "lucide-react";
+import { GitBranch, Search } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { cn } from "@/shared/utils/cn";
 import { Button } from "@/shared/ui/button";
@@ -480,7 +481,7 @@ export function TaskDependenciesPicker({
         >
           {loading && options.length === 0 ? (
             <div className="flex items-center justify-center gap-2 px-3 py-4 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
               Loading tasks…
             </div>
           ) : candidates.length === 0 ? (
@@ -510,7 +511,7 @@ export function TaskDependenciesPicker({
               })}
               {loadingMore ? (
                 <div className="flex items-center justify-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" />
+                  <Spinner size="xs" />
                   Loading more…
                 </div>
               ) : hasMore ? (
@@ -600,7 +601,7 @@ export function TaskDependenciesPicker({
                 disabled={saving || !dirty}
                 onClick={() => void handleSave()}
               >
-                {saving ? <Loader2 className="size-3 animate-spin" /> : null}
+                {saving ? <Spinner size="xs" /> : null}
                 Save
               </Button>
             ) : null}

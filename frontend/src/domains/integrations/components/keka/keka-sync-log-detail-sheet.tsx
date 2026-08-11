@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useState } from "react";
-import { Copy, Loader2, RotateCcw } from "lucide-react";
+import { Copy, RotateCcw } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -63,7 +64,7 @@ export function KekaSyncLogDetailSheet({
                     data-testid="keka-sync-log-detail-retry"
                   >
                     {isRetrying ? (
-                      <Loader2 className="size-3.5 animate-spin" />
+                      <Spinner size="xs" />
                     ) : (
                       <RotateCcw className="size-3.5" />
                     )}

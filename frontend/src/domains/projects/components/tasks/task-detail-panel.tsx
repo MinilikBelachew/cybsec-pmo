@@ -1,15 +1,11 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useState, useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
-import {
-  Loader2,
-  Calendar as CalendarIcon,
-  FolderKanban,
-  Save,
-} from "lucide-react";
+import { Calendar as CalendarIcon, FolderKanban, Save } from "lucide-react";
 import {
   useGetTaskByIdQuery,
   useGetProjectByIdQuery,
@@ -356,7 +352,7 @@ export function TaskDetailPanel({
         <form onSubmit={onSave} className="flex h-full flex-col">
           {isLoading && (
             <div className="flex flex-1 items-center justify-center text-muted-foreground">
-              <Loader2 className="mr-2 size-5 animate-spin" />
+              <Spinner size="md" className="mr-2" />
               Loading task...
             </div>
           )}
@@ -866,7 +862,7 @@ export function TaskDetailPanel({
                 <Button type="submit" disabled={!hasPendingChanges || isBusy || isLoading}>
                   {isBusy ? (
                     <>
-                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      <Spinner size="sm" className="mr-2" />
                       Saving...
                     </>
                   ) : (

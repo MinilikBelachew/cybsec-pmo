@@ -1,17 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { toast } from "react-hot-toast";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  FileUp,
-  Loader2,
-  Minimize2,
-  Upload,
-  X,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp, Minimize2, Upload, X } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { Button } from "@/shared/ui/button";
 import {
@@ -832,7 +825,7 @@ export function ImportMppDialog({
                   </div>
                 ) : isPreviewing || (step === "select" && !preview) ? (
                   <div className="flex min-h-[240px] flex-1 flex-col items-center justify-center gap-4 p-12">
-                    <Loader2 className="size-8 animate-spin text-primary" />
+                    <Spinner size="lg" />
                     <div className="space-y-1 text-center">
                       <p className="text-sm font-bold">Parsing MS Project file…</p>
                       <p className="text-xs text-muted-foreground">
@@ -1011,7 +1004,7 @@ export function ImportMppDialog({
                     >
                       {isSaving ? (
                         <>
-                          <Loader2 className="size-4 animate-spin" />
+                          <Spinner size="sm" />
                           Saving…
                         </>
                       ) : (

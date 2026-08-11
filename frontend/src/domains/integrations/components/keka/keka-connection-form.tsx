@@ -1,18 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Plug,
-  Save,
-  ShieldCheck,
-  Eye,
-  EyeOff,
-  Copy,
-  Check,
-} from "lucide-react";
+import { CheckCircle2, AlertCircle, Plug, Save, ShieldCheck, Eye, EyeOff, Copy, Check } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { getApiErrorMessage } from "@/core/errors/api-error";
 import { useAppSelector } from "@/store/hooks";
@@ -136,7 +126,7 @@ function SecretInput({
             aria-label={visible ? `Hide ${label}` : `Show ${label}`}
           >
             {revealing ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
             ) : visible ? (
               <EyeOff className="size-3.5" />
             ) : (
@@ -286,7 +276,7 @@ export function KekaConnectionForm() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-card px-4 py-6 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
+        <Spinner size="sm" />
         Loading Keka connection settings…
       </div>
     );
@@ -416,7 +406,7 @@ export function KekaConnectionForm() {
             onClick={() => void handleSave()}
           >
             {isSaving ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
             ) : (
               <Save className="size-3.5" />
             )}
@@ -430,7 +420,7 @@ export function KekaConnectionForm() {
             onClick={() => void handleTest()}
           >
             {isTesting ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
             ) : (
               <ShieldCheck className="size-3.5" />
             )}

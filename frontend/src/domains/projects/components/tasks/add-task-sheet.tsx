@@ -1,31 +1,12 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useRef, useState } from "react";
 import { FilePreviewModal } from "./file-preview-modal";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-hot-toast";
-import {
-  CheckSquare,
-  Loader2,
-  Calendar as CalendarIcon,
-  ListChecks,
-  ListTree,
-  MessageSquare,
-  Paperclip,
-  Plus,
-  Trash2,
-  FileText,
-  FileImage,
-  FileSpreadsheet,
-  FileArchive,
-  FileCode,
-  File,
-  Lock,
-  Circle,
-  Flag,
-  User,
-} from "lucide-react";
+import { CheckSquare, Calendar as CalendarIcon, ListChecks, ListTree, MessageSquare, Paperclip, Plus, Trash2, FileText, FileImage, FileSpreadsheet, FileArchive, FileCode, File, Lock, Circle, Flag, User } from "lucide-react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   useCreateTaskBundleMutation,
@@ -1301,7 +1282,7 @@ export function AddTaskSheet({
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    <Spinner size="sm" className="mr-2" />
                     Creating...
                   </>
                 ) : parentTaskId ? (

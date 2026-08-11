@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import * as React from "react";
 import {
@@ -15,18 +16,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Columns3,
-  Eye,
-  EyeOff,
-  GripVertical,
-  ListChecks,
-  Loader2,
-  Search,
-  X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns3, Eye, EyeOff, GripVertical, ListChecks, Search, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/shared/ui/button";
@@ -675,7 +665,7 @@ export function DataTable<TData, TValue>({
         <div className="relative md:hidden">
           {isLoading && (
             <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/60 backdrop-blur-[1px]">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              <Spinner size="md" />
             </div>
           )}
           {table.getRowModel().rows.length > 0 ? (
@@ -726,7 +716,7 @@ export function DataTable<TData, TValue>({
       >
           {isLoading && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              <Spinner size="md" />
             </div>
           )}
 

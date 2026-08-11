@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Calendar, ChevronDown, Loader2 } from "lucide-react";
+import { AlertTriangle, Calendar, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import {
   useGetProjectLeaveImpactsQuery,
@@ -128,7 +129,7 @@ export function ProjectLeaveImpactSection({
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-4 py-2.5 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
+        <Spinner size="sm" />
         Checking leave schedule impacts...
       </div>
     );
@@ -330,7 +331,7 @@ export function ProjectLeaveImpactSection({
                             onClick={() => void handleApplyBackup(task.taskId)}
                           >
                             {isApplying && (
-                              <Loader2 className="mr-2 size-3.5 animate-spin" />
+                              <Spinner size="xs" className="mr-2" />
                             )}
                             Assign backup to task
                           </Button>
