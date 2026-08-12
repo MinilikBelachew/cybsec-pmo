@@ -53,6 +53,16 @@ const ROUTES_BY_PHASE: Record<string, string[]> = {
     "/en/dashboard/reports/utilization",
     `/en/dashboard/projects/${PLACEHOLDER_ID}`,
   ],
+  "4": [
+    "/en/dashboard",
+    "/en/dashboard/risks",
+    "/en/dashboard/issues",
+    "/en/dashboard/alerts",
+    "/en/dashboard/escalations",
+    "/en/dashboard/actions",
+    "/en/dashboard/lessons",
+    `/en/dashboard/projects/${PLACEHOLDER_ID}`,
+  ],
 };
 
 /** Frontend route handlers the shell calls on mount; they compile separately. */

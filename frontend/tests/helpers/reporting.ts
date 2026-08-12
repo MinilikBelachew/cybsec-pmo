@@ -178,6 +178,23 @@ export async function seedPhase3Reporting(
     "engineer",
   );
 
+  // Escalation / team-directory pickers require employee rows (requireUserId).
+  await ensureEmployee(
+    db,
+    pmoLeadId,
+    deptId,
+    "M3 Priya PMO Lead",
+    PMO_LEAD_EMAIL,
+    "MOCK-KEKA-M3-PRIYA",
+  );
+  await ensureEmployee(
+    db,
+    pm2Id,
+    deptId,
+    "M3 Omar Second PM",
+    PM2_EMAIL,
+    "MOCK-KEKA-M3-OMAR",
+  );
   const engEmployeeId = await ensureEmployee(
     db,
     engUserId,
@@ -365,6 +382,12 @@ async function purgeProjects(db: Client, ids: string[]): Promise<void> {
   await db.query(`DELETE FROM action_points WHERE project_id = ANY($1::uuid[])`, [
     ids,
   ]);
+  await db.query(`DELETE FROM risks WHERE project_id = ANY($1::uuid[])`, [ids]);
+  await db.query(`DELETE FROM issues WHERE project_id = ANY($1::uuid[])`, [ids]);
+  await db.query(
+    `DELETE FROM lessons_learned WHERE project_id = ANY($1::uuid[])`,
+    [ids],
+  );
   await db.query(
     `DELETE FROM timesheet_approvals WHERE timesheet_id IN (
        SELECT id FROM timesheets WHERE project_id = ANY($1::uuid[])

@@ -25,8 +25,15 @@ import {
   type AlertRuleFormValues,
 } from "../schemas/alert.schema";
 import { FormSheet } from "./form-sheet";
+import { ROLE_CATALOG } from "@/config/roles.config";
 
 type RoleOption = { id: number; code: string; label: string };
+
+const CATALOG_ROLES: RoleOption[] = ROLE_CATALOG.map((r) => ({
+  id: r.id,
+  code: r.code,
+  label: r.label,
+}));
 
 const DEFAULT_VALUES: AlertRuleFormValues = {
   eventType: "RISK_SCORE_BREACHED",
@@ -57,27 +64,30 @@ type AlertRuleFormProps = {
 
 export function AlertRuleForm({
   open,
-  roles,
+  roles: _rolesFromCaller,
   onCancel,
   onSuccess,
 }: AlertRuleFormProps) {
   const [createRule, { isLoading: isCreating }] = useCreateAlertRuleMutation();
+  // Catalog is authoritative: `/roles` requires Rbac read, but alert managers
+  // only have notifications:manage (e.g. PMO Lead).
+  void _rolesFromCaller;
   const escalationRoles = useMemo(
     () =>
-      roles.filter((r) =>
+      CATALOG_ROLES.filter((r) =>
         (ALERT_ESCALATION_ROLE_CODES as readonly string[]).includes(r.code),
       ),
-    [roles],
+    [],
   );
   const recipientRoles = useMemo(
     () =>
-      roles.filter(
+      CATALOG_ROLES.filter(
         (r) =>
           !(ALERT_RECIPIENT_EXCLUDED_ROLE_CODES as readonly string[]).includes(
             r.code,
           ),
       ),
-    [roles],
+    [],
   );
 
   const {
