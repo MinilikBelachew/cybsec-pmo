@@ -1,12 +1,27 @@
 "use client";
 import { Spinner } from "@/shared/components/spinner";
 
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, CheckSquare, CircleDollarSign, Flag, Hourglass, Milestone, ShieldAlert } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
+  Flag,
+  Hourglass,
+  Milestone,
+  ShieldAlert,
+} from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
+import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/utils/cn";
 import { useGetStatusReportQuery } from "../api/reports.api";
+
+const SECTION_PAGE_SIZE = 25;
+const SECTION_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 type SnapshotDimension = {
   dimension: string;
@@ -345,11 +360,423 @@ function SectionCard({
   );
 }
 
+function SectionPager({
+  page,
+  pageCount,
+  pageSize,
+  total,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+}) {
+  if (total <= SECTION_PAGE_SIZE_OPTIONS[0]) return null;
+
+  const from = page * pageSize + 1;
+  const to = Math.min((page + 1) * pageSize, total);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 bg-muted/20 px-4 py-2.5 sm:px-5">
+      <p className="text-xs text-muted-foreground">
+        Showing {from}–{to} of {total}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          Per page
+          <select
+            className="h-7 rounded-md border border-border bg-background px-1.5 text-xs"
+            value={pageSize}
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+          >
+            {SECTION_PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 px-2"
+          disabled={page <= 0}
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft className="size-3.5" />
+        </Button>
+        <span className="min-w-16 text-center text-xs text-muted-foreground">
+          {page + 1} / {pageCount}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 px-2"
+          disabled={page >= pageCount - 1}
+          onClick={() => onPageChange(page + 1)}
+        >
+          <ChevronRight className="size-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function useSectionPagination<T>(items: T[], resetKey: string) {
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(SECTION_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+  }, [resetKey, pageSize, items.length]);
+
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize) || 1);
+  const safePage = Math.min(page, pageCount - 1);
+  const pageItems = useMemo(
+    () => items.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    [items, safePage, pageSize],
+  );
+
+  return {
+    page: safePage,
+    pageSize,
+    pageCount,
+    pageItems,
+    setPage,
+    setPageSize: (size: number) => {
+      setPageSize(size);
+      setPage(0);
+    },
+  };
+}
+
 function EmptySnapshot() {
   return (
     <p className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
       This report has no snapshot data yet.
     </p>
+  );
+}
+
+function MilestonesSection({
+  items,
+  resetKey,
+}: {
+  items: SnapshotMilestone[];
+  resetKey: string;
+}) {
+  const pager = useSectionPagination(items, resetKey);
+  return (
+    <SectionCard
+      title="Milestones"
+      icon={<Milestone className="size-4" />}
+      count={items.length}
+      empty="No milestones reported this period."
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2.5 font-semibold sm:px-5">Milestone</th>
+              <th className="px-3 py-2.5 font-semibold">Baseline</th>
+              <th className="px-3 py-2.5 font-semibold">Expected</th>
+              <th className="px-3 py-2.5 font-semibold">Variance</th>
+              <th className="px-3 py-2.5 font-semibold">% complete</th>
+              <th className="px-3 py-2.5 font-semibold">Status</th>
+              <th className="px-4 py-2.5 font-semibold sm:px-5">RAG</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {pager.pageItems.map((item, index) => (
+              <tr key={`${item.title ?? "m"}-${pager.page}-${index}`}>
+                <td className="px-4 py-3 font-medium sm:px-5">
+                  {item.title ?? "—"}
+                </td>
+                <td className="px-3 py-3 text-muted-foreground">
+                  {formatDate(item.baselineDate)}
+                </td>
+                <td className="px-3 py-3 text-muted-foreground">
+                  {formatDate(item.expectedDate)}
+                </td>
+                <td className="px-3 py-3 text-muted-foreground">
+                  {item.varianceDays == null
+                    ? "—"
+                    : item.varianceDays === 0
+                      ? "On baseline"
+                      : item.varianceDays > 0
+                        ? `+${item.varianceDays}`
+                        : String(item.varianceDays)}
+                </td>
+                <td className="px-3 py-3 text-muted-foreground">
+                  {item.percentComplete == null
+                    ? "—"
+                    : `${Math.round(item.percentComplete)}%`}
+                </td>
+                <td className="px-3 py-3">
+                  <Pill className="bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+                    {item.status ?? "—"}
+                  </Pill>
+                </td>
+                <td className="px-4 py-3 sm:px-5">
+                  {item.ragStatus ? (
+                    <Pill className={ragClass(item.ragStatus)}>
+                      {formatLabel(item.ragStatus)}
+                    </Pill>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <SectionPager
+        page={pager.page}
+        pageCount={pager.pageCount}
+        pageSize={pager.pageSize}
+        total={items.length}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
+    </SectionCard>
+  );
+}
+
+function ActionPointsSection({
+  items,
+  resetKey,
+}: {
+  items: SnapshotAction[];
+  resetKey: string;
+}) {
+  const pager = useSectionPagination(items, resetKey);
+  return (
+    <SectionCard
+      title="Open action points"
+      icon={<CheckSquare className="size-4" />}
+      count={items.length}
+      empty="No open action points."
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-sm">
+          <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2.5 font-semibold sm:px-5">Action</th>
+              <th className="px-3 py-2.5 font-semibold">Owner</th>
+              <th className="px-3 py-2.5 font-semibold">Due</th>
+              <th className="px-4 py-2.5 font-semibold sm:px-5">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {pager.pageItems.map((item, index) => (
+              <tr key={`${item.title ?? "a"}-${pager.page}-${index}`}>
+                <td className="px-4 py-3 font-medium sm:px-5">
+                  {item.title ?? "—"}
+                </td>
+                <td className="px-3 py-3 text-muted-foreground">
+                  {item.owner ?? "—"}
+                </td>
+                <td className="px-3 py-3 text-muted-foreground">
+                  {formatDate(item.dueDate)}
+                </td>
+                <td className="px-4 py-3 sm:px-5">
+                  <Pill className="bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+                    {item.status ?? "—"}
+                  </Pill>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <SectionPager
+        page={pager.page}
+        pageCount={pager.pageCount}
+        pageSize={pager.pageSize}
+        total={items.length}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
+    </SectionCard>
+  );
+}
+
+function IssuesSection({
+  items,
+  resetKey,
+}: {
+  items: SnapshotIssue[];
+  resetKey: string;
+}) {
+  const pager = useSectionPagination(items, resetKey);
+  return (
+    <SectionCard
+      title="Issues"
+      icon={<AlertTriangle className="size-4" />}
+      count={items.length}
+      empty="No issues reported this period."
+    >
+      <ul className="divide-y divide-border/50">
+        {pager.pageItems.map((item, index) => (
+          <li
+            key={`${item.description ?? "i"}-${pager.page}-${index}`}
+            className="flex flex-col gap-1 px-4 py-3 sm:px-5"
+          >
+            <p className="text-sm font-semibold">
+              {item.description ?? "Issue"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Owner {item.issueOwner ?? "—"} · Reported{" "}
+              {formatDate(item.reportedDate)} · Target{" "}
+              {formatDate(item.targetResolutionDate)} · {item.status ?? "—"}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <SectionPager
+        page={pager.page}
+        pageCount={pager.pageCount}
+        pageSize={pager.pageSize}
+        total={items.length}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
+    </SectionCard>
+  );
+}
+
+function RisksSection({
+  items,
+  resetKey,
+}: {
+  items: SnapshotRisk[];
+  resetKey: string;
+}) {
+  const pager = useSectionPagination(items, resetKey);
+  return (
+    <SectionCard
+      title="Risks"
+      icon={<ShieldAlert className="size-4" />}
+      count={items.length}
+      empty="No risks raised against this project."
+    >
+      <ul className="divide-y divide-border/50">
+        {pager.pageItems.map((item, index) => (
+          <li
+            key={`${item.description ?? "r"}-${pager.page}-${index}`}
+            className="flex flex-col gap-1 px-4 py-3 sm:px-5"
+          >
+            <p className="text-sm font-semibold">
+              {item.description ?? "Risk"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {item.category ?? "—"} · Owner {item.owner ?? "—"} ·{" "}
+              {item.source === "system" ? "System raised" : "Manual"} ·{" "}
+              {item.status ?? "—"}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <SectionPager
+        page={pager.page}
+        pageCount={pager.pageCount}
+        pageSize={pager.pageSize}
+        total={items.length}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
+    </SectionCard>
+  );
+}
+
+function PendingItemsSection({
+  items,
+  resetKey,
+}: {
+  items: SnapshotPending[];
+  resetKey: string;
+}) {
+  const pager = useSectionPagination(items, resetKey);
+  return (
+    <SectionCard
+      title="Pending items"
+      icon={<Hourglass className="size-4" />}
+      count={items.length}
+      empty="No pending items are past their date."
+    >
+      <ul className="divide-y divide-border/50">
+        {pager.pageItems.map((item, index) => (
+          <li
+            key={`${item.item ?? "p"}-${pager.page}-${index}`}
+            className="flex flex-col gap-1 px-4 py-3 sm:px-5"
+          >
+            <p className="text-sm font-semibold">{item.item ?? "Item"}</p>
+            <p className="text-xs text-muted-foreground">
+              {item.type ?? "—"} · {item.daysWaiting ?? "—"} days waiting ·
+              Owner {item.owner ?? "—"}
+              {item.holdingUp ? ` · Holding up ${item.holdingUp}` : ""}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <SectionPager
+        page={pager.page}
+        pageCount={pager.pageCount}
+        pageSize={pager.pageSize}
+        total={items.length}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
+    </SectionCard>
+  );
+}
+
+function DataQualitySection({
+  items,
+  resetKey,
+}: {
+  items: SnapshotDataQuality[];
+  resetKey: string;
+}) {
+  const pager = useSectionPagination(items, resetKey);
+  return (
+    <SectionCard
+      title="Missing or incomplete data"
+      icon={<AlertTriangle className="size-4" />}
+      count={items.length}
+      empty="No missing or incomplete data flagged."
+    >
+      <ul className="divide-y divide-border/50">
+        {pager.pageItems.map((item, index) => (
+          <li
+            key={`${item.flagType ?? "f"}-${pager.page}-${index}`}
+            className="px-4 py-3 sm:px-5"
+          >
+            <p className="text-sm font-semibold">
+              {item.flagType ? formatLabel(item.flagType) : "Data quality flag"}
+            </p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {item.description ?? "No description provided."}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <SectionPager
+        page={pager.page}
+        pageCount={pager.pageCount}
+        pageSize={pager.pageSize}
+        total={items.length}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
+    </SectionCard>
   );
 }
 
@@ -473,187 +900,11 @@ export function StatusReportPreviewPage({ id }: { id: string }) {
             </ul>
           </SectionCard>
 
-          <SectionCard
-            title="Milestones"
-            icon={<Milestone className="size-4" />}
-            count={snapshot.milestones.length}
-            empty="No milestones reported this period."
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2.5 font-semibold sm:px-5">
-                      Milestone
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold">Baseline</th>
-                    <th className="px-3 py-2.5 font-semibold">Expected</th>
-                    <th className="px-3 py-2.5 font-semibold">Variance</th>
-                    <th className="px-3 py-2.5 font-semibold">% complete</th>
-                    <th className="px-3 py-2.5 font-semibold">Status</th>
-                    <th className="px-4 py-2.5 font-semibold sm:px-5">RAG</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {snapshot.milestones.map((item, index) => (
-                    <tr key={`${item.title ?? "m"}-${index}`}>
-                      <td className="px-4 py-3 font-medium sm:px-5">
-                        {item.title ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {formatDate(item.baselineDate)}
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {formatDate(item.expectedDate)}
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {item.varianceDays == null
-                          ? "—"
-                          : item.varianceDays === 0
-                            ? "On baseline"
-                            : item.varianceDays > 0
-                              ? `+${item.varianceDays}`
-                              : String(item.varianceDays)}
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {item.percentComplete == null
-                          ? "—"
-                          : `${Math.round(item.percentComplete)}%`}
-                      </td>
-                      <td className="px-3 py-3">
-                        <Pill className="bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-                          {item.status ?? "—"}
-                        </Pill>
-                      </td>
-                      <td className="px-4 py-3 sm:px-5">
-                        {item.ragStatus ? (
-                          <Pill className={ragClass(item.ragStatus)}>
-                            {formatLabel(item.ragStatus)}
-                          </Pill>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Open action points"
-            icon={<CheckSquare className="size-4" />}
-            count={snapshot.actionPoints.length}
-            empty="No open action points."
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left text-sm">
-                <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2.5 font-semibold sm:px-5">Action</th>
-                    <th className="px-3 py-2.5 font-semibold">Owner</th>
-                    <th className="px-3 py-2.5 font-semibold">Due</th>
-                    <th className="px-4 py-2.5 font-semibold sm:px-5">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {snapshot.actionPoints.map((item, index) => (
-                    <tr key={`${item.title ?? "a"}-${index}`}>
-                      <td className="px-4 py-3 font-medium sm:px-5">
-                        {item.title ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {item.owner ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {formatDate(item.dueDate)}
-                      </td>
-                      <td className="px-4 py-3 sm:px-5">
-                        <Pill className="bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-                          {item.status ?? "—"}
-                        </Pill>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Issues"
-            icon={<AlertTriangle className="size-4" />}
-            count={snapshot.issues.length}
-            empty="No issues reported this period."
-          >
-            <ul className="divide-y divide-border/50">
-              {snapshot.issues.map((item, index) => (
-                <li
-                  key={`${item.description ?? "i"}-${index}`}
-                  className="flex flex-col gap-1 px-4 py-3 sm:px-5"
-                >
-                  <p className="text-sm font-semibold">
-                    {item.description ?? "Issue"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Owner {item.issueOwner ?? "—"} · Reported{" "}
-                    {formatDate(item.reportedDate)} · Target{" "}
-                    {formatDate(item.targetResolutionDate)} ·{" "}
-                    {item.status ?? "—"}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </SectionCard>
-
-          <SectionCard
-            title="Risks"
-            icon={<ShieldAlert className="size-4" />}
-            count={snapshot.risks.length}
-            empty="No risks raised against this project."
-          >
-            <ul className="divide-y divide-border/50">
-              {snapshot.risks.map((item, index) => (
-                <li
-                  key={`${item.description ?? "r"}-${index}`}
-                  className="flex flex-col gap-1 px-4 py-3 sm:px-5"
-                >
-                  <p className="text-sm font-semibold">
-                    {item.description ?? "Risk"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.category ?? "—"} · Owner {item.owner ?? "—"} ·{" "}
-                    {item.source === "system" ? "System raised" : "Manual"} ·{" "}
-                    {item.status ?? "—"}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </SectionCard>
-
-          <SectionCard
-            title="Pending items"
-            icon={<Hourglass className="size-4" />}
-            count={snapshot.pendingItems.length}
-            empty="No pending items are past their date."
-          >
-            <ul className="divide-y divide-border/50">
-              {snapshot.pendingItems.map((item, index) => (
-                <li
-                  key={`${item.item ?? "p"}-${index}`}
-                  className="flex flex-col gap-1 px-4 py-3 sm:px-5"
-                >
-                  <p className="text-sm font-semibold">{item.item ?? "Item"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.type ?? "—"} · {item.daysWaiting ?? "—"} days waiting
-                    · Owner {item.owner ?? "—"}
-                    {item.holdingUp ? ` · Holding up ${item.holdingUp}` : ""}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </SectionCard>
+          <MilestonesSection items={snapshot.milestones} resetKey={id} />
+          <ActionPointsSection items={snapshot.actionPoints} resetKey={id} />
+          <IssuesSection items={snapshot.issues} resetKey={id} />
+          <RisksSection items={snapshot.risks} resetKey={id} />
+          <PendingItemsSection items={snapshot.pendingItems} resetKey={id} />
 
           {snapshot.cost && (
             <SectionCard
@@ -693,30 +944,7 @@ export function StatusReportPreviewPage({ id }: { id: string }) {
             </SectionCard>
           )}
 
-          <SectionCard
-            title="Missing or incomplete data"
-            icon={<AlertTriangle className="size-4" />}
-            count={snapshot.dataQuality.length}
-            empty="No missing or incomplete data flagged."
-          >
-            <ul className="divide-y divide-border/50">
-              {snapshot.dataQuality.map((item, index) => (
-                <li
-                  key={`${item.flagType ?? "f"}-${index}`}
-                  className="px-4 py-3 sm:px-5"
-                >
-                  <p className="text-sm font-semibold">
-                    {item.flagType
-                      ? formatLabel(item.flagType)
-                      : "Data quality flag"}
-                  </p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    {item.description ?? "No description provided."}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </SectionCard>
+          <DataQualitySection items={snapshot.dataQuality} resetKey={id} />
 
           {snapshot.phasesNotStarted.length > 0 && (
             <SectionCard

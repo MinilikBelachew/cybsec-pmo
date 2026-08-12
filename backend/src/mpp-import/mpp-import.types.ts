@@ -11,6 +11,7 @@ export type ParsedMppTask = {
   wbs?: string;
   outlineLevel?: number;
   summary: boolean;
+  milestone?: boolean;
   parentUid?: number;
   startDate?: string;
   finishDate?: string;
@@ -70,11 +71,22 @@ export type MppImportResultSummary = {
   dependenciesUpdated: number;
   phasesCreated: number;
   phasesUpdated: number;
+  milestonesCreated: number;
+  milestonesUpdated: number;
   resourcesMatched: number;
   assignmentsSkipped: number;
   warnings: string[];
   projectsCreated?: number;
   projectsUpdated?: number;
+};
+
+export type MppImportPreviewMilestone = {
+  uid: number;
+  title: string;
+  targetDate?: string;
+  phaseName?: string;
+  percentComplete?: number;
+  status: string;
 };
 
 export type MppImportPreviewTask = {
@@ -106,10 +118,12 @@ export type MppImportPreviewProject = {
   durationVarianceDays?: number;
   taskCount: number;
   phaseCount: number;
+  milestoneCount: number;
   dependencyCount: number;
   importMode: 'create' | 'update';
   resolvedProjectId?: string;
   tasks: MppImportPreviewTask[];
+  milestones: MppImportPreviewMilestone[];
 };
 
 export type MppImportPreview = {
@@ -120,6 +134,7 @@ export type MppImportPreview = {
   counts: {
     importableTasks: number;
     phasesFromSummaries: number;
+    milestonesFromFile: number;
     skippedSummaryTasks: number;
     dependencies: number;
     resourcesMatched: number;
@@ -128,5 +143,6 @@ export type MppImportPreview = {
   };
   projects?: MppImportPreviewProject[];
   tasks: MppImportPreviewTask[];
+  milestones: MppImportPreviewMilestone[];
   warnings: string[];
 };

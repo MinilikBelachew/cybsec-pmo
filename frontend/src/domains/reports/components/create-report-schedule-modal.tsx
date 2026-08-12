@@ -1,10 +1,10 @@
 "use client";
 import { Spinner } from "@/shared/components/spinner";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarClock, X } from "lucide-react";
+import { CalendarClock, Clock, X } from "lucide-react";
 import {
   Controller,
   useForm,
@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { cn } from "@/shared/utils/cn";
 import { useGetProjectsQuery } from "@/domains/projects";
 import { useGetRolesQuery } from "@/domains/roles/api/roles.api";
 import { useCreateReportScheduleMutation } from "../api/reports.api";
@@ -48,6 +49,36 @@ const WEEKDAY_OPTIONS = WEEKDAYS.map((day) => ({
   label: day.label,
 }));
 
+function RequiredLabel({
+  htmlFor,
+  children,
+}: {
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Label htmlFor={htmlFor}>
+      {children}
+      <span className="text-rose-600" aria-hidden>
+        *
+      </span>
+    </Label>
+  );
+}
+
+function openNativeTimePicker(input: HTMLInputElement | null) {
+  if (!input) return;
+  input.focus();
+  const withPicker = input as HTMLInputElement & {
+    showPicker?: () => void;
+  };
+  try {
+    withPicker.showPicker?.();
+  } catch {
+    // Browser may block showPicker outside a direct gesture; focus still helps.
+  }
+}
+
 export function CreateReportScheduleModal({
   open,
   onClose,
@@ -55,6 +86,7 @@ export function CreateReportScheduleModal({
   const { data: projects } = useGetProjectsQuery({ page: 1, limit: 100 });
   const { data: roles } = useGetRolesQuery({ page: 1, limit: 100 });
   const [create, { isLoading }] = useCreateReportScheduleMutation();
+  const timeInputRef = useRef<HTMLInputElement | null>(null);
 
   const internalRoles = useMemo(
     () => (roles?.data ?? []).filter((role) => !role.isExternal),
@@ -75,13 +107,17 @@ export function CreateReportScheduleModal({
     register,
     handleSubmit,
     reset,
-    formState: { errors },
+    formState: { errors, isSubmitted },
   } = useForm<ReportScheduleFormValues>({
     resolver: zodResolver(
       reportScheduleFormSchema,
     ) as Resolver<ReportScheduleFormValues>,
     defaultValues: emptyReportScheduleFormValues(),
+    mode: "onSubmit",
+    reValidateMode: "onChange",
   });
+
+  const { ref: timeRegisterRef, ...timeRegister } = register("time");
 
   const reportType = useWatch({ control, name: "reportType" });
   const weekday = useWatch({ control, name: "weekday" });
@@ -158,9 +194,10 @@ export function CreateReportScheduleModal({
             id="create-report-schedule-form"
             onSubmit={handleSubmit(onSubmit)}
             className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4"
+            noValidate
           >
             <div className="space-y-2">
-              <Label>Report type</Label>
+              <RequiredLabel>Report type</RequiredLabel>
               <div className="grid grid-cols-2 gap-2">
                 {(["WSR", "MSR"] as const).map((type) => (
                   <label
@@ -185,7 +222,7 @@ export function CreateReportScheduleModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="schedule-project">Project</Label>
+              <RequiredLabel htmlFor="schedule-project">Project</RequiredLabel>
               <Controller
                 control={control}
                 name="projectId"
@@ -198,7 +235,11 @@ export function CreateReportScheduleModal({
                     searchable
                     searchPlaceholder="Search projects..."
                     allowNone={false}
-                    triggerClassName="h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none"
+                    triggerClassName={cn(
+                      "h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none",
+                      errors.projectId &&
+                        "border-destructive ring-3 ring-destructive/20",
+                    )}
                     className="w-full max-w-full"
                   />
                 )}
@@ -219,7 +260,9 @@ export function CreateReportScheduleModal({
               <div className="grid gap-3 sm:grid-cols-2">
                 {reportType === "WSR" ? (
                   <div className="space-y-1.5">
-                    <Label htmlFor="schedule-weekday">Day of week</Label>
+                    <RequiredLabel htmlFor="schedule-weekday">
+                      Day of week
+                    </RequiredLabel>
                     <Controller
                       control={control}
                       name="weekday"
@@ -234,7 +277,11 @@ export function CreateReportScheduleModal({
                           options={WEEKDAY_OPTIONS}
                           noneLabel="Select day"
                           allowNone={false}
-                          triggerClassName="h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none"
+                          triggerClassName={cn(
+                            "h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none",
+                            errors.weekday &&
+                              "border-destructive ring-3 ring-destructive/20",
+                          )}
                           className="w-full max-w-full"
                         />
                       )}
@@ -245,7 +292,7 @@ export function CreateReportScheduleModal({
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <Label>Day of month</Label>
+                    <RequiredLabel>Day of month</RequiredLabel>
                     <Controller
                       control={control}
                       name="dayOfMonth"
@@ -289,14 +336,39 @@ export function CreateReportScheduleModal({
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="schedule-time">Time</Label>
-                  <Input
-                    id="schedule-time"
-                    type="time"
-                    className="h-10"
-                    aria-invalid={Boolean(errors.time)}
-                    {...register("time")}
-                  />
+                  <RequiredLabel htmlFor="schedule-time">Time</RequiredLabel>
+                  <div
+                    className={cn(
+                      "relative flex h-10 cursor-pointer items-center rounded-lg border border-border/60 bg-background px-3 shadow-none transition-colors hover:border-border focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+                      errors.time &&
+                        "border-destructive ring-3 ring-destructive/20",
+                    )}
+                    onClick={() => openNativeTimePicker(timeInputRef.current)}
+                  >
+                    <Clock
+                      className="pointer-events-none mr-2 size-4 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <Input
+                      id="schedule-time"
+                      type="time"
+                      step={60}
+                      className="h-auto flex-1 cursor-pointer border-0 bg-transparent p-0 shadow-none focus-visible:border-0 focus-visible:ring-0"
+                      aria-invalid={Boolean(errors.time)}
+                      {...timeRegister}
+                      ref={(element) => {
+                        timeRegisterRef(element);
+                        timeInputRef.current = element;
+                      }}
+                      onFocus={(event) =>
+                        openNativeTimePicker(event.currentTarget)
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openNativeTimePicker(event.currentTarget);
+                      }}
+                    />
+                  </div>
                   {errors.time && (
                     <p className={fieldErrorClass}>{errors.time.message}</p>
                   )}
@@ -314,7 +386,7 @@ export function CreateReportScheduleModal({
             </div>
 
             <div className="space-y-2">
-              <Label>Recipient roles</Label>
+              <RequiredLabel>Recipient roles</RequiredLabel>
               <p className="text-xs text-muted-foreground">
                 Reports are emailed only to users with these roles who are on
                 the selected project team (active allocation or project PM).
@@ -323,7 +395,14 @@ export function CreateReportScheduleModal({
                 control={control}
                 name="roleIds"
                 render={({ field }) => (
-                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2">
+                  <div
+                    className={cn(
+                      "max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2",
+                      errors.roleIds &&
+                        isSubmitted &&
+                        "border-destructive ring-3 ring-destructive/20",
+                    )}
+                  >
                     {internalRoles.length === 0 ? (
                       <p className="px-2 py-4 text-center text-xs text-muted-foreground">
                         No internal roles available.

@@ -224,6 +224,10 @@ public class MspdiExportService {
     }
     task.setSummary(dto.isSummary());
 
+    if (dto.isMilestone()) {
+      task.setMilestone(true);
+    }
+
     LocalDateTime start = parseDateTime(dto.getStartDate(), false);
     LocalDateTime finish = parseDateTime(dto.getFinishDate(), true);
     if (start != null) {
@@ -242,7 +246,9 @@ public class MspdiExportService {
       task.setBaselineFinish(baselineFinish);
     }
 
-    if (dto.getDurationDays() != null && dto.getDurationDays() > 0) {
+    if (dto.isMilestone()) {
+      task.setDuration(Duration.getInstance(0, TimeUnit.DAYS));
+    } else if (dto.getDurationDays() != null && dto.getDurationDays() > 0) {
       task.setDuration(Duration.getInstance(dto.getDurationDays(), TimeUnit.DAYS));
     }
 

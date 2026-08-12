@@ -14,7 +14,9 @@ export const WEEKDAYS = [
 
 export const reportScheduleFormSchema = z
   .object({
-    reportType: z.enum(["WSR", "MSR"]),
+    reportType: z.enum(["WSR", "MSR"], {
+      message: "Report type is required",
+    }),
     projectId: z.string().trim().min(1, "Project is required"),
     roleIds: z
       .array(z.number().int().positive())
@@ -22,23 +24,27 @@ export const reportScheduleFormSchema = z
     weekday: z.coerce.number().int().min(0).max(6).optional(),
     dayOfMonth: z.coerce.number().int().min(1).max(28).optional(),
     time: z
-      .string()
+      .string({ message: "Time is required" })
+      .trim()
       .min(1, "Time is required")
-      .regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
+      .regex(/^\d{2}:\d{2}(:\d{2})?$/, "Enter a valid time"),
   })
   .superRefine((data, ctx) => {
-    if (data.reportType === "WSR" && data.weekday === undefined) {
+    if (data.reportType === "WSR" && (data.weekday === undefined || data.weekday === null)) {
       ctx.addIssue({
         code: "custom",
         path: ["weekday"],
-        message: "Day of week is required for weekly reports",
+        message: "Day of week is required",
       });
     }
-    if (data.reportType === "MSR" && data.dayOfMonth == null) {
+    if (
+      data.reportType === "MSR" &&
+      (data.dayOfMonth === undefined || data.dayOfMonth === null)
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["dayOfMonth"],
-        message: "Day of month is required for monthly reports",
+        message: "Day of month is required",
       });
     }
   });

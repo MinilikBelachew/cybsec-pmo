@@ -136,13 +136,12 @@ function buildEditableProjects(
         finishDate: project.finishDate,
         taskCount: project.taskCount,
         phaseCount: project.phaseCount,
+        milestoneCount: project.milestoneCount ?? 0,
         dependencyCount: project.dependencyCount,
         tasks: project.tasks ?? [],
+        milestones: project.milestones ?? [],
         errors: [],
-        warnings:
-          project.importMode === "update"
-            ? ["Existing project — schedule will be upserted; metadata edits are locked."]
-            : [],
+        warnings: [],
       };
       row.errors = validateEditableProject(row);
       return row;
@@ -165,8 +164,10 @@ function buildEditableProjects(
     finishDate: data.finishDate,
     taskCount: data.counts.importableTasks,
     phaseCount: data.counts.phasesFromSummaries,
+    milestoneCount: data.counts.milestonesFromFile ?? 0,
     dependencyCount: data.counts.dependencies,
     tasks: data.tasks ?? [],
+    milestones: data.milestones ?? [],
     errors: [],
     warnings: [],
   };
@@ -197,6 +198,8 @@ export function ImportMppDialog({
     dependenciesUpdated: number;
     phasesCreated: number;
     phasesUpdated: number;
+    milestonesCreated: number;
+    milestonesUpdated: number;
     projectsCreated: number;
     projectsUpdated: number;
     projectCreated: boolean;
@@ -362,9 +365,12 @@ export function ImportMppDialog({
             finishDate: matched?.finishDate ?? data.finishDate,
             taskCount: matched?.taskCount ?? data.counts.importableTasks,
             phaseCount: matched?.phaseCount ?? data.counts.phasesFromSummaries,
+            milestoneCount:
+              matched?.milestoneCount ?? data.counts.milestonesFromFile ?? 0,
             dependencyCount:
               matched?.dependencyCount ?? data.counts.dependencies,
             tasks: matched?.tasks ?? data.tasks ?? [],
+            milestones: matched?.milestones ?? data.milestones ?? [],
             errors: [],
             warnings:
               data.mode === "portfolio" &&
@@ -535,6 +541,8 @@ export function ImportMppDialog({
               dependenciesUpdated: Number(summary.dependenciesUpdated ?? 0),
               phasesCreated: Number(summary.phasesCreated ?? 0),
               phasesUpdated: Number(summary.phasesUpdated ?? 0),
+              milestonesCreated: Number(summary.milestonesCreated ?? 0),
+              milestonesUpdated: Number(summary.milestonesUpdated ?? 0),
               projectsCreated,
               projectsUpdated,
               projectCreated: projectsCreated > 0,
@@ -598,12 +606,15 @@ export function ImportMppDialog({
             dependenciesUpdated: Number(summary.dependenciesUpdated ?? 0),
             phasesCreated: Number(summary.phasesCreated ?? 0),
             phasesUpdated: Number(summary.phasesUpdated ?? 0),
+            milestonesCreated: Number(summary.milestonesCreated ?? 0),
+            milestonesUpdated: Number(summary.milestonesUpdated ?? 0),
             projectsCreated: isNewProject ? 1 : 0,
             projectsUpdated: 0,
             projectCreated: isNewProject,
           });
           const createdBits = [
             summary.phasesCreated ? `${summary.phasesCreated} phases` : null,
+            summary.milestonesCreated ? `${summary.milestonesCreated} milestones` : null,
             summary.tasksCreated ? `${summary.tasksCreated} tasks` : null,
             summary.dependenciesCreated
               ? `${summary.dependenciesCreated} dependencies`
@@ -662,14 +673,14 @@ export function ImportMppDialog({
       }
       if (!isNewProject) {
         const row = editableProjects[0];
-        return `Into this project · ${row?.taskCount ?? preview.counts.importableTasks} tasks · ${row?.phaseCount ?? preview.counts.phasesFromSummaries} phases · ${row?.dependencyCount ?? preview.counts.dependencies} dependencies`;
+        return `Into this project · ${row?.taskCount ?? preview.counts.importableTasks} tasks · ${row?.phaseCount ?? preview.counts.phasesFromSummaries} phases · ${row?.milestoneCount ?? preview.counts.milestonesFromFile ?? 0} milestones · ${row?.dependencyCount ?? preview.counts.dependencies} dependencies`;
       }
       if (isPortfolio) {
         const createCount = editableProjects.filter((p) => p.importMode === "create").length;
         const updateCount = editableProjects.filter((p) => p.importMode === "update").length;
         return `${editableProjects.length} projects ready · ${createCount} create · ${updateCount} update`;
       }
-      return `${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.dependencies} dependencies`;
+      return `${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones · ${preview.counts.dependencies} dependencies`;
     }
     return null;
   })();
@@ -791,8 +802,8 @@ export function ImportMppDialog({
                         {(selectedFile.size / 1024).toFixed(1)} KB
                         {preview && !parseError
                           ? isPortfolio
-                            ? ` · ${preview.counts.projects ?? editableProjects.length} projects · ${preview.counts.importableTasks} tasks`
-                            : ` · ${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases`
+                            ? ` · ${preview.counts.projects ?? editableProjects.length} projects · ${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones`
+                            : ` · ${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones`
                           : isPreviewing
                             ? " · Parsing…"
                             : ""}
@@ -853,9 +864,10 @@ export function ImportMppDialog({
                               .filter(Boolean)
                               .join(", ")}`
                           : null,
-                        result.phasesCreated || result.tasksCreated || result.dependenciesCreated
+                        result.phasesCreated || result.milestonesCreated || result.tasksCreated || result.dependenciesCreated
                           ? `Created: ${[
                               result.phasesCreated ? `${result.phasesCreated} phases` : null,
+                              result.milestonesCreated ? `${result.milestonesCreated} milestones` : null,
                               result.tasksCreated ? `${result.tasksCreated} tasks` : null,
                               result.dependenciesCreated
                                 ? `${result.dependenciesCreated} deps`
@@ -864,9 +876,10 @@ export function ImportMppDialog({
                               .filter(Boolean)
                               .join(", ")}`
                           : null,
-                        result.phasesUpdated || result.tasksUpdated || result.dependenciesUpdated
+                        result.phasesUpdated || result.milestonesUpdated || result.tasksUpdated || result.dependenciesUpdated
                           ? `Updated: ${[
                               result.phasesUpdated ? `${result.phasesUpdated} phases` : null,
+                              result.milestonesUpdated ? `${result.milestonesUpdated} milestones` : null,
                               result.tasksUpdated ? `${result.tasksUpdated} tasks` : null,
                               result.dependenciesUpdated
                                 ? `${result.dependenciesUpdated} deps`
@@ -909,6 +922,9 @@ export function ImportMppDialog({
                           {editableProjects[0]?.phaseCount ??
                             preview.counts.phasesFromSummaries}{" "}
                           phases
+                        </span>
+                        <span className="rounded-lg border border-border/60 bg-background px-2 py-1">
+                          {preview.counts.milestonesFromFile ?? 0} milestones
                         </span>
                         <span className="rounded-lg border border-border/60 bg-background px-2 py-1">
                           {editableProjects[0]?.dependencyCount ??

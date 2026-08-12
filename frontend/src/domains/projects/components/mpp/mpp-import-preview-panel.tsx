@@ -7,6 +7,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Flag,
   FolderOpen,
   Layers,
   XCircle,
@@ -18,7 +19,7 @@ import type {
   Department,
   ProjectManager,
 } from "../../types/projects.types";
-import type { MppImportPreviewTask } from "../../types/mpp-import.types";
+import type { MppImportPreviewMilestone, MppImportPreviewTask } from "../../types/mpp-import.types";
 import {
   BILLING_OPTIONS,
   CURRENCY_OPTIONS,
@@ -45,8 +46,10 @@ export type MppEditableProject = {
   finishDate?: string;
   taskCount: number;
   phaseCount: number;
+  milestoneCount: number;
   dependencyCount: number;
   tasks: MppImportPreviewTask[];
+  milestones: MppImportPreviewMilestone[];
   errors: string[];
   warnings: string[];
 };
@@ -127,9 +130,9 @@ export function MppImportPreviewPanel({
   const [openAccordion, setOpenAccordion] = useState<string | null>(
     projects[0]?.name ?? null,
   );
-  const [activeTab, setActiveTab] = useState<Record<string, "phases" | "tasks">>(
-    {},
-  );
+  const [activeTab, setActiveTab] = useState<
+    Record<string, "phases" | "milestones" | "tasks">
+  >({});
 
   const readyCount = useMemo(
     () => projects.filter((p) => p.errors.length === 0).length,
@@ -377,7 +380,7 @@ export function MppImportPreviewPanel({
 
       <div className="flex flex-col gap-3">
         <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Phases, Tasks &amp; Schedule
+          Phases, Milestones, Tasks &amp; Schedule
         </h3>
         <div className="space-y-3">
           {projects.map((proj) => {
@@ -409,6 +412,10 @@ export function MppImportPreviewPanel({
                       {proj.phaseCount} Phases
                     </Badge>
                     <Badge variant="outline" className="gap-1 text-[10px] font-semibold">
+                      <Flag className="size-3" />
+                      {proj.milestoneCount} Milestones
+                    </Badge>
+                    <Badge variant="outline" className="gap-1 text-[10px] font-semibold">
                       <CheckSquare className="size-3" />
                       {proj.taskCount} Tasks
                     </Badge>
@@ -431,6 +438,23 @@ export function MppImportPreviewPanel({
                         )}
                       >
                         Phases ({phaseGroups.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveTab((prev) => ({
+                            ...prev,
+                            [proj.name]: "milestones",
+                          }))
+                        }
+                        className={cn(
+                          "cursor-pointer border-b-2 px-3 pb-2 text-xs font-bold transition-colors",
+                          tab === "milestones"
+                            ? "border-primary text-primary"
+                            : "border-transparent text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        Milestones ({proj.milestones.length})
                       </button>
                       <button
                         type="button"
@@ -496,6 +520,63 @@ export function MppImportPreviewPanel({
                                 </tr>
                               );
                             })}
+                          </tbody>
+                        </table>
+                      ) : tab === "milestones" ? (
+                        <table className="w-full min-w-[900px] text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-border bg-muted/40 text-[10px] font-bold uppercase text-muted-foreground">
+                              <th className="w-40 p-3">Validation</th>
+                              <th className="w-64 p-3">Title</th>
+                              <th className="w-36 p-3">Target Date</th>
+                              <th className="w-48 p-3">Phase</th>
+                              <th className="w-32 p-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60">
+                            {proj.milestones.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={5}
+                                  className="p-6 text-center text-muted-foreground"
+                                >
+                                  No milestones detected in this file.
+                                </td>
+                              </tr>
+                            ) : (
+                              proj.milestones.map((ms) => (
+                                <tr key={ms.uid} className="hover:bg-muted/5">
+                                  <td className="p-3">
+                                    <span className="flex items-center gap-1.5 font-semibold text-emerald-600">
+                                      <CheckCircle className="size-3.5" />
+                                      Ready
+                                    </span>
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="flex items-center gap-1.5 font-semibold">
+                                      <Flag className="size-3 shrink-0 text-amber-600" />
+                                      <span className="truncate">{ms.title}</span>
+                                    </div>
+                                  </td>
+                                  <td className="p-3">{formatDate(ms.targetDate)}</td>
+                                  <td className="p-3 font-medium text-primary">
+                                    {ms.phaseName || "—"}
+                                  </td>
+                                  <td className="p-3">
+                                    <span
+                                      className={cn(
+                                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                        ms.status === "Completed"
+                                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                                          : "border-amber-500/30 bg-amber-500/10 text-amber-700",
+                                      )}
+                                    >
+                                      {ms.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
                       ) : (

@@ -147,6 +147,8 @@ export class MppImportService {
         dependenciesUpdated: 0,
         phasesCreated: 0,
         phasesUpdated: 0,
+        milestonesCreated: 0,
+        milestonesUpdated: 0,
         resourcesMatched: 0,
         assignmentsSkipped: 0,
         warnings: [...(parsed.warnings ?? []), ...segmentWarnings],
@@ -243,6 +245,8 @@ export class MppImportService {
         totals.dependenciesUpdated += summary.dependenciesUpdated;
         totals.phasesCreated += summary.phasesCreated;
         totals.phasesUpdated += summary.phasesUpdated;
+        totals.milestonesCreated += summary.milestonesCreated;
+        totals.milestonesUpdated += summary.milestonesUpdated;
         totals.resourcesMatched += summary.resourcesMatched;
         totals.assignmentsSkipped += summary.assignmentsSkipped;
         totals.warnings.push(

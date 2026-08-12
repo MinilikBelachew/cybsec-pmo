@@ -14,6 +14,7 @@ import { ImportsJobsService } from './imports-jobs.service';
 import {
   loadExcelWorkbook,
   listExcelSheetNames,
+  findProjectNestedSheetName,
   worksheetToStringGrid,
 } from './excel-sheet.reader';
 import {
@@ -161,12 +162,24 @@ export class ExcelProjectsPreviewService {
       const projName = projRow.name.trim();
       if (!projName) continue;
 
-      const phaseSheetName = `${projName} Phases`;
-      const taskSheetName = `${projName} Tasks`;
-      const msSheetName = `${projName} Milestones`;
-      const hasPhaseSheet = sheetNames.includes(phaseSheetName);
-      const hasTaskSheet = sheetNames.includes(taskSheetName);
-      const hasMsSheet = sheetNames.includes(msSheetName);
+      const phaseSheetName = findProjectNestedSheetName(
+        sheetNames,
+        projName,
+        ' Phases',
+      );
+      const taskSheetName = findProjectNestedSheetName(
+        sheetNames,
+        projName,
+        ' Tasks',
+      );
+      const msSheetName = findProjectNestedSheetName(
+        sheetNames,
+        projName,
+        ' Milestones',
+      );
+      const hasPhaseSheet = Boolean(phaseSheetName);
+      const hasTaskSheet = Boolean(taskSheetName);
+      const hasMsSheet = Boolean(msSheetName);
       if (!hasPhaseSheet && !hasTaskSheet && !hasMsSheet) continue;
 
       let existingTasks: { id: string; title: string }[] = [];
@@ -232,7 +245,7 @@ export class ExcelProjectsPreviewService {
         existingMilestones = milestones;
       }
 
-      if (hasPhaseSheet) {
+      if (hasPhaseSheet && phaseSheetName) {
         const raw = worksheetToStringGrid(workbook, phaseSheetName, {
           allowEmpty: true,
         });
@@ -244,7 +257,7 @@ export class ExcelProjectsPreviewService {
         }
       }
 
-      if (hasTaskSheet) {
+      if (hasTaskSheet && taskSheetName) {
         const raw = worksheetToStringGrid(workbook, taskSheetName, {
           allowEmpty: true,
         });
@@ -258,7 +271,7 @@ export class ExcelProjectsPreviewService {
         }
       }
 
-      if (hasMsSheet) {
+      if (hasMsSheet && msSheetName) {
         const raw = worksheetToStringGrid(workbook, msSheetName, {
           allowEmpty: true,
         });

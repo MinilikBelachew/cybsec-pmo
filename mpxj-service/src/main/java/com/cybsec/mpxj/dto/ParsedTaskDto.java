@@ -10,6 +10,8 @@ public class ParsedTaskDto {
   private String wbs;
   private Integer outlineLevel;
   private boolean summary;
+  /** MS Project milestone flag (0-day checkpoint). */
+  private boolean milestone;
   private Integer parentUid;
   private String startDate;
   private String finishDate;
@@ -69,6 +71,14 @@ public class ParsedTaskDto {
 
   public void setSummary(boolean summary) {
     this.summary = summary;
+  }
+
+  public boolean isMilestone() {
+    return milestone;
+  }
+
+  public void setMilestone(boolean milestone) {
+    this.milestone = milestone;
   }
 
   public Integer getParentUid() {

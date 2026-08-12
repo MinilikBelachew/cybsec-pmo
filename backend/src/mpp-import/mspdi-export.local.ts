@@ -24,7 +24,10 @@ function toDateTime(day?: string, end = false) {
 }
 
 /** MSPDI duration: working days → PT hours (8h day). Supports fractions. */
-function toIsoDuration(days?: number | null): string {
+function toIsoDuration(days?: number | null, milestone = false): string {
+  if (milestone) {
+    return 'PT0H0M0S';
+  }
   if (days == null || !Number.isFinite(Number(days)) || Number(days) <= 0) {
     return '';
   }
@@ -139,12 +142,15 @@ function renderScheduleFields(
   const finish = toDateTime(task.finishDate, true);
   const baselineStart = toDateTime(task.baselineStart);
   const baselineFinish = toDateTime(task.baselineFinish, true);
-  const durationDays = resolveDurationDays({
-    durationDays: task.durationDays,
-    startDate: task.startDate,
-    finishDate: task.finishDate,
-  });
-  const duration = toIsoDuration(durationDays) || 'PT8H0M0S';
+  const durationDays = task.milestone
+    ? 0
+    : resolveDurationDays({
+        durationDays: task.durationDays,
+        startDate: task.startDate,
+        finishDate: task.finishDate,
+      });
+  const duration =
+    toIsoDuration(durationDays, Boolean(task.milestone)) || 'PT8H0M0S';
   const baselineDuration = toIsoDuration(task.baselineDurationDays);
   const durationVariance =
     task.durationVarianceDays != null
@@ -321,7 +327,7 @@ ${projectSchedule}
       <Critical>0</Critical>
       <Priority>${task.priority ?? 500}</Priority>
 ${schedule}
-      <Milestone>0</Milestone>
+      <Milestone>${task.milestone ? 1 : 0}</Milestone>
       <Estimated>0</Estimated>
       <Active>1</Active>
       <Notes>${esc(task.notes || '')}</Notes>

@@ -37,8 +37,12 @@ import {
   useGetCustomersQuery,
   useGetProjectManagersQuery,
   useLazyExportProjectsQuery,
+  useLazyGetPhasesQuery,
+  useLazyGetMilestonesQuery,
 } from "@/domains/projects/api/projects.api";
-import { useLazyExportTasksQuery } from "@/domains/projects/api/tasks.api";
+import { useLazyExportTasksQuery, useLazyGetTaskDependenciesQuery } from "@/domains/projects/api/tasks.api";
+import type { ProjectMilestone, ProjectPhase } from "@/domains/projects/types/projects.types";
+import type { TaskExportDependency } from "@/domains/projects/utils/task-export-fields";
 import {
   exportProjectsToXLSX,
   convertToCSV,
@@ -175,6 +179,9 @@ export function DashboardHome() {
 
   const [triggerExportProjects, { isLoading: isExportingProjects }] = useLazyExportProjectsQuery();
   const [triggerExportTasks, { isLoading: isExportingTasks }] = useLazyExportTasksQuery();
+  const [triggerExportDependencies] = useLazyGetTaskDependenciesQuery();
+  const [triggerGetPhases] = useLazyGetPhasesQuery();
+  const [triggerGetMilestones] = useLazyGetMilestonesQuery();
 
   const handleExportProjects = async (
     selectedFields: string[],
@@ -194,17 +201,47 @@ export function DashboardHome() {
       let filename: string;
 
       if (format === "xlsx" || format === "pdf" || format === "doc" || format === "mspdi") {
-        toast.loading("Fetching tasks for projects...", { id: exportToast });
+        toast.loading("Fetching phases, milestones, tasks, and dependencies...", {
+          id: exportToast,
+        });
         const tasksPromises = projectsToExport.map((proj) =>
           triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
         );
-        const tasksResults = await Promise.all(tasksPromises);
+        const depPromises = projectsToExport.map((proj) =>
+          triggerExportDependencies({ projectId: proj.id })
+            .unwrap()
+            .catch(() => [] as TaskExportDependency[]),
+        );
+        const phasePromises = projectsToExport.map((proj) =>
+          triggerGetPhases(proj.id)
+            .unwrap()
+            .catch(() => [] as ProjectPhase[]),
+        );
+        const milestonePromises = projectsToExport.map((proj) =>
+          triggerGetMilestones(proj.id)
+            .unwrap()
+            .catch(() => [] as ProjectMilestone[]),
+        );
+        const [tasksResults, depResults, phaseResults, milestoneResults] =
+          await Promise.all([
+            Promise.all(tasksPromises),
+            Promise.all(depPromises),
+            Promise.all(phasePromises),
+            Promise.all(milestonePromises),
+          ]);
         const allTasks = tasksResults.flatMap((tasks, index) => {
           const proj = projectsToExport[index];
           return tasks.map((t) => ({
             ...t,
             projectName: proj.name,
           }));
+        });
+        const allDependencies = depResults.flat() as TaskExportDependency[];
+        const phasesByProjectId: Record<string, ProjectPhase[]> = {};
+        const milestonesByProjectId: Record<string, ProjectMilestone[]> = {};
+        projectsToExport.forEach((proj, index) => {
+          phasesByProjectId[proj.id] = phaseResults[index] ?? [];
+          milestonesByProjectId[proj.id] = milestoneResults[index] ?? [];
         });
 
         if (format === "xlsx") {
@@ -215,7 +252,10 @@ export function DashboardHome() {
             managers,
             selectedFields,
             allTasks,
-            selectedTaskFields
+            selectedTaskFields,
+            allDependencies,
+            phasesByProjectId,
+            milestonesByProjectId,
           );
           blob = new Blob([xlsxBuffer], {
             type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -229,7 +269,10 @@ export function DashboardHome() {
             managers,
             selectedFields,
             allTasks,
-            selectedTaskFields
+            selectedTaskFields,
+            allDependencies,
+            phasesByProjectId,
+            milestonesByProjectId,
           );
           filename = `projects_export_${new Date().toISOString().split("T")[0]}.pdf`;
         } else if (format === "doc") {
@@ -240,11 +283,24 @@ export function DashboardHome() {
             managers,
             selectedFields,
             allTasks,
-            selectedTaskFields
+            selectedTaskFields,
+            allDependencies,
+            phasesByProjectId,
+            milestonesByProjectId,
           );
           filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
         } else {
-          blob = exportProjectsToMspdi(projectsToExport, departments, customers, managers, allTasks);
+          blob = exportProjectsToMspdi(
+            projectsToExport,
+            departments,
+            customers,
+            managers,
+            allTasks,
+            allDependencies,
+            [],
+            phasesByProjectId,
+            milestonesByProjectId,
+          );
           filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
         }
       } else {
