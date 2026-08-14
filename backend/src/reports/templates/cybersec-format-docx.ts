@@ -569,34 +569,29 @@ export async function buildStatusReportDocx(
   if (snapshot.issues.length === 0) {
     children.push(muted('No issues reported this period.', brand));
   } else {
-    for (const issue of snapshot.issues) {
-      children.push(body(issue.description, { bold: true }));
-      children.push(
-        buildControlBlock(brand, [
-          ['Date reported', formatApprovedDate(issue.reportedDate)],
-          [
-            'Blocking',
-            issue.isBlocking == null
-              ? NOT_RECORDED
-              : issue.isBlocking
-                ? 'Yes'
-                : 'No',
-          ],
-          ['Blocks', dash(issue.blocks)],
-          ['Action required', dash(issue.actionRequired)],
-          ['Issue owner', dash(issue.issueOwner)],
-          ['Action owner', dash(issue.actionOwner)],
-          ['Customer dependency', dash(issue.dependency)],
-          ['Target resolution', formatApprovedDate(issue.targetResolutionDate)],
-          [
-            'Actual resolution',
-            issue.actualResolutionDate
-              ? formatApprovedDate(issue.actualResolutionDate)
-              : 'Open',
-          ],
+    children.push(
+      buildTable(
+        brand,
+        [
+          { header: 'Issue', width: 24 },
+          { header: 'Date reported', width: 16 },
+          { header: 'Issue owner', width: 16 },
+          { header: 'Target resolution', width: 16 },
+          { header: 'Actual resolution', width: 16 },
+          { header: 'Status', width: 12 },
+        ],
+        snapshot.issues.map((issue) => [
+          { text: issue.description, bold: true },
+          formatApprovedDate(issue.reportedDate),
+          dash(issue.issueOwner),
+          formatApprovedDate(issue.targetResolutionDate),
+          issue.actualResolutionDate
+            ? formatApprovedDate(issue.actualResolutionDate)
+            : 'Open',
+          issue.status,
         ]),
-      );
-    }
+      ),
+    );
   }
 
   section('Risks');
