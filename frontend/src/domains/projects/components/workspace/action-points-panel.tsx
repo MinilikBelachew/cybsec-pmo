@@ -36,7 +36,6 @@ import { useGetProjectTaskAssigneesQuery } from "@/domains/projects/api/projects
 import type {
   ActionPoint,
   ActionPointPriority,
-  ActionPointSourceType,
   ActionPointStatus,
 } from "@/domains/projects/types/action-points.types";
 import {
@@ -72,13 +71,22 @@ const PRIORITY_OPTIONS: ActionPointPriority[] = [
   "Critical",
 ];
 
-const SOURCE_TYPE_OPTIONS: ActionPointSourceType[] = [
+const SOURCE_TYPE_OPTIONS = [
   "Project",
   "Task",
   "Meeting",
   "Risk",
   "Issue",
-];
+] as const;
+
+type ActionPointFormSourceType = (typeof SOURCE_TYPE_OPTIONS)[number];
+
+function toFormSourceType(value: string | null | undefined): ActionPointFormSourceType {
+  if (value === "MoM") return "Meeting";
+  return value && (SOURCE_TYPE_OPTIONS as readonly string[]).includes(value)
+    ? (value as ActionPointFormSourceType)
+    : "Project";
+}
 
 /** Matches backend ACTION_POINT_MANAGER_ROLES */
 const ACTION_POINT_MANAGER_ROLES = new Set([
@@ -289,9 +297,7 @@ export function ActionPointsPanel({
       priority: (PRIORITY_OPTIONS.includes(ap.priority as ActionPointPriority)
         ? ap.priority
         : "Medium") as ActionPointPriority,
-      sourceType: (SOURCE_TYPE_OPTIONS.includes(ap.sourceType as ActionPointSourceType)
-        ? ap.sourceType
-        : "Project") as ActionPointSourceType,
+      sourceType: toFormSourceType(String(ap.sourceType)),
       sourceId: ap.sourceId || "",
     });
     setFormMode("edit");
@@ -526,8 +532,7 @@ export function ActionPointsPanel({
                 <Select
                   value={field.value}
                   onValueChange={(v) => {
-                    const next =
-                      (v as ActionPointSourceType) || "Project";
+                    const next = toFormSourceType(v);
                     field.onChange(next);
                     setValue("sourceId", "");
                   }}
