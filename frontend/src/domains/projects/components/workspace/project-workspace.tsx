@@ -42,7 +42,37 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import { ChevronDown, ChevronLeft, Plus, Star, List, LayoutGrid, Calendar as CalendarIcon, ChartGantt, Table2, Search, ArrowLeft, Flag, ChevronRight, CheckCircle2, Clock, Upload, Download, FileUp, Maximize2, Minimize2, ScrollText, Users2, FolderOpen, Milestone, CheckSquare, MessageSquareText } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  Plus,
+  Star,
+  List,
+  LayoutGrid,
+  Calendar as CalendarIcon,
+  ChartGantt,
+  Table2,
+  Search,
+  Loader2,
+  ArrowLeft,
+  Flag,
+  ChevronRight,
+  CheckCircle2,
+  Clock,
+  Upload,
+  Download,
+  FileUp,
+  Maximize2,
+  Minimize2,
+  ScrollText,
+  Users2,
+  FolderOpen,
+  Milestone,
+  CheckSquare,
+  MessageSquareText,
+  AlertTriangle,
+  CircleAlert,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -70,6 +100,10 @@ import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
 import { ActionPointsPanel } from "./action-points-panel";
 import { MeetingsPanel } from "./meetings-panel";
+import {
+  ProjectIssuesPanel,
+  ProjectRisksPanel,
+} from "@/domains/risk-compliance";
 import { formatProjectBudget } from "../../utils/format-budget";
 import {
   getMethodologyDefaultView,
@@ -94,6 +128,8 @@ type View =
   | "docs"
   | "actions"
   | "meetings"
+  | "risks"
+  | "issues"
   | "audit";
 
 interface Task {
@@ -148,6 +184,8 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "docs", label: "Documents", icon: FolderOpen },
   { id: "actions", label: "Action points", icon: CheckSquare },
   { id: "meetings", label: "Meetings & MoM", icon: MessageSquareText },
+  { id: "risks", label: "Risks", icon: AlertTriangle },
+  { id: "issues", label: "Issues", icon: CircleAlert },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -1165,7 +1203,7 @@ export function ProjectWorkspace() {
           )}
         </button>
       </div>
-      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && activeView !== "meetings" && (
+      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && activeView !== "meetings" && activeView !== "risks" && activeView !== "issues" && (
       <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Search & Filters */}
         <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1504,6 +1542,18 @@ export function ProjectWorkspace() {
         {activeView === "meetings" && (
           <div className="h-full min-h-0">
             <MeetingsPanel projectId={id} canEdit={canEditProjects} />
+          </div>
+        )}
+
+        {activeView === "risks" && (
+          <div className="h-full min-h-0">
+            <ProjectRisksPanel projectId={id} />
+          </div>
+        )}
+
+        {activeView === "issues" && (
+          <div className="h-full min-h-0">
+            <ProjectIssuesPanel projectId={id} />
           </div>
         )}
 

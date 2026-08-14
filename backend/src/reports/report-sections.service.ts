@@ -84,8 +84,8 @@ export function resolveReportPeriod(
 
 /**
  * Derives the approved status report's data sections from the project record.
- * Fields with no source in the schema are returned null so the renderers can
- * print the agreed "Not recorded" line rather than omitting the field.
+ * Issue columns the schema does not store are omitted from the snapshot
+ * rather than printed as empty "Not recorded" fields.
  */
 @Injectable()
 export class ReportSectionsService {
@@ -247,13 +247,7 @@ export class ReportSectionsService {
       return {
         description: issue.title,
         reportedDate: iso(issue.createdAt),
-        // No blocking flag, action owner, or customer dependency is captured yet.
-        isBlocking: null,
-        blocks: null,
-        actionRequired: null,
         issueOwner: issue.owner.displayName,
-        actionOwner: null,
-        dependency: null,
         targetResolutionDate: iso(
           issue.expectedResolutionDate ?? issue.dueDate,
         ),
@@ -274,6 +268,7 @@ export class ReportSectionsService {
         where: { projectId, status: { notIn: CLOSED_RISK_STATUSES } },
         orderBy: { score: 'desc' },
         select: {
+          title: true,
           category: true,
           impact: true,
           likelihood: true,
@@ -303,6 +298,7 @@ export class ReportSectionsService {
 
     const rows: RiskRow[] = manualRisks.map((risk) => ({
       description:
+        risk.title?.trim() ||
         risk.mitigationPlan?.trim() ||
         `${risk.category} exposure (impact ${risk.impact}, likelihood ${risk.likelihood})`,
       category: risk.category,
@@ -371,6 +367,7 @@ export class ReportSectionsService {
           targetDate: { lt: today },
         },
         select: {
+          title: true,
           category: true,
           mitigationPlan: true,
           targetDate: true,
@@ -428,7 +425,7 @@ export class ReportSectionsService {
     for (const risk of risks) {
       if (!risk.targetDate) continue;
       rows.push({
-        item: risk.mitigationPlan?.trim() || `${risk.category} risk`,
+        item: risk.title?.trim() || risk.mitigationPlan?.trim() || `${risk.category} risk`,
         type: 'Risk',
         requestedDate: iso(risk.targetDate),
         daysWaiting: daysBetween(risk.targetDate, today),

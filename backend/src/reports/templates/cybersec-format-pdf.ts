@@ -204,37 +204,26 @@ export async function buildStatusReportPdf(
   if (snapshot.issues.length === 0) {
     writer.nothingToReport('No issues reported this period.');
   } else {
-    // Ten mandatory fields per issue do not fit a portrait grid, so each issue
-    // is rendered as a titled record with its fields three to a row.
-    for (const issue of snapshot.issues) {
-      writer.paragraph(issue.description, { bold: true });
-      writer.controlBlock([
-        ['Date reported', formatApprovedDate(issue.reportedDate)],
-        [
-          'Blocking',
-          issue.isBlocking == null
-            ? NOT_RECORDED
-            : issue.isBlocking
-              ? 'Yes'
-              : 'No',
-        ],
-        ['Blocks', dash(issue.blocks)],
-        ['Action required', dash(issue.actionRequired)],
-        ['Issue owner', dash(issue.issueOwner)],
-        ['Action owner', dash(issue.actionOwner)],
-        ['Customer dependency', dash(issue.dependency)],
-        [
-          'Target resolution',
-          formatApprovedDate(issue.targetResolutionDate),
-        ],
-        [
-          'Actual resolution',
-          issue.actualResolutionDate
-            ? formatApprovedDate(issue.actualResolutionDate)
-            : 'Open',
-        ],
-      ]);
-    }
+    writer.table(
+      [
+        { header: 'Issue', width: 24 },
+        { header: 'Date reported', width: 16 },
+        { header: 'Issue owner', width: 16 },
+        { header: 'Target resolution', width: 16 },
+        { header: 'Actual resolution', width: 16 },
+        { header: 'Status', width: 12 },
+      ],
+      snapshot.issues.map((issue) => [
+        { text: issue.description, bold: true },
+        formatApprovedDate(issue.reportedDate),
+        dash(issue.issueOwner),
+        formatApprovedDate(issue.targetResolutionDate),
+        issue.actualResolutionDate
+          ? formatApprovedDate(issue.actualResolutionDate)
+          : 'Open',
+        issue.status,
+      ]),
+    );
   }
 
   section('Risks');

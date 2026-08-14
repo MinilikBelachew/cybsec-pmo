@@ -27,6 +27,14 @@ export class ActionPointDto {
   @ApiPropertyOptional({ nullable: true })
   projectId: string | null;
 
+  @ApiPropertyOptional()
+  projectName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Display label for the linked source (project/task/risk/issue/meeting)',
+  })
+  linkedLabel?: string;
+
   @ApiProperty()
   ownerId: string;
 

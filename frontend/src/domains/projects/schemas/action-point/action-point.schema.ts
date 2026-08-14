@@ -64,8 +64,24 @@ export function createActionPointSchema(options?: {
         .uuid("Owner is required"),
       dueDate: requiredDueDate,
       priority: z.enum(["Low", "Medium", "High", "Critical"]),
+      sourceType: z.enum(["Project", "Task", "Meeting", "Risk", "Issue"]),
+      sourceId: z.string().optional(),
     })
     .superRefine((data, ctx) => {
+      if (
+        data.sourceType === "Task" ||
+        data.sourceType === "Meeting" ||
+        data.sourceType === "Risk" ||
+        data.sourceType === "Issue"
+      ) {
+        if (!data.sourceId?.trim()) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["sourceId"],
+            message: `${data.sourceType} link is required`,
+          });
+        }
+      }
       if (!(data.dueDate instanceof Date) || Number.isNaN(data.dueDate.getTime())) {
         return;
       }

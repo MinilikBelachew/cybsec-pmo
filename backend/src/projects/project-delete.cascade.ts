@@ -56,7 +56,6 @@ export async function deleteProjectWithDependents(
   await tx.employeeCost.deleteMany({ where: { projectId } });
   await tx.risk.deleteMany({ where: { projectId } });
   await tx.issue.deleteMany({ where: { projectId } });
-  await tx.customerEscalation.deleteMany({ where: { projectId } });
   await tx.actionPoint.deleteMany({ where: { projectId } });
   await tx.lessonsLearned.deleteMany({ where: { projectId } });
   await tx.kpiSnapshot.deleteMany({ where: { projectId } });

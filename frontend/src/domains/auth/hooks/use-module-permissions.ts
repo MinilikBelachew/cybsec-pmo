@@ -42,6 +42,12 @@ export function useModulePermissions() {
       canEditDependencies: hasModulePermission(permissions, "dependencies", "edit"),
       canViewDocuments: hasModulePermission(permissions, "documents", "view_internal"),
       canUploadDocuments: hasModulePermission(permissions, "documents", "upload_shared"),
+      canViewRisks: hasModulePermission(permissions, "risks", "view"),
+      canEditRisks: hasModulePermission(permissions, "risks", "edit"),
+      canEditIssues: hasModulePermission(permissions, "issues", "edit"),
+      canViewIssues:
+        hasModulePermission(permissions, "issues", "edit") ||
+        hasModulePermission(permissions, "projects", "view"),
     }),
     [permissions],
   );

@@ -61,12 +61,7 @@ export type ActionPointRow = {
 export type IssueRow = {
   description: string;
   reportedDate: string | null;
-  isBlocking: boolean | null;
-  blocks: string | null;
-  actionRequired: string | null;
   issueOwner: string | null;
-  actionOwner: string | null;
-  dependency: string | null;
   targetResolutionDate: string | null;
   /** Stays empty while the issue is open. */
   actualResolutionDate: string | null;

@@ -17,6 +17,11 @@ import { HomeModule } from './home/home.module';
 import { ProjectsModule } from './projects/projects.module';
 import { ProjectTemplatesModule } from './project-templates/project-templates.module';
 import { ActionPointsModule } from './action-points/action-points.module';
+import { RisksModule } from './risks/risks.module';
+import { IssuesModule } from './issues/issues.module';
+import { AlertsModule } from './alerts/alerts.module';
+import { EscalationsModule } from './escalations/escalations.module';
+import { LessonsModule } from './lessons/lessons.module';
 import { TasksModule } from './tasks/tasks.module';
 import { WorkspaceDocumentsModule } from './workspace-documents/workspace-documents.module';
 import { AllConfigType } from './config/config.type';
@@ -123,6 +128,11 @@ import { MeetingsModule } from './meetings/meetings.module';
     ProjectsModule,
     ProjectTemplatesModule,
     ActionPointsModule,
+    RisksModule,
+    IssuesModule,
+    AlertsModule,
+    EscalationsModule,
+    LessonsModule,
     TasksModule,
     WorkspaceDocumentsModule,
     FilesModule,

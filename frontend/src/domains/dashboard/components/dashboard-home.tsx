@@ -43,6 +43,7 @@ import {
 import { useLazyExportTasksQuery, useLazyGetTaskDependenciesQuery } from "@/domains/projects/api/tasks.api";
 import type { ProjectMilestone, ProjectPhase } from "@/domains/projects/types/projects.types";
 import type { TaskExportDependency } from "@/domains/projects/utils/task-export-fields";
+import { useGetRisksQuery } from "@/domains/risk-compliance/api/risks.api";
 import {
   exportProjectsToXLSX,
   convertToCSV,
@@ -147,21 +148,36 @@ export function DashboardHome() {
     undefined,
     { skip: !layout.canLoadAuditFeed },
   );
-  const dashboardRisks = useMemo(
-    () =>
-      (health ?? [])
-        .filter((project) => project.risks > 0)
-        .map((project) => ({
-          id: project.id.slice(0, 5).toUpperCase(),
-          label: `${project.name}: ${project.risks} open risk item${project.risks === 1 ? "" : "s"}`,
-          likelihood: Math.min(4, Math.max(1, project.risks)),
-          impact: project.status === "delayed" ? 4 : project.status === "at-risk" ? 3 : 2,
-          owner: project.pm,
-        })),
-    [health],
+  const { canViewRisks, canExportProjects, canViewTasks } = useModulePermissions();
+  const { data: liveRisks = [] } = useGetRisksQuery(
+    { status: "Open" },
+    { skip: !layout.showRiskMatrix || !canViewRisks },
   );
+  const dashboardRisks = useMemo(() => {
+    const openRisks = liveRisks.filter(
+      (r) => !["Closed", "Cancelled", "Accepted"].includes(r.status),
+    );
+    if (openRisks.length > 0) {
+      return openRisks.slice(0, 24).map((risk) => ({
+        id: risk.id.slice(0, 5).toUpperCase(),
+        label: risk.title,
+        likelihood: Math.min(4, Math.max(1, risk.likelihood)),
+        impact: Math.min(4, Math.max(1, risk.impact)),
+        owner: risk.owner?.displayName ?? "Unassigned",
+      }));
+    }
+    // Fallback while risks module is empty / inaccessible
+    return (health ?? [])
+      .filter((project) => project.risks > 0)
+      .map((project) => ({
+        id: project.id.slice(0, 5).toUpperCase(),
+        label: `${project.name}: ${project.risks} open risk item${project.risks === 1 ? "" : "s"}`,
+        likelihood: Math.min(4, Math.max(1, project.risks)),
+        impact: project.status === "delayed" ? 4 : project.status === "at-risk" ? 3 : 2,
+        owner: project.pm,
+      }));
+  }, [liveRisks, health]);
 
-  const { canExportProjects, canViewTasks } = useModulePermissions();
   const canExportTasks = canViewTasks;
 
   const [showExportProjects, setShowExportProjects] = useState(false);

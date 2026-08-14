@@ -15,6 +15,9 @@ export enum ActionPointSourceType {
   Project = 'Project',
   Task = 'Task',
   Meeting = 'Meeting',
+  MoM = 'MoM',
+  Risk = 'Risk',
+  Issue = 'Issue',
 }
 
 export class CreateActionPointDto {

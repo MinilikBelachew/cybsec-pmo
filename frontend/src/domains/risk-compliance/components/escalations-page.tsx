@@ -1,0 +1,315 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { ChevronDown, Loader2, MessageSquare, Plus, Siren } from "lucide-react";
+import { PageHeader } from "@/shared/components/page-header";
+import { Button } from "@/shared/ui/button";
+import { Badge } from "@/shared/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import { cn } from "@/shared/utils/cn";
+import { useAuth } from "@/domains/auth";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
+import { useGetCustomersQuery } from "@/domains/projects/api/projects.api";
+import { useGetEscalationsQuery } from "../api/escalations.api";
+import type { Escalation } from "../types/escalations.types";
+import {
+  CloseEscalationForm,
+  EscalationCommForm,
+  EscalationForm,
+} from "./escalation-form";
+
+const SEVERITIES = ["Low", "Medium", "High", "Critical"] as const;
+
+export function EscalationsPage() {
+  const { user } = useAuth();
+  const { canEditIssues, canViewRisks, canEditRisks } = useModulePermissions();
+  const isEngineer = (user?.backendRoleCode ?? "") === "engineer";
+  const canCreate = (canEditIssues || canEditRisks) && !isEngineer;
+  const canView = canCreate || canViewRisks || canEditIssues;
+
+  const [customerFilter, setCustomerFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [showForm, setShowForm] = useState(false);
+  const [closingId, setClosingId] = useState<string | null>(null);
+  const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
+
+  const { data: customers = [] } = useGetCustomersQuery();
+
+  const listParams = useMemo(() => {
+    const params: { customerId?: string; severity?: string } = {};
+    if (customerFilter !== "all") params.customerId = customerFilter;
+    if (severityFilter !== "all") params.severity = severityFilter;
+    return Object.keys(params).length > 0 ? params : undefined;
+  }, [customerFilter, severityFilter]);
+
+  const { data: escalations = [], isLoading } = useGetEscalationsQuery(
+    listParams,
+    { skip: !canView },
+  );
+
+  const selectedCustomerName =
+    customerFilter === "all"
+      ? "All customers"
+      : customers.find((c) => c.id === customerFilter)?.displayName ||
+        "Customer";
+
+  const selectedSeverityLabel =
+    severityFilter === "all" ? "All severities" : severityFilter;
+
+  function toggleLogAccordion(id: string) {
+    setExpandedLogIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function canActOnEscalation(esc: Escalation): boolean {
+    if (canCreate) return true;
+    return Boolean(user?.id && esc.ownerId === user.id);
+  }
+
+  if (!canView) {
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center text-muted-foreground">
+        You do not have permission to view customer escalations.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-6">
+      <PageHeader
+        title="Customer Escalations"
+        description="Track customer escalations with severity, SLA, communication log, and closure."
+        actions={
+          canCreate ? (
+            <Button onClick={() => setShowForm((v) => !v)} className="gap-2">
+              <Plus className="size-4" />
+              New escalation
+            </Button>
+          ) : null
+        }
+      />
+
+      <div className="flex flex-wrap gap-3">
+        <Select
+          value={customerFilter}
+          onValueChange={(v) => setCustomerFilter(v ?? "all")}
+        >
+          <SelectTrigger className="w-[240px]">
+            <SelectValue placeholder="Customer">
+              {selectedCustomerName}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All customers</SelectItem>
+            {customers.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.displayName || c.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={severityFilter}
+          onValueChange={(v) => setSeverityFilter(v ?? "all")}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Severity">
+              {selectedSeverityLabel}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All severities</SelectItem>
+            {SEVERITIES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {canCreate && (
+        <EscalationForm
+          open={showForm}
+          customers={customers}
+          onCancel={() => setShowForm(false)}
+          onSuccess={() => setShowForm(false)}
+        />
+      )}
+
+      {isLoading ? (
+        <div className="py-12 flex justify-center gap-2 text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Loading…
+        </div>
+      ) : escalations.length === 0 ? (
+        <div className="rounded-xl border border-border/60 py-12 text-center text-muted-foreground flex flex-col items-center gap-2">
+          <Siren className="size-8 opacity-40" />
+          No escalations found.
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {escalations.map((esc) => (
+            <EscalationCard
+              key={esc.id}
+              escalation={esc}
+              canAct={canActOnEscalation(esc)}
+              isClosing={closingId === esc.id}
+              logsExpanded={expandedLogIds.has(esc.id)}
+              onToggleLogs={() => toggleLogAccordion(esc.id)}
+              onStartClose={() => setClosingId(esc.id)}
+              onCancelClose={() => setClosingId(null)}
+              onClosed={() => setClosingId(null)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type EscalationCardProps = {
+  escalation: Escalation;
+  canAct: boolean;
+  isClosing: boolean;
+  logsExpanded: boolean;
+  onToggleLogs: () => void;
+  onStartClose: () => void;
+  onCancelClose: () => void;
+  onClosed: () => void;
+};
+
+function EscalationCard({
+  escalation: esc,
+  canAct,
+  isClosing,
+  logsExpanded,
+  onToggleLogs,
+  onStartClose,
+  onCancelClose,
+  onClosed,
+}: EscalationCardProps) {
+  const logCount = esc.communications.length;
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="font-medium flex flex-wrap items-center gap-2">
+            <span>{esc.customerName ?? "Customer"}</span>
+            <Badge variant="outline">{esc.severity}</Badge>
+            <Badge variant="outline">{esc.status}</Badge>
+            {esc.isOverdue && (
+              <Badge
+                variant="outline"
+                className="text-rose-700 border-rose-200"
+              >
+                Overdue SLA
+              </Badge>
+            )}
+            {esc.slaBreached && (
+              <Badge
+                variant="outline"
+                className="text-rose-700 border-rose-200"
+              >
+                SLA breached
+              </Badge>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Owner {esc.owner?.displayName ?? "—"} · SLA {esc.slaTargetHrs}h
+            {esc.closedAt
+              ? ` · Closed ${new Date(esc.closedAt).toLocaleString()}`
+              : ""}
+          </div>
+          {esc.status === "Closed" && esc.resolutionSummary && (
+            <div className="mt-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Resolution summary
+              </div>
+              <p className="mt-1 text-foreground whitespace-pre-wrap">
+                {esc.resolutionSummary}
+              </p>
+            </div>
+          )}
+        </div>
+        {canAct && esc.status !== "Closed" && !isClosing && (
+          <Button size="sm" variant="outline" onClick={onStartClose}>
+            Close
+          </Button>
+        )}
+      </div>
+
+      {isClosing && (
+        <CloseEscalationForm
+          escalationId={esc.id}
+          onCancel={onCancelClose}
+          onClosed={onClosed}
+        />
+      )}
+
+      <div className="rounded-lg border border-border/50 overflow-hidden">
+        <button
+          type="button"
+          onClick={onToggleLogs}
+          className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors"
+          aria-expanded={logsExpanded}
+        >
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <MessageSquare className="size-4 text-muted-foreground" />
+            Communication log
+            <Badge variant="outline" className="text-[10px] font-normal">
+              {logCount}
+            </Badge>
+          </span>
+          <ChevronDown
+            className={cn(
+              "size-4 text-muted-foreground transition-transform",
+              logsExpanded && "rotate-180",
+            )}
+          />
+        </button>
+
+        {logsExpanded && (
+          <div className="border-t border-border/40 px-3 py-3 space-y-3">
+            {logCount === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No communications logged yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {esc.communications.map((c) => (
+                  <div
+                    key={c.id}
+                    className="text-xs rounded-lg bg-muted/40 px-3 py-2"
+                  >
+                    <span className="font-medium">{c.channel}</span>
+                    {" · "}
+                    {c.logger?.displayName ?? "User"}
+                    {" · "}
+                    {new Date(c.createdAt).toLocaleString()}
+                    <div className="mt-1 text-foreground">{c.content}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {canAct && esc.status !== "Closed" && (
+              <EscalationCommForm escalationId={esc.id} />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
