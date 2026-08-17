@@ -15,7 +15,7 @@ const requiredDate = (message: string) =>
 
 const baseProjectSchema = z
   .object({
-    name: z.string().min(1, "Name is required").max(255),
+    name: z.string().min(1, "Name is required").max(255, "Project name must be 255 characters or fewer"),
     objective: z
       .string()
       .min(5, "Objective must be at least 5 characters")
