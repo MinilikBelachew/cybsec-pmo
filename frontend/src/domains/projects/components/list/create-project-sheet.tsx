@@ -578,6 +578,10 @@ export function CreateProjectSheet({
           toast.error("Only PM, PMO Lead, or Super Admin can close a project from Pending Closure.");
         } else if (statusError === "invalidStatusOnCreate") {
           toast.error("New projects must start in Draft status.");
+        } else if (fieldErrors.currency === "exchangeRateUnavailable") {
+          toast.error("Could not fetch the live exchange rate. Please try again.");
+        } else if (fieldErrors.currency === "unsupportedCurrency") {
+          toast.error("No live exchange rate is available for this currency.");
         } else {
           const firstError = Object.values(fieldErrors)[0];
           toast.error(typeof firstError === "string" ? firstError : "Failed to save project.");

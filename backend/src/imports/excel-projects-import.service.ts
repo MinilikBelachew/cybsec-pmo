@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { ProjectsService } from '../projects/projects.service';
+import { FxService } from '../fx/fx.service';
 import {
   ApiBillingModel,
   ApiCurrencyCode,
@@ -43,6 +44,7 @@ export class ExcelProjectsImportService {
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
     private readonly auditLogs: AuditLogsService,
+    private readonly fx: FxService,
   ) {}
 
   async run(
@@ -77,6 +79,8 @@ export class ExcelProjectsImportService {
       try {
         let projectId: string;
         if (proj.importMode === 'update' && proj.resolvedProjectId) {
+          const value = proj.value > 0 ? proj.value : 1;
+          const usd = await this.fx.convertToUsd(value, proj.currency);
           await this.prisma.project.update({
             where: { id: proj.resolvedProjectId },
             data: {
@@ -89,8 +93,11 @@ export class ExcelProjectsImportService {
               priority: proj.priority as never,
               startDate: this.requireDate(proj.startDate, 'startDate'),
               endDate: this.requireDate(proj.endDate, 'endDate'),
-              value: proj.value > 0 ? proj.value : 1,
+              value,
               currency: proj.currency as never,
+              valueUsd: usd?.valueUsd ?? null,
+              fxRateToUsd: usd?.fxRateToUsd ?? null,
+              fxRateAt: usd?.fxRateAt ?? null,
               primaryPmId: proj.resolvedPrimaryPmId,
               secondaryPmId: proj.resolvedSecondaryPmId || null,
               ...(proj.status ? { status: proj.status as never } : {}),
