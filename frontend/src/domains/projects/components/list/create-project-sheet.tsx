@@ -50,7 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import { ProjectDatePicker, startOfToday } from "../shared/project-date-picker";
+import { EARLIEST_PROJECT_DATE, ProjectDatePicker } from "../shared/project-date-picker";
 import { FolderKanban, Briefcase, Users2, DollarSign, GitBranch, AlertTriangle } from "lucide-react";
 import {
   Sheet,
@@ -744,10 +744,10 @@ export function CreateProjectSheet({
   const defaultBranding = brandingOptions.find((profile) => profile.isDefault);
 
   const endDateMin = (() => {
-    const today = startOfToday();
-    if (!watchedStartDate) return today;
+    if (!watchedStartDate) return EARLIEST_PROJECT_DATE;
     const start = watchedStartDate instanceof Date ? watchedStartDate : new Date(watchedStartDate);
-    return start > today ? start : today;
+    start.setHours(0, 0, 0, 0);
+    return Number.isNaN(start.getTime()) ? EARLIEST_PROJECT_DATE : start;
   })();
 
   const readOnlyFieldClass =
@@ -1114,7 +1114,7 @@ export function CreateProjectSheet({
                         field.onChange(date);
                         void trigger("endDate");
                       }}
-                      minDate={isEditMode ? startOfToday() : startOfToday()}
+                      minDate={EARLIEST_PROJECT_DATE}
                       invalid={Boolean(errors.startDate)}
                       disabled={isViewOnly}
                     />
