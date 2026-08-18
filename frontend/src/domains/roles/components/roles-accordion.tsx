@@ -18,7 +18,7 @@ const ROLE_GROUPS = [
   {
     id: "pmo",
     label: "PMO & delivery",
-    codes: ["pmo_lead", "pm", "team_lead", "engineer"],
+    codes: ["pmo_lead", "sdm", "pm", "team_lead", "engineer"],
   },
   {
     id: "business",

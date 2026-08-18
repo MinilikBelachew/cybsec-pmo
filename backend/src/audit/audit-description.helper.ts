@@ -21,6 +21,14 @@ export function generateAuditDescription(input: DescriptionInput): string {
   if (action === 'LOGIN') return 'User logged in';
   if (action === 'LOGOUT') return 'User logged out';
   if (action === 'REFRESH') return 'Session refreshed';
+  if (
+    action === 'UPDATE_ROLE' ||
+    action === 'GRANT_PERMISSION' ||
+    action === 'UPDATE_PERMISSION' ||
+    action === 'REVOKE_PERMISSION'
+  ) {
+    return describeRolePermissionChange(oldValue, newValue, subject);
+  }
   if (action === 'CREATE_UPLOAD') {
     return subject ? `Uploaded file "${subject}"` : 'Uploaded a file';
   }
@@ -394,6 +402,69 @@ function resolveSubject(
     );
   }
   return extractName(primary) ?? extractName(fallback);
+}
+
+function humanizeAuditToken(token: string): string {
+  return token
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function permissionLabelFromValues(
+  oldValue: unknown,
+  newValue: unknown,
+): string | null {
+  const module =
+    extractField(newValue, 'module') ?? extractField(oldValue, 'module');
+  const permissionAction =
+    extractField(newValue, 'action') ?? extractField(oldValue, 'action');
+  if (module && permissionAction) {
+    return `${humanizeAuditToken(module)} ${humanizeAuditToken(permissionAction)}`;
+  }
+  if (module) return humanizeAuditToken(module);
+  return null;
+}
+
+function describeRolePermissionChange(
+  oldValue: unknown,
+  newValue: unknown,
+  subject: string | null,
+): string {
+  const roleLabel =
+    extractField(newValue, 'roleLabel') ??
+    extractField(oldValue, 'roleLabel') ??
+    extractField(newValue, 'roleCode') ??
+    extractField(oldValue, 'roleCode') ??
+    subject;
+  const permission = permissionLabelFromValues(oldValue, newValue);
+  const change = extractField(newValue, 'change');
+  const hadPermission = Boolean(extractField(oldValue, 'module'));
+  const hasPermission = Boolean(extractField(newValue, 'module'));
+  const isGrant = change === 'grant' || (!hadPermission && hasPermission);
+  const isRevoke = change === 'revoke' || (hadPermission && !hasPermission);
+  const permBit = permission ? `"${permission}"` : 'a permission';
+  const onRole = roleLabel ? ` on role "${roleLabel}"` : '';
+  const fromRole = roleLabel ? ` from role "${roleLabel}"` : '';
+
+  if (isGrant) {
+    const scope = extractField(newValue, 'recordScope');
+    const scopeBit = scope ? ` (${humanizeAuditToken(scope)})` : '';
+    return `Granted ${permBit}${scopeBit}${onRole}`;
+  }
+  if (isRevoke) {
+    return `Removed ${permBit}${fromRole}`;
+  }
+
+  const oldScope = extractField(oldValue, 'recordScope');
+  const newScope = extractField(newValue, 'recordScope');
+  if (permission && oldScope && newScope && oldScope !== newScope) {
+    return `Changed ${permBit}${onRole} from ${humanizeAuditToken(oldScope)} to ${humanizeAuditToken(newScope)}`;
+  }
+
+  if (permission) return `Updated ${permBit}${onRole}`;
+  return roleLabel ? `Updated role "${roleLabel}"` : 'Updated a role';
 }
 
 function resolveProjectName(...values: unknown[]): string | null {

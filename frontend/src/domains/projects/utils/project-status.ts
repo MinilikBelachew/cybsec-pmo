@@ -24,6 +24,7 @@ export const PROJECT_CLOSURE_APPROVER_ROLES = [
   "super_admin",
   "pmo_lead",
   "pm",
+  "sdm",
 ];
 
 /** Super Admin / PMO Lead can reopen Cancelled → Active. */

@@ -60,6 +60,7 @@ import {
   buildAlignAllocationPreview,
   buildAllocationDateIssueMessages,
 } from './utils/allocation-date-issues.util';
+import { TASK_ASSIGNEE_ORG_ROLE_CODES } from '../roles/roles.enum';
 
 const EMPLOYEE_INCLUDE = {
   department: { select: { id: true, code: true, name: true } },
@@ -498,6 +499,50 @@ export class ProjectTeamService {
           id: user.id,
           code: 'PM',
           name: 'Project Management',
+        },
+      });
+    }
+
+    // DEF-P1-088 — PMO Lead and SDM can own tasks without a team allocation.
+    const orgRoleUsers = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { code: { in: TASK_ASSIGNEE_ORG_ROLE_CODES } },
+        OR: [{ employees: null }, { employees: { isActive: true } }],
+      },
+      select: {
+        id: true,
+        displayName: true,
+        email: true,
+        role: { select: { code: true, label: true } },
+        employees: {
+          include: {
+            department: { select: { id: true, code: true, name: true } },
+          },
+        },
+      },
+    });
+
+    for (const user of orgRoleUsers) {
+      if (seenUserIds.has(user.id)) {
+        continue;
+      }
+
+      const employee = user.employees;
+      const roleLabel = user.role.label;
+      seenUserIds.add(user.id);
+      assignees.push({
+        userId: user.id,
+        displayName: user.displayName,
+        email: user.email,
+        employeeId: employee?.id ?? user.id,
+        name: employee?.name ?? user.displayName,
+        designation: employee?.designation ?? roleLabel,
+        role: roleLabel,
+        department: employee?.department ?? {
+          id: user.id,
+          code: user.role.code.toUpperCase(),
+          name: roleLabel,
         },
       });
     }

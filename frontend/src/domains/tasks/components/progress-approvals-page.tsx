@@ -416,7 +416,7 @@ export function ProgressApprovalsPage() {
           return (
             <HoursCell
               value={variance}
-              emphasize={over ? "over" : variance < 0 ? "under" : null}
+              emphasize={over ? "over" : null}
             />
           );
         },

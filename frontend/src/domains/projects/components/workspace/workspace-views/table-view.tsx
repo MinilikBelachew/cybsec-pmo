@@ -45,6 +45,7 @@ interface Task {
   assigneeInitials: string;
   assigneeColor: string;
   dueDate: string;
+  rawStartDate?: string | null;
   priority: Priority;
   status: Status;
   hasSubtasks?: boolean;
@@ -57,8 +58,13 @@ interface Task {
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
   isOverEffort?: boolean;
+  baselineStartLabel?: string | null;
   baselineEndLabel?: string | null;
+  actualStartLabel?: string | null;
   actualEndLabel?: string | null;
+  plannedDurationDays?: number | null;
+  baselineDurationDays?: number | null;
+  actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
 }
 
@@ -546,24 +552,20 @@ export function TableView({
           if (variance == null || row.original.effortHours == null) {
             return <span className="text-xs text-muted-foreground">—</span>;
           }
-          const sign = variance > 0 ? "+" : "";
           return (
             <span
               className={cn(
                 "text-xs font-medium tabular-nums",
                 row.original.isOverEffort
                   ? "text-amber-700 dark:text-amber-300"
-                  : variance < 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-muted-foreground",
+                  : "text-muted-foreground",
               )}
               title={
                 row.original.isOverEffort
                   ? "Logged hours exceed planned effort"
-                  : undefined
+                  : "Hours remaining (planned − logged)"
               }
             >
-              {sign}
               {variance}h
               {row.original.isOverEffort ? " ⚠" : ""}
             </span>
@@ -571,8 +573,31 @@ export function TableView({
         },
       },
       {
+        id: "planStart",
+        header: "Plan start",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground" title="Planned start">
+            {row.original.rawStartDate
+              ? new Date(row.original.rawStartDate).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })
+              : "—"}
+          </span>
+        ),
+      },
+      {
+        id: "baselineStart",
+        header: "BL start",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground" title="Baseline start">
+            {row.original.baselineStartLabel || "—"}
+          </span>
+        ),
+      },
+      {
         id: "baselineEnd",
-        header: "Base",
+        header: "BL end",
         cell: ({ row }) => (
           <span className="text-xs tabular-nums text-muted-foreground" title="Baseline end">
             {row.original.baselineEndLabel || "—"}
@@ -580,11 +605,42 @@ export function TableView({
         ),
       },
       {
+        id: "baselineDuration",
+        header: "BL d",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground" title="Baseline duration">
+            {row.original.baselineDurationDays == null
+              ? "—"
+              : `${row.original.baselineDurationDays}d`}
+          </span>
+        ),
+      },
+      {
+        id: "actualStart",
+        header: "Act start",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground" title="Actual start">
+            {row.original.actualStartLabel || "—"}
+          </span>
+        ),
+      },
+      {
         id: "actualEnd",
-        header: "Actual",
+        header: "Act end",
         cell: ({ row }) => (
           <span className="text-xs tabular-nums text-muted-foreground" title="Actual end">
             {row.original.actualEndLabel || "—"}
+          </span>
+        ),
+      },
+      {
+        id: "actualDuration",
+        header: "Act d",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground" title="Actual duration">
+            {row.original.actualDurationDays == null
+              ? "—"
+              : `${row.original.actualDurationDays}d`}
           </span>
         ),
       },

@@ -8,6 +8,7 @@ import {
   ExcelTaskImportRow,
   ImportJobResultSummary,
 } from './imports.types';
+import { TASK_ASSIGNEE_ORG_ROLE_CODES } from '../roles/roles.enum';
 
 type ProgressFn = (percent: number, step: string) => Promise<void>;
 
@@ -100,6 +101,17 @@ export class ExcelTasksImportService {
     });
     if (projectPms?.primaryPmId) assigneeIds.add(projectPms.primaryPmId);
     if (projectPms?.secondaryPmId) assigneeIds.add(projectPms.secondaryPmId);
+
+    const orgRoleUsers = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { code: { in: TASK_ASSIGNEE_ORG_ROLE_CODES } },
+      },
+      select: { id: true },
+    });
+    for (const user of orgRoleUsers) {
+      assigneeIds.add(user.id);
+    }
 
     const warnings: string[] = [];
     const titleToId = new Map<string, string>();

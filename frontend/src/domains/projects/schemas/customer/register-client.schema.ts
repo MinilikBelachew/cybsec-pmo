@@ -16,12 +16,8 @@ export const registerClientFormSchema = z.object({
   email: z
     .string()
     .trim()
-    .optional()
-    .refine(
-      (value) => !value || z.email().safeParse(value).success,
-      "Enter a valid email",
-    )
-    .transform((value) => (value ? value : undefined)),
+    .min(1, "Email is required")
+    .refine((value) => z.email().safeParse(value).success, "Enter a valid email"),
   phone: z
     .string()
     .trim()

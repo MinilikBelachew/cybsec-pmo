@@ -99,7 +99,7 @@ export const projectsApi = api.injectEndpoints({
         name: string;
         code?: string;
         description?: string;
-        email?: string;
+        email: string;
         phone?: string;
         website?: string;
         billingCurrencyId: string;

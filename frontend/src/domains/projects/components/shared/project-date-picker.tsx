@@ -102,7 +102,12 @@ export function ProjectDatePicker({
             before: startOfDay(minDate),
             ...(maxDate ? { after: startOfDay(maxDate) } : {}),
           }}
-          onSelect={(date) => onChange(date ?? undefined)}
+          onSelect={(date) => {
+            // Single-mode calendar treats a second click on the selected day as
+            // deselect (undefined). Keep the existing date so Edit Project does
+            // not fail with "Start/End date is required" (DEF-P1-079).
+            if (date) onChange(date);
+          }}
         />
       </PopoverContent>
     </Popover>

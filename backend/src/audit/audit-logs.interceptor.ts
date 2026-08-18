@@ -58,6 +58,13 @@ export class AuditLogsInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    // Permission grant/revoke on an existing role is audited in RolesService as
+    // UPDATE_ROLE. Numeric :roleId is not a UUID, so the generic interceptor
+    // would log CREATE_ROLES (DEF-P1-076).
+    if (/\/roles\/\d+\/permissions(?:\/|$)/i.test(url.split('?')[0])) {
+      return next.handle();
+    }
+
     const urlParts = this.parseUrlParts(url);
     const auditTarget = this.resolveRouteAudit(urlParts, method, url);
 

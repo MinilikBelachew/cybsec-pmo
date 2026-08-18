@@ -7,6 +7,7 @@ export const PROJECT_CLOSURE_APPROVER_ROLES: string[] = [
   RoleEnum.super_admin,
   RoleEnum.pmo_lead,
   RoleEnum.pm,
+  RoleEnum.sdm,
 ];
 
 /** Roles allowed to reopen a Cancelled project → Active (mistakes / UAT undo). */
