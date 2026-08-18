@@ -2,27 +2,38 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/i18n/routing";
 import { useLazyGetMeQuery, useLazyGetMyPermissionsQuery } from "../api/auth.api";
 import { useAppDispatch } from "@/store/hooks";
 import { apiUserToUser } from "../transformers/auth.transformer";
 import { setPermissions, setUser } from "../store/auth.slice";
 import { normalizeReturnPath } from "@/shared/utils/return-path";
+import { isSessionEnded, redirectToLogin } from "../utils/clear-session";
+
+function replaceAppPath(path: string) {
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  const locale = segments[0] || "en";
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  window.location.replace(`/${locale}${normalized}`);
+}
 
 export function AuthCallbackPage() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const dispatch = useAppDispatch();
   const [getMe] = useLazyGetMeQuery();
   const [getPermissions] = useLazyGetMyPermissionsQuery();
   const [message, setMessage] = useState("Completing sign-in…");
 
   useEffect(() => {
+    if (isSessionEnded()) {
+      redirectToLogin("session_expired");
+      return;
+    }
+
     const error = searchParams.get("error");
     const returnTo = normalizeReturnPath(searchParams.get("returnTo"));
 
     if (error) {
-      router.replace(`/login?error=${encodeURIComponent(error)}`);
+      redirectToLogin(error);
       return;
     }
 
@@ -32,13 +43,13 @@ export function AuthCallbackPage() {
         dispatch(setUser(apiUserToUser(apiUser)));
         const permissions = await getPermissions().unwrap();
         dispatch(setPermissions(permissions));
-        router.replace(returnTo);
+        replaceAppPath(returnTo);
       })
       .catch(() => {
         setMessage("Sign-in failed. Redirecting…");
-        router.replace("/login?error=session_failed");
+        redirectToLogin("session_failed");
       });
-  }, [dispatch, getMe, getPermissions, router, searchParams]);
+  }, [dispatch, getMe, getPermissions, searchParams]);
 
   return (
     <div className="space-y-2 text-center">
@@ -47,4 +58,3 @@ export function AuthCallbackPage() {
     </div>
   );
 }
-

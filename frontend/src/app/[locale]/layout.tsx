@@ -4,10 +4,12 @@ import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 import { fontSans, fontMono } from '@/config/fonts.config';
 import { Metadata } from 'next';
+import Script from 'next/script';
 import "../globals.css";
 import { AppProviders } from '@/providers/app-providers';
 
 import { siteConfig } from '@/config/site.config';
+import { LOGIN_HISTORY_TRAP_SCRIPT } from '@/domains/auth/utils/login-history-trap';
 
 export const metadata: Metadata = {
   title: {
@@ -39,6 +41,9 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'} suppressHydrationWarning className={`${fontSans.variable} ${fontMono.variable}`}>
       <body className="h-screen overflow-hidden bg-background text-foreground font-sans antialiased">
+        <Script id="pmo-login-history-trap" strategy="beforeInteractive">
+          {LOGIN_HISTORY_TRAP_SCRIPT}
+        </Script>
         <NextIntlClientProvider messages={messages}>
           <AppProviders>
             {children}
