@@ -1571,7 +1571,7 @@ export class ProjectTeamService {
         },
       });
     }
-    return reason.slice(0, 500);
+    return reason.slice(0, 2000);
   }
 
   private async assertProjectInScope(

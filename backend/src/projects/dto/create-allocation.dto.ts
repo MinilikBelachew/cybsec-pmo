@@ -58,7 +58,9 @@ export class CreateAllocationDto {
   })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(2000, {
+    message: 'Over-allocation comments must be 2000 characters or fewer',
+  })
   overrideReason?: string;
 }
 

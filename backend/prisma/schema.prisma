@@ -427,6 +427,11 @@ model Project {
   actualEndDate     DateTime?      @map("actual_end_date") @db.Date
   value             Decimal?       @db.Decimal(15, 2)
   currency          String         @default("USD") @db.VarChar(10)
+  /// value converted to USD when the project is created or value/currency changes.
+  valueUsd          Decimal?       @map("value_usd") @db.Decimal(15, 2)
+  /// USD per 1 unit of `currency` at snapshot time.
+  fxRateToUsd       Decimal?       @map("fx_rate_to_usd") @db.Decimal(18, 8)
+  fxRateAt          DateTime?      @map("fx_rate_at") @db.Timestamptz
   primaryPmId       String         @map("primary_pm_id") @db.Uuid
   secondaryPmId     String?        @map("secondary_pm_id") @db.Uuid
   status            ProjectStatus  @default(Draft)

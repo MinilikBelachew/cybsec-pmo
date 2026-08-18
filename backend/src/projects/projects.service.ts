@@ -57,6 +57,8 @@ import {
 } from './project-status.transitions';
 import { RoleEnum } from '../roles/roles.enum';
 import { deleteProjectWithDependents } from './project-delete.cascade';
+import { FxService } from '../fx/fx.service';
+import type { UsdConversion } from '../fx/fx.types';
 
 const PROJECT_INCLUDE = {
   department: true,
@@ -100,6 +102,7 @@ export class ProjectsService {
     private readonly permissionsCache: PermissionsCacheService,
     private readonly clientSyncService: ClientSyncService,
     private readonly projectLinkService: ProjectLinkService,
+    private readonly fx: FxService,
   ) {}
 
   private permissionsFor(user: CaslUserContext) {
@@ -138,6 +141,9 @@ export class ProjectsService {
       );
     }
 
+    const currency = toPrismaCurrency(dto.currency ?? 'USD');
+    const usd = await this.fx.convertToUsd(dto.value, currency);
+
     const project = await this.prisma.$transaction(async (tx) => {
       const created = await tx.project.create({
         data: {
@@ -155,7 +161,8 @@ export class ProjectsService {
           startDate: dto.startDate,
           endDate: dto.endDate,
           value: dto.value,
-          currency: toPrismaCurrency(dto.currency ?? 'USD'),
+          currency,
+          ...this.usdFields(usd),
           primaryPmId: dto.primaryPmId,
           secondaryPmId: dto.secondaryPmId ?? null,
           brandingProfileId: dto.brandingProfileId ?? null,
@@ -422,10 +429,12 @@ export class ProjectsService {
         _count: { _all: true },
       }),
       showFinancials
-        ? this.prisma.project.aggregate({
-            where: scopeWhere,
-            _sum: { value: true },
-          })
+        ? this.fx.backfillMissingProjectValueUsd().then(() =>
+            this.prisma.project.aggregate({
+              where: scopeWhere,
+              _sum: { valueUsd: true },
+            }),
+          )
         : Promise.resolve(null),
     ]);
 
@@ -449,7 +458,7 @@ export class ProjectsService {
 
     return {
       ...base,
-      totalValue: Number(valueAgg?._sum.value ?? 0),
+      totalValue: Number(valueAgg?._sum?.valueUsd ?? 0),
     };
   }
 
@@ -668,6 +677,21 @@ export class ProjectsService {
           })
         : {};
 
+    const valueOrCurrencyChanged =
+      dto.value !== undefined || dto.currency !== undefined;
+    const nextValue = dto.value ?? Number(existing.value ?? 0);
+    const nextCurrency = toPrismaCurrency(dto.currency ?? existing.currency);
+    const currencyUnchanged =
+      dto.currency === undefined || nextCurrency === existing.currency;
+    const usd = valueOrCurrencyChanged
+      ? await this.fx.convertToUsd(nextValue, nextCurrency, {
+          fallbackRateToUsd:
+            currencyUnchanged && existing.fxRateToUsd != null
+              ? Number(existing.fxRateToUsd)
+              : null,
+        })
+      : null;
+
     const project = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.project.update({
         where: { id },
@@ -692,7 +716,8 @@ export class ProjectsService {
           ...(dto.currency !== undefined && {
             currency: toPrismaCurrency(dto.currency),
           }),
-          ...(dto.primaryPmId !== undefined && { primaryPmId: dto.primaryPmId }),
+          ...(valueOrCurrencyChanged ? this.usdFields(usd) : {}),
+        ...(dto.primaryPmId !== undefined && { primaryPmId: dto.primaryPmId }),
           ...(dto.secondaryPmId !== undefined && {
             secondaryPmId: dto.secondaryPmId,
           }),
@@ -1367,5 +1392,21 @@ export class ProjectsService {
       }),
       this.prisma.projectMilestone.delete({ where: { id: milestoneId } }),
     ]);
+  }
+
+  private usdFields(conversion: UsdConversion | null) {
+    if (!conversion) {
+      return {
+        valueUsd: null,
+        fxRateToUsd: null,
+        fxRateAt: null,
+      };
+    }
+
+    return {
+      valueUsd: conversion.valueUsd,
+      fxRateToUsd: conversion.fxRateToUsd,
+      fxRateAt: conversion.fxRateAt,
+    };
   }
 }

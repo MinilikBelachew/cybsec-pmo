@@ -546,7 +546,10 @@ export function DashboardHome() {
                 <p className="text-2xl font-bold tracking-tight text-foreground">
                   {layout.showPortfolioBudget
                     ? portfolioBudgetVisible
-                      ? `$${Number(totalValue).toLocaleString()}.00`
+                      ? `$${Number(totalValue).toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`
                       : "••••••••••"
                     : totalProjects}
                 </p>

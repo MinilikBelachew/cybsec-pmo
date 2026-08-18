@@ -53,7 +53,8 @@ interface ProjectTeamSectionProps {
   canEdit?: boolean;
   /** @deprecated Department staffing policy now controls candidate filtering. */
   filterByDepartment?: boolean;
-  variant?: "form" | "workspace";
+  /** Shown under over-allocation comments when save validation fails. */
+  validationError?: string | null;
 }
 
 interface DraftMemberConfig {
@@ -79,6 +80,43 @@ const DEFAULT_PERCENT = "50";
 const MAX_WEEKLY_HOURS = 168;
 const MAX_WEEKLY_PERCENT = 100;
 const OVERRIDE_REASON_MIN = 10;
+export const OVERRIDE_REASON_MAX = 2000;
+
+function overrideReasonTooLong(value: string | undefined | null): boolean {
+  return (value?.trim().length ?? 0) > OVERRIDE_REASON_MAX;
+}
+
+function OverrideReasonInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
+  const length = value.length;
+  return (
+    <div className="w-full min-w-0 space-y-1">
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={2}
+        maxLength={OVERRIDE_REASON_MAX}
+        placeholder={placeholder}
+        className={cn(
+          "min-h-16 max-h-40 w-full overflow-y-auto rounded-md border border-input bg-background px-3 py-2 shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+          className,
+        )}
+      />
+      <p className="text-right text-[10px] text-muted-foreground">
+        {length}/{OVERRIDE_REASON_MAX}
+      </p>
+    </div>
+  );
+}
 
 function availabilityLabel(candidate: TeamCandidate): string {
   if (candidate.isOverAllocated) return "Over-allocated";
@@ -259,6 +297,7 @@ export const ProjectTeamSection = forwardRef<
     canEdit = true,
     filterByDepartment: _filterByDepartment = false,
     variant = "form",
+    validationError = null,
   },
   ref,
 ) {
@@ -488,7 +527,13 @@ export const ProjectTeamSection = forwardRef<
       draftMembers.some((member) => member.isOverAllocated);
     if (needsOverride && bulkOverrideReason.trim().length < OVERRIDE_REASON_MIN) {
       toast.error(
-        `Over-allocation requires an override reason (at least ${OVERRIDE_REASON_MIN} characters).`,
+        `Over-allocation comments must be at least ${OVERRIDE_REASON_MIN} characters.`,
+      );
+      return;
+    }
+    if (needsOverride && overrideReasonTooLong(bulkOverrideReason)) {
+      toast.error(
+        `Over-allocation comments must be ${OVERRIDE_REASON_MAX} characters or fewer.`,
       );
       return;
     }
@@ -661,7 +706,17 @@ export const ProjectTeamSection = forwardRef<
       editDraft.overrideReason.trim().length < OVERRIDE_REASON_MIN
     ) {
       toast.error(
-        `Over-allocation requires an override reason (at least ${OVERRIDE_REASON_MIN} characters).`,
+        `Over-allocation comments must be at least ${OVERRIDE_REASON_MIN} characters.`,
+      );
+      return;
+    }
+    if (
+      thresholdMode !== "block" &&
+      editWouldOverAllocate(member) &&
+      overrideReasonTooLong(editDraft.overrideReason)
+    ) {
+      toast.error(
+        `Over-allocation comments must be ${OVERRIDE_REASON_MAX} characters or fewer.`,
       );
       return;
     }
@@ -863,7 +918,9 @@ export const ProjectTeamSection = forwardRef<
     !hasBlockedOverAllocation &&
     !hasBlockedDesignation &&
     !hasBlockedDepartment &&
-    (!needsOverrideReason || bulkOverrideReason.trim().length >= OVERRIDE_REASON_MIN);
+    (!needsOverrideReason ||
+      (bulkOverrideReason.trim().length >= OVERRIDE_REASON_MIN &&
+        bulkOverrideReason.trim().length <= OVERRIDE_REASON_MAX));
 
   const renderAllocationInput = (
     mode: AllocationMode,
@@ -897,7 +954,10 @@ export const ProjectTeamSection = forwardRef<
   );
 
   return (
-    <div className="space-y-3 rounded-xl border border-slate-200 dark:border-white/[0.08] p-4 bg-slate-50/50 dark:bg-white/[0.02]">
+    <div
+      id="project-team-section"
+      className="space-y-3 rounded-xl border border-slate-200 dark:border-white/[0.08] p-4 bg-slate-50/50 dark:bg-white/[0.02]"
+    >
       <div className="flex items-center gap-2">
         <Users2 className="size-4 text-primary" />
         <div>
@@ -913,6 +973,9 @@ export const ProjectTeamSection = forwardRef<
           </p>
         </div>
       </div>
+      {validationError && (
+        <p className="text-[11px] font-semibold text-rose-500">{validationError}</p>
+      )}
 
       {!hasPlanningWindow && canEdit && (
         <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
@@ -1001,7 +1064,8 @@ export const ProjectTeamSection = forwardRef<
               ((thresholdMode === "block" && editWouldOverAllocate(member)) ||
                 (thresholdMode !== "block" &&
                   editWouldOverAllocate(member) &&
-                  (editDraft?.overrideReason.trim().length ?? 0) < OVERRIDE_REASON_MIN) ||
+                  ((editDraft?.overrideReason.trim().length ?? 0) < OVERRIDE_REASON_MIN ||
+                    overrideReasonTooLong(editDraft?.overrideReason))) ||
                 isPolicyBlocked(
                   allocationPolicy.designationMismatchMode,
                   editHasDesignationMismatch(member),
@@ -1109,18 +1173,15 @@ export const ProjectTeamSection = forwardRef<
                           <AlertTriangle className="size-3" />
                           Over-allocation requires an authorised override reason.
                         </p>
-                        <textarea
+                        <OverrideReasonInput
                           value={editDraft.overrideReason}
-                          onChange={(event) =>
+                          onChange={(next) =>
                             setEditDraft((prev) =>
-                              prev
-                                ? { ...prev, overrideReason: event.target.value }
-                                : prev,
+                              prev ? { ...prev, overrideReason: next } : prev,
                             )
                           }
-                          rows={2}
                           placeholder="Why is this over-allocation authorised? (min 10 characters)"
-                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                          className="text-sm"
                         />
                       </div>
                     )}
@@ -1556,12 +1617,11 @@ export const ProjectTeamSection = forwardRef<
                   <label className="text-[11px] font-semibold text-foreground">
                     Override reason (required)
                   </label>
-                  <textarea
+                  <OverrideReasonInput
                     value={bulkOverrideReason}
-                    onChange={(event) => setBulkOverrideReason(event.target.value)}
-                    rows={2}
+                    onChange={setBulkOverrideReason}
                     placeholder="Why is over-allocation authorised? (min 10 characters)"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                    className="text-sm"
                   />
                 </div>
               )}
@@ -1612,105 +1672,106 @@ export const ProjectTeamSection = forwardRef<
             {pendingMembers.map((member) => (
               <div
                 key={member.employeeId}
-                className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px] items-start gap-2 border-b border-primary/10 bg-primary/5 px-3 py-2 last:border-b-0"
+                className="space-y-2 border-b border-primary/10 bg-primary/5 px-3 py-2 last:border-b-0"
               >
-                <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <EmployeeAvatar
-                      name={member.name}
-                      employeeId={member.employeeId}
-                      profileImageUrl={member.profileImageUrl}
-                      size="xs"
-                    />
-                    <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{member.name}</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {member.departmentName} · {member.designation}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {member.remainingHours}h/week remaining before assignment
-                  </p>
-                  {member.isOverAllocated && (
-                    <div className="mt-1 space-y-1.5">
-                      <p className="flex items-center gap-1 text-[11px] text-amber-600">
-                        <AlertTriangle className="size-3" />
-                        This assignment may over-allocate this resource.
-                      </p>
-                      {canEdit && (
-                        <textarea
-                          value={member.overrideReason ?? ""}
-                          onChange={(event) =>
-                            handleUpdatePending(member.employeeId, {
-                              overrideReason: event.target.value,
-                            })
-                          }
-                          rows={2}
-                          placeholder="Override reason (min 10 characters)"
-                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                        />
-                      )}
+                <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px] items-start gap-2">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <EmployeeAvatar
+                        name={member.name}
+                        employeeId={member.employeeId}
+                        profileImageUrl={member.profileImageUrl}
+                        size="xs"
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{member.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {member.departmentName} · {member.designation}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {member.remainingHours}h/week remaining before assignment
+                        </p>
+                      </div>
                     </div>
+                  </div>
+                  {canEdit ? (
+                    <div className="min-w-0 self-start">
+                      <ProjectRoleSelect
+                        value={member.role}
+                        onValueChange={(role) =>
+                          handleUpdatePending(member.employeeId, { role })
+                        }
+                        options={designationOptions}
+                        extraOptions={[member.designation]}
+                      />
+                    </div>
+                  ) : (
+                    <p className="self-start text-sm">{member.role}</p>
                   )}
-                    </div>
-                  </div>
-                </div>
-                {canEdit ? (
-                  <div className="min-w-0 self-start">
-                    <ProjectRoleSelect
-                      value={member.role}
-                      onValueChange={(role) =>
-                        handleUpdatePending(member.employeeId, { role })
+                  {canEdit ? (
+                    <AllocationModeToggle
+                      value={member.allocationMode}
+                      onChange={(mode) =>
+                        handleUpdatePending(member.employeeId, { allocationMode: mode })
                       }
-                      options={designationOptions}
-                      extraOptions={[member.designation]}
                     />
+                  ) : (
+                    <p className="self-start text-sm">{member.allocationMode}</p>
+                  )}
+                  {canEdit ? (
+                    renderAllocationInput(
+                      member.allocationMode,
+                      String(member.hoursPerWeek),
+                      String(member.percentPerWeek),
+                      (value) => {
+                        const hours = Number(value);
+                        if (!Number.isFinite(hours)) return;
+                        handleUpdatePending(member.employeeId, { hoursPerWeek: hours });
+                      },
+                      (value) => {
+                        const percent = Number(value);
+                        if (!Number.isFinite(percent)) return;
+                        handleUpdatePending(member.employeeId, { percentPerWeek: percent });
+                      },
+                    )
+                  ) : (
+                    <p className="self-start text-sm">
+                      {member.allocationMode === "percent"
+                        ? `${member.percentPerWeek}%`
+                        : `${member.hoursPerWeek}h`}
+                    </p>
+                  )}
+                  {canEdit && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-fit shrink-0 self-start text-rose-500 hover:text-rose-600"
+                      onClick={() => handleRemovePending(member.employeeId)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  )}
+                </div>
+                {member.isOverAllocated && (
+                  <div className="w-full min-w-0 space-y-1.5">
+                    <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                      <AlertTriangle className="size-3" />
+                      This assignment may over-allocate this resource.
+                    </p>
+                    {canEdit && (
+                      <OverrideReasonInput
+                        value={member.overrideReason ?? ""}
+                        onChange={(next) =>
+                          handleUpdatePending(member.employeeId, {
+                            overrideReason: next,
+                          })
+                        }
+                        placeholder="Override reason (min 10 characters)"
+                        className="text-xs"
+                      />
+                    )}
                   </div>
-                ) : (
-                  <p className="self-start text-sm">{member.role}</p>
-                )}
-                {canEdit ? (
-                  <AllocationModeToggle
-                    value={member.allocationMode}
-                    onChange={(mode) =>
-                      handleUpdatePending(member.employeeId, { allocationMode: mode })
-                    }
-                  />
-                ) : (
-                  <p className="self-start text-sm">{member.allocationMode}</p>
-                )}
-                {canEdit ? (
-                  renderAllocationInput(
-                    member.allocationMode,
-                    String(member.hoursPerWeek),
-                    String(member.percentPerWeek),
-                    (value) => {
-                      const hours = Number(value);
-                      if (!Number.isFinite(hours)) return;
-                      handleUpdatePending(member.employeeId, { hoursPerWeek: hours });
-                    },
-                    (value) => {
-                      const percent = Number(value);
-                      if (!Number.isFinite(percent)) return;
-                      handleUpdatePending(member.employeeId, { percentPerWeek: percent });
-                    },
-                  )
-                ) : (
-                  <p className="self-start text-sm">
-                    {member.allocationMode === "percent"
-                      ? `${member.percentPerWeek}%`
-                      : `${member.hoursPerWeek}h`}
-                  </p>
-                )}
-                {canEdit && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-fit shrink-0 self-start text-rose-500 hover:text-rose-600"
-                    onClick={() => handleRemovePending(member.employeeId)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
                 )}
               </div>
             ))}

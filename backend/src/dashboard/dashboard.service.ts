@@ -10,6 +10,7 @@ import {
   canViewDashboardProjects,
 } from './dashboard-permissions.util';
 import { RECORD_SCOPE_ALL } from '../casl/record-scope.registry';
+import { FxService } from '../fx/fx.service';
 
 export type DashboardFilters = {
   departmentId?: string;
@@ -25,6 +26,7 @@ export class DashboardService {
     private readonly prisma: PrismaService,
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly permissionsCache: PermissionsCacheService,
+    private readonly fx: FxService,
   ) {}
 
   private permissionsFor(user: CaslUserContext) {
@@ -73,12 +75,16 @@ export class DashboardService {
     let projectIds: string[] = [];
 
     if (showProjects) {
+      if (showFinancials) {
+        await this.fx.backfillMissingProjectValueUsd();
+      }
+
       const projects = await this.prisma.project.findMany({
         where: this.filteredProjectWhere(caslUser, filters),
         select: {
           id: true,
           status: true,
-          value: true,
+          valueUsd: true,
         },
       });
 
@@ -91,7 +97,10 @@ export class DashboardService {
       completedProjects = projects.filter((p) => p.status === ProjectStatus.Closed).length;
 
       if (showFinancials) {
-        totalValue = projects.reduce((sum, p) => sum + Number(p.value ?? 0), 0);
+        totalValue = projects.reduce(
+          (sum, p) => sum + Number(p.valueUsd ?? 0),
+          0,
+        );
         projectIds = projects.map((p) => p.id);
 
         if (projectIds.length > 0) {
@@ -514,11 +523,13 @@ export class DashboardService {
   }
 
   async getBurnRate(caslUser: CaslUserContext, filters: DashboardFilters = {}) {
+    await this.fx.backfillMissingProjectValueUsd();
+
     const projects = await this.prisma.project.findMany({
       where: this.filteredProjectWhere(caslUser, filters),
       select: {
         id: true,
-        value: true,
+        valueUsd: true,
         startDate: true,
         endDate: true,
       },
@@ -545,7 +556,7 @@ export class DashboardService {
     const actual = new Array(12).fill(0);
 
     for (const p of projects) {
-      const val = Number(p.value ?? 0);
+      const val = Number(p.valueUsd ?? 0);
       if (val <= 0) continue;
 
       const start = new Date(p.startDate);
