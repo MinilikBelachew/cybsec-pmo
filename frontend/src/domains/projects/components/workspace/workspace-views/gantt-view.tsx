@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useMemo } from "react";
 import { cn } from "@/shared/utils/cn";
-import { ChevronDown, ChevronRight, Plus, Circle, CircleCheck, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, ZoomIn, ZoomOut } from "lucide-react";
 import { type ProjectPhase, type ProjectMilestone } from "../../../types/projects.types";
 import { type TaskDependency } from "../../../types/tasks.types";
 import {
@@ -40,6 +40,26 @@ function compareGanttPlanOrder(a: GanttTaskRow, b: GanttTaskRow): number {
     { createdAt: a.createdAt, startDate: a.rawStartDate, title: a.name },
     { createdAt: b.createdAt, startDate: b.rawStartDate, title: b.name },
   );
+}
+
+function spanFromRows(rows: GanttTaskRow[]): { startDate: string; endDate: string } | null {
+  const starts: Date[] = [];
+  const ends: Date[] = [];
+  const walk = (row: GanttTaskRow) => {
+    const start = toLocalMidnight(row.rawStartDate);
+    const end = toLocalMidnight(row.rawEndDate);
+    if (start) starts.push(start);
+    if (end) ends.push(end);
+    row.children?.forEach(walk);
+  };
+  rows.forEach(walk);
+  if (starts.length === 0 && ends.length === 0) return null;
+  const minMs = Math.min(...(starts.length ? starts : ends).map((d) => d.getTime()));
+  const maxMs = Math.max(...(ends.length ? ends : starts).map((d) => d.getTime()));
+  return {
+    startDate: new Date(minMs).toISOString(),
+    endDate: new Date(maxMs).toISOString(),
+  };
 }
 
 function isGanttTaskOverdue(task: GanttTaskRow): boolean {
@@ -84,7 +104,48 @@ const STATUS_CONFIG: Record<Status, { bgClass: string; textClass: string; label:
   },
 };
 
-const COL_W = 44; // px per day column
+type GanttScale = "day" | "month" | "quarter";
+
+const SCALE_PX_PER_DAY: Record<GanttScale, number> = {
+  day: 44,
+  month: 8,
+  quarter: 3,
+};
+
+const SCALE_OPTIONS: { id: GanttScale; label: string }[] = [
+  { id: "day", label: "Day" },
+  { id: "month", label: "Month" },
+  { id: "quarter", label: "Quarter" },
+];
+
+type HeaderBand = { key: string; label: string; days: number; offset: number };
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfQuarter(date: Date): Date {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1);
+}
+
+function endOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function endOfQuarter(date: Date): Date {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3 + 3, 0);
+}
+
+function dayDelta(from: Date, to: Date): number {
+  return Math.round((to.getTime() - from.getTime()) / 86400000);
+}
 
 function getWeekNumber(d: Date): number {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -107,13 +168,16 @@ export function GanttView({
 }: GanttViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [localZoom, setLocalZoom] = useState(1);
+  const [scale, setScale] = useState<GanttScale>("day");
   const [openPhases, setOpenPhases] = useState<Record<string, boolean>>({});
   const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
 
   const zoom = ganttZoom ?? localZoom;
   const setZoom = setGanttZoom ?? setLocalZoom;
+  const minZoom = scale === "day" ? 0.5 : 0.25;
+  const maxZoom = scale === "day" ? 2 : 4;
 
-  const colW = Math.round(COL_W * zoom);
+  const colW = Math.max(1, SCALE_PX_PER_DAY[scale] * zoom);
 
   const togglePhase = (phaseId: string) => {
     setOpenPhases((prev) => ({
@@ -184,7 +248,15 @@ export function GanttView({
       return new Date(a.endDate).getTime() - new Date(b.endDate).getTime();
     });
 
-    const mapped = sortedPhases.map((phase) => {
+    const mapped: Array<{
+      id: string;
+      name: string;
+      color: string;
+      startDate: string | null;
+      endDate: string | null;
+      tasks: GanttTaskRow[];
+      milestones: typeof milestones;
+    }> = sortedPhases.map((phase) => {
       const phaseTasks = tasks
         .filter((t) => t.phaseId === phase.id)
         .sort(compareGanttPlanOrder);
@@ -193,6 +265,8 @@ export function GanttView({
         id: phase.id,
         name: phase.name,
         color: "#8b5cf6",
+        startDate: phase.startDate,
+        endDate: phase.endDate,
         tasks: phaseTasks,
         milestones: phaseMilestones,
       };
@@ -204,10 +278,13 @@ export function GanttView({
     const unassignedMilestones = milestones.filter((m) => !m.phaseId);
 
     if (unassignedTasks.length > 0 || unassignedMilestones.length > 0) {
+      const bounds = spanFromRows(unassignedTasks);
       mapped.push({
         id: "unassigned",
         name: "Unassigned Tasks & Milestones",
         color: "#64748b",
+        startDate: bounds?.startDate ?? null,
+        endDate: bounds?.endDate ?? null,
         tasks: unassignedTasks,
         milestones: unassignedMilestones,
       });
@@ -258,55 +335,154 @@ export function GanttView({
       maxDate.setHours(0, 0, 0, 0);
     }
 
-    // Align minDate to the start of the week (Monday)
-    const alignedStart = new Date(minDate);
-    const day = alignedStart.getDay();
-    const diff = alignedStart.getDate() - day + (day === 0 ? -6 : 1);
-    alignedStart.setDate(diff);
-    alignedStart.setHours(0, 0, 0, 0);
+    // Align range to the selected scale
+    let alignedStart = new Date(minDate);
+    let alignedEnd = new Date(maxDate);
+    if (scale === "month") {
+      alignedStart = startOfMonth(alignedStart);
+      alignedEnd = endOfMonth(alignedEnd);
+    } else if (scale === "quarter") {
+      alignedStart = startOfQuarter(alignedStart);
+      alignedEnd = endOfQuarter(alignedEnd);
+    } else {
+      const day = alignedStart.getDay();
+      const diff = alignedStart.getDate() - day + (day === 0 ? -6 : 1);
+      alignedStart.setDate(diff);
+      alignedStart.setHours(0, 0, 0, 0);
 
-    // Align maxDate to the end of the week (Sunday)
-    const alignedEnd = new Date(maxDate);
-    const endDay = alignedEnd.getDay();
-    const endDiff = alignedEnd.getDate() + (endDay === 0 ? 0 : 7 - endDay);
-    alignedEnd.setDate(endDiff);
-    alignedEnd.setHours(0, 0, 0, 0);
+      const endDay = alignedEnd.getDay();
+      const endDiff = alignedEnd.getDate() + (endDay === 0 ? 0 : 7 - endDay);
+      alignedEnd.setDate(endDiff);
+      alignedEnd.setHours(0, 0, 0, 0);
+    }
 
-    // Calculate total days (ensure at least 28 days/4 weeks for presentation)
-    const totalDays = Math.max(28, Math.round((alignedEnd.getTime() - alignedStart.getTime()) / 86400000) + 1);
+    const minSpan = scale === "day" ? 28 : scale === "month" ? 60 : 90;
+    const totalDays = Math.max(
+      minSpan,
+      Math.round((alignedEnd.getTime() - alignedStart.getTime()) / 86400000) + 1,
+    );
 
     return {
       projectStart: alignedStart,
       totalDays,
     };
-  }, [tasks, phases, milestones]);
+  }, [tasks, phases, milestones, scale]);
 
-  // Build dynamic week columns
-  const weeks = useMemo(() => {
-    const list: { label: string; days: { label: string; offset: number }[] }[] = [];
-    const totalWeeks = Math.ceil(dateRange.totalDays / 7);
+  const headerBands = useMemo(() => {
+    const top: HeaderBand[] = [];
+    const bottom: HeaderBand[] = [];
+    const ticks: number[] = [];
+    const rangeEnd = addDays(dateRange.projectStart, dateRange.totalDays);
 
-    for (let w = 0; w < totalWeeks; w++) {
-      const weekStart = new Date(dateRange.projectStart);
-      weekStart.setDate(weekStart.getDate() + w * 7);
-      
-      const weekNum = getWeekNumber(weekStart);
-      const weekLabel = `W${weekNum} ${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-      
-      const days = [];
-      for (let d = 0; d < 7; d++) {
-        const date = new Date(weekStart);
-        date.setDate(date.getDate() + d);
-        const DAY_ABBR = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-        days.push({
-          label: `${DAY_ABBR[date.getDay()]} ${date.getDate()}`,
-          offset: w * 7 + d,
+    if (scale === "day") {
+      const totalWeeks = Math.ceil(dateRange.totalDays / 7);
+      const DAY_ABBR = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+      for (let w = 0; w < totalWeeks; w++) {
+        const weekStart = addDays(dateRange.projectStart, w * 7);
+        const weekNum = getWeekNumber(weekStart);
+        const daysInWeek = Math.min(7, dateRange.totalDays - w * 7);
+        top.push({
+          key: `w-${w}`,
+          label: `W${weekNum} ${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+          days: daysInWeek,
+          offset: w * 7,
         });
+        for (let d = 0; d < daysInWeek; d++) {
+          const date = addDays(weekStart, d);
+          const offset = w * 7 + d;
+          bottom.push({
+            key: `d-${offset}`,
+            label: `${DAY_ABBR[date.getDay()]} ${date.getDate()}`,
+            days: 1,
+            offset,
+          });
+          ticks.push(offset + 1);
+        }
       }
-      list.push({ label: weekLabel, days });
+      return { top, bottom, ticks };
     }
-    return list;
-  }, [dateRange]);
+
+    if (scale === "month") {
+      let cursor = new Date(dateRange.projectStart);
+      while (cursor < rangeEnd) {
+        const monthStart = cursor;
+        const next = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+        const segmentEnd = next < rangeEnd ? next : rangeEnd;
+        const days = Math.max(1, dayDelta(monthStart, segmentEnd));
+        const offset = dayDelta(dateRange.projectStart, monthStart);
+        bottom.push({
+          key: `m-${monthStart.getFullYear()}-${monthStart.getMonth()}`,
+          label: monthStart.toLocaleDateString("en-US", { month: "short" }),
+          days,
+          offset,
+        });
+        ticks.push(offset + days);
+        cursor = next;
+      }
+      let yearCursor = 0;
+      while (yearCursor < bottom.length) {
+        const bandYear = addDays(dateRange.projectStart, bottom[yearCursor].offset).getFullYear();
+        let days = 0;
+        let count = 0;
+        while (
+          yearCursor + count < bottom.length &&
+          addDays(dateRange.projectStart, bottom[yearCursor + count].offset).getFullYear() ===
+            bandYear
+        ) {
+          days += bottom[yearCursor + count].days;
+          count += 1;
+        }
+        top.push({
+          key: `y-${bandYear}-${yearCursor}`,
+          label: String(bandYear),
+          days,
+          offset: bottom[yearCursor].offset,
+        });
+        yearCursor += count;
+      }
+      return { top, bottom, ticks };
+    }
+
+    let cursor = new Date(dateRange.projectStart);
+    while (cursor < rangeEnd) {
+      const qStart = cursor;
+      const next = new Date(qStart.getFullYear(), Math.floor(qStart.getMonth() / 3) * 3 + 3, 1);
+      const segmentEnd = next < rangeEnd ? next : rangeEnd;
+      const days = Math.max(1, dayDelta(qStart, segmentEnd));
+      const offset = dayDelta(dateRange.projectStart, qStart);
+      const q = Math.floor(qStart.getMonth() / 3) + 1;
+      bottom.push({
+        key: `q-${qStart.getFullYear()}-${q}`,
+        label: `Q${q}`,
+        days,
+        offset,
+      });
+      ticks.push(offset + days);
+      cursor = next;
+    }
+    let yearCursor = 0;
+    while (yearCursor < bottom.length) {
+      const bandYear = addDays(dateRange.projectStart, bottom[yearCursor].offset).getFullYear();
+      let days = 0;
+      let count = 0;
+      while (
+        yearCursor + count < bottom.length &&
+        addDays(dateRange.projectStart, bottom[yearCursor + count].offset).getFullYear() ===
+          bandYear
+      ) {
+        days += bottom[yearCursor + count].days;
+        count += 1;
+      }
+      top.push({
+        key: `y-${bandYear}-${yearCursor}`,
+        label: String(bandYear),
+        days,
+        offset: bottom[yearCursor].offset,
+      });
+      yearCursor += count;
+    }
+    return { top, bottom, ticks };
+  }, [dateRange, scale]);
 
   // Compute Today offset
   const todayOffset = useMemo(() => {
@@ -333,6 +509,14 @@ export function GanttView({
   const getGanttDates = (task: GanttTaskRow, index: number) => {
     let start = toLocalMidnight(task.rawStartDate);
     let end = toLocalMidnight(task.rawEndDate);
+
+    if (task.children?.length) {
+      const rolled = spanFromRows([task]);
+      if (rolled) {
+        start = toLocalMidnight(rolled.startDate) ?? start;
+        end = toLocalMidnight(rolled.endDate) ?? end;
+      }
+    }
 
     // Fallback if one date is missing but the other is present
     if (!start && end) {
@@ -362,6 +546,23 @@ export function GanttView({
     const startDay = (index * 2) % 15;
     const durationDays = Math.max(1, 3 + (index % 5));
     return { startDay, durationDays, hasDates: false };
+  };
+
+  const spanFromDates = (startStr?: string | null, endStr?: string | null) => {
+    let start = toLocalMidnight(startStr);
+    let end = toLocalMidnight(endStr);
+    if (!start && end) start = end;
+    else if (start && !end) end = start;
+    if (!start || !end) return null;
+    const startDay = Math.max(
+      0,
+      Math.round((start.getTime() - dateRange.projectStart.getTime()) / 86400000),
+    );
+    const durationDays = Math.max(
+      1,
+      Math.round((end.getTime() - start.getTime()) / 86400000) + 1,
+    );
+    return { startDay, durationDays };
   };
 
   const { taskLayout, totalTimelineRows } = useMemo(() => {
@@ -437,14 +638,23 @@ export function GanttView({
     if (scrollRef.current) {
       const containerWidth = scrollRef.current.clientWidth;
       const timelineVisibleWidth = containerWidth - 256;
-      const fitZoom = Math.max(0.5, Math.min(2, timelineVisibleWidth / (dateRange.totalDays * COL_W)));
+      const base = SCALE_PX_PER_DAY[scale];
+      const fitZoom = Math.max(
+        minZoom,
+        Math.min(maxZoom, timelineVisibleWidth / (dateRange.totalDays * base)),
+      );
       setZoom(fitZoom);
     }
   };
 
+  const handleScaleChange = (next: GanttScale) => {
+    setScale(next);
+    setZoom(1);
+  };
+
   const scrollTimeline = (direction: "left" | "right") => {
     if (scrollRef.current) {
-      const scrollAmount = colW * 7;
+      const scrollAmount = colW * (scale === "day" ? 7 : scale === "month" ? 30 : 90);
       scrollRef.current.scrollBy({
         left: direction === "left" ? -scrollAmount : scrollAmount,
         behavior: "smooth",
@@ -484,8 +694,22 @@ export function GanttView({
         >
           Today
         </button>
-        <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border/60 text-xs font-semibold cursor-default">
-          Day
+        <div className="flex overflow-hidden rounded-lg border border-border/60">
+          {SCALE_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => handleScaleChange(option.id)}
+              className={cn(
+                "px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer",
+                scale === option.id
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
         <button
           onClick={handleAutoFit}
@@ -495,13 +719,13 @@ export function GanttView({
         </button>
         <div className="ml-auto flex items-center gap-1">
           <button
-            onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}
+            onClick={() => setZoom((z) => Math.max(minZoom, z - 0.25))}
             className="p-1.5 rounded-md border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
           >
             <ZoomOut className="size-3.5" />
           </button>
           <button
-            onClick={() => setZoom((z) => Math.min(2, z + 0.25))}
+            onClick={() => setZoom((z) => Math.min(maxZoom, z + 0.25))}
             className="p-1.5 rounded-md border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
           >
             <ZoomIn className="size-3.5" />
@@ -589,7 +813,16 @@ export function GanttView({
                               <Circle className="size-3.5 text-muted-foreground shrink-0" />
                             )}
                           </button>
-                          <span className={cn("text-xs truncate flex-1", task.done && "line-through text-muted-foreground")}>
+                          <span className={cn(
+                            "text-xs truncate flex-1",
+                            hasChildren && "font-semibold",
+                            task.done && "line-through text-muted-foreground",
+                          )}>
+                            {hasChildren && depth === 0 && (
+                              <span className="mr-1 text-[9px] font-semibold uppercase text-muted-foreground">
+                                Sum
+                              </span>
+                            )}
                             {depth > 0 && (
                               <span className="mr-1 text-[9px] font-semibold uppercase text-muted-foreground">
                                 {depth >= 2 ? "Sub²" : "Sub"}
@@ -630,35 +863,38 @@ export function GanttView({
 
           {/* Right: timeline */}
           <div className="flex-1 relative">
-            {/* Week headers */}
+            {/* Scale headers */}
             <div className="flex border-b border-border/50 bg-white dark:bg-slate-900 sticky top-0 z-20" style={{ height: 28 }}>
-              {weeks.map((week) => (
+              {headerBands.top.map((band) => (
                 <div
-                  key={week.label}
+                  key={band.key}
                   className="border-r border-border/30 flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0"
-                  style={{ width: week.days.length * colW }}
+                  style={{ width: band.days * colW }}
                 >
-                  {week.label}
+                  {band.label}
                 </div>
               ))}
             </div>
 
-            {/* Day headers */}
             <div className="flex border-b border-border/50 bg-white dark:bg-slate-900 sticky top-7 z-20" style={{ height: 28 }}>
-              {weeks.flatMap((week) =>
-                week.days.map((day) => (
+              {headerBands.bottom.map((band) => {
+                const coversToday =
+                  todayOffset >= band.offset && todayOffset < band.offset + band.days;
+                return (
                   <div
-                    key={day.offset}
+                    key={band.key}
                     className={cn(
                       "border-r border-border/20 flex items-center justify-center text-[10px] font-medium shrink-0",
-                      day.offset === todayOffset ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground"
+                      coversToday
+                        ? "bg-primary text-primary-foreground font-bold"
+                        : "text-muted-foreground",
                     )}
-                    style={{ width: colW }}
+                    style={{ width: band.days * colW }}
                   >
-                    {day.label}
+                    {band.label}
                   </div>
-                ))
-              )}
+                );
+              })}
             </div>
 
             {/* Timeline phase and task bars */}
@@ -668,7 +904,26 @@ export function GanttView({
                 <React.Fragment key={group.id}>
                   {/* Phase timeline row (renders milestones) */}
                   <div className="border-b border-border/30 relative bg-muted/10 dark:bg-white/5" style={{ height: 36 }}>
-                    <GridLines totalDays={dateRange.totalDays} colW={colW} todayOffset={todayOffset} />
+                    <GridLines ticks={headerBands.ticks} colW={colW} todayOffset={todayOffset} />
+                    {(() => {
+                      const taskSpan = spanFromRows(group.tasks);
+                      const span =
+                        spanFromDates(group.startDate, group.endDate) ??
+                        (taskSpan
+                          ? spanFromDates(taskSpan.startDate, taskSpan.endDate)
+                          : null);
+                      if (!span) return null;
+                      return (
+                        <GroupingBar
+                          startDay={span.startDay}
+                          durationDays={span.durationDays}
+                          colW={colW}
+                          color={group.color}
+                          variant="phase"
+                          label={group.name}
+                        />
+                      );
+                    })()}
 
                     {/* Milestones inside Phase Header Row */}
                     {group.milestones.map((m) => {
@@ -698,74 +953,43 @@ export function GanttView({
                       const isCritical = layout?.isCritical ?? Boolean(task.isOnCriticalPath);
                       const overdue = isGanttTaskOverdue(task);
                       const depth = task.depth ?? (task.parentTaskId ? 1 : 0);
+                      const isSummary = Boolean(task.children?.length);
                       return (
                         <div
                           key={task.id}
                           className="border-b border-border/20 relative hover:bg-muted/10 transition-colors"
                           style={{ height: 36 }}
                         >
-                          <GridLines totalDays={dateRange.totalDays} colW={colW} todayOffset={todayOffset} />
+                          <GridLines ticks={headerBands.ticks} colW={colW} todayOffset={todayOffset} />
 
-                          {/* Bar Container */}
-                          {(() => {
-                            const config = STATUS_CONFIG[task.status] || STATUS_CONFIG.To_Do;
-                            const barWidth = Math.max(durationDays * colW - 4, colW - 4);
-                            const showLabelInside = barWidth > LABEL_INSIDE_MIN_PX;
-                            return (
-                              <div
-                                className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1.5 cursor-pointer group/bar z-10"
-                                onClick={() => onTaskClick?.(task.id)}
-                                style={{
-                                  left: startDay * colW + 2,
-                                }}
-                              >
-                                <div
-                                  className={cn(
-                                    "relative rounded-md h-5 overflow-hidden flex items-center hover:brightness-95 transition-all shadow-xs border",
-                                    config.bgClass,
-                                    isCritical && "ring-2 ring-rose-500 border-rose-500",
-                                    overdue &&
-                                      !isCritical &&
-                                      "ring-2 ring-amber-500 border-amber-500 bg-amber-100/90 dark:bg-amber-900/35",
-                                    overdue &&
-                                      isCritical &&
-                                      "outline outline-2 outline-offset-1 outline-amber-500",
-                                    depth > 0 && "h-4 opacity-90",
-                                  )}
-                                  style={{
-                                    width: barWidth,
-                                  }}
-                                  title={`${task.name} (${config.label})${overdue ? " — Overdue" : ""}${isCritical ? " — Critical path" : ""}${depth > 0 ? " — Sub-task" : ""}`}
-                                >
-                                  {showLabelInside && (
-                                    <span
-                                      className={cn(
-                                        "absolute left-2.5 text-[9px] font-bold truncate z-10 select-none max-w-[85%]",
-                                        overdue && !isCritical
-                                          ? "text-amber-900 dark:text-amber-100"
-                                          : config.textClass,
-                                      )}
-                                    >
-                                      {task.name}
-                                    </span>
-                                  )}
-                                </div>
-                                {!showLabelInside && (
-                                  <span
-                                    className={cn(
-                                      "text-[9px] font-bold truncate max-w-[160px] whitespace-nowrap select-none",
-                                      overdue
-                                        ? "text-amber-700 dark:text-amber-300"
-                                        : "text-foreground",
-                                    )}
-                                    title={task.name}
-                                  >
-                                    {task.name}
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })()}
+                          {isSummary ? (
+                            <div
+                              className="absolute top-1/2 z-10 -translate-y-1/2 cursor-pointer"
+                              onClick={() => onTaskClick?.(task.id)}
+                              style={{ left: startDay * colW + 2 }}
+                            >
+                              <GroupingBar
+                                startDay={0}
+                                durationDays={durationDays}
+                                colW={colW}
+                                color="#475569"
+                                variant="summary"
+                                label={task.name}
+                                relative
+                              />
+                            </div>
+                          ) : (
+                            <TaskBar
+                              task={task}
+                              startDay={startDay}
+                              durationDays={durationDays}
+                              colW={colW}
+                              isCritical={isCritical}
+                              overdue={overdue}
+                              depth={depth}
+                              onClick={() => onTaskClick?.(task.id)}
+                            />
+                          )}
                         </div>
                       );
                     })}
@@ -851,6 +1075,17 @@ export function GanttView({
           <span>Done</span>
         </div>
         <div className="flex items-center gap-1.5">
+          <span className="h-2 w-6 rounded-sm bg-violet-500/80" />
+          <span>Phase</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="relative h-2 w-6 rounded-t-sm bg-slate-600">
+            <span className="absolute left-0 top-1.5 h-0 w-0 border-x-[3px] border-t-[4px] border-x-transparent border-t-slate-600" />
+            <span className="absolute right-0 top-1.5 h-0 w-0 border-x-[3px] border-t-[4px] border-x-transparent border-t-slate-600" />
+          </span>
+          <span>Summary task</span>
+        </div>
+        <div className="flex items-center gap-1.5">
           <span className="size-3 rotate-45 bg-primary border border-white dark:border-slate-900" />
           <span>Milestone</span>
         </div>
@@ -877,19 +1112,164 @@ export function GanttView({
   );
 }
 
-function GridLines({ totalDays, colW, todayOffset }: { totalDays: number; colW: number; todayOffset: number }) {
+function GroupingBar({
+  startDay,
+  durationDays,
+  colW,
+  color,
+  variant,
+  label,
+  relative = false,
+}: {
+  startDay: number;
+  durationDays: number;
+  colW: number;
+  color: string;
+  variant: "phase" | "summary";
+  label: string;
+  relative?: boolean;
+}) {
+  const width = Math.max(durationDays * colW - (relative ? 0 : 4), 12);
+  const showLabelOnBar = width > LABEL_INSIDE_MIN_PX;
+  const bar = variant === "phase" ? (
+    <div
+      className="h-2.5 rounded-sm opacity-80"
+      style={{ width, backgroundColor: color }}
+    />
+  ) : (
+    <div className="relative" style={{ width }}>
+      {showLabelOnBar && (
+        <span className="absolute inset-x-1 -top-3.5 truncate text-[9px] font-bold leading-none text-slate-700 dark:text-slate-200 select-none">
+          {label}
+        </span>
+      )}
+      <div className="h-2 w-full rounded-t-sm bg-slate-600 dark:bg-slate-400" />
+      <div className="absolute left-0 top-1.5 h-0 w-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-slate-600 dark:border-t-slate-400" />
+      <div className="absolute right-0 top-1.5 h-0 w-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-slate-600 dark:border-t-slate-400" />
+    </div>
+  );
+
+  const labelBeside = variant === "summary" && !showLabelOnBar && (
+    <span
+      className="max-w-[160px] truncate text-[9px] font-bold text-slate-700 dark:text-slate-200 select-none"
+      title={label}
+    >
+      {label}
+    </span>
+  );
+
+  if (relative) {
+    return (
+      <div className="flex items-center gap-1.5" title={label}>
+        {bar}
+        {labelBeside}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="absolute top-1/2 z-[8] flex -translate-y-1/2 items-center gap-1.5"
+      style={{ left: startDay * colW + 2 }}
+      title={label}
+    >
+      {bar}
+      {labelBeside}
+    </div>
+  );
+}
+
+function TaskBar({
+  task,
+  startDay,
+  durationDays,
+  colW,
+  isCritical,
+  overdue,
+  depth,
+  onClick,
+}: {
+  task: GanttTaskRow;
+  startDay: number;
+  durationDays: number;
+  colW: number;
+  isCritical: boolean;
+  overdue: boolean;
+  depth: number;
+  onClick: () => void;
+}) {
+  const config = STATUS_CONFIG[task.status] || STATUS_CONFIG.To_Do;
+  const barWidth = Math.max(durationDays * colW - 4, colW - 4);
+  const showLabelInside = barWidth > LABEL_INSIDE_MIN_PX;
+  return (
+    <div
+      className="absolute top-1/2 z-10 flex -translate-y-1/2 cursor-pointer items-center gap-1.5"
+      onClick={onClick}
+      style={{ left: startDay * colW + 2 }}
+    >
+      <div
+        className={cn(
+          "relative flex h-5 items-center overflow-hidden rounded-md border shadow-xs transition-all hover:brightness-95",
+          config.bgClass,
+          isCritical && "ring-2 ring-rose-500 border-rose-500",
+          overdue &&
+            !isCritical &&
+            "ring-2 ring-amber-500 border-amber-500 bg-amber-100/90 dark:bg-amber-900/35",
+          overdue && isCritical && "outline outline-2 outline-offset-1 outline-amber-500",
+          depth > 0 && "h-4 opacity-90",
+        )}
+        style={{ width: barWidth }}
+        title={`${task.name} (${config.label})${overdue ? " — Overdue" : ""}${isCritical ? " — Critical path" : ""}${depth > 0 ? " — Sub-task" : ""}`}
+      >
+        {showLabelInside && (
+          <span
+            className={cn(
+              "absolute left-2.5 z-10 max-w-[85%] truncate text-[9px] font-bold select-none",
+              overdue && !isCritical ? "text-amber-900 dark:text-amber-100" : config.textClass,
+            )}
+          >
+            {task.name}
+          </span>
+        )}
+      </div>
+      {!showLabelInside && (
+        <span
+          className={cn(
+            "max-w-[160px] truncate whitespace-nowrap text-[9px] font-bold select-none",
+            overdue ? "text-amber-700 dark:text-amber-300" : "text-foreground",
+          )}
+          title={task.name}
+        >
+          {task.name}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function GridLines({
+  ticks,
+  colW,
+  todayOffset,
+}: {
+  ticks: number[];
+  colW: number;
+  todayOffset: number;
+}) {
   return (
     <>
-      {Array.from({ length: totalDays }).map((_, i) => (
+      {ticks.map((offset) => (
         <div
-          key={i}
+          key={offset}
           className="absolute top-0 bottom-0 border-r border-border/20"
-          style={{ left: (i + 1) * colW }}
+          style={{ left: offset * colW }}
         />
       ))}
-      {/* Today vertical line */}
       {todayOffset >= 0 && (
-        <div className="absolute top-0 bottom-0 w-px bg-rose-400 z-10" style={{ left: todayOffset * colW + colW / 2 }} />
+        <div
+          className="absolute top-0 bottom-0 z-10 w-px bg-rose-400"
+          style={{ left: todayOffset * colW + colW / 2 }}
+        />
       )}
     </>
   );
