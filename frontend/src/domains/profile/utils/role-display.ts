@@ -2,6 +2,8 @@ export function getRoleBadgeColor(role: string) {
   switch (role) {
     case "super_admin":
       return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20";
+    case "it_admin":
+      return "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20";
     case "pmo_lead":
       return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
     case "sdm":
@@ -18,6 +20,11 @@ export function getRoleBadgeColor(role: string) {
       return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20";
     case "hr":
       return "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20";
+    case "sales":
+      return "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20";
+    case "client":
+    case "vendor":
+      return "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
     default:
       return "bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20";
   }
@@ -27,6 +34,8 @@ export function getRoleLabel(role: string) {
   switch (role) {
     case "super_admin":
       return "Super Admin";
+    case "it_admin":
+      return "IT Admin";
     case "pmo_lead":
       return "PMO Lead";
     case "sdm":
@@ -42,11 +51,13 @@ export function getRoleLabel(role: string) {
       return "Finance";
     case "hr":
       return "HR";
+    case "sales":
+      return "Sales";
     case "client":
       return "Client";
     case "vendor":
       return "Vendor";
     default:
-      return role;
+      return role.replace(/_/g, " ");
   }
 }

@@ -31,9 +31,13 @@ import { LeaveBackupService } from '../resources/leave-backup.service';
 import { TaskDependenciesService } from './task-dependencies.service';
 import { WorkspaceDocumentsService, TASK_ATTACHMENT_MAX_FILES } from '../workspace-documents/workspace-documents.service';
 import { ProjectLinkService } from '../integrations/keka/sync/project-link.service';
-import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
-import { RoleEnum } from '../roles/roles.enum';
+import { TaskStatus, PriorityLevel, Prisma, ProjectStatus } from '@prisma/client';
+import { RoleEnum, TASK_ASSIGNEE_ORG_ROLE_CODES } from '../roles/roles.enum';
 import { assignExclusivePhaseGate } from '../projects/phase-gate.util';
+import {
+  actualStampsForTaskStatus,
+  freezeBaselineIfEmpty,
+} from '../projects/utils/schedule-dates.util';
 
 const EXTERNAL_ROLES = [RoleEnum.client, RoleEnum.vendor];
 
@@ -298,7 +302,7 @@ export class TasksService {
           : null;
       const effortVarianceHours =
         planned != null
-          ? Math.round((actualHoursLogged - planned) * 100) / 100
+          ? Math.round((planned - actualHoursLogged) * 100) / 100
           : null;
       const isOverEffort =
         planned != null && planned > 0 && actualHoursLogged > planned;
@@ -467,6 +471,7 @@ export class TasksService {
     if (ownerId) {
       const user = await this.prisma.user.findUnique({
         where: { id: ownerId },
+        include: { role: { select: { code: true } } },
       });
       if (!user) {
         throw new UnprocessableEntityException({
@@ -488,14 +493,18 @@ export class TasksService {
 
       if (!teamAllocation) {
         // DEF-P1-026 — project PMs may own tasks without a team allocation row.
-        const project = await this.prisma.project.findUnique({
+        // DEF-P1-088 — PMO Lead and SDM may own tasks without a team allocation row.
+        const projectOwners = await this.prisma.project.findUnique({
           where: { id: projectId },
           select: { primaryPmId: true, secondaryPmId: true },
         });
         const isProjectPm =
-          project?.primaryPmId === ownerId ||
-          project?.secondaryPmId === ownerId;
-        if (!isProjectPm) {
+          projectOwners?.primaryPmId === ownerId ||
+          projectOwners?.secondaryPmId === ownerId;
+        const isOrgDeliveryRole = TASK_ASSIGNEE_ORG_ROLE_CODES.includes(
+          user.role.code as RoleEnum,
+        );
+        if (!isProjectPm && !isOrgDeliveryRole) {
           throw new UnprocessableEntityException({
             status: HttpStatus.UNPROCESSABLE_ENTITY,
             errors: { ownerId: 'assigneeMustBeOnProjectTeam' },
@@ -688,6 +697,50 @@ export class TasksService {
     }
   }
 
+  private async resolveNewTaskSchedule(dto: {
+    projectId: string;
+    startDate?: Date | null;
+    endDate?: Date | null;
+    durationDays?: number | null;
+    baselineStart?: Date | null;
+    baselineEnd?: Date | null;
+    baselineDurationDays?: number | null;
+    actualStart?: Date | null;
+    actualEnd?: Date | null;
+    status?: TaskStatusEnum;
+  }) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      select: { status: true },
+    });
+    const freeze =
+      project?.status === ProjectStatus.Active
+        ? freezeBaselineIfEmpty({
+            start: dto.startDate,
+            end: dto.endDate,
+            durationDays: dto.durationDays,
+            baselineStart: dto.baselineStart,
+            baselineEnd: dto.baselineEnd,
+          })
+        : {};
+    const nextStatus = dto.status
+      ? this.mapStatusToPrisma(dto.status)
+      : TaskStatus.To_Do;
+    const actuals = actualStampsForTaskStatus({
+      nextStatus,
+      actualStart: dto.actualStart,
+      actualEnd: dto.actualEnd,
+    });
+    return {
+      baselineStart: dto.baselineStart ?? freeze.baselineStart ?? null,
+      baselineEnd: dto.baselineEnd ?? freeze.baselineEnd ?? null,
+      baselineDurationDays:
+        dto.baselineDurationDays ?? freeze.baselineDurationDays ?? null,
+      actualStart: dto.actualStart ?? actuals.actualStart ?? null,
+      actualEnd: dto.actualEnd ?? actuals.actualEnd ?? null,
+    };
+  }
+
   async create(dto: CreateTaskDto, actorId: string, viewerRoleCode?: string) {
     await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId, dto.phaseId);
     await this.assertTaskDatesWithinPhase(
@@ -701,6 +754,8 @@ export class TasksService {
       dto.startDate,
       dto.endDate,
     );
+
+    const schedule = await this.resolveNewTaskSchedule(dto);
 
     const isPhaseGate = this.resolveIsPhaseGate({
       requested: dto.isPhaseGate,
@@ -721,13 +776,13 @@ export class TasksService {
           backupOwnerId: dto.backupOwnerId ?? null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
-          baselineStart: dto.baselineStart ?? null,
-        baselineEnd: dto.baselineEnd ?? null,
-        actualStart: dto.actualStart ?? null,
-        actualEnd: dto.actualEnd ?? null,
-        durationDays: dto.durationDays ?? null,
-        baselineDurationDays: dto.baselineDurationDays ?? null,
-        effortHours: dto.effortHours ?? null,
+          baselineStart: schedule.baselineStart,
+          baselineEnd: schedule.baselineEnd,
+          actualStart: schedule.actualStart,
+          actualEnd: schedule.actualEnd,
+          durationDays: dto.durationDays ?? null,
+          baselineDurationDays: schedule.baselineDurationDays,
+          effortHours: dto.effortHours ?? null,
           progressApproved:
           dto.progressApproved != null
             ? Math.max(0, Math.min(100, Math.round(dto.progressApproved)))
@@ -805,6 +860,8 @@ export class TasksService {
       uploadedFiles.push(await this.filesUploadService.upload(file));
     }
 
+    const schedule = await this.resolveNewTaskSchedule(dto);
+
     const task = await this.prisma.$transaction(async (tx) => {
       const isPhaseGate = this.resolveIsPhaseGate({
         requested: dto.isPhaseGate,
@@ -823,12 +880,12 @@ export class TasksService {
           ownerId: dto.ownerId ?? null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
-          baselineStart: dto.baselineStart ?? null,
-          baselineEnd: dto.baselineEnd ?? null,
-          actualStart: dto.actualStart ?? null,
-          actualEnd: dto.actualEnd ?? null,
+          baselineStart: schedule.baselineStart,
+          baselineEnd: schedule.baselineEnd,
+          actualStart: schedule.actualStart,
+          actualEnd: schedule.actualEnd,
           durationDays: dto.durationDays ?? null,
-          baselineDurationDays: dto.baselineDurationDays ?? null,
+          baselineDurationDays: schedule.baselineDurationDays,
           effortHours: dto.effortHours ?? null,
           progressApproved:
             dto.progressApproved != null
@@ -855,6 +912,9 @@ export class TasksService {
             status: TaskStatus.To_Do,
             startDate: dto.startDate ?? null,
             endDate: dto.endDate ?? null,
+            baselineStart: schedule.baselineStart,
+            baselineEnd: schedule.baselineEnd,
+            baselineDurationDays: schedule.baselineDurationDays,
             effortHours: dto.effortHours ?? 1,
           },
         });
@@ -1030,6 +1090,14 @@ export class TasksService {
       );
     }
 
+    const bundleStatusStamps = dto.status
+      ? actualStampsForTaskStatus({
+          nextStatus: this.mapStatusToPrisma(dto.status),
+          actualStart: existing.actualStart,
+          actualEnd: existing.actualEnd,
+        })
+      : {};
+
     if (files.length > 0 || removeAttachmentIds.length > 0) {
       const existingAttachmentCount = await this.prisma.workspaceDocument.count({
         where: { taskId: id, category: 'Task' },
@@ -1073,6 +1141,7 @@ export class TasksService {
           endDate: dto.endDate !== undefined ? dto.endDate : undefined,
           effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
           status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
+          ...bundleStatusStamps,
           isPhaseGate: false,
         },
       });
@@ -1618,6 +1687,18 @@ export class TasksService {
       );
     }
 
+    const statusStamps = dto.status
+      ? actualStampsForTaskStatus({
+          nextStatus: this.mapStatusToPrisma(dto.status),
+          actualStart:
+            dto.actualStart !== undefined
+              ? dto.actualStart
+              : existing.actualStart,
+          actualEnd:
+            dto.actualEnd !== undefined ? dto.actualEnd : existing.actualEnd,
+        })
+      : {};
+
     const isPhaseGate = this.resolveIsPhaseGate({
       requested: dto.isPhaseGate,
       phaseId,
@@ -1641,8 +1722,12 @@ export class TasksService {
           baselineStart:
           dto.baselineStart !== undefined ? dto.baselineStart : undefined,
         baselineEnd: dto.baselineEnd !== undefined ? dto.baselineEnd : undefined,
-        actualStart: dto.actualStart !== undefined ? dto.actualStart : undefined,
-        actualEnd: dto.actualEnd !== undefined ? dto.actualEnd : undefined,
+        actualStart:
+          dto.actualStart !== undefined
+            ? dto.actualStart
+            : statusStamps.actualStart,
+        actualEnd:
+          dto.actualEnd !== undefined ? dto.actualEnd : statusStamps.actualEnd,
         durationDays:
           dto.durationDays !== undefined ? dto.durationDays : undefined,
         baselineDurationDays:

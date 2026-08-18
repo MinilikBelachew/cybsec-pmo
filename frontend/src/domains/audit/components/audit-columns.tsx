@@ -11,6 +11,13 @@ import {
 import { type AuditLogEntry } from "../api/audit.api";
 import { parseAuditClientDisplay } from "../utils/format-audit-client";
 
+function formatAuditAction(action: string) {
+  return action
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function AuditClientCell({ ipAddress }: { ipAddress: string | null }) {
   const { ipLabel, ip, client } = parseAuditClientDisplay(ipAddress);
 
@@ -111,10 +118,10 @@ export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
             <code className="block max-w-full truncate rounded-md bg-muted/70 px-2 py-1 text-[11px] font-medium" />
           }
         >
-          {row.original.action}
+          {formatAuditAction(row.original.action)}
         </TooltipTrigger>
         <TooltipContent side="bottom" align="start" className="max-w-xs break-all">
-          {row.original.action}
+          {formatAuditAction(row.original.action)}
         </TooltipContent>
       </Tooltip>
     ),

@@ -1,6 +1,6 @@
 /**
  * Stable role IDs (int) for seeding and RBAC matrix alignment.
- * IDs 1–11 are fixed for Gate 1; new roles use the DB sequence (12, 13, …).
+ * IDs 1–11 are Gate 1; 12+ are later roles (DEF-P1-088 SDM).
  */
 export const ROLE_CATALOG = [
   { id: 1, code: 'super_admin', label: 'Super Admin', isExternal: false },
@@ -14,6 +14,7 @@ export const ROLE_CATALOG = [
   { id: 9, code: 'sales', label: 'Sales', isExternal: false },
   { id: 10, code: 'client', label: 'Client', isExternal: true },
   { id: 11, code: 'vendor', label: 'Vendor', isExternal: true },
+  { id: 12, code: 'sdm', label: 'SDM', isExternal: false },
 ] as const;
 
 export type RoleCatalogEntry = (typeof ROLE_CATALOG)[number];

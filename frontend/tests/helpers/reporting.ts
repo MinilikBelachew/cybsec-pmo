@@ -25,9 +25,9 @@ export const PMO_LEAD_EMAIL = "pmo.lead.m3@cybsec.com";
 /** Second PM, used to prove cross-PM dashboard scoping. */
 export const PM2_EMAIL = "pm2.m3@cybsec.com";
 
-/** Matches APP_PORT / compose publish (3001). 6001 sits in a Windows Hyper-V excluded range. */
+/** Matches APP_PORT / compose publish (6001). */
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
 /** docker-compose.dev.yml publishes the maildev web UI/API on host port 8025. */
 export const MAILDEV_URL =

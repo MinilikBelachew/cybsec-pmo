@@ -70,6 +70,7 @@ export function RegisterClientDialog({
     reset,
     watch,
     setValue,
+    setError,
     formState: { errors },
   } = useForm<RegisterClientFormValues>({
     resolver: zodResolver(registerClientFormSchema),
@@ -116,9 +117,14 @@ export function RegisterClientDialog({
       reset(DEFAULT_VALUES);
       onClose();
     } catch (err) {
-      toast.error(
-        getApiErrorMessage(err, "Failed to create client in PMO / Keka"),
+      const message = getApiErrorMessage(
+        err,
+        "Failed to create client in PMO / Keka",
       );
+      if (/already exists/i.test(message)) {
+        setError("name", { type: "server", message });
+      }
+      toast.error(message);
     }
   });
 
@@ -226,12 +232,12 @@ export function RegisterClientDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Email
+                  Email *
                 </label>
                 <Input
                   type="email"
                   {...register("email")}
-                  placeholder="optional"
+                  placeholder="billing@company.com"
                   disabled={isLoading}
                 />
                 {errors.email && (

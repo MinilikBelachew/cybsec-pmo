@@ -16,6 +16,8 @@ export function humanizePermissionToken(token: string): string {
 }
 
 export function formatRoleCodeLabel(code: string): string {
+  if (code === "sdm") return "SDM";
+  if (code === "pmo_lead") return "PMO Lead";
   return humanizePermissionToken(code);
 }
 

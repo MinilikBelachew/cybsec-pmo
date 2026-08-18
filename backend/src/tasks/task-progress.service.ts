@@ -12,6 +12,7 @@ import { RecordScopeWhereService } from '../casl/record-scope-where.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NOTIFICATION_EVENT_TYPE } from '../notifications/notifications.constants';
 import { AuditLogsService } from '../audit/audit-logs.service';
+import { actualStampsForTaskStatus } from '../projects/utils/schedule-dates.util';
 import { CreateProgressUpdateDto } from './dto/create-progress-update.dto';
 import { ProgressEvidenceFileDto } from './dto/progress-evidence-file.dto';
 import {
@@ -31,6 +32,8 @@ const PROGRESS_INCLUDE = {
       ownerId: true,
       status: true,
       effortHours: true,
+      actualStart: true,
+      actualEnd: true,
       project: { select: { id: true, name: true, primaryPmId: true, secondaryPmId: true } },
     },
   },
@@ -134,6 +137,11 @@ export class TaskProgressService {
         data: {
           progressPending: latestPendingPercent,
           status: TaskStatus.Submitted_for_Review,
+          ...actualStampsForTaskStatus({
+            nextStatus: TaskStatus.Submitted_for_Review,
+            actualStart: task.actualStart,
+            actualEnd: task.actualEnd,
+          }),
         },
       });
 
@@ -331,7 +339,11 @@ export class TaskProgressService {
 
       const task = await tx.task.findUniqueOrThrow({
         where: { id: update.taskId },
-        select: { progressApproved: true },
+        select: {
+          progressApproved: true,
+          actualStart: true,
+          actualEnd: true,
+        },
       });
       const progressApproved = Math.max(task.progressApproved, update.progressPercent);
       const progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
@@ -348,6 +360,11 @@ export class TaskProgressService {
           progressApproved,
           progressPending,
           status: nextStatus,
+          ...actualStampsForTaskStatus({
+            nextStatus,
+            actualStart: task.actualStart,
+            actualEnd: task.actualEnd,
+          }),
         },
       });
 
@@ -413,6 +430,11 @@ export class TaskProgressService {
         data: {
           progressPending,
           status: nextStatus,
+          ...actualStampsForTaskStatus({
+            nextStatus,
+            actualStart: update.task.actualStart,
+            actualEnd: update.task.actualEnd,
+          }),
         },
       });
 
@@ -472,6 +494,11 @@ export class TaskProgressService {
         data: {
           progressPending,
           status: nextStatus,
+          ...actualStampsForTaskStatus({
+            nextStatus,
+            actualStart: update.task.actualStart,
+            actualEnd: update.task.actualEnd,
+          }),
         },
       });
 
@@ -553,6 +580,8 @@ export class TaskProgressService {
         status: true,
         title: true,
         progressApproved: true,
+        actualStart: true,
+        actualEnd: true,
         parentTask: { select: { ownerId: true } },
       },
     });
@@ -663,7 +692,7 @@ export class TaskProgressService {
       effortHours != null && Number.isFinite(effortHours) ? effortHours : null;
     const effortVarianceHours =
       planned != null
-        ? Math.round((actualHoursLogged - planned) * 100) / 100
+        ? Math.round((planned - actualHoursLogged) * 100) / 100
         : null;
     const isOverEffort =
       planned != null && planned > 0 && actualHoursLogged > planned;

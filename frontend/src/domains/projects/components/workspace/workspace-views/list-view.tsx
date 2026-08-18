@@ -51,8 +51,13 @@ interface Task {
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
   isOverEffort?: boolean;
+  baselineStartLabel?: string | null;
   baselineEndLabel?: string | null;
+  actualStartLabel?: string | null;
   actualEndLabel?: string | null;
+  plannedDurationDays?: number | null;
+  baselineDurationDays?: number | null;
+  actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
 }
 
@@ -477,7 +482,7 @@ export function ListView({
   }
 
   const renderColumnHeaders = () => (
-    <div className="flex min-w-[72rem] items-center gap-4 px-3 py-1.5 border-b border-border/30 bg-slate-50/30 dark:bg-slate-900/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+    <div className="flex min-w-[110rem] items-center gap-4 px-3 py-1.5 border-b border-border/30 bg-slate-50/30 dark:bg-slate-900/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
       {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
       <div className="w-4 shrink-0" />
       <div className="w-4 shrink-0" />
@@ -506,10 +511,25 @@ export function ListView({
         Variance
       </div>
       <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
-        Base
+        Plan start
       </div>
       <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
-        Actual
+        BL start
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        BL end
+      </div>
+      <div className="shrink-0 w-14 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        BL d
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Act start
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Act end
+      </div>
+      <div className="shrink-0 w-14 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Act d
       </div>
       <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Sched
@@ -557,7 +577,7 @@ export function ListView({
       <React.Fragment key={`${task.treeKind ?? "task"}-${task.id}-${depth}`}>
       <div
         className={cn(
-          "flex min-w-[72rem] items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
+          "flex min-w-[110rem] items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
           task.done && "opacity-60",
           depth > 0 && "bg-muted/10",
           isDependencyRow && "bg-violet-50/40 dark:bg-violet-950/20",
@@ -768,17 +788,31 @@ export function ListView({
             "shrink-0 w-20 flex items-center justify-center text-xs font-medium tabular-nums",
             task.isOverEffort
               ? "text-amber-700 dark:text-amber-300"
-              : (task.effortVarianceHours ?? 0) < 0
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-muted-foreground",
+              : "text-muted-foreground",
           )}
           title={
-            task.isOverEffort ? "Logged hours exceed planned effort" : undefined
+            task.isOverEffort
+              ? "Logged hours exceed planned effort"
+              : "Hours remaining (planned − logged)"
           }
         >
           {task.effortVarianceHours == null || task.effortHours == null
             ? "—"
-            : `${task.effortVarianceHours > 0 ? "+" : ""}${task.effortVarianceHours}h${task.isOverEffort ? " ⚠" : ""}`}
+            : `${task.effortVarianceHours}h${task.isOverEffort ? " ⚠" : ""}`}
+        </div>
+        <div
+          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Planned start"
+        >
+          {task.rawStartDate
+            ? formatDueDate(task.rawStartDate) ?? "—"
+            : "—"}
+        </div>
+        <div
+          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Baseline start"
+        >
+          {task.baselineStartLabel || "—"}
         </div>
         <div
           className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
@@ -787,10 +821,28 @@ export function ListView({
           {task.baselineEndLabel || "—"}
         </div>
         <div
+          className="shrink-0 w-14 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Baseline duration (days)"
+        >
+          {task.baselineDurationDays == null ? "—" : `${task.baselineDurationDays}d`}
+        </div>
+        <div
+          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Actual start"
+        >
+          {task.actualStartLabel || "—"}
+        </div>
+        <div
           className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
           title="Actual end"
         >
           {task.actualEndLabel || "—"}
+        </div>
+        <div
+          className="shrink-0 w-14 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Actual duration (days)"
+        >
+          {task.actualDurationDays == null ? "—" : `${task.actualDurationDays}d`}
         </div>
         <div
           className={cn(
@@ -1081,7 +1133,7 @@ export function ListView({
                     {onAddTask && group.id && (
                       <div
                         onClick={() => onAddTask("To_Do", group.id)}
-                        className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+                        className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
                         <div className="w-4 shrink-0" />
@@ -1151,7 +1203,7 @@ export function ListView({
                     {onAddTask && (
                       <div
                         onClick={() => onAddTask(status)}
-                        className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+                        className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
                         <div className="w-4 shrink-0" />
@@ -1257,7 +1309,7 @@ function ListStatusSection({
           {onAddTask && (
             <div
               onClick={() => onAddTask(status)}
-              className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+              className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
             >
               {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
               <div className="w-4 shrink-0" />

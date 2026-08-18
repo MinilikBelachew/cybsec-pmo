@@ -2,6 +2,8 @@ import type { Task, TaskSubTask } from "../types/tasks.types";
 import { assigneeAvatarColor } from "../components/workspace/workspace-views/task-cell-pickers";
 import {
   comparePlanOrderAsc,
+  inclusiveDurationDays,
+  resolveTaskDurationDays,
   signedDayDelta,
 } from "./task-export-fields";
 
@@ -65,11 +67,13 @@ export interface GanttTaskRow {
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
   isOverEffort?: boolean;
-  /** Baseline finish (short label) for schedule variance columns. */
+  baselineStartLabel?: string | null;
   baselineEndLabel?: string | null;
-  /** Actual finish (short label); empty when not recorded. */
+  actualStartLabel?: string | null;
   actualEndLabel?: string | null;
-  /** Days late (+) / early (−) vs baseline finish. */
+  plannedDurationDays?: number | null;
+  baselineDurationDays?: number | null;
+  actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
 }
 
@@ -86,6 +90,43 @@ type MapTaskToGanttOptions = {
   groupName?: string;
   groupColor?: string;
 };
+
+function durationNumber(value: number | "" | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function scheduleFields(task: {
+  startDate?: string | null;
+  endDate?: string | null;
+  baselineStart?: string | null;
+  baselineEnd?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  durationDays?: number | null;
+  baselineDurationDays?: number | null;
+}) {
+  const plannedDuration = resolveTaskDurationDays(task);
+  const baselineDuration =
+    task.baselineDurationDays != null && Number(task.baselineDurationDays) > 0
+      ? Math.round(Number(task.baselineDurationDays) * 10) / 10
+      : inclusiveDurationDays(task.baselineStart, task.baselineEnd);
+  const actualDuration = inclusiveDurationDays(
+    task.actualStart,
+    task.actualEnd,
+  );
+  return {
+    baselineStartLabel: shortDay(task.baselineStart ?? null),
+    baselineEndLabel: shortDay(task.baselineEnd ?? null),
+    actualStartLabel: shortDay(task.actualStart ?? null),
+    actualEndLabel: shortDay(task.actualEnd ?? null),
+    plannedDurationDays: durationNumber(plannedDuration),
+    baselineDurationDays: durationNumber(baselineDuration),
+    actualDurationDays: durationNumber(actualDuration),
+    scheduleVarianceDays: resolveScheduleVarianceDays(task),
+  };
+}
 
 function mapSubTaskToGanttRow(
   sub: TaskSubTask,
@@ -146,9 +187,7 @@ function mapSubTaskToGanttRow(
     actualHoursLogged: 0,
     effortVarianceHours: null,
     isOverEffort: false,
-    baselineEndLabel: null,
-    actualEndLabel: null,
-    scheduleVarianceDays: null,
+    ...scheduleFields(sub),
   };
 }
 
@@ -207,9 +246,7 @@ export function mapTaskToGanttRow(
     actualHoursLogged: task.actualHoursLogged ?? 0,
     effortVarianceHours: task.effortVarianceHours ?? null,
     isOverEffort: Boolean(task.isOverEffort),
-    baselineEndLabel: shortDay(task.baselineEnd ?? null),
-    actualEndLabel: shortDay(task.actualEnd ?? null),
-    scheduleVarianceDays: resolveScheduleVarianceDays(task),
+    ...scheduleFields(task),
   };
 }
 

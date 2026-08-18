@@ -126,7 +126,7 @@ export function TaskProgressSection({
 
   const effortVarianceHours =
     plannedEffortHours != null
-      ? Math.round((loggedHours - plannedEffortHours) * 100) / 100
+      ? Math.round((plannedEffortHours - loggedHours) * 100) / 100
       : null;
   const isOverEffort =
     plannedEffortHours != null && loggedHours > plannedEffortHours;
