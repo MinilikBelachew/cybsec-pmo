@@ -32,6 +32,9 @@ export function startOfToday(): Date {
   return startOfDay(new Date());
 }
 
+/** Earliest selectable calendar day for project timelines (in-flight / historical). */
+export const EARLIEST_PROJECT_DATE = new Date(2000, 0, 1);
+
 function formatDateLabel(value?: string | Date | null): string {
   const date = toDate(value);
   if (!date) return "Pick a date";
@@ -65,8 +68,8 @@ export function ProjectDatePicker({
 }: ProjectDatePickerProps) {
   const selected = toDate(value);
   const currentYear = new Date().getFullYear();
-  const startMonth = new Date(currentYear, 0);
-  const endMonth = new Date(currentYear + 15, 11);
+  const startMonth = new Date(minDate.getFullYear(), 0);
+  const endMonth = new Date(Math.max(currentYear, minDate.getFullYear()) + 15, 11);
 
   return (
     <Popover>
@@ -97,7 +100,7 @@ export function ProjectDatePicker({
           startMonth={startMonth}
           endMonth={endMonth}
           selected={selected}
-          defaultMonth={selected ?? minDate}
+          defaultMonth={selected ?? startOfToday()}
           disabled={{
             before: startOfDay(minDate),
             ...(maxDate ? { after: startOfDay(maxDate) } : {}),

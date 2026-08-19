@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { normalizeReturnPath } from "@/shared/utils/return-path";
 import { useAppDispatch } from "@/store/hooks";
 import { clearUser } from "../store/auth.slice";
+import { clearSessionEndedMark } from "../utils/clear-session";
 
 function getErrorMessage(code: string | null): string | null {
   if (!code) return null;
@@ -52,6 +53,7 @@ export function LoginForm() {
 
   const handleMicrosoftLogin = () => {
     dispatch(clearUser());
+    clearSessionEndedMark();
     const returnTo = normalizeReturnPath(searchParams.get("callbackUrl"));
     const url = new URL(`${env.apiUrl}/auth/entra/authorize`);
     url.searchParams.set("returnTo", returnTo);

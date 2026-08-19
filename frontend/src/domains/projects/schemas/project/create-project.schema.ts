@@ -65,20 +65,8 @@ const baseProjectSchema = z
     path: ["secondaryPmId"],
   });
 
-export const createProjectFormSchema = baseProjectSchema.refine(
-  (data) => {
-    if (!data.startDate) return true;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const start = new Date(data.startDate);
-    start.setHours(0, 0, 0, 0);
-    return start >= today;
-  },
-  {
-    message: "Start date cannot be in the past",
-    path: ["startDate"],
-  },
-);
+/** Create and edit share the same rules so in-flight/historical projects can use a past start date. */
+export const createProjectFormSchema = baseProjectSchema;
 
 export const editProjectFormSchema = baseProjectSchema;
 
