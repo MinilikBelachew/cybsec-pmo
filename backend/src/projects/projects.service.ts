@@ -1401,6 +1401,22 @@ export class ProjectsService {
         ...(dto.phaseId !== undefined && { phaseId: dto.phaseId }),
       },
     });
+
+    if (milestone.taskId) {
+      const complete = this.isMilestoneComplete(milestone.status);
+      await this.prisma.task.update({
+        where: { id: milestone.taskId },
+        data: {
+          title: milestone.title,
+          phaseId: milestone.phaseId,
+          startDate: milestone.targetDate,
+          endDate: milestone.targetDate,
+          status: complete ? TaskStatus.Done : TaskStatus.To_Do,
+          progressApproved: complete ? 100 : 0,
+        },
+      });
+    }
+
     return {
       ...milestone,
       weight: milestone.weight != null ? Number(milestone.weight) : null,
@@ -1425,6 +1441,11 @@ export class ProjectsService {
       }),
       this.prisma.projectMilestone.delete({ where: { id: milestoneId } }),
     ]);
+  }
+
+  private isMilestoneComplete(status: string | null | undefined): boolean {
+    const normalized = (status ?? '').trim().toLowerCase();
+    return normalized === 'completed' || normalized === 'done';
   }
 
   private usdFields(conversion: UsdConversion | null) {

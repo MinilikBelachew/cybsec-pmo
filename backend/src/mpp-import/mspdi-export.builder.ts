@@ -8,6 +8,10 @@ import {
   MspdiExportResourcePayload,
   MspdiExportTaskPayload,
 } from './mspdi-export.types';
+import {
+  extraResourceNames,
+  mergeExportResourceNames,
+} from './resource-names.util';
 
 type PersonRow = {
   id: string;
@@ -37,6 +41,8 @@ type TaskRow = {
   backupOwnerId: string | null;
   owner: PersonRow | null;
   backupOwner: PersonRow | null;
+  resourceNames: string | null;
+  isScheduleMilestone: boolean;
 };
 
 @Injectable()
@@ -91,7 +97,7 @@ export class MspdiExportBuilder {
       },
     } as const;
 
-    const tasks = await this.prisma.task.findMany({
+    const loadedTasks = await this.prisma.task.findMany({
       where: { projectId },
       // Match MPP import / task list: newest createdAt = first in plan.
       orderBy: { createdAt: 'desc' },
@@ -113,10 +119,16 @@ export class MspdiExportBuilder {
         createdAt: true,
         ownerId: true,
         backupOwnerId: true,
+        resourceNames: true,
         owner: { select: personSelect },
         backupOwner: { select: personSelect },
+        scheduleMilestone: { select: { id: true } },
       },
     });
+    const tasks: TaskRow[] = loadedTasks.map((task) => ({
+      ...task,
+      isScheduleMilestone: Boolean(task.scheduleMilestone),
+    }));
 
     const dependencies = await this.prisma.taskDependency.findMany({
       where: {
@@ -142,8 +154,31 @@ export class MspdiExportBuilder {
         targetDate: true,
         phaseId: true,
         status: true,
+        taskId: true,
       },
     });
+
+    const scheduleKey = (title: string, phaseId: string | null) =>
+      `${phaseId ?? ''}|${title.trim().toLowerCase()}`;
+    const milestoneKeys = new Set(
+      milestones.map((m) => scheduleKey(m.title, m.phaseId)),
+    );
+    const taskKeys = new Set(
+      tasks.map((t) => scheduleKey(t.title, t.phaseId)),
+    );
+    for (const task of tasks) {
+      if (milestoneKeys.has(scheduleKey(task.title, task.phaseId))) {
+        task.isScheduleMilestone = true;
+      }
+    }
+    const isStandaloneMilestone = (m: (typeof milestones)[number]) =>
+      !m.taskId && !taskKeys.has(scheduleKey(m.title, m.phaseId));
+
+    const projectOrganization =
+      project.customer?.displayName ||
+      project.customer?.companyName ||
+      project.department?.name ||
+      '';
 
     const exportTasks: MspdiExportTaskPayload[] = [];
     const phaseIdByExportId = new Map<string, string>();
@@ -196,7 +231,7 @@ export class MspdiExportBuilder {
     const unphasedParentId = 'phase:__unphased__';
     const hasUnphased =
       topLevel.some((t) => !t.phaseId) ||
-      milestones.some((m) => !m.phaseId);
+      milestones.some((m) => !m.phaseId && isStandaloneMilestone(m));
     if (hasUnphased) {
       const unphasedTasks = tasks.filter((t) => !t.phaseId);
       const rollup = this.rollupSchedule(unphasedTasks, {
@@ -250,17 +285,19 @@ export class MspdiExportBuilder {
         parentId,
         summary: (childrenByParent.get(task.id) ?? []).length > 0,
         outlineLevel,
+        milestone: task.isScheduleMilestone || undefined,
         startDate: start,
         finishDate: finish,
         baselineStart,
         baselineFinish,
-        durationDays,
+        durationDays: task.isScheduleMilestone ? 0 : durationDays,
         baselineDurationDays,
         startVarianceDays: this.signedDayDelta(start, baselineStart),
         finishVarianceDays: this.signedDayDelta(finish, baselineFinish),
         percentComplete: Math.max(0, Math.min(100, task.progressApproved ?? 0)),
         priority: this.mapPriority(task.priority),
         notes: task.description ?? undefined,
+        resourceNames: this.mergedResourceNames(task, projectOrganization),
       });
 
       for (const child of childrenByParent.get(task.id) ?? []) {
@@ -274,7 +311,9 @@ export class MspdiExportBuilder {
       for (const task of phaseTasks) {
         pushTaskTree(task, phaseExportId, 2);
       }
-      const phaseMilestones = milestones.filter((m) => m.phaseId === phase.id);
+      const phaseMilestones = milestones.filter(
+        (m) => m.phaseId === phase.id && isStandaloneMilestone(m),
+      );
       for (const ms of phaseMilestones) {
         const day = this.toDay(ms.targetDate);
         exportTasks.push({
@@ -297,7 +336,9 @@ export class MspdiExportBuilder {
       for (const task of topLevel.filter((t) => !t.phaseId)) {
         pushTaskTree(task, unphasedParentId, 2);
       }
-      for (const ms of milestones.filter((m) => !m.phaseId)) {
+      for (const ms of milestones.filter(
+        (m) => !m.phaseId && isStandaloneMilestone(m),
+      )) {
         const day = this.toDay(ms.targetDate);
         exportTasks.push({
           id: `milestone:${ms.id}`,
@@ -353,12 +394,6 @@ export class MspdiExportBuilder {
         ? Math.max(0, Math.min(100, Math.round(Number(project.percentComplete))))
         : this.averageProgress(tasks);
 
-    const projectOrganization =
-      project.customer?.displayName ||
-      project.customer?.companyName ||
-      project.department?.name ||
-      '';
-
     const { resources, assignments } = this.buildResourcesAndAssignments(
       tasks,
       projectOrganization,
@@ -385,8 +420,8 @@ export class MspdiExportBuilder {
   }
 
   /**
-   * Build MSP Resources + Assignments from matched Cybsec owners only
-   * (owner / backupOwner). Unmatched MPP names are not stored or exported.
+   * Build MSP Resources + Assignments from Owner / Backup plus unmatched
+   * names stored on the task (e.g. NES Customer).
    */
   private buildResourcesAndAssignments(
     tasks: TaskRow[],
@@ -430,6 +465,15 @@ export class MspdiExportBuilder {
           ensureResource(`user:${person.id}`, name, person.email),
         );
       }
+
+      const extras = extraResourceNames(task.resourceNames, [
+        task.owner?.displayName,
+        task.backupOwner?.displayName,
+      ]);
+      for (const extraName of extras) {
+        const key = `name:${extraName.toLowerCase()}`;
+        assign(task.id, ensureResource(key, extraName));
+      }
     }
 
     return {
@@ -438,6 +482,26 @@ export class MspdiExportBuilder {
       ),
       assignments,
     };
+  }
+
+  private mergedResourceNames(
+    task: TaskRow,
+    projectOrganization: string,
+  ): string | undefined {
+    const owner = task.owner?.displayName?.trim()
+      ? this.formatResourceName(
+          task.owner.displayName,
+          this.resolvePersonOrganization(task.owner, projectOrganization),
+        )
+      : '';
+    const backup = task.backupOwner?.displayName?.trim()
+      ? this.formatResourceName(
+          task.backupOwner.displayName,
+          this.resolvePersonOrganization(task.backupOwner, projectOrganization),
+        )
+      : '';
+    const merged = mergeExportResourceNames(owner, backup, task.resourceNames);
+    return merged || undefined;
   }
 
   private formatResourceName(name: string, organization?: string): string {

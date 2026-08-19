@@ -21,6 +21,8 @@ export type MspdiExportTaskPayload = {
   percentComplete?: number;
   priority?: number;
   notes?: string;
+  /** Comma-separated MSP Resource Names for this row (owner, backup, unmatched). */
+  resourceNames?: string;
 };
 
 export type MspdiExportDependencyPayload = {

@@ -130,6 +130,7 @@ const TASK_INCLUDE = {
     },
     orderBy: { createdAt: 'desc' as const },
   },
+  scheduleMilestone: { select: { id: true } },
 } as const;
 
 /** Nested tree rows (any depth). Used after list/detail so MPP outlines are not capped at 3 levels. */
@@ -151,6 +152,7 @@ const SUBTASK_TREE_SELECT = {
   effortHours: true,
   progressApproved: true,
   owner: { select: { id: true, displayName: true, email: true } },
+  scheduleMilestone: { select: { id: true } },
 } as const;
 
 type SubTaskTreeRow = {
@@ -171,6 +173,8 @@ type SubTaskTreeRow = {
   effortHours?: number | null;
   progressApproved?: number;
   owner?: { id: string; displayName: string; email: string } | null;
+  scheduleMilestone?: { id: string } | null;
+  isScheduleMilestone?: boolean;
   subTasks?: SubTaskTreeRow[];
 };
 
@@ -201,11 +205,17 @@ export class TasksService {
 
   /** Soft-fail outbound sync to Keka PSA (never blocks local task save). */
   private pushTaskToKeka(taskId: string): void {
-    void this.projectLinkService.syncTaskToKeka(taskId).catch((error) => {
-      const message =
-        error instanceof Error ? error.message : 'Keka task sync failed';
-      this.logger.error(`Keka task sync threw for ${taskId}: ${message}`);
-    });
+    void this.prisma.projectMilestone
+      .findUnique({ where: { taskId }, select: { id: true } })
+      .then((linked) => {
+        if (linked) return;
+        return this.projectLinkService.syncTaskToKeka(taskId);
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error ? error.message : 'Keka task sync failed';
+        this.logger.error(`Keka task sync threw for ${taskId}: ${message}`);
+      });
   }
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
@@ -250,9 +260,46 @@ export class TasksService {
     return comments;
   }
 
+  private async hiddenScheduleTaskIds(projectId?: string): Promise<string[]> {
+    if (!projectId) {
+      return [];
+    }
+    const milestones = await this.prisma.projectMilestone.findMany({
+      where: { projectId },
+      select: { taskId: true, title: true, phaseId: true },
+    });
+    if (milestones.length === 0) {
+      return [];
+    }
+    const linkedIds = milestones
+      .map((row) => row.taskId)
+      .filter((id): id is string => Boolean(id));
+    const matched = await this.prisma.task.findMany({
+      where: {
+        projectId,
+        OR: milestones.map((row) => ({
+          title: { equals: row.title, mode: 'insensitive' as const },
+          phaseId: row.phaseId,
+        })),
+      },
+      select: { id: true },
+    });
+    return [...new Set([...linkedIds, ...matched.map((row) => row.id)])];
+  }
+
+  private withHiddenScheduleTasks(
+    where: Prisma.TaskWhereInput,
+    hiddenIds: string[],
+  ): Prisma.TaskWhereInput {
+    if (hiddenIds.length === 0) {
+      return where;
+    }
+    return { AND: [where, { id: { notIn: hiddenIds } }] };
+  }
+
   private async attachFullSubTaskTrees<
     T extends { id: string; projectId: string; subTasks?: unknown },
-  >(roots: T[]): Promise<T[]> {
+  >(roots: T[], hiddenIds: string[] = []): Promise<T[]> {
     if (roots.length === 0) {
       return roots;
     }
@@ -273,9 +320,14 @@ export class TasksService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const hidden = new Set(hiddenIds);
     const byParent = new Map<string, SubTaskTreeRow[]>();
     for (const row of rows) {
-      if (!row.parentTaskId) {
+      if (
+        !row.parentTaskId ||
+        hidden.has(row.id) ||
+        Boolean(row.scheduleMilestone)
+      ) {
         continue;
       }
       const list = byParent.get(row.parentTaskId) ?? [];
@@ -300,6 +352,7 @@ export class TasksService {
           Number.isFinite(Number(row.baselineDurationDays))
             ? Number(row.baselineDurationDays)
             : null,
+        isScheduleMilestone: Boolean(row.scheduleMilestone),
         subTasks: children.map((child) => mapRow(child, visited)),
       };
     };
@@ -316,9 +369,10 @@ export class TasksService {
     task: Awaited<ReturnType<typeof this.prisma.task.findUnique>> & object,
     roleCode?: string | null,
   ) {
-    const { comments, workspaceDocuments, ...rest } = task as any;
+    const { comments, workspaceDocuments, scheduleMilestone, ...rest } = task as any;
     return {
       ...rest,
+      isScheduleMilestone: Boolean(scheduleMilestone),
       durationDays:
         rest.durationDays != null && Number.isFinite(Number(rest.durationDays))
           ? Number(rest.durationDays)
@@ -1433,7 +1487,13 @@ export class TasksService {
   ) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
-    const where = this.buildTaskListWhere(query, caslUser);
+    const hiddenIds = query.includeScheduleMilestones
+      ? []
+      : await this.hiddenScheduleTaskIds(query.projectId);
+    const where = this.withHiddenScheduleTasks(
+      this.buildTaskListWhere(query, caslUser),
+      hiddenIds,
+    );
 
     const tasks = await this.prisma.task.findMany({
       where,
@@ -1449,21 +1509,33 @@ export class TasksService {
       ),
     );
 
-    const withTrees = await this.attachFullSubTaskTrees(formatted);
+    const withTrees = await this.attachFullSubTaskTrees(formatted, hiddenIds);
     return this.attachEffortVarianceMany(withTrees);
   }
 
   async countMany(query: QueryTaskDto, caslUser: CaslUserContext) {
+    const hiddenIds = query.includeScheduleMilestones
+      ? []
+      : await this.hiddenScheduleTaskIds(query.projectId);
     return this.prisma.task.count({
-      where: this.buildTaskListWhere(query, caslUser),
+      where: this.withHiddenScheduleTasks(
+        this.buildTaskListWhere(query, caslUser),
+        hiddenIds,
+      ),
     });
   }
 
   async getTaskStats(query: QueryTaskDto, caslUser: CaslUserContext) {
     // Stats always count top-level tasks (same unit as board/list columns).
-    const where = this.buildTaskListWhere(
-      { ...query, topLevelOnly: true, page: undefined, limit: undefined },
-      caslUser,
+    const hiddenIds = query.includeScheduleMilestones
+      ? []
+      : await this.hiddenScheduleTaskIds(query.projectId);
+    const where = this.withHiddenScheduleTasks(
+      this.buildTaskListWhere(
+        { ...query, topLevelOnly: true, page: undefined, limit: undefined },
+        caslUser,
+      ),
+      hiddenIds,
     );
 
     const endOfToday = new Date();
@@ -1544,6 +1616,9 @@ export class TasksService {
     }
     if (query.phaseId) {
       filters.push({ phaseId: query.phaseId });
+    }
+    if (!query.includeScheduleMilestones) {
+      filters.push({ scheduleMilestone: { is: null } });
     }
     if (query.search) {
       filters.push({

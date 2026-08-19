@@ -23,6 +23,8 @@ public class ParsedTaskDto {
   private String actualStartDate;
   private String actualFinishDate;
   private Integer percentComplete;
+  /** MS Project Cost on this row. Used only for project/L1 budget; not persisted as task cost. */
+  private Double cost;
   private List<ParsedPredecessorDto> predecessors = new ArrayList<>();
 
   public Integer getUid() {
@@ -159,6 +161,14 @@ public class ParsedTaskDto {
 
   public void setPercentComplete(Integer percentComplete) {
     this.percentComplete = percentComplete;
+  }
+
+  public Double getCost() {
+    return cost;
+  }
+
+  public void setCost(Double cost) {
+    this.cost = cost;
   }
 
   public List<ParsedPredecessorDto> getPredecessors() {

@@ -63,7 +63,7 @@ import { TaskDetailPanel } from "../tasks/task-detail-panel";
 import { PhaseMilestonePanel } from "../roadmap/phase-milestone-panel";
 import { exportTasksToXLSX, convertTasksToCSV, exportTasksToPDF, exportTasksToWord } from "../../utils/import-export";
 import { ExportTasksDialog } from "../tasks/export-tasks-dialog";
-import { mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
+import { filterWorkTasks, mapTasksToGanttRows } from "../../utils/map-task-to-gantt";
 import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
@@ -296,6 +296,7 @@ export function ProjectWorkspace() {
       projectId: id,
       page: tasksPage,
       limit: TASKS_PAGE_SIZE,
+      includeScheduleMilestones: true,
     };
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) {
@@ -504,6 +505,10 @@ export function ProjectWorkspace() {
     () => mapTasksToGanttRows(tasksResponse?.data ?? []),
     [tasksResponse?.data],
   );
+  const workTasks = useMemo(
+    () => filterWorkTasks(tasks, milestones),
+    [tasks, milestones],
+  );
 
   const overallProgressPercent = useMemo(() => {
     if (
@@ -670,7 +675,7 @@ export function ProjectWorkspace() {
       return undefined;
     };
     const target = findRow(tasks);
-    if (!target) return;
+    if (!target || target.isScheduleMilestone) return;
     const newStatus = target.status === "Done" || target.status === "Approved" ? "To_Do" : "Done";
     const isOwner = user?.id === target.assigneeId;
     if (
@@ -1284,7 +1289,7 @@ export function ProjectWorkspace() {
         {activeView === "list" && (
           <div className="flex-1 min-h-0 overflow-hidden">
           <ListView
-            tasks={tasks}
+            tasks={workTasks}
             projectId={id}
             search={debouncedSearch}
             priorityFilter={PRIORITY_FILTER_TO_API[priorityFilter]}
@@ -1315,6 +1320,7 @@ export function ProjectWorkspace() {
             canApproveTask={canReviewProgress}
             onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
             dependencies={taskDependencies}
+            milestones={milestones}
             canBulkEdit={canManageTasks}
             onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
             onBulkStatus={canManageTasks ? handleBulkStatus : undefined}
@@ -1385,7 +1391,7 @@ export function ProjectWorkspace() {
 
             {activeView === "table" && (
               <TableView
-                tasks={tasks}
+                tasks={workTasks}
                 projectId={id}
                 toggleTask={toggleTask}
                 onTaskClick={openTaskDetail}
@@ -1456,7 +1462,11 @@ export function ProjectWorkspace() {
           <PhaseView
             ref={phaseViewRef}
             projectId={id}
-            taskQueryParams={{ ...taskQueryParams, limit: 100 }}
+            taskQueryParams={{
+              ...taskQueryParams,
+              limit: 100,
+              includeScheduleMilestones: false,
+            }}
             onTaskClick={openTaskDetail}
             onAddTask={
               canCreateTask

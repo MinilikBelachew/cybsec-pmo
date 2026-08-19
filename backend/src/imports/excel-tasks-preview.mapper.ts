@@ -109,7 +109,13 @@ export function processRawTaskRows(
   const phaseIdx = getIndex(['phase', 'project phase', 'stage']);
   const startIdx = getIndex(['start date', 'start']);
   const endIdx = getIndex(['end date', 'end']);
-  const effortIdx = getIndex(['effort hours', 'effort', 'hours']);
+  const effortIdx = getIndex([
+    'effort hours',
+    'effort',
+    'hours',
+    'working hours',
+    'work hours',
+  ]);
   const durationIdx = getIndex(['duration days']);
   const baselineStartIdx = getIndex(['baseline start', 'baseline start date']);
   const baselineEndIdx = getIndex([

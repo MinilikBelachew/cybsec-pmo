@@ -22,6 +22,8 @@ export type ParsedMppTask = {
   actualStartDate?: string;
   actualFinishDate?: string;
   percentComplete?: number;
+  /** MS Project Cost. Used only when this row is the project/L1 summary. */
+  cost?: number;
   predecessors: ParsedMppPredecessor[];
 };
 
@@ -50,6 +52,8 @@ export type ParsedMppProject = {
     durationVarianceDays?: number;
     actualStartDate?: string;
     actualFinishDate?: string;
+    /** Project-level Cost. 0/missing is omitted; Cybsec budget falls back to 1. */
+    cost?: number;
   };
   tasks: ParsedMppTask[];
   resources: ParsedMppResource[];
@@ -116,6 +120,7 @@ export type MppImportPreviewProject = {
   baselineDurationDays?: number;
   percentComplete?: number;
   durationVarianceDays?: number;
+  cost?: number;
   taskCount: number;
   phaseCount: number;
   milestoneCount: number;
@@ -131,6 +136,11 @@ export type MppImportPreview = {
   projectName?: string;
   startDate?: string;
   finishDate?: string;
+  /** Project-level Cost from the file. Used as Cybsec value on create; 0/missing → 1. */
+  cost?: number;
+  /** Single-file preview: update existing project instead of creating a duplicate. */
+  importMode?: 'create' | 'update';
+  resolvedProjectId?: string;
   counts: {
     importableTasks: number;
     phasesFromSummaries: number;

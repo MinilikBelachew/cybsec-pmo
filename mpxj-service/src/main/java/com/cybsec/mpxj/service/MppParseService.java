@@ -84,6 +84,15 @@ public class MppParseService {
         continue;
       }
 
+      Double rowCost = toPositiveCost(task.getCost());
+      if (
+          Boolean.TRUE.equals(task.getSummary())
+              && task.getOutlineLevel() != null
+              && task.getOutlineLevel() == 0
+              && rowCost != null) {
+        properties.setCost(rowCost);
+      }
+
       String name = task.getName();
       if (name == null || name.isBlank()) {
         continue;
@@ -115,6 +124,7 @@ public class MppParseService {
       parsedTask.setActualStartDate(formatDate(task.getActualStart()));
       parsedTask.setActualFinishDate(formatDate(task.getActualFinish()));
       parsedTask.setPercentComplete(toPercent(task.getPercentageComplete()));
+      parsedTask.setCost(rowCost);
 
       Task parent = task.getParentTask();
       if (parent != null && parent.getUniqueID() != null) {
@@ -160,6 +170,9 @@ public class MppParseService {
       properties.setBaselineFinishDate(projectSummary.getBaselineFinishDate());
       properties.setDurationDays(projectSummary.getDurationDays());
       properties.setBaselineDurationDays(projectSummary.getBaselineDurationDays());
+      if (projectSummary.getCost() != null) {
+        properties.setCost(projectSummary.getCost());
+      }
     }
 
     for (Resource resource : project.getResources()) {
@@ -240,6 +253,17 @@ public class MppParseService {
     }
     // One decimal place matches MSP display (e.g. 66.1 / 115.1).
     return Math.round(days * 10.0) / 10.0;
+  }
+
+  private Double toPositiveCost(Number value) {
+    if (value == null) {
+      return null;
+    }
+    double amount = value.doubleValue();
+    if (!Double.isFinite(amount) || amount <= 0) {
+      return null;
+    }
+    return amount;
   }
 
   private Integer toPercent(Number value) {

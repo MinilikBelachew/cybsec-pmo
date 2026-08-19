@@ -63,7 +63,7 @@ function revalidateProjectRow(
   const projectMatchCatalog: { id: string; name: string }[] = [];
   const duplicateNames = new Set(
     allRows
-      .map((r) => r.name.trim().toLowerCase())
+      .map((r) => r.name.trim())
       .filter((name, nameIndex, all) => name && all.indexOf(name) !== nameIndex),
   );
 
@@ -115,8 +115,8 @@ function revalidateProjectRow(
     rowErrors.push(`Currency "${updated.currency}" is invalid.`);
   }
 
-  const lowerName = (updated.name || "").trim().toLowerCase();
-  if (lowerName && duplicateNames.has(lowerName)) {
+  const nameKey = (updated.name || "").trim();
+  if (nameKey && duplicateNames.has(nameKey)) {
     rowErrors.push(`Duplicate project name "${updated.name}" found in this file.`);
   }
 

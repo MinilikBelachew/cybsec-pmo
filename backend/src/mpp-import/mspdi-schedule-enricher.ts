@@ -10,6 +10,7 @@ type MspdiTaskSchedule = {
   actualStartDate?: string;
   actualFinishDate?: string;
   percentComplete?: number;
+  cost?: number;
 };
 
 /**
@@ -21,7 +22,7 @@ export function enrichParsedFromMspdiXml(
   xmlBuffer: Buffer,
 ): ParsedMppProject {
   const xml = stripBom(xmlBuffer.toString('utf8'));
-  if (!/<Baseline[\s>]|<ActualStart[\s>]/i.test(xml)) {
+  if (!/<Baseline[\s>]|<ActualStart[\s>]|<Cost[\s>]/i.test(xml)) {
     return {
       ...parsed,
       tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
@@ -61,6 +62,7 @@ export function enrichParsedFromMspdiXml(
       actualStartDate: pick(extra.actualStartDate, task.actualStartDate),
       actualFinishDate: pick(extra.actualFinishDate, task.actualFinishDate),
       percentComplete: pickNum(extra.percentComplete, task.percentComplete),
+      cost: pickNum(extra.cost, task.cost),
     };
   });
 
@@ -98,6 +100,10 @@ export function enrichParsedFromMspdiXml(
     const rootPct = clampPercent(root.percentComplete);
     if (rootPct != null) {
       project.percentComplete = rootPct;
+    }
+    const rootCost = pickNum(root.cost, project.cost);
+    if (rootCost != null) {
+      project.cost = rootCost;
     }
     const durationDays = project.durationDays;
     const baselineDurationDays = project.baselineDurationDays;
@@ -177,6 +183,7 @@ function extractMspdiTaskSchedules(
       actualStartDate: toIsoDay(firstTag(body, 'ActualStart')),
       actualFinishDate: toIsoDay(firstTag(body, 'ActualFinish')),
       percentComplete: toPercent(firstTag(body, 'PercentComplete')),
+      cost: toCost(firstTag(body, 'Cost')),
     };
 
     const baseline = pickBaselineBlock(body);
@@ -199,7 +206,8 @@ function extractMspdiTaskSchedules(
       schedule.baselineDurationDays != null ||
       schedule.actualStartDate ||
       schedule.actualFinishDate ||
-      schedule.durationDays != null
+      schedule.durationDays != null ||
+      schedule.cost != null
     ) {
       map.set(uid, schedule);
     }
@@ -242,6 +250,13 @@ function toPercent(value?: string): number | undefined {
   const n = Number(value);
   if (!Number.isFinite(n)) return undefined;
   return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function toCost(value?: string): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
 }
 
 /** MSPDI duration is usually PT{hours}H…; Cybsec stores working days (8h). */

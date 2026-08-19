@@ -10,7 +10,7 @@ export const TASK_EXPORT_FIELD_OPTIONS = [
   {
     id: "Resource Names",
     label: "Resource Names",
-    desc: "MSP-style Name (Organization), comma-separated for owner and backup",
+    desc: "MSP-style Name (Organization): owner, backup, then unmatched import names",
   },
   { id: "Phase", label: "Phase", desc: "Project phase or roadmap stage" },
   { id: "Parent Task", label: "Parent Task", desc: "Parent task title when nested (hierarchy)" },
@@ -263,6 +263,48 @@ export function formatResourceName(
   return `${n} (${org})`;
 }
 
+export function splitResourceNames(raw?: string | null): string[] {
+  if (!raw?.trim()) return [];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(",")) {
+    const name = part.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+/** "Vinayak Sonkavada (CyberKnight)" → "Vinayak Sonkavada" */
+export function bareResourceName(name: string): string {
+  return name.replace(/\s*\([^)]*\)\s*$/, "").trim() || name.trim();
+}
+
+/** Owner / Backup first, then unmatched names stored from MPP import. */
+export function mergeExportResourceNames(
+  ownerFormatted: string,
+  backupFormatted: string,
+  storedRaw?: string | null,
+): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  const add = (value?: string | null) => {
+    const text = String(value || "").trim();
+    if (!text) return;
+    const key = bareResourceName(text).toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    parts.push(text);
+  };
+  add(ownerFormatted);
+  add(backupFormatted);
+  for (const name of splitResourceNames(storedRaw)) add(name);
+  return parts.join(", ");
+}
+
 function resolvePersonOrganization(
   person: {
     isExternal?: boolean | null;
@@ -320,11 +362,11 @@ export function buildTaskExportRow(
     backupFromList?.department?.name || backupFromList?.organization,
   );
 
-  const resourceParts = [
+  const resourceNames = mergeExportResourceNames(
     formatResourceName(assigneeName, ownerOrg),
     formatResourceName(backupName, backupOrg),
-  ].filter(Boolean);
-  const resourceNames = resourceParts.join(", ");
+    task.resourceNames,
+  );
 
   const phaseName =
     task.phase?.name ||

@@ -73,4 +73,18 @@ export class QueryTaskDto {
   @IsUUID()
   @IsOptional()
   phaseId?: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'When true, include MPP schedule-milestone tasks. List/board omit them by default.',
+  })
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return false;
+    if (value === 'true' || value === true) return true;
+    return false;
+  })
+  @IsBoolean()
+  @IsOptional()
+  includeScheduleMilestones?: boolean;
 }

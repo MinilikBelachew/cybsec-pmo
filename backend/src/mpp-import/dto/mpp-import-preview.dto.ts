@@ -92,6 +92,11 @@ export class MppImportPreviewProjectDto {
   @ApiPropertyOptional()
   durationVarianceDays?: number;
 
+  @ApiPropertyOptional({
+    description: 'Project-level Cost from the file. Used as Cybsec value on create.',
+  })
+  cost?: number;
+
   @ApiProperty()
   taskCount: number;
 
@@ -164,6 +169,17 @@ export class MppImportPreviewDto {
 
   @ApiPropertyOptional()
   finishDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Project-level Cost from the file. Used as Cybsec value on create.',
+  })
+  cost?: number;
+
+  @ApiPropertyOptional({ enum: ['create', 'update'] })
+  importMode?: 'create' | 'update';
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  resolvedProjectId?: string;
 
   @ApiProperty({ type: MppImportPreviewCountsDto })
   counts: MppImportPreviewCountsDto;

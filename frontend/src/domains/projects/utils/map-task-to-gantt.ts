@@ -80,6 +80,7 @@ export interface GanttTaskRow {
   baselineDurationDays?: number | null;
   actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
+  isScheduleMilestone?: boolean;
 }
 
 const PRIORITY_MAP: Record<string, GanttPriority> = {
@@ -192,6 +193,7 @@ function mapSubTaskToGanttRow(
     actualHoursLogged: 0,
     effortVarianceHours: null,
     isOverEffort: false,
+    isScheduleMilestone: Boolean(sub.isScheduleMilestone),
     ...scheduleFields(sub),
   };
 }
@@ -251,6 +253,7 @@ export function mapTaskToGanttRow(
     actualHoursLogged: task.actualHoursLogged ?? 0,
     effortVarianceHours: task.effortVarianceHours ?? null,
     isOverEffort: Boolean(task.isOverEffort),
+    isScheduleMilestone: Boolean(task.isScheduleMilestone),
     ...scheduleFields(task),
   };
 }
@@ -269,4 +272,68 @@ export function mapTasksToGanttRows(
     }
     return mapTaskToGanttRow(task);
   });
+}
+
+/** Drop MPP schedule-milestone rows from work lists (List / Table / Board). */
+export function scheduleTaskKey(
+  title: string,
+  phaseId?: string | null,
+): string {
+  return `${phaseId ?? ""}|${title.trim().toLowerCase()}`;
+}
+
+export function isHiddenScheduleTask(
+  task: {
+    id?: string;
+    name?: string;
+    title?: string;
+    phaseId?: string | null;
+    isScheduleMilestone?: boolean;
+  },
+  milestones?: Array<{
+    taskId?: string | null;
+    title: string;
+    phaseId?: string | null;
+  }>,
+): boolean {
+  if (task.isScheduleMilestone) return true;
+  if (!milestones?.length) return false;
+  const title = (task.name ?? task.title ?? "").trim().toLowerCase();
+  if (!title) return false;
+  if (task.id && milestones.some((m) => m.taskId === task.id)) return true;
+  const titleKey = title;
+  const key = scheduleTaskKey(title, task.phaseId);
+  return milestones.some((m) => {
+    if (scheduleTaskKey(m.title, m.phaseId) === key) return true;
+    if (task.phaseId == null && m.title.trim().toLowerCase() === titleKey) {
+      return true;
+    }
+    return false;
+  });
+}
+
+export function filterWorkTasks<
+  T extends {
+    isScheduleMilestone?: boolean;
+    children?: T[];
+    id?: string;
+    name?: string;
+    title?: string;
+    phaseId?: string | null;
+  },
+>(
+  tasks: T[],
+  milestones?: Array<{
+    taskId?: string | null;
+    title: string;
+    phaseId?: string | null;
+  }>,
+): T[] {
+  return tasks
+    .filter((task) => !isHiddenScheduleTask(task, milestones))
+    .map((task) =>
+      task.children?.length
+        ? { ...task, children: filterWorkTasks(task.children, milestones) }
+        : task,
+    );
 }

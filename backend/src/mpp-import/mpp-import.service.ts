@@ -113,7 +113,7 @@ export class MppImportService {
 
       const catalog = await this.listAccessibleProjects(user);
       const byName = new Map(
-        catalog.map((project) => [project.name.trim().toLowerCase(), project]),
+        catalog.map((project) => [project.name.trim(), project]),
       );
 
       let projectsCreated = 0;
@@ -135,16 +135,14 @@ export class MppImportService {
       };
 
       for (const segment of segments) {
-        const nameKey = segment.projectName.trim().toLowerCase();
+        const nameKey = segment.projectName.trim();
         let projectId = byName.get(nameKey)?.id;
         let created = false;
 
         if (!projectId) {
           const overrides = this.resolvePortfolioProjectOverrides(dto);
           const override = overrides.find(
-            (item) =>
-              item.name.trim().toLowerCase() ===
-              segment.projectName.trim().toLowerCase(),
+            (item) => item.name.trim() === segment.projectName.trim(),
           );
           const objective = override?.objective?.trim() || dto.objective?.trim();
           const departmentId = override?.departmentId || dto.departmentId;
@@ -157,7 +155,7 @@ export class MppImportService {
             override?.priority || dto.priority || ApiPriorityLevel.Medium;
           const currency =
             override?.currency || dto.currency || ApiCurrencyCode.USD;
-          const rawValue = override?.value ?? dto.value;
+          const rawValue = override?.value ?? dto.value ?? segment.parsed.project?.cost;
           const value =
             rawValue != null && rawValue > 0 ? rawValue : 1;
 
@@ -239,7 +237,7 @@ export class MppImportService {
       totals.projectsCreated = projectsCreated;
       totals.projectsUpdated = projectsUpdated;
       totals.warnings.unshift(
-        `Portfolio import: ${projectsCreated} project(s) created, ${projectsUpdated} updated (matched by name).`,
+        `Portfolio import: ${projectsCreated} project(s) created, ${projectsUpdated} updated (matched by exact name).`,
       );
       return totals;
     } finally {

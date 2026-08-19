@@ -13,6 +13,8 @@ import {
   signedDayDelta,
   parsePredecessorsCell,
   formatResourceName,
+  mergeExportResourceNames,
+  splitResourceNames,
   type TaskExportDependency,
   type ParsedExcelPredecessor,
 } from "./task-export-fields";
@@ -1121,7 +1123,7 @@ export function processRawCSVRows(
 
   const nameFrequency: Record<string, number> = {};
   for (const row of rows) {
-    const n = (nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : "").toLowerCase();
+    const n = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : "";
     if (n) nameFrequency[n] = (nameFrequency[n] ?? 0) + 1;
   }
   const duplicateNames = new Set(
@@ -1156,7 +1158,7 @@ export function processRawCSVRows(
     // Basic required field validations
     if (!name) errors.push("Project name is required.");
     if (!objective) errors.push("Objective is required.");
-    if (name && duplicateNames.has(name.trim().toLowerCase())) {
+    if (name && duplicateNames.has(name.trim())) {
       errors.push(`Duplicate project name "${name}" found in this file.`);
     }
 
@@ -1548,9 +1550,9 @@ export function resolveProjectImportMatch(
   name: string,
   existingProjects?: { id: string; name: string }[],
 ): { importMode: "create" | "update"; resolvedProjectId?: string } {
-  const lower = name.trim().toLowerCase();
-  if (!lower || !existingProjects?.length) return { importMode: "create" };
-  const match = existingProjects.find((p) => p.name.trim().toLowerCase() === lower);
+  const key = name.trim();
+  if (!key || !existingProjects?.length) return { importMode: "create" };
+  const match = existingProjects.find((p) => p.name.trim() === key);
   return match
     ? { importMode: "update", resolvedProjectId: match.id }
     : { importMode: "create" };
@@ -1887,7 +1889,7 @@ export function processRawTaskCSVRows(
   const phaseIdx = getIndex(["phase", "project phase", "stage"]);
   const startIdx = getIndex(["start date", "start"]);
   const endIdx = getIndex(["end date", "end"]);
-  const effortIdx = getIndex(["effort hours", "effort", "hours"]);
+  const effortIdx = getIndex(["effort hours", "effort", "hours", "working hours", "work hours"]);
   const durationIdx = getIndex(["duration days"]);
   const baselineStartIdx = getIndex(["baseline start", "baseline start date"]);
   const baselineEndIdx = getIndex(["baseline end", "baseline finish", "baseline end date"]);
@@ -2853,6 +2855,7 @@ ${predecessorXml}    </Task>
 function appendMspdiResourcesAndAssignments(
   tasks: any[],
   idToUid: Map<string, number>,
+  projectOrganization?: string | null,
 ): string {
   const resourcesByKey = new Map<string, { uid: number; name: string }>();
   const assignmentRows: { taskUid: number; resourceUid: number; task: any }[] =
@@ -2880,28 +2883,36 @@ function appendMspdiResourcesAndAssignments(
     );
   };
 
+  const personOrg = (person: any): string => {
+    if (person?.organization?.trim()) return person.organization.trim();
+    const dept =
+      person?.employees?.[0]?.department?.name ||
+      person?.employees?.department?.name ||
+      person?.department?.name ||
+      "";
+    if (person?.isExternal && projectOrganization?.trim()) {
+      return projectOrganization.trim();
+    }
+    return dept.trim() || projectOrganization?.trim() || "";
+  };
+
   for (const task of tasks) {
     const taskUid = idToUid.get(task.id);
     if (taskUid == null) continue;
-    // Export only matched Cybsec assignees (owner / backup), not unmatched MPP names.
-    const names: string[] = [];
     const ownerName = task.owner?.displayName?.trim() || "";
     const backupName = task.backupOwner?.displayName?.trim() || "";
-    const ownerOrg =
-      task.owner?.employees?.[0]?.department?.name ||
-      task.owner?.employees?.department?.name ||
-      "";
-    const backupOrg =
-      task.backupOwner?.employees?.[0]?.department?.name ||
-      task.backupOwner?.employees?.department?.name ||
-      "";
-    if (ownerName && !isPlaceholderResource(ownerName)) {
-      names.push(formatResourceName(ownerName, ownerOrg) || ownerName);
-    }
-    if (backupName && !isPlaceholderResource(backupName)) {
-      names.push(formatResourceName(backupName, backupOrg) || backupName);
-    }
-    for (const name of names) {
+    const merged = mergeExportResourceNames(
+      ownerName && !isPlaceholderResource(ownerName)
+        ? formatResourceName(ownerName, personOrg(task.owner)) || ownerName
+        : "",
+      backupName && !isPlaceholderResource(backupName)
+        ? formatResourceName(backupName, personOrg(task.backupOwner)) ||
+          backupName
+        : "",
+      task.resourceNames,
+    );
+    for (const name of splitResourceNames(merged)) {
+      if (isPlaceholderResource(name)) continue;
       assignmentRows.push({
         taskUid,
         resourceUid: ensureResource(name),

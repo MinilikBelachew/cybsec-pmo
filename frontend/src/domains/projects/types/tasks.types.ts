@@ -86,6 +86,7 @@ export interface TaskSubTask {
   effortHours?: number | null;
   /** Nested children from MPP / import (any depth). */
   subTasks?: TaskSubTask[];
+  isScheduleMilestone?: boolean;
 }
 
 export interface Task {
@@ -114,9 +115,12 @@ export interface Task {
   status: TaskStatus;
   phaseId: string | null;
   isPhaseGate?: boolean;
+  isScheduleMilestone?: boolean;
   isOnCriticalPath?: boolean;
   backupOwnerId?: string | null;
   backupOwner?: TaskUserSummary;
+  /** Original MPP Resource Names cell (matched + unmatched) for export round-trip. */
+  resourceNames?: string | null;
   scheduleImpact?: TaskScheduleImpact | null;
   createdAt: string;
   updatedAt: string;
@@ -235,6 +239,7 @@ export interface GetTasksParams {
   search?: string;
   phaseId?: string;
   ownerId?: string;
+  includeScheduleMilestones?: boolean;
 }
 
 export interface CreateTaskBundlePayload {
@@ -298,6 +303,7 @@ export interface TaskDependencyTaskSummary {
   endDate: string | null;
   ownerId: string | null;
   owner?: TaskUserSummary | null;
+  isScheduleMilestone?: boolean;
 }
 
 export interface TaskDependency {

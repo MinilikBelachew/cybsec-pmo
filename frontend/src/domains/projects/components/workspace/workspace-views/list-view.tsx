@@ -18,7 +18,7 @@ import {
 } from "@/domains/projects/hooks/use-paginated-status-tasks";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { TaskDependenciesPicker } from "./task-predecessors-cell";
-import { nestedDepthLabel } from "@/domains/projects/utils/map-task-to-gantt";
+import { nestedDepthLabel, isHiddenScheduleTask } from "@/domains/projects/utils/map-task-to-gantt";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -73,7 +73,7 @@ function formatDueDate(dateStr?: string | null) {
   }
 }
 
-import { type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
+import { type ProjectPhase, type ProjectTaskAssignee, type ProjectMilestone } from "../../../types/projects.types";
 import type { TaskDependency } from "../../../types/tasks.types";
 import { EmployeeTooltip } from "../../shared/employee-tooltip";
 import {
@@ -116,6 +116,8 @@ interface ListViewProps {
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
   /** Project dependency links — used to nest dependents under predecessors (DEF-P1-047). */
   dependencies?: TaskDependency[];
+  /** MPP schedule milestones — hide matching DEP FS/FF nest rows from the work list. */
+  milestones?: ProjectMilestone[];
   /** DEF-P1-036 — bulk assign / status / priority / delete */
   canBulkEdit?: boolean;
   onBulkAssign?: (taskIds: string[], ownerId: string | null) => Promise<void>;
@@ -182,6 +184,7 @@ export function ListView({
   canApproveTask = false,
   onUpdateTaskPriority,
   dependencies = [],
+  milestones = [],
   canBulkEdit = false,
   onBulkAssign,
   onBulkStatus,
@@ -210,6 +213,19 @@ export function ListView({
   const dependentsByPredecessor = React.useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const dep of dependencies) {
+      if (
+        dep.successor.isScheduleMilestone ||
+        isHiddenScheduleTask(
+          {
+            id: dep.successorId,
+            name: dep.successor.title,
+            isScheduleMilestone: dep.successor.isScheduleMilestone,
+          },
+          milestones,
+        )
+      ) {
+        continue;
+      }
       const related = taskById.get(dep.successorId);
       const row: Task = related
         ? {
@@ -260,7 +276,7 @@ export function ListView({
       map.set(dep.predecessorId, list);
     }
     return map;
-  }, [dependencies, taskById]);
+  }, [dependencies, taskById, milestones]);
 
   function nestedRowsFor(task: Task, childDepth: number): Task[] {
     const subs = (task.children ?? []).map((c) => ({

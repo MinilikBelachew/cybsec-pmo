@@ -91,6 +91,13 @@ function extractError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function valueFromParsedCost(cost?: number): string {
+  if (cost != null && Number.isFinite(Number(cost)) && Number(cost) > 0) {
+    return String(Number(cost));
+  }
+  return "1";
+}
+
 function validateEditableProject(row: MppEditableProject): string[] {
   if (row.importMode === "update") return [];
   const errors: string[] = [];
@@ -131,7 +138,7 @@ function buildEditableProjects(
         billingModel: "TimeAndMaterial",
         priority: "Medium",
         currency: "USD",
-        value: "1",
+        value: valueFromParsedCost(project.cost),
         startDate: project.startDate,
         finishDate: project.finishDate,
         taskCount: project.taskCount,
@@ -150,7 +157,8 @@ function buildEditableProjects(
 
   const row: MppEditableProject = {
     name: (data.projectName || file.name.replace(/\.[^.]+$/, "")).slice(0, 255),
-    importMode: "create",
+    importMode: data.importMode === "update" ? "update" : "create",
+    resolvedProjectId: data.resolvedProjectId,
     objective,
     departmentId: seed.departmentId,
     customerId: seed.customerId,
@@ -159,7 +167,7 @@ function buildEditableProjects(
     billingModel: "TimeAndMaterial",
     priority: "Medium",
     currency: "USD",
-    value: "1",
+    value: valueFromParsedCost(data.cost),
     startDate: data.startDate,
     finishDate: data.finishDate,
     taskCount: data.counts.importableTasks,
@@ -334,9 +342,7 @@ export function ImportMppDialog({
             ? data.projects.find(
                 (p) =>
                   (projectId && p.resolvedProjectId === projectId) ||
-                  (projectName &&
-                    p.name.trim().toLowerCase() ===
-                      projectName.trim().toLowerCase()),
+                  (projectName && p.name.trim() === projectName.trim()),
               ) ??
               (data.projects.length === 1 ? data.projects[0] : undefined)
             : undefined;
@@ -382,8 +388,7 @@ export function ImportMppDialog({
                   ]
                 : matched &&
                     projectName &&
-                    matched.name.trim().toLowerCase() !==
-                      projectName.trim().toLowerCase()
+                    matched.name.trim() !== projectName.trim()
                   ? [
                       `File schedule "${matched.name}" will be imported into "${projectName}" (single schedule in file).`,
                     ]
@@ -556,39 +561,46 @@ export function ImportMppDialog({
       }
 
       let targetProjectId = projectId;
+      let createdNewProject = false;
 
       if (isNewProject) {
         const row = editableProjects[0];
         if (!row) return toast.error("No project preview available");
-        if (row.errors.length > 0) {
-          return toast.error(row.errors[0] || "Fix project validation errors first");
+
+        if (row.importMode === "update" && row.resolvedProjectId) {
+          targetProjectId = row.resolvedProjectId;
+        } else {
+          if (row.errors.length > 0) {
+            return toast.error(row.errors[0] || "Fix project validation errors first");
+          }
+
+          const start = new Date(toIso(row.startDate ?? preview?.startDate, new Date()));
+          const fallbackEnd = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
+          let end = new Date(toIso(row.finishDate ?? preview?.finishDate, fallbackEnd));
+          if (end.getTime() < start.getTime()) end = fallbackEnd;
+
+          const payload: CreateProjectDto = {
+            name: row.name.trim(),
+            objective: row.objective.trim(),
+            departmentId: row.departmentId,
+            customerId: row.customerId,
+            engagementType: row.engagementType as CreateProjectDto["engagementType"],
+            billingModel: row.billingModel as CreateProjectDto["billingModel"],
+            priority: row.priority as CreateProjectDto["priority"],
+            startDate: start.toISOString(),
+            endDate: end.toISOString(),
+            value: (() => {
+              const parsed = Number(row.value);
+              return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+            })(),
+            currency: row.currency as CreateProjectDto["currency"],
+            primaryPmId: row.primaryPmId,
+          };
+
+          const created = await createProject(payload).unwrap();
+          targetProjectId = created.id;
+          createdNewProject = true;
         }
-
-        const start = new Date(toIso(row.startDate ?? preview?.startDate, new Date()));
-        const fallbackEnd = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
-        let end = new Date(toIso(row.finishDate ?? preview?.finishDate, fallbackEnd));
-        if (end.getTime() < start.getTime()) end = fallbackEnd;
-
-        const payload: CreateProjectDto = {
-          name: row.name.trim(),
-          objective: row.objective.trim(),
-          departmentId: row.departmentId,
-          customerId: row.customerId,
-          engagementType: row.engagementType as CreateProjectDto["engagementType"],
-          billingModel: row.billingModel as CreateProjectDto["billingModel"],
-          priority: row.priority as CreateProjectDto["priority"],
-          startDate: start.toISOString(),
-          endDate: end.toISOString(),
-          value: (() => {
-            const parsed = Number(row.value);
-            return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-          })(),
-          currency: row.currency as CreateProjectDto["currency"],
-          primaryPmId: row.primaryPmId,
-        };
-
-        const created = await createProject(payload).unwrap();
-        targetProjectId = created.id;
       }
 
       if (!targetProjectId) return;
@@ -597,7 +609,9 @@ export function ImportMppDialog({
       finishInBackground(
         enqueue,
         "mpp",
-        isNewProject ? "Importing schedule into new project" : "Importing MS Project schedule",
+        createdNewProject
+          ? "Importing schedule into new project"
+          : "Importing MS Project schedule",
         (summary) => {
           setResult({
             tasksCreated: Number(summary.tasksCreated ?? 0),
@@ -608,9 +622,9 @@ export function ImportMppDialog({
             phasesUpdated: Number(summary.phasesUpdated ?? 0),
             milestonesCreated: Number(summary.milestonesCreated ?? 0),
             milestonesUpdated: Number(summary.milestonesUpdated ?? 0),
-            projectsCreated: isNewProject ? 1 : 0,
-            projectsUpdated: 0,
-            projectCreated: isNewProject,
+            projectsCreated: createdNewProject ? 1 : 0,
+            projectsUpdated: createdNewProject ? 0 : 1,
+            projectCreated: createdNewProject,
           });
           const createdBits = [
             summary.phasesCreated ? `${summary.phasesCreated} phases` : null,
@@ -632,10 +646,10 @@ export function ImportMppDialog({
             updatedBits.length ? `updated ${updatedBits.join(", ")}` : null,
           ].filter(Boolean);
           toast.success(
-            isNewProject
+            createdNewProject
               ? `Created project${toastParts.length ? ` — ${toastParts.join("; ")}` : ""}`
               : toastParts.length
-                ? `Import complete — ${toastParts.join("; ")}`
+                ? `Updated existing project — ${toastParts.join("; ")}`
                 : "Import complete",
           );
         },
@@ -657,7 +671,10 @@ export function ImportMppDialog({
     onClose();
   };
 
-  const confirmLabel = !isNewProject
+  const updatingExisting =
+    isNewProject && editableProjects[0]?.importMode === "update";
+
+  const confirmLabel = !isNewProject || updatingExisting
     ? `Confirm & save ${editableProjects[0]?.taskCount ?? preview?.counts.importableTasks ?? 0} tasks`
     : isPortfolio
       ? `Import ${editableProjects.length || preview?.counts.projects || 0} projects`
@@ -671,9 +688,9 @@ export function ImportMppDialog({
       if (hasRowErrors) {
         return `${editableProjects.filter((p) => p.errors.length > 0).length} project row(s) need fixes before import.`;
       }
-      if (!isNewProject) {
+      if (!isNewProject || updatingExisting) {
         const row = editableProjects[0];
-        return `Into this project · ${row?.taskCount ?? preview.counts.importableTasks} tasks · ${row?.phaseCount ?? preview.counts.phasesFromSummaries} phases · ${row?.milestoneCount ?? preview.counts.milestonesFromFile ?? 0} milestones · ${row?.dependencyCount ?? preview.counts.dependencies} dependencies`;
+        return `${updatingExisting ? "Update existing project" : "Into this project"} · ${row?.taskCount ?? preview.counts.importableTasks} tasks · ${row?.phaseCount ?? preview.counts.phasesFromSummaries} phases · ${row?.milestoneCount ?? preview.counts.milestonesFromFile ?? 0} milestones · ${row?.dependencyCount ?? preview.counts.dependencies} dependencies`;
       }
       if (isPortfolio) {
         const createCount = editableProjects.filter((p) => p.importMode === "create").length;

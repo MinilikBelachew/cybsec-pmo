@@ -1,5 +1,14 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { PhaseStatus, PriorityLevel, Prisma, TaskStatus } from '@prisma/client';
+import {
+  BillingModel,
+  EngagementType,
+  PhaseStatus,
+  PriorityLevel,
+  Prisma,
+  ProjectMethodology,
+  ProjectStatus,
+  TaskStatus,
+} from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { CaslUserContext } from '../casl/casl.types';
@@ -10,11 +19,19 @@ import {
   ApiCurrencyCode,
   ApiEngagementType,
   ApiPriorityLevel,
+  ApiProjectMethodology,
   ApiProjectStatus,
 } from '../projects/enums/project-api.enum';
 import {
+  toPrismaBillingModel,
+  toPrismaEngagementType,
+  toPrismaMethodology,
+  toPrismaStatus,
+} from '../projects/mappers/project.mapper';
+import {
   ExcelMilestoneImportRow,
   ExcelPhaseImportRow,
+  ExcelProjectImportRow,
   ExcelProjectsImportJobData,
   ExcelTaskImportRow,
   ImportJobResultSummary,
@@ -97,9 +114,12 @@ export class ExcelProjectsImportService {
               objective: proj.objective,
               departmentId: proj.resolvedDepartmentId,
               customerId: proj.resolvedCustomerId,
-              engagementType: proj.engagementType as never,
-              billingModel: proj.billingModel as never,
-              priority: proj.priority as never,
+              engagementType: this.mapEngagement(proj.engagementType),
+              billingModel: this.mapBilling(proj.billingModel),
+              ...(proj.methodology
+                ? { methodology: this.mapMethodology(proj.methodology) }
+                : {}),
+              priority: this.mapPriority(proj.priority),
               startDate: this.requireDate(proj.startDate, 'startDate'),
               endDate: this.requireDate(proj.endDate, 'endDate'),
               value,
@@ -109,7 +129,8 @@ export class ExcelProjectsImportService {
               fxRateAt: usd?.fxRateAt ?? null,
               primaryPmId: proj.resolvedPrimaryPmId,
               secondaryPmId: proj.resolvedSecondaryPmId || null,
-              ...(proj.status ? { status: proj.status as never } : {}),
+              ...(proj.status ? { status: this.mapProjectStatus(proj.status) } : {}),
+              ...this.optionalProjectSchedule(proj),
             },
           });
           projectId = proj.resolvedProjectId;
@@ -123,6 +144,9 @@ export class ExcelProjectsImportService {
               customerId: proj.resolvedCustomerId,
               engagementType: proj.engagementType as ApiEngagementType,
               billingModel: proj.billingModel as ApiBillingModel,
+              methodology: proj.methodology
+                ? (proj.methodology as ApiProjectMethodology)
+                : ApiProjectMethodology.Agile,
               priority: proj.priority as ApiPriorityLevel,
               startDate: this.requireDate(proj.startDate, 'startDate'),
               endDate: this.requireDate(proj.endDate, 'endDate'),
@@ -136,6 +160,13 @@ export class ExcelProjectsImportService {
           );
           projectId = created.id;
           projectsCreated += 1;
+          const extra = this.optionalProjectSchedule(proj);
+          if (Object.keys(extra).length > 0) {
+            await this.prisma.project.update({
+              where: { id: projectId },
+              data: extra,
+            });
+          }
         }
 
         // Order preserved: phases → tasks (+ deps) → milestones
@@ -269,7 +300,7 @@ export class ExcelProjectsImportService {
           name: row.name,
           description: row.description ?? null,
           orderIndex: row.orderIndex ?? ids.size + index + 1,
-          status: (row.status as PhaseStatus) || PhaseStatus.Planned,
+                status: this.mapPhaseStatus(row.status),
           startDate: this.parseDate(row.startDate) ?? projectStart,
           endDate: this.parseDate(row.endDate) ?? projectEnd,
         }),
@@ -297,7 +328,7 @@ export class ExcelProjectsImportService {
               name: row.name,
               description: row.description ?? null,
               orderIndex: row.orderIndex ?? ids.size + 1,
-              status: (row.status as PhaseStatus) || PhaseStatus.Planned,
+                status: this.mapPhaseStatus(row.status),
               startDate: this.parseDate(row.startDate) ?? projectStart,
               endDate: this.parseDate(row.endDate) ?? projectEnd,
             },
@@ -319,7 +350,7 @@ export class ExcelProjectsImportService {
                 name: row.name,
                 description: row.description,
                 orderIndex: row.orderIndex,
-                status: (row.status as PhaseStatus) || undefined,
+                status: this.mapPhaseStatus(row.status),
                 startDate: this.parseDate(row.startDate) ?? undefined,
                 endDate: this.parseDate(row.endDate) ?? undefined,
               },
@@ -338,7 +369,7 @@ export class ExcelProjectsImportService {
               name: row.name,
               description: row.description,
               orderIndex: row.orderIndex,
-              status: (row.status as PhaseStatus) || undefined,
+              status: this.mapPhaseStatus(row.status),
               startDate: this.parseDate(row.startDate) ?? undefined,
               endDate: this.parseDate(row.endDate) ?? undefined,
             },
@@ -463,7 +494,7 @@ export class ExcelProjectsImportService {
         ownerId: p.row.resolvedAssigneeId ?? null,
         startDate: p.startDate,
         endDate: p.endDate,
-        effortHours: p.row.effortHours ?? null,
+        effortHours: this.mapEffortHours(p.row.effortHours),
         durationDays: p.row.durationDays ?? null,
         baselineStart: this.parseDate(p.row.baselineStart),
         baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -507,7 +538,7 @@ export class ExcelProjectsImportService {
                 ownerId: p.row.resolvedAssigneeId ?? null,
                 startDate: p.startDate,
                 endDate: p.endDate,
-                effortHours: p.row.effortHours ?? null,
+                effortHours: this.mapEffortHours(p.row.effortHours),
                 durationDays: p.row.durationDays ?? null,
                 baselineStart: this.parseDate(p.row.baselineStart),
                 baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -557,7 +588,7 @@ export class ExcelProjectsImportService {
                 phaseId: p.phaseId,
                 startDate: p.startDate,
                 endDate: p.endDate,
-                effortHours: p.row.effortHours ?? null,
+                effortHours: this.mapEffortHours(p.row.effortHours),
                 durationDays: p.row.durationDays ?? null,
                 baselineStart: this.parseDate(p.row.baselineStart),
                 baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -593,7 +624,7 @@ export class ExcelProjectsImportService {
                 phaseId: p.phaseId,
                 startDate: p.startDate,
                 endDate: p.endDate,
-                effortHours: p.row.effortHours ?? null,
+                effortHours: this.mapEffortHours(p.row.effortHours),
                 durationDays: p.row.durationDays ?? null,
                 baselineStart: this.parseDate(p.row.baselineStart),
                 baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -994,6 +1025,91 @@ export class ExcelProjectsImportService {
       value.length <= 10 ? `${value}T00:00:00.000Z` : value,
     );
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private optionalProjectSchedule(
+    proj: ExcelProjectImportRow,
+  ): Prisma.ProjectUncheckedUpdateInput {
+    const data: Prisma.ProjectUncheckedUpdateInput = {};
+    if (proj.methodology) {
+      data.methodology = this.mapMethodology(proj.methodology);
+    }
+    if (proj.durationDays != null && Number.isFinite(proj.durationDays)) {
+      data.durationDays = proj.durationDays;
+    }
+    const baselineStart = this.parseDate(proj.baselineStartDate);
+    if (baselineStart) data.baselineStartDate = baselineStart;
+    const baselineEnd = this.parseDate(proj.baselineEndDate);
+    if (baselineEnd) data.baselineEndDate = baselineEnd;
+    if (
+      proj.baselineDurationDays != null &&
+      Number.isFinite(proj.baselineDurationDays)
+    ) {
+      data.baselineDurationDays = proj.baselineDurationDays;
+    }
+    const actualStart = this.parseDate(proj.actualStartDate);
+    if (actualStart) data.actualStartDate = actualStart;
+    const actualEnd = this.parseDate(proj.actualEndDate);
+    if (actualEnd) data.actualEndDate = actualEnd;
+    if (proj.percentComplete != null && Number.isFinite(proj.percentComplete)) {
+      data.percentComplete = Math.max(
+        0,
+        Math.min(100, Math.round(proj.percentComplete)),
+      );
+    }
+    return data;
+  }
+
+  private mapEngagement(value: string): EngagementType {
+    if (
+      !Object.values(ApiEngagementType).includes(value as ApiEngagementType)
+    ) {
+      throw new BadRequestException(`Invalid engagement type "${value}"`);
+    }
+    return toPrismaEngagementType(value as ApiEngagementType);
+  }
+
+  private mapBilling(value: string): BillingModel {
+    if (!Object.values(ApiBillingModel).includes(value as ApiBillingModel)) {
+      throw new BadRequestException(`Invalid billing model "${value}"`);
+    }
+    return toPrismaBillingModel(value as ApiBillingModel);
+  }
+
+  private mapMethodology(value: string): ProjectMethodology {
+    if (
+      !Object.values(ApiProjectMethodology).includes(
+        value as ApiProjectMethodology,
+      )
+    ) {
+      throw new BadRequestException(`Invalid methodology "${value}"`);
+    }
+    return toPrismaMethodology(value as ApiProjectMethodology);
+  }
+
+  private mapProjectStatus(value: string): ProjectStatus {
+    if (!Object.values(ApiProjectStatus).includes(value as ApiProjectStatus)) {
+      throw new BadRequestException(`Invalid project status "${value}"`);
+    }
+    return toPrismaStatus(value as ApiProjectStatus);
+  }
+
+  private mapPhaseStatus(value?: string): PhaseStatus {
+    switch (value) {
+      case 'Active':
+        return PhaseStatus.Active;
+      case 'Completed':
+        return PhaseStatus.Completed;
+      case 'On_Hold':
+        return PhaseStatus.On_Hold;
+      default:
+        return PhaseStatus.Planned;
+    }
+  }
+
+  private mapEffortHours(value?: number): number | null {
+    if (value == null || !Number.isFinite(value)) return null;
+    return Math.max(0, Math.round(value));
   }
 
   private mapPriority(value?: string): PriorityLevel {

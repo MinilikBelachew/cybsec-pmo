@@ -224,7 +224,7 @@ export class ExcelTasksImportService {
         ownerId: row.ownerId,
         startDate: row.startDate,
         endDate: row.endDate,
-        effortHours: row.source.effortHours ?? null,
+        effortHours: this.mapEffortHours(row.source.effortHours),
         durationDays: row.source.durationDays ?? null,
         baselineStart: row.baselineStart,
         baselineEnd: row.baselineEnd,
@@ -270,7 +270,7 @@ export class ExcelTasksImportService {
                 ownerId: row.ownerId,
                 startDate: row.startDate,
                 endDate: row.endDate,
-                effortHours: row.source.effortHours ?? null,
+                effortHours: this.mapEffortHours(row.source.effortHours),
                 durationDays: row.source.durationDays ?? null,
                 baselineStart: row.baselineStart,
                 baselineEnd: row.baselineEnd,
@@ -322,7 +322,7 @@ export class ExcelTasksImportService {
                 phaseId: row.phaseId,
                 startDate: row.startDate,
                 endDate: row.endDate,
-                effortHours: row.source.effortHours ?? null,
+                effortHours: this.mapEffortHours(row.source.effortHours),
                 durationDays: row.source.durationDays ?? null,
                 baselineStart: row.baselineStart,
                 baselineEnd: row.baselineEnd,
@@ -363,7 +363,7 @@ export class ExcelTasksImportService {
                 phaseId: row.phaseId,
                 startDate: row.startDate,
                 endDate: row.endDate,
-                effortHours: row.source.effortHours ?? null,
+                effortHours: this.mapEffortHours(row.source.effortHours),
                 durationDays: row.source.durationDays ?? null,
                 baselineStart: row.baselineStart,
                 baselineEnd: row.baselineEnd,
@@ -718,6 +718,11 @@ export class ExcelTasksImportService {
       value.length <= 10 ? `${value}T00:00:00.000Z` : value,
     );
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private mapEffortHours(value?: number): number | null {
+    if (value == null || !Number.isFinite(value)) return null;
+    return Math.max(0, Math.round(value));
   }
 
   private mapPriority(value?: string): PriorityLevel {

@@ -789,19 +789,27 @@ export function TaskDetailPanel({
                         Linked activity
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {isEngineerView
-                          ? "Progress submissions save immediately."
-                          : "Progress submissions save immediately. Dependencies are saved with Save changes."}
+                        {task.isScheduleMilestone
+                          ? "This MPP row is a milestone. Mark Pending or Completed on the Milestones tab — not as an engineer task."
+                          : isEngineerView
+                            ? "Progress submissions save immediately."
+                            : "Progress submissions save immediately. Dependencies are saved with Save changes."}
                       </p>
                     </div>
 
-                    <TaskProgressSection
-                      task={task}
-                      focusProgressReview={focusProgressReview}
-                      onUpdated={() => {
-                        onUpdated?.();
-                      }}
-                    />
+                    {task.isScheduleMilestone ? (
+                      <div className="rounded-lg border border-border/60 bg-background px-3 py-2 text-xs text-muted-foreground">
+                        No hours, assignee workflow, or To Do → Done on this row. Use the Milestones tab.
+                      </div>
+                    ) : (
+                      <TaskProgressSection
+                        task={task}
+                        focusProgressReview={focusProgressReview}
+                        onUpdated={() => {
+                          onUpdated?.();
+                        }}
+                      />
+                    )}
 
                     <TaskDependenciesSection
                       task={task}

@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useMemo } from "react";
 import { cn } from "@/shared/utils/cn";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Diamond, ZoomIn, ZoomOut } from "lucide-react";
 import { type ProjectPhase, type ProjectMilestone } from "../../../types/projects.types";
 import { type TaskDependency } from "../../../types/tasks.types";
 import {
@@ -261,7 +261,9 @@ export function GanttView({
       const phaseTasks = tasks
         .filter((t) => t.phaseId === phase.id)
         .sort(compareGanttPlanOrder);
-      const phaseMilestones = milestones.filter((m) => m.phaseId === phase.id);
+      const phaseMilestones = milestones.filter(
+        (m) => m.phaseId === phase.id && !m.taskId,
+      );
       return {
         id: phase.id,
         name: phase.name,
@@ -276,7 +278,7 @@ export function GanttView({
     const unassignedTasks = tasks
       .filter((t) => !t.phaseId)
       .sort(compareGanttPlanOrder);
-    const unassignedMilestones = milestones.filter((m) => !m.phaseId);
+    const unassignedMilestones = milestones.filter((m) => !m.phaseId && !m.taskId);
 
     if (unassignedTasks.length > 0 || unassignedMilestones.length > 0) {
       const bounds = spanFromRows(unassignedTasks);
@@ -805,10 +807,18 @@ export function GanttView({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (task.isScheduleMilestone) return;
                               toggleTask(task.id);
                             }}
                           >
-                            {task.done ? (
+                            {task.isScheduleMilestone ? (
+                              <Diamond
+                                className={cn(
+                                  "size-3.5 shrink-0",
+                                  task.done ? "fill-emerald-500 text-emerald-500" : "fill-primary text-primary",
+                                )}
+                              />
+                            ) : task.done ? (
                               <CircleCheck className="size-3.5 text-emerald-500 shrink-0" />
                             ) : (
                               <Circle className="size-3.5 text-muted-foreground shrink-0" />
@@ -821,6 +831,11 @@ export function GanttView({
                               task.done && "line-through text-muted-foreground",
                             )}
                           >
+                            {task.isScheduleMilestone && (
+                              <span className="mr-1 text-[9px] font-semibold uppercase text-muted-foreground">
+                                MS
+                              </span>
+                            )}
                             {hasChildren && depth === 0 && (
                               <span className="mr-1 text-[9px] font-semibold uppercase text-muted-foreground">
                                 Sum
@@ -981,6 +996,18 @@ export function GanttView({
                                 relative
                               />
                             </div>
+                          ) : task.isScheduleMilestone ? (
+                            <div
+                              className={cn(
+                                "absolute top-1/2 z-20 size-3.5 -translate-y-1/2 rotate-45 border-2 shadow-xs cursor-pointer hover:scale-125 transition-transform",
+                                task.done
+                                  ? "bg-emerald-500 border-white dark:border-slate-900"
+                                  : "bg-primary border-white dark:border-slate-900",
+                              )}
+                              style={{ left: startDay * colW + colW / 2 - 7 }}
+                              title={`Milestone: ${task.name}`}
+                              onClick={() => onTaskClick?.(task.id)}
+                            />
                           ) : (
                             <TaskBar
                               task={task}

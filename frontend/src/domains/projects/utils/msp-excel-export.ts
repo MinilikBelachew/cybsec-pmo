@@ -3,6 +3,7 @@ import {
   comparePlanOrderAsc,
   formatResourceName,
   inclusiveDurationDays,
+  mergeExportResourceNames,
   resolveTaskDurationDays,
   type TaskExportDependency,
 } from "./task-export-fields";
@@ -106,7 +107,7 @@ function taskResourceNames(task: any, projectOrganization?: string | null): stri
     task.backupOwner?.displayName,
     personOrg(task.backupOwner, projectOrganization),
   );
-  return [owner, backup].filter(Boolean).join(", ");
+  return mergeExportResourceNames(owner, backup, task.resourceNames);
 }
 
 function childTasks(tasks: any[], parentId: string): any[] {

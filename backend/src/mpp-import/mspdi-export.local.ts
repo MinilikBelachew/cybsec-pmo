@@ -3,6 +3,7 @@
  * so the Resource Names column populates, plus schedule fields (dates, %, baseline).
  */
 import { MspdiExportRequestPayload, MspdiExportTaskPayload } from './mspdi-export.types';
+import { splitResourceNames } from './resource-names.util';
 
 function esc(str: string) {
   return String(str || '')
@@ -354,8 +355,60 @@ ${schedule}
   xml += `  </Tasks>
 `;
 
-  const resources = payload.resources ?? [];
-  const resourceUidById = new Map<string, number>();
+  type XmlResource = { uid: number; name: string; email?: string };
+  const resourcesByKey = new Map<string, XmlResource>();
+  const assignmentRows: { taskId: string; resourceKey: string }[] = [];
+  let resourceUid = 1;
+
+  const ensureResource = (name: string, email?: string): string => {
+    const key = name.trim().toLowerCase();
+    const existing = resourcesByKey.get(key);
+    if (existing) {
+      if (email && !existing.email) existing.email = email;
+      return key;
+    }
+    resourcesByKey.set(key, {
+      uid: resourceUid++,
+      name: name.trim(),
+      email,
+    });
+    return key;
+  };
+
+  const hasTaskNames = payload.tasks.some((task) =>
+    Boolean(task.resourceNames?.trim()),
+  );
+  if (hasTaskNames) {
+    for (const task of payload.tasks) {
+      for (const name of splitResourceNames(task.resourceNames)) {
+        assignmentRows.push({
+          taskId: task.id,
+          resourceKey: ensureResource(name),
+        });
+      }
+    }
+    for (const resource of payload.resources ?? []) {
+      if (!resource.name?.trim() || !resource.email?.trim()) continue;
+      const existing = resourcesByKey.get(resource.name.trim().toLowerCase());
+      if (existing && !existing.email) existing.email = resource.email.trim();
+    }
+  } else {
+    for (const resource of payload.resources ?? []) {
+      if (!resource?.id || !resource.name?.trim()) continue;
+      resourcesByKey.set(resource.id, {
+        uid: resourceUid++,
+        name: resource.name.trim(),
+        email: resource.email,
+      });
+    }
+    for (const assignment of payload.assignments ?? []) {
+      assignmentRows.push({
+        taskId: assignment.taskId,
+        resourceKey: assignment.resourceId,
+      });
+    }
+  }
+
   xml += `  <Resources>
     <Resource>
       <UID>0</UID>
@@ -366,14 +419,13 @@ ${schedule}
       <CalendarUID>1</CalendarUID>
     </Resource>
 `;
-  let resourceUid = 1;
-  for (const resource of resources) {
-    if (!resource?.id || !resource.name?.trim()) continue;
-    resourceUidById.set(resource.id, resourceUid);
+  for (const resource of [...resourcesByKey.values()].sort(
+    (a, b) => a.uid - b.uid,
+  )) {
     xml += `    <Resource>
-      <UID>${resourceUid}</UID>
-      <ID>${resourceUid}</ID>
-      <Name>${esc(resource.name.trim())}</Name>
+      <UID>${resource.uid}</UID>
+      <ID>${resource.uid}</ID>
+      <Name>${esc(resource.name)}</Name>
       <Type>1</Type>
       <IsNull>0</IsNull>
       <MaxUnits>1.00</MaxUnits>
@@ -381,21 +433,19 @@ ${schedule}
       ${resource.email ? `<EmailAddress>${esc(resource.email)}</EmailAddress>` : ''}
     </Resource>
 `;
-    resourceUid += 1;
   }
   xml += `  </Resources>
 `;
 
-  const assignments = payload.assignments ?? [];
   xml += `  <Assignments>
 `;
   // Project often uses large UIDs for assignments; start above task UIDs.
   let assignmentUid = 1_048_577;
-  for (const assignment of assignments) {
-    const taskUid = idToUid.get(assignment.taskId);
-    const resUid = resourceUidById.get(assignment.resourceId);
-    if (taskUid == null || resUid == null) continue;
-    const task = taskById.get(assignment.taskId);
+  for (const row of assignmentRows) {
+    const taskUid = idToUid.get(row.taskId);
+    const resource = resourcesByKey.get(row.resourceKey);
+    if (taskUid == null || resource == null) continue;
+    const task = taskById.get(row.taskId);
     const start =
       toDateTime(task?.startDate) || toDateTime(payload.project.startDate);
     const finish =
@@ -407,18 +457,11 @@ ${schedule}
       finishDate: task?.finishDate,
     });
     const work = toIsoDuration(workDays) || 'PT8H0M0S';
-    const units =
-      assignment.units != null &&
-      Number.isFinite(assignment.units) &&
-      assignment.units > 0
-        ? assignment.units
-        : 1;
-    // Match NES element order: ResourceUID before TaskUID helps Project bind names.
     xml += `    <Assignment>
       <UID>${assignmentUid}</UID>
-      <ResourceUID>${resUid}</ResourceUID>
+      <ResourceUID>${resource.uid}</ResourceUID>
       <TaskUID>${taskUid}</TaskUID>
-      <Units>${units}</Units>
+      <Units>1</Units>
       <Work>${work}</Work>
       <RegularWork>${work}</RegularWork>
       <RemainingWork>${work}</RemainingWork>

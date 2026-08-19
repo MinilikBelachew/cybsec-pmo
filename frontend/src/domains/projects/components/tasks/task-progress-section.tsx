@@ -49,6 +49,8 @@ export function TaskProgressSection({
 
   const [progressPercent, setProgressPercent] = useState("");
   const [hoursSpent, setHoursSpent] = useState("");
+  const [progressError, setProgressError] = useState<string | null>(null);
+  const [hoursError, setHoursError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [evidenceFiles, setEvidenceFiles] = useState<
     Pick<ProgressEvidenceFile, "storageKey" | "filename">[]
@@ -151,6 +153,8 @@ export function TaskProgressSection({
   useEffect(() => {
     setProgressPercent("");
     setHoursSpent("");
+    setProgressError(null);
+    setHoursError(null);
     setComment("");
     setEvidenceFiles([]);
     setReviewReasons({});
@@ -200,24 +204,30 @@ export function TaskProgressSection({
   async function handleSubmit() {
     const increment = Number(progressPercent);
     const hours = Number(hoursSpent);
-    if (!Number.isFinite(increment) || increment < 1 || increment > 100) {
-      toast.error("Enter how much progress to add this time (1–100%).");
-      return;
+    let nextProgressError: string | null = null;
+    let nextHoursError: string | null = null;
+
+    if (!progressPercent.trim() || !Number.isFinite(increment)) {
+      nextProgressError = "Enter a number for progress to add (1–100%).";
+    } else if (increment < 1 || increment > 100) {
+      nextProgressError = "Enter how much progress to add this time (1–100%).";
+    } else if (progressFloor >= 100) {
+      nextProgressError = "Progress is already at 100%. No further submissions are allowed.";
+    } else if (increment > remainingCapacity) {
+      nextProgressError = `You can add at most ${remainingCapacity}% more (total cannot exceed 100%).`;
     }
-    if (progressFloor >= 100) {
-      toast.error("Progress is already at 100%. No further submissions are allowed.");
-      return;
+
+    if (!hoursSpent.trim()) {
+      nextHoursError = "Hours spent is required.";
+    } else if (!Number.isFinite(hours)) {
+      nextHoursError = "Hours spent must be a number.";
+    } else if (hours <= 0) {
+      nextHoursError = "Hours spent must be greater than 0.";
     }
-    if (increment > remainingCapacity) {
-      toast.error(
-        `You can add at most ${remainingCapacity}% more (total cannot exceed 100%).`,
-      );
-      return;
-    }
-    if (!hoursSpent.trim() || !Number.isFinite(hours) || hours <= 0) {
-      toast.error("Hours spent is required and must be greater than 0.");
-      return;
-    }
+
+    setProgressError(nextProgressError);
+    setHoursError(nextHoursError);
+    if (nextProgressError || nextHoursError) return;
 
     const newTotal = progressFloor + increment;
 
@@ -235,6 +245,8 @@ export function TaskProgressSection({
       setProgressPercent("");
       setComment("");
       setHoursSpent("");
+      setProgressError(null);
+      setHoursError(null);
       setEvidenceFiles([]);
       onUpdated?.();
     } catch (err: unknown) {
@@ -400,13 +412,20 @@ export function TaskProgressSection({
                 min={1}
                 max={remainingCapacity}
                 value={progressPercent}
-                onChange={(e) => setProgressPercent(e.target.value)}
+                aria-invalid={Boolean(progressError)}
+                onChange={(e) => {
+                  setProgressPercent(e.target.value);
+                  if (progressError) setProgressError(null);
+                }}
                 placeholder={
                   remainingCapacity >= 10
                     ? "e.g. 10"
                     : `e.g. ${remainingCapacity}`
                 }
               />
+              {progressError && (
+                <p className="text-[11px] font-medium text-destructive">{progressError}</p>
+              )}
             </div>
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">
@@ -418,10 +437,17 @@ export function TaskProgressSection({
                 step={0.5}
                 required
                 aria-required="true"
+                aria-invalid={Boolean(hoursError)}
                 value={hoursSpent}
-                onChange={(e) => setHoursSpent(e.target.value)}
+                onChange={(e) => {
+                  setHoursSpent(e.target.value);
+                  if (hoursError) setHoursError(null);
+                }}
                 placeholder="e.g. 8"
               />
+              {hoursError && (
+                <p className="text-[11px] font-medium text-destructive">{hoursError}</p>
+              )}
             </div>
           </div>
           <div className="space-y-1">

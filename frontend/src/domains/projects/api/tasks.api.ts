@@ -55,6 +55,9 @@ export const tasksApi = api.injectEndpoints({
         if (params.search) queryParams.append("search", params.search);
         if (params.phaseId) queryParams.append("phaseId", params.phaseId);
         if (params.ownerId) queryParams.append("ownerId", params.ownerId);
+        if (params.includeScheduleMilestones) {
+          queryParams.append("includeScheduleMilestones", "true");
+        }
         return `/tasks?${queryParams.toString()}`;
       },
       providesTags: (result, _error, params) => {

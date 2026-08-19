@@ -14,6 +14,7 @@ import {
   ParsedMppProject,
   ParsedMppTask,
 } from './mpp-import.types';
+import { joinResourceNames } from './resource-names.util';
 
 const PREVIEW_TASK_LIMIT = 250;
 const DEFAULT_PHASE_NAME = 'Imported Schedule';
@@ -35,7 +36,7 @@ export class MppImportMapper {
       return this.buildPortfolioPreview(parsed, existingProjects);
     }
 
-    return this.buildSinglePreview(parsed);
+    return this.buildSinglePreview(parsed, existingProjects);
   }
 
   /**
@@ -71,7 +72,7 @@ export class MppImportMapper {
 
     for (const root of projectRoots) {
       const projectName = root.name.trim().slice(0, 255);
-      const nameKey = projectName.toLowerCase();
+      const nameKey = projectName;
       if (seenNames.has(nameKey)) {
         warnings.push(
           `Skipped duplicate project summary "${projectName}" in portfolio file.`,
@@ -143,6 +144,7 @@ export class MppImportMapper {
               root.actualFinishDate ?? parsed.project?.actualFinishDate,
             percentComplete:
               root.percentComplete ?? parsed.project?.percentComplete,
+            cost: root.cost ?? parsed.project?.cost,
             durationVarianceDays:
               root.durationDays != null &&
               root.baselineDurationDays != null
@@ -174,10 +176,10 @@ export class MppImportMapper {
     parsed: ParsedMppProject,
     projectName: string,
   ): MppPortfolioSegment | undefined {
-    const target = projectName.trim().toLowerCase();
+    const target = projectName.trim();
     const { segments } = this.segmentPortfolio(parsed);
     return segments.find(
-      (segment) => segment.projectName.trim().toLowerCase() === target,
+      (segment) => segment.projectName.trim() === target,
     );
   }
 
@@ -206,10 +208,7 @@ export class MppImportMapper {
       this.segmentPortfolio(parsed);
     const resourceMatch = await this.countResourceMatches(parsed);
     const existingByName = new Map(
-      existingProjects.map((project) => [
-        project.name.trim().toLowerCase(),
-        project,
-      ]),
+      existingProjects.map((project) => [project.name.trim(), project]),
     );
 
     const projects: MppImportPreviewProject[] = [];
@@ -229,9 +228,7 @@ export class MppImportMapper {
       skippedSummaryTasks += single.counts.skippedSummaryTasks;
       dependencies += single.counts.dependencies;
 
-      const existing = existingByName.get(
-        segment.projectName.trim().toLowerCase(),
-      );
+      const existing = existingByName.get(segment.projectName.trim());
       projects.push({
         name: segment.projectName,
         startDate: segment.startDate,
@@ -242,6 +239,7 @@ export class MppImportMapper {
         baselineDurationDays: segment.parsed.project?.baselineDurationDays,
         percentComplete: segment.parsed.project?.percentComplete,
         durationVarianceDays: segment.parsed.project?.durationVarianceDays,
+        cost: segment.parsed.project?.cost,
         taskCount: single.counts.importableTasks,
         phaseCount: single.counts.phasesFromSummaries,
         milestoneCount: single.counts.milestonesFromFile,
@@ -279,6 +277,7 @@ export class MppImportMapper {
       projectName: parsed.project?.name ?? 'Portfolio',
       startDate: parsed.project?.startDate,
       finishDate: parsed.project?.finishDate,
+      cost: parsed.project?.cost,
       counts: {
         importableTasks,
         phasesFromSummaries,
@@ -298,6 +297,7 @@ export class MppImportMapper {
 
   private async buildSinglePreview(
     parsed: ParsedMppProject,
+    existingProjects: { id: string; name: string }[] = [],
   ): Promise<MppImportPreview> {
     const allTasks = parsed.tasks ?? [];
     const byUid = this.indexByUid(allTasks);
@@ -364,6 +364,13 @@ export class MppImportMapper {
       PREVIEW_TASK_LIMIT,
     );
 
+    const projectName = this.resolveVisibleProjectName(parsed, byUid);
+    const existing = this.findExistingProjectByName(
+      existingProjects,
+      projectName,
+      parsed.project?.name,
+    );
+
     const warnings = [...(parsed.warnings ?? []), ...resourceMatch.warnings];
     if (importableTasks.length > PREVIEW_TASK_LIMIT) {
       warnings.push(
@@ -400,11 +407,20 @@ export class MppImportMapper {
       );
     }
 
+    if (existing) {
+      warnings.push(
+        `Matching existing project "${existing.name}" — this import will update it, not create a duplicate.`,
+      );
+    }
+
     return {
       mode: 'single',
-      projectName: this.resolveVisibleProjectName(parsed, byUid),
+      projectName,
+      importMode: existing ? 'update' : 'create',
+      resolvedProjectId: existing?.id,
       startDate: parsed.project?.startDate,
       finishDate: parsed.project?.finishDate,
+      cost: parsed.project?.cost,
       counts: {
         importableTasks: importableTasks.length,
         phasesFromSummaries: phaseSummaries.length,
@@ -687,23 +703,6 @@ export class MppImportMapper {
         }
       }
 
-      const milestoneResult = await this.importMppMilestones(
-        tx,
-        projectId,
-        milestoneTasks,
-        summaryUidToPhaseId,
-        defaultPhaseId,
-        byUid,
-      );
-      milestonesCreated += milestoneResult.created;
-      milestonesUpdated += milestoneResult.updated;
-      warnings.push(...milestoneResult.warnings);
-      if (milestonesCreated > 0 || milestonesUpdated > 0) {
-        warnings.push(
-          `Milestones from MPP: ${milestonesCreated} created, ${milestonesUpdated} updated.`,
-        );
-      }
-
       const existingTasks = await tx.task.findMany({
         where: { projectId },
         select: { id: true, title: true, phaseId: true },
@@ -791,6 +790,24 @@ export class MppImportMapper {
         }
       }
 
+      const milestoneResult = await this.importMppMilestones(
+        tx,
+        projectId,
+        milestoneTasks,
+        summaryUidToPhaseId,
+        defaultPhaseId,
+        byUid,
+        uidToTaskId,
+      );
+      milestonesCreated += milestoneResult.created;
+      milestonesUpdated += milestoneResult.updated;
+      warnings.push(...milestoneResult.warnings);
+      if (milestonesCreated > 0 || milestonesUpdated > 0) {
+        warnings.push(
+          `Milestones from MPP: ${milestonesCreated} created, ${milestonesUpdated} updated.`,
+        );
+      }
+
       for (const task of importableTasks) {
         const successorId = uidToTaskId.get(task.uid);
         if (!successorId) {
@@ -839,6 +856,7 @@ export class MppImportMapper {
         tx,
         parsed,
         uidToTaskId,
+        new Set(milestoneTasks.map((task) => task.uid)),
       );
       warnings.push(...assignmentApply.warnings);
       resourceMatchForResult = {
@@ -936,6 +954,20 @@ export class MppImportMapper {
   ): boolean {
     const wrapper = this.getScheduleWrapperSummary(byUid);
     return wrapper != null && wrapper.uid === task.uid;
+  }
+
+  /** Match an existing Cybsec project by exact plan name (case-sensitive, trim only). */
+  private findExistingProjectByName(
+    existingProjects: { id: string; name: string }[],
+    ...names: Array<string | undefined>
+  ): { id: string; name: string } | undefined {
+    const keys = new Set(
+      names
+        .map((name) => name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    );
+    if (keys.size === 0) return undefined;
+    return existingProjects.find((project) => keys.has(project.name.trim()));
   }
 
   /**
@@ -1167,6 +1199,7 @@ export class MppImportMapper {
     summaryUidToPhaseId: Map<number, string>,
     defaultPhaseId: string | undefined,
     byUid: Map<number, ParsedMppTask>,
+    uidToTaskId: Map<number, string>,
   ): Promise<{ created: number; updated: number; warnings: string[] }> {
     if (milestoneTasks.length === 0) {
       return { created: 0, updated: 0, warnings: [] };
@@ -1174,13 +1207,17 @@ export class MppImportMapper {
 
     const existing = await tx.projectMilestone.findMany({
       where: { projectId },
-      select: { id: true, title: true, phaseId: true },
+      select: { id: true, title: true, phaseId: true, taskId: true },
     });
     const existingByKey = new Map<string, string>();
+    const existingByTaskId = new Map<string, string>();
     for (const row of existing) {
       const key = this.milestoneMatchKey(row.title, row.phaseId);
       if (!existingByKey.has(key)) {
         existingByKey.set(key, row.id);
+      }
+      if (row.taskId && !existingByTaskId.has(row.taskId)) {
+        existingByTaskId.set(row.taskId, row.id);
       }
     }
 
@@ -1208,15 +1245,21 @@ export class MppImportMapper {
         new Date();
 
       const status = this.resolveMppMilestoneStatus(ms);
+      const taskId = uidToTaskId.get(ms.uid) ?? null;
       const key = this.milestoneMatchKey(title, phaseId);
-      const existingId = existingByKey.get(key);
+      const existingId =
+        (taskId ? existingByTaskId.get(taskId) : undefined) ??
+        existingByKey.get(key);
 
       if (existingId) {
         await tx.projectMilestone.update({
           where: { id: existingId },
-          data: { targetDate, phaseId, status },
+          data: { targetDate, phaseId, status, taskId },
         });
         updated += 1;
+        if (taskId) {
+          existingByTaskId.set(taskId, existingId);
+        }
       } else {
         const row = await tx.projectMilestone.create({
           data: {
@@ -1226,9 +1269,13 @@ export class MppImportMapper {
             phaseId,
             status,
             weight: null,
+            taskId,
           },
         });
         existingByKey.set(key, row.id);
+        if (taskId) {
+          existingByTaskId.set(taskId, row.id);
+        }
         created += 1;
       }
     }
@@ -1563,12 +1610,15 @@ export class MppImportMapper {
 
   /**
    * Apply MSP assignments → task.owner / backupOwner when the resource matches
-   * a Cybsec user; always persist Resource Names text for XML round-trip.
+   * a Cybsec user. Persist the original Resource Names cell on each task
+   * (matched + unmatched) so export can round-trip names like NES Customer.
+   * Milestone schedule rows keep the names but stay unassigned.
    */
   private async applyResourceAssignments(
     tx: Prisma.TransactionClient,
     parsed: ParsedMppProject,
     uidToTaskId: Map<number, string>,
+    skipTaskUids: Set<number> = new Set(),
   ): Promise<{
     resourcesMatched: number;
     resourcesUnmatched: number;
@@ -1600,6 +1650,7 @@ export class MppImportMapper {
 
     type Acc = {
       userIds: string[];
+      names: string[];
     };
     const byTaskId = new Map<string, Acc>();
     let assignmentsApplied = 0;
@@ -1613,31 +1664,45 @@ export class MppImportMapper {
         continue;
       }
 
-      const userId = userByResourceUid.get(resource.uid);
-      if (!userId) {
-        // Unmatched resources are warned above; do not store their names.
-        assignmentsSkipped += 1;
-        continue;
+      const acc = byTaskId.get(taskId) ?? { userIds: [], names: [] };
+      const displayName = resource.name.trim();
+      if (!acc.names.some((name) => name.toLowerCase() === displayName.toLowerCase())) {
+        acc.names.push(displayName);
       }
 
-      const acc = byTaskId.get(taskId) ?? { userIds: [] };
-      if (!acc.userIds.includes(userId)) {
+      const isMilestoneRow = skipTaskUids.has(assignment.taskUid);
+      const userId = userByResourceUid.get(resource.uid);
+      if (!isMilestoneRow && userId && !acc.userIds.includes(userId)) {
         acc.userIds.push(userId);
+        assignmentsApplied += 1;
       }
+
       byTaskId.set(taskId, acc);
-      assignmentsApplied += 1;
     }
 
-    // Clear any previously stored MPP Resource Names text; keep only matched owners.
-    for (const taskId of uidToTaskId.values()) {
+    for (const [uid, taskId] of uidToTaskId.entries()) {
       const acc = byTaskId.get(taskId);
+      const resourceNames = joinResourceNames(acc?.names ?? []);
+      const isMilestoneRow = skipTaskUids.has(uid);
+      if (isMilestoneRow) {
+        await tx.task.update({
+          where: { id: taskId },
+          data: {
+            resourceNames,
+            ownerId: null,
+            backupOwnerId: null,
+          },
+        });
+        continue;
+      }
       const ownerId = acc?.userIds[0] ?? null;
       const backupOwnerId = acc?.userIds[1] ?? null;
       await tx.task.update({
         where: { id: taskId },
         data: {
-          resourceNames: null,
-          ...(acc
+          resourceNames,
+          // Keep a Cybsec assignee (e.g. Emily) when the file has no matched users.
+          ...(ownerId
             ? {
                 ownerId,
                 backupOwnerId:

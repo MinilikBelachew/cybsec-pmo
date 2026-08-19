@@ -37,6 +37,11 @@ export class ExcelProjectImportRowDto {
   @IsString()
   billingModel: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  methodology?: string;
+
   @ApiProperty()
   @IsString()
   priority: string;
@@ -62,6 +67,41 @@ export class ExcelProjectImportRowDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  durationDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  baselineStartDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  baselineEndDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  baselineDurationDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  actualStartDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  actualEndDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  percentComplete?: number;
 
   @ApiProperty({ enum: ['create', 'update'] })
   @IsEnum(['create', 'update'])

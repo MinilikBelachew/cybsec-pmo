@@ -15,6 +15,7 @@ export type ParsedProjectPreviewRow = {
   customerName: string;
   engagementType: string;
   billingModel: string;
+  methodology: string;
   priority: string;
   startDate: string;
   endDate: string;
@@ -23,6 +24,13 @@ export type ParsedProjectPreviewRow = {
   primaryPmName: string;
   secondaryPmName: string;
   status: string;
+  durationDays?: number;
+  baselineStartDate?: string;
+  baselineEndDate?: string;
+  baselineDurationDays?: number;
+  actualStartDate?: string;
+  actualEndDate?: string;
+  percentComplete?: number;
   importMode: 'create' | 'update';
   resolvedProjectId?: string;
   resolvedDepartmentId?: string;
@@ -82,6 +90,27 @@ export function processRawProjectRows(
   const prioIdx = getIndex(['priority', 'priority level']);
   const startIdx = getIndex(['start date', 'start']);
   const endIdx = getIndex(['end date', 'end']);
+  const durationIdx = getIndex(['duration days', 'duration']);
+  const baselineStartIdx = getIndex([
+    'baseline start',
+    'baseline start date',
+  ]);
+  const baselineEndIdx = getIndex([
+    'baseline end',
+    'baseline finish',
+    'baseline end date',
+  ]);
+  const baselineDurationIdx = getIndex([
+    'baseline duration days',
+    'baseline duration',
+  ]);
+  const percentIdx = getIndex(['% complete', 'percent complete', '%complete']);
+  const actualStartIdx = getIndex(['actual start', 'actual start date']);
+  const actualEndIdx = getIndex([
+    'actual end',
+    'actual finish',
+    'actual end date',
+  ]);
   const valIdx = getIndex(['value', 'budget', 'amount']);
   const curIdx = getIndex(['currency', 'currency code']);
   const pmIdx = getIndex(['primary pm', 'pm', 'project manager']);
@@ -90,9 +119,7 @@ export function processRawProjectRows(
 
   const nameFrequency: Record<string, number> = {};
   for (const row of rows) {
-    const n = (
-      nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : ''
-    ).toLowerCase();
+    const n = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : '';
     if (n) nameFrequency[n] = (nameFrequency[n] ?? 0) + 1;
   }
   const duplicateNames = new Set(
@@ -110,7 +137,7 @@ export function processRawProjectRows(
     const departmentName = getVal(deptIdx);
     const customerName = getVal(custIdx);
     const engagementType = getVal(engIdx, 'FixedPrice');
-    getVal(methIdx);
+    const methodology = getVal(methIdx);
     const billingModel = getVal(billIdx, 'FixedPrice');
     const priority = getVal(prioIdx, 'Medium');
     const startDate = getVal(startIdx);
@@ -120,13 +147,22 @@ export function processRawProjectRows(
     const primaryPmName = getVal(pmIdx);
     const secondaryPmName = getVal(pm2Idx);
     const status = getVal(statusIdx, 'Draft');
+    const durationDays = parseOptionalNumber(getVal(durationIdx));
+    const baselineDurationDays = parseOptionalNumber(
+      getVal(baselineDurationIdx),
+    );
+    const percentComplete = parseOptionalNumber(getVal(percentIdx));
+    const baselineStartDate = getVal(baselineStartIdx) || undefined;
+    const baselineEndDate = getVal(baselineEndIdx) || undefined;
+    const actualStartDate = getVal(actualStartIdx) || undefined;
+    const actualEndDate = getVal(actualEndIdx) || undefined;
 
     const errors: string[] = [];
     const warnings: string[] = [];
 
     if (!name) errors.push('Project name is required.');
     if (!objective) errors.push('Objective is required.');
-    if (name && duplicateNames.has(name.trim().toLowerCase())) {
+    if (name && duplicateNames.has(name.trim())) {
       errors.push(`Duplicate project name "${name}" found in this file.`);
     }
 
@@ -218,6 +254,7 @@ export function processRawProjectRows(
 
     const normalizedEngagement = normalizeEngagement(engagementType);
     const normalizedBilling = normalizeBilling(billingModel);
+    const normalizedMethodology = normalizeMethodology(methodology);
     const normalizedPriority = normalizePriority(priority);
     const normalizedStatus = normalizeProjectStatus(status);
     const normalizedCurrency = normalizeCurrency(currency);
@@ -245,6 +282,34 @@ export function processRawProjectRows(
       errors.push(`Currency "${currency}" is invalid. Please select one.`);
     }
     if (
+      normalizedMethodology &&
+      !['Agile', 'Waterfall', 'Hybrid'].includes(normalizedMethodology)
+    ) {
+      errors.push(
+        `Methodology "${methodology}" is invalid. Please select Agile, Waterfall, or Hybrid.`,
+      );
+    }
+    if (
+      durationDays != null &&
+      (!Number.isFinite(durationDays) || durationDays <= 0)
+    ) {
+      errors.push('Duration days must be a number greater than 0.');
+    }
+    if (
+      baselineDurationDays != null &&
+      (!Number.isFinite(baselineDurationDays) || baselineDurationDays < 0)
+    ) {
+      errors.push('Baseline duration days must be a number.');
+    }
+    if (
+      percentComplete != null &&
+      (!Number.isFinite(percentComplete) ||
+        percentComplete < 0 ||
+        percentComplete > 100)
+    ) {
+      errors.push('% Complete must be a number between 0 and 100.');
+    }
+    if (
       ![
         'Draft',
         'Active',
@@ -270,6 +335,7 @@ export function processRawProjectRows(
       customerName,
       engagementType: normalizedEngagement,
       billingModel: normalizedBilling,
+      methodology: normalizedMethodology,
       priority: normalizedPriority,
       startDate,
       endDate,
@@ -278,6 +344,22 @@ export function processRawProjectRows(
       primaryPmName,
       secondaryPmName,
       status: normalizedStatus,
+      durationDays:
+        durationDays != null && Number.isFinite(durationDays)
+          ? durationDays
+          : undefined,
+      baselineStartDate,
+      baselineEndDate,
+      baselineDurationDays:
+        baselineDurationDays != null && Number.isFinite(baselineDurationDays)
+          ? baselineDurationDays
+          : undefined,
+      actualStartDate,
+      actualEndDate,
+      percentComplete:
+        percentComplete != null && Number.isFinite(percentComplete)
+          ? Math.round(percentComplete)
+          : undefined,
       importMode,
       resolvedProjectId,
       resolvedDepartmentId,
@@ -418,11 +500,9 @@ function resolveProjectImportMatch(
   name: string,
   existingProjects?: CatalogProject[],
 ): { importMode: 'create' | 'update'; resolvedProjectId?: string } {
-  const lower = name.trim().toLowerCase();
-  if (!lower || !existingProjects?.length) return { importMode: 'create' };
-  const match = existingProjects.find(
-    (p) => p.name.trim().toLowerCase() === lower,
-  );
+  const key = name.trim();
+  if (!key || !existingProjects?.length) return { importMode: 'create' };
+  const match = existingProjects.find((p) => p.name.trim() === key);
   return match
     ? { importMode: 'update', resolvedProjectId: match.id }
     : { importMode: 'create' };
@@ -454,6 +534,21 @@ function resolveMilestoneImportMatch(
   return match
     ? { importMode: 'update', resolvedMilestoneId: match.id }
     : { importMode: 'create' };
+}
+
+function parseOptionalNumber(raw: string): number | undefined {
+  if (!raw.trim()) return undefined;
+  const parsed = parseFloat(raw.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function normalizeMethodology(methodology: string): string {
+  const lower = methodology.toLowerCase().trim();
+  if (!lower) return '';
+  if (lower === 'agile') return 'Agile';
+  if (lower === 'waterfall') return 'Waterfall';
+  if (lower === 'hybrid') return 'Hybrid';
+  return methodology;
 }
 
 function normalizeEngagement(engagementType: string): string {

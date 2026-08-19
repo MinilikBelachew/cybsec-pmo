@@ -534,6 +534,8 @@ model ProjectMilestone {
   id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId  String        @map("project_id") @db.Uuid
   phaseId    String?       @map("phase_id") @db.Uuid
+  /// Linked MPP schedule row. Null = native UI "+ Add milestone" (no Gantt task).
+  taskId     String?       @unique @map("task_id") @db.Uuid
   title      String        @db.VarChar(255)
   targetDate DateTime      @map("target_date") @db.Date
   weight     Decimal?      @db.Decimal(5, 2)
@@ -542,6 +544,7 @@ model ProjectMilestone {
 
   project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  task      Task?         @relation("MilestoneScheduleTask", fields: [taskId], references: [id], onDelete: SetNull)
   invoices  Invoice[]
   workspaceDocuments WorkspaceDocument[]
 
@@ -598,6 +601,8 @@ model Task {
   dependenciesAsSuc TaskDependency[] @relation("DependencySuccessor")
   progressUpdates   TaskProgressUpdate[]
   timesheets        Timesheet[]
+  /// Present when this task is the MPP schedule row for a ProjectMilestone.
+  scheduleMilestone ProjectMilestone? @relation("MilestoneScheduleTask")
 
   @@index([projectId], map: "idx_tasks_project")
   @@index([ownerId], map: "idx_tasks_owner")
