@@ -8,6 +8,7 @@ import { type TaskDependency } from "../../../types/tasks.types";
 import {
   type GanttTaskRow,
   type GanttTaskStatus,
+  nestedDepthLabel,
 } from "../../../utils/map-task-to-gantt";
 import { comparePlanOrderAsc } from "../../../utils/task-export-fields";
 
@@ -156,13 +157,13 @@ export function GanttView({
 
   function visibleTaskRows(phaseTasks: GanttTaskRow[]): GanttTaskRow[] {
     const rows: GanttTaskRow[] = [];
-    const walk = (task: GanttTaskRow) => {
-      rows.push(task);
+    const walk = (task: GanttTaskRow, depth: number) => {
+      rows.push({ ...task, depth });
       if (expandedParents.has(task.id) && task.children?.length) {
-        for (const child of task.children) walk(child);
+        for (const child of task.children) walk(child, depth + 1);
       }
     };
-    for (const task of phaseTasks) walk(task);
+    for (const task of phaseTasks) walk(task, 0);
     return rows;
   }
 
@@ -559,9 +560,9 @@ export function GanttView({
                         >
                           <div
                             className="w-3.5 shrink-0 flex items-center justify-center"
-                            style={{ marginLeft: depth * 12 }}
+                            style={{ marginLeft: Math.min(depth, 10) * 12 }}
                           >
-                            {hasChildren && depth < 2 ? (
+                            {hasChildren ? (
                               <button
                                 type="button"
                                 onClick={(e) => toggleParentExpand(task.id, e)}
@@ -590,9 +591,9 @@ export function GanttView({
                             )}
                           </button>
                           <span className={cn("text-xs truncate flex-1", task.done && "line-through text-muted-foreground")}>
-                            {depth > 0 && (
+                            {nestedDepthLabel(depth) && (
                               <span className="mr-1 text-[9px] font-semibold uppercase text-muted-foreground">
-                                {depth >= 2 ? "Sub²" : "Sub"}
+                                {nestedDepthLabel(depth)}
                               </span>
                             )}
                             {task.name}

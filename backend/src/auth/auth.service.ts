@@ -37,6 +37,7 @@ import { EmployeeUserLinkService } from '../integrations/keka/employee-user-link
 type CreateSessionOptions = {
   isBreakGlass?: boolean;
   breakGlassReason?: string;
+  breakGlassSource?: 'settings' | 'emergency' | null;
   sessionExpiresAt?: Date;
   accessTokenExpiresIn?: ms.StringValue;
 };
@@ -142,6 +143,7 @@ export class AuthService {
         userAgent: context.userAgent,
         isBreakGlass: false,
         breakGlassReason: null,
+        breakGlassSource: null,
         expiresAt: new Date(
           Date.now() +
             ms(this.configService.getOrThrow('auth.refreshExpires', { infer: true })),
@@ -333,6 +335,7 @@ export class AuthService {
       userAgent: context.userAgent,
       isBreakGlass,
       breakGlassReason: options.breakGlassReason ?? null,
+      breakGlassSource: options.breakGlassSource ?? null,
       expiresAt: sessionExpiresAt,
     });
 

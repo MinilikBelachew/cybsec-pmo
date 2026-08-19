@@ -250,6 +250,7 @@ model Session {
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz
   isBreakGlass     Boolean   @default(false) @map("is_break_glass")
   breakGlassReason String?   @map("break_glass_reason") @db.VarChar(500)
+  breakGlassSource String?   @map("break_glass_source") @db.VarChar(32)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id])

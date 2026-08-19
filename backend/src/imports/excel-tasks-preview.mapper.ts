@@ -20,6 +20,7 @@ export type PreviewAssignee = {
 export type PreviewExistingTask = {
   id: string;
   title: string;
+  parentTitle?: string | null;
 };
 
 export type ParsedExcelPredecessor = {
@@ -46,6 +47,8 @@ export type ExcelTaskPreviewRow = {
   actualEnd?: string;
   progressApproved?: number;
   predecessors?: ParsedExcelPredecessor[];
+  /** Excel "Parent Task" title. Undefined when the column is absent. */
+  parentTaskTitle?: string;
   resolvedAssigneeId?: string | null;
   resolvedPhaseId?: string | null;
   importMode: 'create' | 'update';
@@ -89,16 +92,11 @@ export function processRawTaskRows(
   assignees: PreviewAssignee[],
   existingTasks?: PreviewExistingTask[],
 ): ExcelTaskPreviewRow[] {
-  const existingTaskMap = new Map<string, string>();
-  if (existingTasks) {
-    for (const t of existingTasks) {
-      existingTaskMap.set(t.title.trim().toLowerCase(), t.id);
-    }
-  }
   if (csvData.length <= 1) return [];
 
   const headers = csvData[0].map((h) => h.toLowerCase());
   const rows = csvData.slice(1);
+  const claimedExistingIds = new Set<string>();
 
   const getIndex = (aliases: string[]) =>
     headers.findIndex((h) => aliases.includes(h.trim()));
@@ -138,19 +136,12 @@ export function processRawTaskRows(
     'progress approved',
   ]);
   const predecessorsIdx = getIndex(['predecessors', 'predecessor', 'preds']);
-
-  const titleFrequency: Record<string, number> = {};
-  for (const row of rows) {
-    const t = (
-      titleIdx !== -1 && row[titleIdx] ? row[titleIdx].trim() : ''
-    ).toLowerCase();
-    if (t) titleFrequency[t] = (titleFrequency[t] ?? 0) + 1;
-  }
-  const duplicateTitles = new Set(
-    Object.entries(titleFrequency)
-      .filter(([, count]) => count > 1)
-      .map(([title]) => title),
-  );
+  const parentIdx = getIndex([
+    'parent task',
+    'parent task title',
+    'parent title',
+    'parent',
+  ]);
 
   const parseOptionalNumber = (raw: string): number | undefined => {
     if (!raw) return undefined;
@@ -158,7 +149,7 @@ export function processRawTaskRows(
     return Number.isFinite(parsed) ? parsed : NaN;
   };
 
-  return rows.map((row) => {
+  const parsed = rows.map((row) => {
     const getVal = (idx: number, fallback = '') =>
       idx !== -1 && row[idx] ? row[idx].trim() : fallback;
 
@@ -188,14 +179,8 @@ export function processRawTaskRows(
     const actualStart = getVal(actualStartIdx) || undefined;
     const actualEnd = getVal(actualEndIdx) || undefined;
     const predecessors = parsePredecessorsCell(getVal(predecessorsIdx));
-
-    const lowerTitle = title.trim().toLowerCase();
-    const resolvedTaskId = lowerTitle
-      ? existingTaskMap.get(lowerTitle)
-      : undefined;
-    const importMode: 'create' | 'update' = resolvedTaskId
-      ? 'update'
-      : 'create';
+    const parentTaskTitle =
+      parentIdx === -1 ? undefined : getVal(parentIdx);
 
     return revalidateParsedTaskRow(
       {
@@ -216,25 +201,32 @@ export function processRawTaskRows(
         actualEnd,
         progressApproved,
         predecessors,
-        importMode,
-        resolvedTaskId,
+        parentTaskTitle,
+        importMode: 'create',
         errors: [],
         warnings: [],
       },
       phases,
       assignees,
-      duplicateTitles,
+      undefined,
       existingTasks,
+      claimedExistingIds,
     );
   });
+
+  return annotateParentTaskWarnings(
+    markExtraSameParentTitleRows(parsed),
+    existingTasks,
+  );
 }
 
 export function revalidateParsedTaskRow(
   row: ExcelTaskPreviewRow,
   phases: PreviewPhase[],
   assignees: PreviewAssignee[],
-  duplicateTitles?: Set<string>,
+  _duplicateTitles?: Set<string>,
   existingTasks?: PreviewExistingTask[],
+  claimedExistingIds?: Set<string>,
 ): ExcelTaskPreviewRow {
   const updated = {
     ...row,
@@ -247,12 +239,13 @@ export function revalidateParsedTaskRow(
 
   if (!updated.title) errors.push('Task title is required.');
 
-  if (updated.title && duplicateTitles?.has(updated.title.toLowerCase())) {
-    errors.push(`Duplicate task title "${updated.title}" found in this file.`);
-  }
-
   const { importMode, resolvedTaskId } = existingTasks
-    ? resolveTaskImportMatch(updated.title, existingTasks)
+    ? resolveTaskImportMatch(
+        updated.title,
+        updated.parentTaskTitle,
+        existingTasks,
+        claimedExistingIds,
+      )
     : {
         importMode: updated.importMode,
         resolvedTaskId: updated.resolvedTaskId,
@@ -413,18 +406,18 @@ export function revalidateParsedTaskRow(
     if (resolvedPhase) {
       resolvedPhaseId = resolvedPhase.id;
       phaseName = resolvedPhase.name;
-    } else if (phases.length === 0) {
-      warnings.push(
-        'No project phases exist yet. Create phases first, then re-select.',
-      );
     } else {
-      errors.push(`Phase "${phaseName}" not found. Please select one.`);
+      warnings.push(
+        `Phase "${phaseName}" was not found. It will be created on import.`,
+      );
     }
+  } else if (!resolvedPhaseId && !phaseName) {
+    errors.push(
+      'Phase is required. This row will not be assigned to the first phase.',
+    );
   }
 
-  const effectivePhase =
-    resolvedPhase ??
-    (!resolvedPhaseId && !phaseName && phases[0] ? phases[0] : undefined);
+  const effectivePhase = resolvedPhase;
 
   if (effectivePhase && (isStartValid || isEndValid)) {
     const phaseStartKey = toTaskDayKey(effectivePhase.startDate);
@@ -462,8 +455,19 @@ export function revalidateParsedTaskRow(
     errors.push(`Status "${row.status}" is invalid. Please select one.`);
   }
 
+  let parentTaskTitle = updated.parentTaskTitle;
+  if (parentTaskTitle?.trim()) {
+    if (parentTaskTitle.trim().toLowerCase() === updated.title.trim().toLowerCase()) {
+      warnings.push(
+        'Parent Task cannot be the same as the task title. This row will import as a top-level task.',
+      );
+      parentTaskTitle = '';
+    }
+  }
+
   return {
     ...updated,
+    parentTaskTitle,
     startDate: isStartValid ? normalizedStart : updated.startDate,
     endDate: isEndValid ? normalizedEnd : updated.endDate,
     baselineStart: normalizedBaselineStart || undefined,
@@ -493,6 +497,32 @@ export function revalidateParsedTaskRow(
     errors,
     warnings,
   };
+}
+
+function annotateParentTaskWarnings(
+  rows: ExcelTaskPreviewRow[],
+  existingTasks?: PreviewExistingTask[],
+): ExcelTaskPreviewRow[] {
+  const fileTitles = new Set(
+    rows.map((r) => r.title.trim().toLowerCase()).filter(Boolean),
+  );
+  const existingTitles = new Set(
+    (existingTasks ?? []).map((t) => t.title.trim().toLowerCase()),
+  );
+
+  return rows.map((row) => {
+    const parent = row.parentTaskTitle?.trim();
+    if (!parent) return row;
+    const key = parent.toLowerCase();
+    if (fileTitles.has(key) || existingTitles.has(key)) return row;
+    return {
+      ...row,
+      warnings: [
+        ...row.warnings,
+        `Parent task "${parent}" was not found in this file. It will be linked if that task already exists on the project.`,
+      ],
+    };
+  });
 }
 
 function normalizeTaskPriority(priority: string) {
@@ -527,16 +557,51 @@ function normalizeTaskStatus(status: string) {
 
 function resolveTaskImportMatch(
   title: string,
+  parentTitle?: string | null,
   existingTasks?: PreviewExistingTask[],
+  claimedIds?: Set<string>,
 ): { importMode: 'create' | 'update'; resolvedTaskId?: string } {
   const lower = title.trim().toLowerCase();
   if (!lower || !existingTasks?.length) return { importMode: 'create' };
-  const match = existingTasks.find(
-    (t) => t.title.trim().toLowerCase() === lower,
+  const parentKey = (parentTitle ?? '').trim().toLowerCase();
+  const sameParent = existingTasks.filter(
+    (t) =>
+      t.title.trim().toLowerCase() === lower &&
+      (t.parentTitle ?? '').trim().toLowerCase() === parentKey,
   );
-  return match
-    ? { importMode: 'update', resolvedTaskId: match.id }
-    : { importMode: 'create' };
+  const unusedSameParent = sameParent.find((t) => !claimedIds?.has(t.id));
+  if (unusedSameParent) {
+    claimedIds?.add(unusedSameParent.id);
+    return { importMode: 'update', resolvedTaskId: unusedSameParent.id };
+  }
+  if (parentTitle === undefined) {
+    const byTitle = existingTasks.filter(
+      (t) => t.title.trim().toLowerCase() === lower && !claimedIds?.has(t.id),
+    );
+    if (byTitle.length === 1) {
+      claimedIds?.add(byTitle[0].id);
+      return { importMode: 'update', resolvedTaskId: byTitle[0].id };
+    }
+  }
+  return { importMode: 'create' };
+}
+
+/** Duplicate titles under the same parent are kept (same as MPP import). */
+export function markExtraSameParentTitleRows(
+  rows: ExcelTaskPreviewRow[],
+): ExcelTaskPreviewRow[] {
+  return rows.map((row) => ({
+    ...row,
+    errors: row.errors.filter((e) => !isSameParentDuplicateError(e)),
+  }));
+}
+
+function isSameParentDuplicateError(message: string): boolean {
+  return (
+    message.startsWith('Duplicate task title "') &&
+    (message.includes('under the same parent') ||
+      message.includes('found in this file'))
+  );
 }
 
 function toTaskDayKey(value?: string | Date | null): string {

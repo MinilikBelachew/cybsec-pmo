@@ -24,6 +24,14 @@ export function resolveScheduleVarianceDays(task: {
   return delta === "" ? null : delta;
 }
 
+/** Indent label in List / Table / Gantt. Depth 0 is a top-level task in its phase. */
+export function nestedDepthLabel(depth: number): string | null {
+  if (depth <= 0) return null;
+  if (depth === 1) return "Sub";
+  const marks = ["", "", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
+  return `Sub${marks[depth] ?? depth}`;
+}
+
 export type GanttPriority = "high" | "medium" | "low" | "critical";
 
 export type GanttTaskStatus =
@@ -33,9 +41,6 @@ export type GanttTaskStatus =
   | "Approved"
   | "Rework"
   | "Done";
-
-/** Max task nesting depth: top (0) → sub (1) → sub-sub (2). */
-export const MAX_TASK_NEST_DEPTH = 2;
 
 export interface GanttTaskRow {
   id: string;
@@ -147,7 +152,7 @@ function mapSubTaskToGanttRow(
     : "UA";
 
   const nested =
-    depth < MAX_TASK_NEST_DEPTH && sub.subTasks?.length
+    sub.subTasks?.length
       ? [...sub.subTasks]
           .sort(comparePlanOrderAsc)
           .map((child) => mapSubTaskToGanttRow(child, sub.id, depth + 1, phase))
@@ -183,7 +188,7 @@ function mapSubTaskToGanttRow(
     depth,
     children: nested,
     createdAt: sub.createdAt,
-    effortHours: null,
+    effortHours: sub.effortHours ?? null,
     actualHoursLogged: 0,
     effortVarianceHours: null,
     isOverEffort: false,

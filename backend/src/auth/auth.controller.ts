@@ -231,7 +231,7 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @Roles(RoleEnum.super_admin)
+  @Roles(RoleEnum.super_admin, RoleEnum.it_admin)
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Post('break-glass')
   @HttpCode(HttpStatus.OK)
@@ -267,7 +267,7 @@ export class AuthController {
   public async stopBreakGlass(
     @Request() request,
     @Response({ passthrough: true }) res: ExpressResponse,
-  ): Promise<{ redirectTo: 'entra' | 'login' }> {
+  ): Promise<{ redirectTo: 'settings' | 'login' }> {
     if (request.user?.breakGlass !== true) {
       throw new ForbiddenException('Not an active break-glass session');
     }
@@ -281,9 +281,18 @@ export class AuthController {
       },
     );
 
-    clearAuthCookies(res);
+    if (result.redirectTo === 'settings') {
+      setAuthCookies(
+        res,
+        result.session.token,
+        result.session.refreshToken,
+        result.session.tokenExpires,
+      );
+    } else {
+      clearAuthCookies(res);
+    }
 
-    return result;
+    return { redirectTo: result.redirectTo };
   }
 
   @Post('emergency-login')

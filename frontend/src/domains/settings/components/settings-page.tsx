@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
@@ -43,6 +44,14 @@ export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     canManageUsers ? "users" : "profile",
   );
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "security" && canManageSecurity) {
+      setActiveTab("security");
+    }
+  }, [searchParams, canManageSecurity]);
 
   const notifySuccess = useCallback((message: string) => {
     toast.success(message);

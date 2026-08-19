@@ -22,6 +22,7 @@ import {
 import { ProjectStatus, TaskStatus, PhaseStatus, PartyType, Prisma } from '@prisma/client';
 import {
   freezeUnbaselinedTasksForProject,
+  inclusiveCalendarDays,
   projectScheduleOnStatusChange,
 } from './utils/schedule-dates.util';
 import { ClientSyncService } from '../integrations/keka/sync/client-sync.service';
@@ -143,6 +144,18 @@ export class ProjectsService {
 
     const currency = toPrismaCurrency(dto.currency ?? 'USD');
     const usd = await this.fx.convertToUsd(dto.value, currency);
+    const prismaStatus = toPrismaStatus(createStatus);
+    const schedulePatch = projectScheduleOnStatusChange({
+      from: ProjectStatus.Draft,
+      to: prismaStatus,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+      durationDays: inclusiveCalendarDays(dto.startDate, dto.endDate),
+      baselineStartDate: null,
+      baselineEndDate: null,
+      actualStartDate: null,
+      actualEndDate: null,
+    });
 
     const project = await this.prisma.$transaction(async (tx) => {
       const created = await tx.project.create({
@@ -166,7 +179,22 @@ export class ProjectsService {
           primaryPmId: dto.primaryPmId,
           secondaryPmId: dto.secondaryPmId ?? null,
           brandingProfileId: dto.brandingProfileId ?? null,
-          status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),
+          status: prismaStatus,
+          ...(schedulePatch.baselineStartDate !== undefined && {
+            baselineStartDate: schedulePatch.baselineStartDate,
+          }),
+          ...(schedulePatch.baselineEndDate !== undefined && {
+            baselineEndDate: schedulePatch.baselineEndDate,
+          }),
+          ...(schedulePatch.baselineDurationDays !== undefined && {
+            baselineDurationDays: schedulePatch.baselineDurationDays,
+          }),
+          ...(schedulePatch.actualStartDate !== undefined && {
+            actualStartDate: schedulePatch.actualStartDate,
+          }),
+          ...(schedulePatch.actualEndDate !== undefined && {
+            actualEndDate: schedulePatch.actualEndDate,
+          }),
           createdBy: actorId,
         },
         include: PROJECT_INCLUDE,
@@ -185,6 +213,10 @@ export class ProjectsService {
             },
           });
         }
+      }
+
+      if (prismaStatus !== ProjectStatus.Draft) {
+        await freezeUnbaselinedTasksForProject(tx, created.id);
       }
 
       return created;
@@ -745,8 +777,9 @@ export class ProjectsService {
       });
 
       if (
-        existing.status === ProjectStatus.Draft &&
-        nextStatus === ProjectStatus.Active
+        (existing.status === ProjectStatus.Draft &&
+          nextStatus !== ProjectStatus.Draft) ||
+        nextStatus === ProjectStatus.Closed
       ) {
         await freezeUnbaselinedTasksForProject(tx, id);
       }

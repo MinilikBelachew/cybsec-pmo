@@ -76,7 +76,15 @@ export interface TaskSubTask {
   endDate?: string | null;
   createdAt?: string;
   owner?: TaskUserSummary;
-  /** Nested sub-sub-tasks (max depth 3 overall). */
+  parentTaskId?: string | null;
+  baselineStart?: string | null;
+  baselineEnd?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  durationDays?: number | null;
+  baselineDurationDays?: number | null;
+  effortHours?: number | null;
+  /** Nested children from MPP / import (any depth). */
   subTasks?: TaskSubTask[];
 }
 

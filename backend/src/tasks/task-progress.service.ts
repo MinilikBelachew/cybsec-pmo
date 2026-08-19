@@ -691,7 +691,7 @@ export class TaskProgressService {
     const planned =
       effortHours != null && Number.isFinite(effortHours) ? effortHours : null;
     const effortVarianceHours =
-      planned != null
+      planned != null && actualHoursLogged > 0
         ? Math.round((planned - actualHoursLogged) * 100) / 100
         : null;
     const isOverEffort =

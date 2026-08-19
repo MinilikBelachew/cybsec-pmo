@@ -38,10 +38,13 @@ export const authApi = api.injectEndpoints({
       }),
     }),
 
-    logout: builder.mutation<void, void>({
-      query: () => ({
+    logout: builder.mutation<void, { reason?: "idle_timeout" } | void>({
+      query: (arg) => ({
         url: "/auth/logout",
         method: "POST",
+        ...(arg && "reason" in arg && arg.reason
+          ? { body: { reason: arg.reason } }
+          : {}),
       }),
       invalidatesTags: ["User", "Auth", "Permissions"],
     }),
@@ -70,7 +73,7 @@ export const authApi = api.injectEndpoints({
       invalidatesTags: ["User", "Auth", "Permissions"],
     }),
 
-    stopBreakGlass: builder.mutation<{ redirectTo: "entra" | "login" }, void>({
+    stopBreakGlass: builder.mutation<{ redirectTo: "settings" | "login" }, void>({
       query: () => ({
         url: "/auth/break-glass/stop",
         method: "POST",

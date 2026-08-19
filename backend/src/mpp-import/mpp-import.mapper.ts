@@ -29,8 +29,9 @@ export class MppImportMapper {
   async buildPreview(
     parsed: ParsedMppProject,
     existingProjects: { id: string; name: string }[] = [],
+    options?: { forceSingle?: boolean },
   ): Promise<MppImportPreview> {
-    if (this.isPortfolio(parsed)) {
+    if (!options?.forceSingle && this.isPortfolio(parsed)) {
       return this.buildPortfolioPreview(parsed, existingProjects);
     }
 
@@ -38,11 +39,21 @@ export class MppImportMapper {
   }
 
   /**
-   * Portfolio shape: L1 summaries are projects (each has nested summary = phase).
-   * Single-project shape: L1 summaries are phases (children are leaves).
+   * Portfolio: several L1 summaries that are themselves projects (no outline-0 wrapper).
+   * Single-project (DLP-style): outline-0 project row, then L1 phases with nested summaries.
+   * Nested summaries under a phase must NOT be treated as a multi-project file.
    */
   isPortfolio(parsed: ParsedMppProject): boolean {
     const allTasks = parsed.tasks ?? [];
+    const hasProjectRoot = allTasks.some(
+      (task) =>
+        task.summary &&
+        Boolean(task.name?.trim()) &&
+        task.outlineLevel === 0,
+    );
+    if (hasProjectRoot) {
+      return false;
+    }
     const projectRoots = this.getPortfolioProjectRoots(allTasks);
     return projectRoots.length > 0;
   }
@@ -304,6 +315,7 @@ export class MppImportMapper {
         task.summary &&
         task.name?.trim() &&
         !this.isTopLevelPhaseSummary(task, byUid) &&
+        !this.isScheduleWrapperSummary(task, byUid) &&
         task.outlineLevel !== 0,
     ).length;
     const importableUids = new Set(importableTasks.map((task) => task.uid));
@@ -361,6 +373,12 @@ export class MppImportMapper {
     if (importableTasks.length === 0 && milestoneTasks.length === 0) {
       warnings.push('No importable tasks were found in this file.');
     }
+    const wrapper = this.getScheduleWrapperSummary(byUid);
+    if (wrapper) {
+      warnings.push(
+        `Skipped project summary "${wrapper.name.trim()}" — it is the plan name, not a phase.`,
+      );
+    }
     if (phaseSummaries.length > 0) {
       warnings.push(
         `${phaseSummaries.length} top-level summary row(s) will be imported as phases.`,
@@ -376,10 +394,15 @@ export class MppImportMapper {
         `${nestedSummaryTasks} nested summary row(s) will be imported as parent tasks under their phase.`,
       );
     }
+    if (milestoneTasks.length > 0) {
+      warnings.push(
+        `${milestoneTasks.length} milestone row(s) will stay in the task tree (and also appear under Milestones).`,
+      );
+    }
 
     return {
       mode: 'single',
-      projectName: parsed.project?.name,
+      projectName: this.resolveVisibleProjectName(parsed, byUid),
       startDate: parsed.project?.startDate,
       finishDate: parsed.project?.finishDate,
       counts: {
@@ -861,8 +884,9 @@ export class MppImportMapper {
   }
 
   /**
-   * Top-level (outline level 1) summaries become ProjectPhase rows.
+   * Top-level phase summaries become ProjectPhase rows.
    * Nested summaries become parent tasks under their phase (hierarchy preserved).
+   * A single L1 row that wraps Phase 1/2/3 (the MS Project plan name) is not a phase.
    */
   private getTopLevelPhaseSummaries(
     allTasks: ParsedMppTask[],
@@ -871,7 +895,76 @@ export class MppImportMapper {
     return allTasks.filter((task) => this.isTopLevelPhaseSummary(task, byUid));
   }
 
-  /** Leaves + nested summaries (not project root, not phase summaries, not milestones). */
+  /**
+   * MS Project often has: [optional outline 0] → plan name (L1) → Phase 1/2/3 (L2).
+   * That L1 row is the project, not a Cybsec phase.
+   */
+  private getScheduleWrapperSummary(
+    byUid: Map<number, ParsedMppTask>,
+  ): ParsedMppTask | undefined {
+    const allTasks = [...byUid.values()];
+    const l1 = allTasks.filter(
+      (task) =>
+        task.summary &&
+        Boolean(task.name?.trim()) &&
+        task.outlineLevel === 1,
+    );
+    if (l1.length !== 1) {
+      return undefined;
+    }
+    const wrapper = l1[0];
+    const direct = allTasks.filter(
+      (task) =>
+        task.summary &&
+        Boolean(task.name?.trim()) &&
+        task.uid !== wrapper.uid &&
+        task.parentUid === wrapper.uid,
+    );
+    const atNextLevel = allTasks.filter(
+      (task) =>
+        task.summary &&
+        Boolean(task.name?.trim()) &&
+        task.outlineLevel === 2,
+    );
+    const phaseRows = direct.length >= 2 ? direct : atNextLevel;
+    return phaseRows.length >= 2 ? wrapper : undefined;
+  }
+
+  private isScheduleWrapperSummary(
+    task: ParsedMppTask,
+    byUid: Map<number, ParsedMppTask>,
+  ): boolean {
+    const wrapper = this.getScheduleWrapperSummary(byUid);
+    return wrapper != null && wrapper.uid === task.uid;
+  }
+
+  /**
+   * Cybsec project name = the plan row you see in MS Project (top summary),
+   * not File properties / Project Title (often the .mpp file name).
+   */
+  private resolveVisibleProjectName(
+    parsed: ParsedMppProject,
+    byUid: Map<number, ParsedMppTask>,
+  ): string | undefined {
+    const wrapper = this.getScheduleWrapperSummary(byUid);
+    if (wrapper?.name?.trim()) {
+      return wrapper.name.trim().slice(0, 255);
+    }
+
+    const outlineZero = [...byUid.values()].find(
+      (task) =>
+        task.summary &&
+        Boolean(task.name?.trim()) &&
+        task.outlineLevel === 0,
+    );
+    if (outlineZero?.name?.trim()) {
+      return outlineZero.name.trim().slice(0, 255);
+    }
+
+    return parsed.project?.name?.trim() || undefined;
+  }
+
+  /** Leaves, nested summaries, and milestones (not project root, wrapper, or phases). */
   private isImportableScheduleRow(
     task: ParsedMppTask,
     byUid: Map<number, ParsedMppTask>,
@@ -882,10 +975,10 @@ export class MppImportMapper {
     if (task.outlineLevel === 0) {
       return false;
     }
-    if (this.isTopLevelPhaseSummary(task, byUid)) {
+    if (this.isScheduleWrapperSummary(task, byUid)) {
       return false;
     }
-    if (this.isMppMilestone(task)) {
+    if (this.isTopLevelPhaseSummary(task, byUid)) {
       return false;
     }
     return true;
@@ -929,6 +1022,25 @@ export class MppImportMapper {
 
     // Project root summary is not a phase.
     if (task.outlineLevel === 0) {
+      return false;
+    }
+
+    const wrapper = this.getScheduleWrapperSummary(byUid);
+    if (wrapper && wrapper.uid === task.uid) {
+      return false;
+    }
+
+    // Plan-name wrapper: its direct summary children (Phase 1/2/3) are the phases.
+    if (wrapper) {
+      if (task.parentUid === wrapper.uid) {
+        return true;
+      }
+      if (
+        task.parentUid == null &&
+        task.outlineLevel === (wrapper.outlineLevel ?? 1) + 1
+      ) {
+        return true;
+      }
       return false;
     }
 
@@ -1405,8 +1517,12 @@ export class MppImportMapper {
       return true;
     }
 
-    // Parent is project root or a phase summary — no parent task row required.
-    if (parent.outlineLevel === 0 || this.isTopLevelPhaseSummary(parent, byUid)) {
+    // Parent is project root, plan-name wrapper, or a phase — no parent task row.
+    if (
+      parent.outlineLevel === 0 ||
+      this.isScheduleWrapperSummary(parent, byUid) ||
+      this.isTopLevelPhaseSummary(parent, byUid)
+    ) {
       return true;
     }
 

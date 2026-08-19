@@ -52,7 +52,7 @@ export function BreakGlassSection({ onSuccess, onError }: BreakGlassSectionProps
       onError(
         getApiErrorMessage(
           err,
-          "Could not activate break-glass mode. Ensure you are signed in as Super Admin.",
+          "Could not activate break-glass mode. Sign in as Super Admin or IT Admin.",
         ),
       );
     }

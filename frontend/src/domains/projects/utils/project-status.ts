@@ -44,7 +44,9 @@ export const PROJECT_STATUS_TRANSITIONS: Record<
   Cancelled: [],
 };
 
-export const PROJECT_CREATE_ALLOWED_STATUSES: ProjectStatus[] = ["Draft"];
+export const PROJECT_CREATE_ALLOWED_STATUSES: ProjectStatus[] = [
+  ...PROJECT_STATUSES,
+];
 
 export function getProjectStatusLabel(status: ProjectStatus): string {
   return PROJECT_STATUS_LABELS[status] ?? status;
@@ -74,15 +76,11 @@ export function getAllowedProjectStatusTransitions(
 }
 
 export function getSelectableProjectStatuses(
-  current: ProjectStatus | undefined,
-  roleCode?: string,
-  isCreate = false,
+  _current?: ProjectStatus,
+  _roleCode?: string,
+  _isCreate = false,
 ): ProjectStatus[] {
-  if (isCreate || !current) {
-    return PROJECT_CREATE_ALLOWED_STATUSES;
-  }
-
-  return [current, ...getAllowedProjectStatusTransitions(current, roleCode)];
+  return [...PROJECT_STATUSES];
 }
 
 export const PROJECT_STATUS_CONFIG: Record<

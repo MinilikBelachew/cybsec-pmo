@@ -72,6 +72,11 @@ export function TasksPreviewTable({ tasksList, projName, handleSubRowChange }: T
                 )}
                 <span className="truncate">{tRow.title}</span>
               </div>
+              {tRow.parentTaskTitle?.trim() ? (
+                <div className="text-[10px] text-muted-foreground truncate">
+                  Parent: {tRow.parentTaskTitle.trim()}
+                </div>
+              ) : null}
               <div className="text-[10px] text-muted-foreground line-clamp-1">
                 {tRow.description || "No description"}
               </div>

@@ -61,6 +61,8 @@ export type ExcelTaskImportRow = {
   progressApproved?: number;
   resolvedAssigneeId?: string | null;
   resolvedPhaseId?: string | null;
+  /** Excel "Phase" name. Used when resolvedPhaseId is missing (new project import). */
+  phaseName?: string;
   importMode: 'create' | 'update';
   resolvedTaskId?: string;
   predecessors?: Array<{
@@ -68,6 +70,8 @@ export type ExcelTaskImportRow = {
     depType?: string;
     lagDays?: number;
   }>;
+  /** Excel "Parent Task" title. Undefined when the column is absent. */
+  parentTaskTitle?: string;
 };
 
 export type ExcelTasksImportJobData = {

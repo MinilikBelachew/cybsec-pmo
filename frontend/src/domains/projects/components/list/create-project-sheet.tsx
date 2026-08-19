@@ -35,9 +35,10 @@ import { useGetBrandingProfileOptionsQuery } from "@/domains/settings/api/brandi
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useAuth } from "@/domains/auth/hooks/use-auth";
 import {
-  getProjectStatusLabel,
+  getProjectStatusConfig,
   getSelectableProjectStatuses,
 } from "@/domains/projects/utils/project-status";
+import { cn } from "@/shared/utils/cn";
 import type { ProjectStatus, AllocationDateIssuesResponse } from "@/domains/projects/types/projects.types";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
 import { OVERRIDE_REASON_MAX } from "./project-team-section";
@@ -185,7 +186,7 @@ const API_ERROR_MESSAGES: Record<string, string> = {
   invalidStatusTransition: "That status change is not allowed for this project.",
   statusTransitionRequiresAdminApproval:
     "Only PM, PMO Lead, or Super Admin can close a project from Pending Closure.",
-  invalidStatusOnCreate: "New projects must start in Draft status.",
+  invalidStatusOnCreate: "Status must be a valid project status.",
   exchangeRateUnavailable: "Could not fetch the live exchange rate. Please try again.",
   unsupportedCurrency: "No live exchange rate is available for this currency.",
   primaryPmCannotBeRemoved: "The primary project manager cannot be removed.",
@@ -193,6 +194,23 @@ const API_ERROR_MESSAGES: Record<string, string> = {
 
 function resolveApiFieldMessage(message: string): string {
   return API_ERROR_MESSAGES[message] ?? message;
+}
+
+function ProjectStatusChip({ status }: { status: ProjectStatus }) {
+  const cfg = getProjectStatusConfig(status);
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold",
+        cfg.bg,
+        cfg.text,
+        cfg.border,
+      )}
+    >
+      <span className={cn("size-1.5 shrink-0 rounded-full", cfg.dot)} />
+      {cfg.label}
+    </span>
+  );
 }
 
 function validateMilestoneDraftDates(
@@ -944,14 +962,16 @@ export function CreateProjectSheet({
                   render={({ field }) => (
                     <Select value={field.value || "Draft"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
-                        <SelectValue placeholder="Select status...">
-                          {watchedStatus ? getProjectStatusLabel(watchedStatus as ProjectStatus) : undefined}
-                        </SelectValue>
+                        {watchedStatus ? (
+                          <ProjectStatusChip status={watchedStatus as ProjectStatus} />
+                        ) : (
+                          <SelectValue placeholder="Select status..." />
+                        )}
                       </SelectTrigger>
                       <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg">
                         {selectableStatuses.map((status) => (
                           <SelectItem key={status} value={status}>
-                            {getProjectStatusLabel(status)}
+                            <ProjectStatusChip status={status} />
                           </SelectItem>
                         ))}
                       </SelectContent>

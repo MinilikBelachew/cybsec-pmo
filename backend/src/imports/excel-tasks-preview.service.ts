@@ -31,7 +31,7 @@ export type ExcelTasksPreviewStore = {
   createdAt: string;
   fileName: string;
   rows: ExcelTaskPreviewRow[];
-  existingTasks: Array<{ id: string; title: string }>;
+  existingTasks: Array<{ id: string; title: string; parentTitle?: string | null }>;
   counts: {
     total: number;
     valid: number;
@@ -75,7 +75,20 @@ export class ExcelTasksPreviewService {
       throw new BadRequestException('Uploaded file is empty.');
     }
 
-    const grid = await readExcelSheetAsStringGrid(buffer, 'Tasks');
+    const project = await this.prisma.project.findFirst({
+      where: {
+        id: projectId,
+        ...this.recordScopeWhere.projectWhere(user, 'update'),
+      },
+      select: { id: true, name: true },
+    });
+    if (!project) {
+      throw new BadRequestException('Project not found or not accessible');
+    }
+
+    const grid = await readExcelSheetAsStringGrid(buffer, 'Tasks', {
+      projectName: project.name,
+    });
     const kind = detectTaskCsvImportKind(grid);
     if (kind === 'projects') {
       throw new BadRequestException(
@@ -102,9 +115,19 @@ export class ExcelTasksPreviewService {
       this.projectTeam.findTaskAssignees(projectId, user),
       this.prisma.task.findMany({
         where: { projectId },
-        select: { id: true, title: true },
+        select: {
+          id: true,
+          title: true,
+          parentTask: { select: { title: true } },
+        },
       }),
     ]);
+
+    const existingTaskCatalog = existingTasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      parentTitle: t.parentTask?.title ?? null,
+    }));
 
     const rows = processRawTaskRows(
       grid,
@@ -115,7 +138,7 @@ export class ExcelTasksPreviewService {
         email: a.email,
         name: a.name,
       })),
-      existingTasks,
+      existingTaskCatalog,
     );
 
     const counts = {
@@ -134,7 +157,7 @@ export class ExcelTasksPreviewService {
       createdAt: new Date().toISOString(),
       fileName: file.originalname || 'tasks.xlsx',
       rows,
-      existingTasks,
+      existingTasks: existingTaskCatalog,
       counts,
     };
 
@@ -242,6 +265,7 @@ export class ExcelTasksPreviewService {
         progressApproved: row.progressApproved,
         resolvedAssigneeId: row.resolvedAssigneeId ?? null,
         resolvedPhaseId: row.resolvedPhaseId ?? null,
+        phaseName: row.phaseName || undefined,
         importMode: row.importMode,
         resolvedTaskId: row.resolvedTaskId,
         predecessors: (row.predecessors ?? []).map((p) => ({
@@ -249,6 +273,7 @@ export class ExcelTasksPreviewService {
           depType: p.depType,
           lagDays: p.lagDays,
         })),
+        parentTaskTitle: row.parentTaskTitle,
       })),
     };
 

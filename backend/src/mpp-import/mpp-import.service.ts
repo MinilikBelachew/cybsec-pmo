@@ -49,7 +49,10 @@ export class MppImportService {
     try {
       const parsed = await this.parserClient.parseFile(filePath, fileName);
       const existingProjects = await this.listAccessibleProjects(user);
-      return await this.mapper.buildPreview(parsed, existingProjects);
+      return await this.mapper.buildPreview(parsed, existingProjects, {
+        // Workspace import into one project: keep the whole outline (L1 = phases).
+        forceSingle: Boolean(projectId),
+      });
     } finally {
       await this.safeDeleteFile(filePath);
     }
@@ -71,34 +74,9 @@ export class MppImportService {
     try {
       const parsed = await this.parserClient.parseFile(filePath, fileName);
 
-      if (this.mapper.isPortfolio(parsed)) {
-        const project = await this.prisma.project.findUnique({
-          where: { id: projectId },
-          select: { name: true },
-        });
-        if (!project) {
-          throw new BadRequestException('Project not found or not accessible');
-        }
-
-        const segment = this.mapper.resolvePortfolioSegmentForProject(
-          parsed,
-          project.name,
-        );
-        if (!segment) {
-          const { segments } = this.mapper.segmentPortfolio(parsed);
-          const names = segments.map((s) => `"${s.projectName}"`).join(', ');
-          throw new BadRequestException(
-            `Portfolio file has no schedule matching "${project.name}". ` +
-              (names
-                ? `Projects in file: ${names}. `
-                : '') +
-              `Open a matching project, or import from the Projects list to create/update all portfolio projects.`,
-          );
-        }
-
-        return await this.mapper.persistParsedProject(projectId, segment.parsed);
-      }
-
+      // Always persist the full file into this project. L1 summaries become
+      // phases; nested summaries stay as parent tasks. Splitting on "portfolio"
+      // would turn a single DLP-style plan into one project per phase.
       return await this.mapper.persistParsedProject(projectId, parsed);
     } finally {
       if (deleteFile) {

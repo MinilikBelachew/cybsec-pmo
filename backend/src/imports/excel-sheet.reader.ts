@@ -132,19 +132,56 @@ export function worksheetToStringGrid(
   return normalized;
 }
 
+const NON_CYBSEC_TASK_SHEETS = new Set(['MS Project', 'Projects']);
+
+/**
+ * Prefer Cybsec task sheets: `Tasks`, then `{project} Tasks`.
+ * Never returns the MS Project / Project Viewer sheet.
+ */
+export function resolveExcelTasksSheetName(
+  sheetNames: string[],
+  projectName?: string | null,
+): string | null {
+  if (sheetNames.includes('Tasks')) return 'Tasks';
+  if (projectName) {
+    const nested = findProjectNestedSheetName(sheetNames, projectName, ' Tasks');
+    if (nested) return nested;
+  }
+  const bySuffix = sheetNames.find(
+    (name) => name.endsWith(' Tasks') && !NON_CYBSEC_TASK_SHEETS.has(name),
+  );
+  if (bySuffix) return bySuffix;
+  return (
+    sheetNames.find((name) => !NON_CYBSEC_TASK_SHEETS.has(name)) ?? null
+  );
+}
+
 /**
  * Read an XLSX workbook into a 2-D string grid (header + data rows).
- * Prefers the named sheet, otherwise falls back to the first sheet.
+ * Prefers the named Cybsec Tasks sheet; never falls back to "MS Project".
  */
 export async function readExcelSheetAsStringGrid(
   source: Buffer | string,
   preferredSheetName = 'Tasks',
+  options?: { projectName?: string | null },
 ): Promise<string[][]> {
   const workbook = await loadExcelWorkbook(source);
-  const preferred = workbook.getWorksheet(preferredSheetName);
-  const sheetName = preferred?.name ?? workbook.worksheets[0]?.name;
-  if (!sheetName) {
+  const names = listExcelSheetNames(workbook);
+  if (names.length === 0) {
     throw new BadRequestException('The XLSX file has no worksheets.');
+  }
+
+  const preferred =
+    preferredSheetName && names.includes(preferredSheetName)
+      ? preferredSheetName
+      : null;
+  const sheetName =
+    preferred ?? resolveExcelTasksSheetName(names, options?.projectName);
+
+  if (!sheetName || NON_CYBSEC_TASK_SHEETS.has(sheetName)) {
+    throw new BadRequestException(
+      'This file has no Tasks sheet. Use a Tasks export, or Import Projects for a full project workbook.',
+    );
   }
   return worksheetToStringGrid(workbook, sheetName);
 }

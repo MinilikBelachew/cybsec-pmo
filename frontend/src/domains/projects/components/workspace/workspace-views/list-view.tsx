@@ -18,6 +18,7 @@ import {
 } from "@/domains/projects/hooks/use-paginated-status-tasks";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { TaskDependenciesPicker } from "./task-predecessors-cell";
+import { nestedDepthLabel } from "@/domains/projects/utils/map-task-to-gantt";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -567,10 +568,10 @@ export function ListView({
         }
       : null;
 
-    const nested = depth < 2 ? nestedRowsFor(task, depth + 1) : [];
+    const nested = nestedRowsFor(task, depth + 1);
     const hasChildren = nested.length > 0 || Boolean(task.children?.length || task.hasSubtasks);
     const isExpanded = expandedParents.has(task.id);
-    const indentPx = depth * 20;
+    const indentPx = Math.min(depth, 10) * 16;
     const isDependencyRow = task.treeKind === "dependency";
 
     return (
@@ -604,7 +605,7 @@ export function ListView({
           className="w-4 shrink-0 flex items-center justify-center"
           style={{ marginLeft: indentPx }}
         >
-          {hasChildren && depth < 2 ? (
+          {hasChildren ? (
             <button
               type="button"
               onClick={(e) => toggleParentExpand(task.id, e)}
@@ -657,9 +658,7 @@ export function ListView({
             >
               {isDependencyRow
                 ? `Dep${task.depType ? ` ${task.depType}` : ""}`
-                : depth >= 2
-                  ? "Sub²"
-                  : "Sub"}
+                : nestedDepthLabel(depth)}
             </span>
           )}
           {task.name}
@@ -793,7 +792,9 @@ export function ListView({
           title={
             task.isOverEffort
               ? "Logged hours exceed planned effort"
-              : "Hours remaining (planned − logged)"
+              : (task.actualHoursLogged ?? 0) === 0
+                ? "No variance until hours are logged"
+                : "Hours remaining (planned − logged)"
           }
         >
           {task.effortVarianceHours == null || task.effortHours == null

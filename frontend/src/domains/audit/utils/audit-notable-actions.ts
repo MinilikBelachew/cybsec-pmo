@@ -13,6 +13,7 @@ const NOTABLE_ACTION_PATTERNS = [
   "BREAK_GLASS",
   "LOGIN",
   "LOGOUT",
+  "SESSION_TIMEOUT",
 ] as const;
 
 export function isNotableAuditAction(entry: AuditLogEntry): boolean {

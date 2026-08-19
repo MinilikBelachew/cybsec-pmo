@@ -12,6 +12,7 @@ import { PrismaService } from '../database/prisma.service';
 import { resolveStatusChangeAction } from './status-change-audit.util';
 import { generateAuditDescription } from './audit-description.helper';
 import { formatIpWithUserAgent } from '../auth/utils/request-context.util';
+import { LOGOUT_REASON_IDLE } from '../auth/dto/logout.dto';
 
 const SENSITIVE_KEYS = [
   'password',
@@ -66,7 +67,12 @@ export class AuditLogsInterceptor implements NestInterceptor {
     }
 
     const urlParts = this.parseUrlParts(url);
-    const auditTarget = this.resolveRouteAudit(urlParts, method, url);
+    const auditTarget = this.resolveRouteAudit(
+      urlParts,
+      method,
+      url,
+      request.body,
+    );
 
     const actorId = request.user?.id || null;
     const rawIp =
@@ -273,6 +279,7 @@ export class AuditLogsInterceptor implements NestInterceptor {
     urlParts: string[],
     method: string,
     url: string,
+    body?: unknown,
   ): AuditRouteTarget {
     const root = (urlParts[0] ?? 'system').toLowerCase();
 
@@ -281,6 +288,21 @@ export class AuditLogsInterceptor implements NestInterceptor {
         return { objectType: 'Auth', action: 'LOGIN', resourceId: null };
       }
       if (url.includes('/logout')) {
+        // DEF-P1-072 — idle timeout must not look like a user-clicked logout.
+        const reason =
+          body &&
+          typeof body === 'object' &&
+          'reason' in body &&
+          typeof (body as { reason?: unknown }).reason === 'string'
+            ? (body as { reason: string }).reason
+            : '';
+        if (reason === LOGOUT_REASON_IDLE) {
+          return {
+            objectType: 'Session',
+            action: 'SESSION_TIMEOUT',
+            resourceId: null,
+          };
+        }
         return { objectType: 'Auth', action: 'LOGOUT', resourceId: null };
       }
       if (url.includes('/refresh')) {

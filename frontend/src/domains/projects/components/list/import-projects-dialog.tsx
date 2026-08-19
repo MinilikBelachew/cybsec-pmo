@@ -28,6 +28,7 @@ import {
   resolvePhaseImportMatch,
   resolveMilestoneImportMatch,
   revalidateParsedTaskRow,
+  markExtraSameParentTitleRows,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import { Upload, FileSpreadsheet, X, PlayCircle, Download, AlertTriangle, Minimize2 } from "lucide-react";
@@ -671,22 +672,15 @@ export function ImportProjectsDialog({
       setParsedTasks((prev) => {
         const rows = [...(prev[projName] || [])];
         const updated = { ...rows[rowIndex], [field]: value };
-        const duplicateTitles = new Set(
-          rows
-            .map((row, idx) =>
-              idx === rowIndex
-                ? updated.title.trim().toLowerCase()
-                : row.title.trim().toLowerCase(),
-            )
-            .filter((title, titleIndex, all) => title && all.indexOf(title) !== titleIndex),
-        );
         rows[rowIndex] = revalidateParsedTaskRow(
           updated,
           [],
           [],
-          duplicateTitles,
+          undefined,
           undefined,
         );
+        const marked = markExtraSameParentTitleRows(rows);
+        rows.splice(0, rows.length, ...marked);
 
         if (previewId) {
           void patchExcelProjectsPreviewRow({

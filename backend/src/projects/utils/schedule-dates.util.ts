@@ -121,7 +121,11 @@ export function projectScheduleOnStatusChange(params: {
     actualEndDate?: Date;
   } = {};
 
-  if (params.from === ProjectStatus.Draft && params.to === ProjectStatus.Active) {
+  const leavingDraft =
+    params.from === ProjectStatus.Draft && params.to !== ProjectStatus.Draft;
+  const closing = params.to === ProjectStatus.Closed;
+
+  if (leavingDraft || closing) {
     const freeze = freezeBaselineIfEmpty({
       start: params.startDate,
       end: params.endDate,
@@ -138,12 +142,13 @@ export function projectScheduleOnStatusChange(params: {
     if (freeze.baselineDurationDays !== undefined) {
       data.baselineDurationDays = freeze.baselineDurationDays;
     }
-    if (!params.actualStartDate) {
-      data.actualStartDate = utcTodayDate();
-    }
   }
 
-  if (params.to === ProjectStatus.Closed && !params.actualEndDate) {
+  if ((leavingDraft || closing) && !params.actualStartDate) {
+    data.actualStartDate = utcTodayDate();
+  }
+
+  if (closing && !params.actualEndDate) {
     data.actualEndDate = utcTodayDate();
   }
 

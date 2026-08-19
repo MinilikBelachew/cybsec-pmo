@@ -90,7 +90,7 @@ const TASK_INCLUDE = {
       endDate: true,
     },
   },
-  // Up to 3 levels total: task → sub → sub-sub.
+  // Nested children are attached after fetch (any MPP outline depth).
   subTasks: {
     select: {
       id: true,
@@ -131,6 +131,48 @@ const TASK_INCLUDE = {
     orderBy: { createdAt: 'desc' as const },
   },
 } as const;
+
+/** Nested tree rows (any depth). Used after list/detail so MPP outlines are not capped at 3 levels. */
+const SUBTASK_TREE_SELECT = {
+  id: true,
+  title: true,
+  status: true,
+  priority: true,
+  parentTaskId: true,
+  startDate: true,
+  endDate: true,
+  createdAt: true,
+  baselineStart: true,
+  baselineEnd: true,
+  actualStart: true,
+  actualEnd: true,
+  durationDays: true,
+  baselineDurationDays: true,
+  effortHours: true,
+  progressApproved: true,
+  owner: { select: { id: true, displayName: true, email: true } },
+} as const;
+
+type SubTaskTreeRow = {
+  id: string;
+  title: string;
+  status: string;
+  priority?: string;
+  parentTaskId: string | null;
+  startDate?: Date | string | null;
+  endDate?: Date | string | null;
+  createdAt?: Date | string;
+  baselineStart?: Date | string | null;
+  baselineEnd?: Date | string | null;
+  actualStart?: Date | string | null;
+  actualEnd?: Date | string | null;
+  durationDays?: unknown;
+  baselineDurationDays?: unknown;
+  effortHours?: number | null;
+  progressApproved?: number;
+  owner?: { id: string; displayName: string; email: string } | null;
+  subTasks?: SubTaskTreeRow[];
+};
 
 const LEGAL_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   To_Do: [TaskStatus.In_Progress],
@@ -206,6 +248,68 @@ export class TasksService {
       return comments.filter((c) => !c.isInternal);
     }
     return comments;
+  }
+
+  private async attachFullSubTaskTrees<
+    T extends { id: string; projectId: string; subTasks?: unknown },
+  >(roots: T[]): Promise<T[]> {
+    if (roots.length === 0) {
+      return roots;
+    }
+
+    const projectIds = [
+      ...new Set(roots.map((root) => root.projectId).filter(Boolean)),
+    ];
+    if (projectIds.length === 0) {
+      return roots;
+    }
+
+    const rows = await this.prisma.task.findMany({
+      where: {
+        projectId: { in: projectIds },
+        parentTaskId: { not: null },
+      },
+      select: SUBTASK_TREE_SELECT,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const byParent = new Map<string, SubTaskTreeRow[]>();
+    for (const row of rows) {
+      if (!row.parentTaskId) {
+        continue;
+      }
+      const list = byParent.get(row.parentTaskId) ?? [];
+      list.push(row as SubTaskTreeRow);
+      byParent.set(row.parentTaskId, list);
+    }
+
+    const mapRow = (row: SubTaskTreeRow, visited: Set<string>): SubTaskTreeRow => {
+      if (visited.has(row.id)) {
+        return { ...row, subTasks: [] };
+      }
+      visited.add(row.id);
+      const children = byParent.get(row.id) ?? [];
+      return {
+        ...row,
+        durationDays:
+          row.durationDays != null && Number.isFinite(Number(row.durationDays))
+            ? Number(row.durationDays)
+            : null,
+        baselineDurationDays:
+          row.baselineDurationDays != null &&
+          Number.isFinite(Number(row.baselineDurationDays))
+            ? Number(row.baselineDurationDays)
+            : null,
+        subTasks: children.map((child) => mapRow(child, visited)),
+      };
+    };
+
+    return roots.map((root) => ({
+      ...root,
+      subTasks: (byParent.get(root.id) ?? []).map((child) =>
+        mapRow(child, new Set([root.id])),
+      ),
+    }));
   }
 
   private formatTask(
@@ -301,7 +405,7 @@ export class TasksService {
           ? Number(task.effortHours)
           : null;
       const effortVarianceHours =
-        planned != null
+        planned != null && actualHoursLogged > 0
           ? Math.round((planned - actualHoursLogged) * 100) / 100
           : null;
       const isOverEffort =
@@ -1345,7 +1449,8 @@ export class TasksService {
       ),
     );
 
-    return this.attachEffortVarianceMany(formatted);
+    const withTrees = await this.attachFullSubTaskTrees(formatted);
+    return this.attachEffortVarianceMany(withTrees);
   }
 
   async countMany(query: QueryTaskDto, caslUser: CaslUserContext) {
@@ -1572,8 +1677,10 @@ export class TasksService {
       });
     }
 
+    const formatted = this.formatTask(task, viewerRoleCode);
+    const [withTree] = await this.attachFullSubTaskTrees([formatted]);
     return this.attachEffortVariance(
-      await this.attachScheduleImpact(this.formatTask(task, viewerRoleCode)),
+      await this.attachScheduleImpact(withTree),
     );
   }
 

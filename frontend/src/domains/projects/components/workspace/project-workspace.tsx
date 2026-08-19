@@ -445,6 +445,7 @@ export function ProjectWorkspace() {
             selectedFields,
             dependencies,
             projectOrganization,
+            milestones,
           );
           blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
           filename = `${project?.name || "project"}_tasks.xlsx`;

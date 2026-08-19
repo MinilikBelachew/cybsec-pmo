@@ -24,6 +24,7 @@ import {
   revalidateParsedTaskRow,
   generateTasksXLSXTemplate,
   ParsedTaskRow,
+  markExtraSameParentTitleRows,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle, XCircle, X, PlayCircle, Download, ChevronDown, Minimize2 } from "lucide-react";
@@ -310,23 +311,19 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
     extra?: Partial<ParsedTaskRow>,
   ) => {
     setParsedRows((prev) => {
-      const duplicateTitles = new Set(
-        prev
-          .map((row) => row.title.trim().toLowerCase())
-          .filter((title, titleIndex, all) => title && all.indexOf(title) !== titleIndex),
+      const next = markExtraSameParentTitleRows(
+        prev.map((row, idx) => {
+          if (idx !== index) return row;
+          const updated = { ...row, [field]: value, ...extra };
+          return revalidateParsedTaskRow(
+            updated,
+            phases,
+            assignees,
+            undefined,
+            existingTaskCatalog,
+          );
+        }),
       );
-
-      const next = prev.map((row, idx) => {
-        if (idx !== index) return row;
-        const updated = { ...row, [field]: value, ...extra };
-        return revalidateParsedTaskRow(
-          updated,
-          phases,
-          assignees,
-          duplicateTitles,
-          existingTaskCatalog,
-        );
-      });
 
       const updatedRow = next[index];
       const previousRow = prev[index];
@@ -383,7 +380,9 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
         offset: parsedRows.length,
         limit: PAGE_SIZE,
       }).unwrap();
-      setParsedRows((prev) => [...prev, ...page.rows.map(mapPreviewRow)]);
+      setParsedRows((prev) =>
+        markExtraSameParentTitleRows([...prev, ...page.rows.map(mapPreviewRow)]),
+      );
       setTasksTotal(page.total);
       setHasMore(page.hasMore);
     } catch (err) {
@@ -708,6 +707,11 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                                         )}
                                         <span className="truncate">{row.title || <span className="italic text-rose-400">Missing Title</span>}</span>
                                       </div>
+                                      {row.parentTaskTitle?.trim() ? (
+                                        <div className="text-[10px] text-muted-foreground truncate">
+                                          Parent: {row.parentTaskTitle.trim()}
+                                        </div>
+                                      ) : null}
                                       <div className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
                                         {row.description || "No description"}
                                       </div>

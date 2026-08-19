@@ -120,6 +120,14 @@ export class ExcelTaskPreviewRowDto {
   @Type(() => ExcelTaskPreviewPredecessorDto)
   predecessors?: ExcelTaskPreviewPredecessorDto[];
 
+  @ApiPropertyOptional({
+    description: 'Parent task title from the Excel Parent Task column.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  parentTaskTitle?: string;
+
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   resolvedAssigneeId?: string | null;
@@ -180,6 +188,12 @@ export class ExcelTasksPreviewExistingTaskDto {
   @IsString()
   @MaxLength(255)
   title!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  parentTitle?: string | null;
 }
 
 export class ExcelTasksPreviewResultDto {

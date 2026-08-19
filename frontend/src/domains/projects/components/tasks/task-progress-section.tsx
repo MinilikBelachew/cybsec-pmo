@@ -125,7 +125,7 @@ export function TaskProgressSection({
   }, [updates, task.actualHoursLogged]);
 
   const effortVarianceHours =
-    plannedEffortHours != null
+    plannedEffortHours != null && loggedHours > 0
       ? Math.round((plannedEffortHours - loggedHours) * 100) / 100
       : null;
   const isOverEffort =
@@ -214,8 +214,8 @@ export function TaskProgressSection({
       );
       return;
     }
-    if (!Number.isFinite(hours) || hours < 0) {
-      toast.error("Enter valid hours spent.");
+    if (!hoursSpent.trim() || !Number.isFinite(hours) || hours <= 0) {
+      toast.error("Hours spent is required and must be greater than 0.");
       return;
     }
 
@@ -409,11 +409,15 @@ export function TaskProgressSection({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px] text-muted-foreground">Hours spent</Label>
+              <Label className="text-[11px] text-muted-foreground">
+                Hours spent <span className="text-destructive font-bold">*</span>
+              </Label>
               <Input
                 type="number"
-                min={0}
+                min={0.5}
                 step={0.5}
+                required
+                aria-required="true"
                 value={hoursSpent}
                 onChange={(e) => setHoursSpent(e.target.value)}
                 placeholder="e.g. 8"

@@ -35,6 +35,7 @@ import {
   type ApiPriority,
 } from "./task-cell-pickers";
 import { TaskDependenciesPicker } from "./task-predecessors-cell";
+import { nestedDepthLabel } from "@/domains/projects/utils/map-task-to-gantt";
 
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
 type Priority = "high" | "medium" | "low" | "critical";
@@ -164,7 +165,7 @@ export function TableView({
     const rows: Task[] = [];
     const walk = (task: Task, depth: number) => {
       rows.push({ ...task, depth });
-      if (depth < 2 && (task.children?.length ?? 0) > 0 && expandedParents.has(task.id)) {
+      if ((task.children?.length ?? 0) > 0 && expandedParents.has(task.id)) {
         for (const child of task.children ?? []) {
           walk(
             {
@@ -347,9 +348,9 @@ export function TableView({
           return (
             <div
               className="flex w-full max-w-[18rem] items-center gap-2 overflow-hidden"
-              style={{ paddingLeft: depth * 20 }}
+              style={{ paddingLeft: Math.min(depth, 10) * 16 }}
             >
-              {depth < 2 && hasChildren ? (
+              {hasChildren ? (
                 <button
                   type="button"
                   onClick={(e) => toggleParentExpand(task.id, e)}
@@ -396,9 +397,9 @@ export function TableView({
                       />
                     }
                   >
-                    {depth > 0 && (
+                    {nestedDepthLabel(depth) && (
                       <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {depth >= 2 ? "Sub²" : "Sub"}
+                        {nestedDepthLabel(depth)}
                       </span>
                     )}
                     {task.name}
@@ -563,7 +564,9 @@ export function TableView({
               title={
                 row.original.isOverEffort
                   ? "Logged hours exceed planned effort"
-                  : "Hours remaining (planned − logged)"
+                  : (row.original.actualHoursLogged ?? 0) === 0
+                    ? "No variance until hours are logged"
+                    : "Hours remaining (planned − logged)"
               }
             >
               {variance}h

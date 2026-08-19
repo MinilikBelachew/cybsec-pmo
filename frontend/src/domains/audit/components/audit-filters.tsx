@@ -27,6 +27,7 @@ const ACTION_OPTIONS = [
   { value: "CREATE_USER", label: "Create user" },
   { value: "DELETE_USER", label: "Delete user" },
   { value: "LOGOUT", label: "Logout" },
+  { value: "SESSION_TIMEOUT", label: "Session timeout" },
   { value: "LOGIN", label: "Login" },
   { value: "LOGIN_FAILED", label: "Login failed" },
   { value: "REFRESH", label: "Refresh" },

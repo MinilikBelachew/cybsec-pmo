@@ -530,8 +530,7 @@ test.describe("Project Management (Foundation Phase)", () => {
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
 
-    // 6. Attempt to bypass via direct API call with invalid status "Active"
-    //    The UI locks status to Draft on creation — this proves backend enforces it too
+    // 6. Attempt to bypass via direct API call with an invalid status
     const res = await page.request.post(`${apiUrl}/projects`, {
       headers: {
         Authorization: `Bearer ${session.token}`,
@@ -540,7 +539,7 @@ test.describe("Project Management (Foundation Phase)", () => {
       data: {
         name: "Exception Bypass Project",
         objective: "Objective",
-        status: "Active", // Invalid — only Draft is allowed on creation
+        status: "NotARealStatus",
         value: 120000,
         engagementType: "FixedPrice",
         billingModel: "FixedPrice",

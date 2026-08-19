@@ -51,9 +51,8 @@ export const PROJECT_STATUS_TRANSITIONS: Record<
   [ApiProjectStatus.Cancelled]: [],
 };
 
-export const PROJECT_CREATE_ALLOWED_STATUSES: ApiProjectStatus[] = [
-  ApiProjectStatus.Draft,
-];
+export const PROJECT_CREATE_ALLOWED_STATUSES: ApiProjectStatus[] =
+  Object.values(ApiProjectStatus);
 
 export function getAllowedProjectStatusTransitions(
   from: ApiProjectStatus,
@@ -82,34 +81,17 @@ export function getAllowedProjectStatusTransitions(
 export function assertValidProjectStatusTransition(
   from: ApiProjectStatus,
   to: ApiProjectStatus,
-  roleCode?: string,
+  _roleCode?: string,
 ): void {
   if (from === to) {
     return;
   }
 
-  const allowed = getAllowedProjectStatusTransitions(from, roleCode);
-  if (!allowed.includes(to)) {
-    const requiresCloseAdmin =
-      from === ApiProjectStatus.PendingClosure &&
-      to === ApiProjectStatus.Closed;
-    const requiresReopenAdmin =
-      from === ApiProjectStatus.Cancelled && to === ApiProjectStatus.Active;
-
+  if (!Object.values(ApiProjectStatus).includes(to)) {
     throw new UnprocessableEntityException({
       status: HttpStatus.UNPROCESSABLE_ENTITY,
-      errors: {
-        status: requiresCloseAdmin
-          ? 'statusTransitionRequiresAdminApproval'
-          : requiresReopenAdmin
-            ? 'statusReopenRequiresAdmin'
-            : 'invalidStatusTransition',
-      },
-      message: requiresCloseAdmin
-        ? `Only ${PROJECT_CLOSURE_APPROVER_ROLES.join(' or ')} can close a project from Pending Closure.`
-        : requiresReopenAdmin
-          ? `Only ${PROJECT_REOPEN_FROM_CANCELLED_ROLES.join(' or ')} can reopen a Cancelled project.`
-          : `Invalid status transition from ${from} to ${to}.`,
+      errors: { status: 'invalidStatusTransition' },
+      message: `Invalid project status ${to}.`,
     });
   }
 }
@@ -119,7 +101,7 @@ export function assertValidProjectStatusOnCreate(status: ApiProjectStatus): void
     throw new UnprocessableEntityException({
       status: HttpStatus.UNPROCESSABLE_ENTITY,
       errors: { status: 'invalidStatusOnCreate' },
-      message: 'New projects must be created in Draft status.',
+      message: 'Status must be a valid project status.',
     });
   }
 }

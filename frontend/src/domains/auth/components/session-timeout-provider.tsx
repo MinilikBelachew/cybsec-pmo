@@ -53,12 +53,26 @@ export function SessionTimeoutProvider({
     setShowWarning(false);
 
     try {
-      await logout().unwrap();
+      await logout({ reason: "idle_timeout" }).unwrap();
     } catch {
       // Clear local state even if server session is already gone
     }
 
     endClientSession(dispatch, "session_timeout");
+  }, [dispatch, logout]);
+
+  const handleSignOut = useCallback(async () => {
+    if (handlingTimeoutRef.current) return;
+    handlingTimeoutRef.current = true;
+    setShowWarning(false);
+
+    try {
+      await logout().unwrap();
+    } catch {
+      // Clear local state even if server session is already gone
+    }
+
+    endClientSession(dispatch);
   }, [dispatch, logout]);
 
   const handleStaySignedIn = useCallback(async () => {
@@ -131,7 +145,7 @@ export function SessionTimeoutProvider({
         open={showWarning}
         secondsLeft={secondsLeft}
         onStaySignedIn={() => void handleStaySignedIn()}
-        onSignOut={() => void handleTimeout()}
+        onSignOut={() => void handleSignOut()}
       />
     </>
   );
