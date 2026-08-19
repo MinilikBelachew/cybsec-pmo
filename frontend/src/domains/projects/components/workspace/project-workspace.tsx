@@ -72,7 +72,9 @@ import { ActionPointsPanel } from "./action-points-panel";
 import { MeetingsPanel } from "./meetings-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
 import {
+  getMethodologyDefaultGroupByPhase,
   getMethodologyDefaultView,
+  getMethodologyTableWbsTree,
   isPrimaryMethodologyView,
   orderViewsForMethodology,
   resolveMethodology,
@@ -160,6 +162,7 @@ const PRIORITY_FILTER_TO_API: Record<string, TaskPriority | undefined> = {
 };
 
 const TASKS_PAGE_SIZE = 50;
+const TASKS_WBS_FETCH_LIMIT = 500;
 
 const STATUS_FILTER_OPTIONS: { value: string; label: string; description: string; dot: string }[] = [
   { value: "ALL", label: "All Statuses", description: "Any status level", dot: "bg-muted-foreground" },
@@ -285,6 +288,7 @@ export function ProjectWorkspace() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
   const [tasksPage, setTasksPage] = useState(1);
+  const [activeView, setActiveView] = useState<View>("list");
   const debouncedSearch = useDebounce(searchQuery, 300);
 
   useEffect(() => {
@@ -292,10 +296,12 @@ export function ProjectWorkspace() {
   }, [debouncedSearch, statusFilter, priorityFilter, id]);
 
   const taskQueryParams = useMemo((): GetTasksParams => {
+    const wbsFetch =
+      project?.methodology === "Waterfall" && activeView === "table";
     const params: GetTasksParams = {
       projectId: id,
-      page: tasksPage,
-      limit: TASKS_PAGE_SIZE,
+      page: wbsFetch ? 1 : tasksPage,
+      limit: wbsFetch ? TASKS_WBS_FETCH_LIMIT : TASKS_PAGE_SIZE,
       includeScheduleMilestones: true,
     };
     const trimmedSearch = debouncedSearch.trim();
@@ -312,7 +318,15 @@ export function ProjectWorkspace() {
       params.priority = priority;
     }
     return params;
-  }, [id, debouncedSearch, statusFilter, priorityFilter, tasksPage]);
+  }, [
+    id,
+    debouncedSearch,
+    statusFilter,
+    priorityFilter,
+    tasksPage,
+    project?.methodology,
+    activeView,
+  ]);
 
   const statsQueryParams = useMemo((): GetTasksParams => {
     const params: GetTasksParams = { projectId: id };
@@ -541,7 +555,6 @@ export function ProjectWorkspace() {
   const methodology = resolveMethodology(project?.methodology);
   const methodologyDefaultView = getMethodologyDefaultView(methodology);
 
-  const [activeView, setActiveView] = useState<View>("list");
   const methodologyAppliedFor = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1300,9 +1313,10 @@ export function ProjectWorkspace() {
             onTaskClick={openTaskDetail}
             onAddTask={
               canCreateTask
-                ? (status) => {
+                ? (status, phaseId) => {
                     setParentTaskId(null);
                     setNewTaskStatus(status);
+                    setSelectedPhaseIdForNewTask(phaseId ?? null);
                     setIsSheetOpen(true);
                   }
                 : undefined
@@ -1311,6 +1325,8 @@ export function ProjectWorkspace() {
             onDuplicateTask={canCreateTask ? handleDuplicateTask : undefined}
             onMoveTask={handleMoveTask}
             phases={phases}
+            milestones={milestones}
+            groupByPhaseDefault={getMethodologyDefaultGroupByPhase(methodology)}
             assignees={assignees}
             onAssignTask={canAssignTask ? handleAssignTask : undefined}
             onUpdateTaskDates={canManageTasks ? handleUpdateTaskDates : undefined}
@@ -1393,6 +1409,8 @@ export function ProjectWorkspace() {
               <TableView
                 tasks={workTasks}
                 projectId={id}
+                phases={phases}
+                milestones={milestones}
                 toggleTask={toggleTask}
                 onTaskClick={openTaskDetail}
                 onAddTask={
@@ -1416,6 +1434,7 @@ export function ProjectWorkspace() {
                 onBulkPriority={canManageTasks ? handleBulkPriority : undefined}
                 onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
                 dependencies={taskDependencies}
+                wbsTree={getMethodologyTableWbsTree(methodology)}
               />
             )}
           </div>
@@ -1424,6 +1443,7 @@ export function ProjectWorkspace() {
         {(activeView === "table" ||
           activeView === "gantt" ||
           activeView === "calendar") &&
+          !(activeView === "table" && getMethodologyTableWbsTree(methodology)) &&
           tasksTotal > 0 && (
             <div className="flex items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-4 py-2 shrink-0">
               <span className="text-xs text-muted-foreground">

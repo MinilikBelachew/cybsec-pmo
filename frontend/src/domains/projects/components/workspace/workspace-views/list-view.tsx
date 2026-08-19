@@ -13,6 +13,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import type { TaskPriority } from "@/domains/projects/types/tasks.types";
 import {
+  usePaginatedPhaseTasks,
   usePaginatedStatusTasks,
   type StatusColumnFilters,
 } from "@/domains/projects/hooks/use-paginated-status-tasks";
@@ -73,7 +74,7 @@ function formatDueDate(dateStr?: string | null) {
   }
 }
 
-import { type ProjectPhase, type ProjectTaskAssignee, type ProjectMilestone } from "../../../types/projects.types";
+import { type ProjectPhase,  type ProjectTaskAssignee, type ProjectMilestone } from "../../../types/projects.types";
 import type { TaskDependency } from "../../../types/tasks.types";
 import { EmployeeTooltip } from "../../shared/employee-tooltip";
 import {
@@ -106,6 +107,9 @@ interface ListViewProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   phases?: ProjectPhase[];
+  milestones?: ProjectMilestone[];
+  /** Waterfall defaults this on; Agile/Hybrid keep status groups. Toggle still available. */
+  groupByPhaseDefault?: boolean;
   assignees?: ProjectTaskAssignee[];
   onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
   onUpdateTaskDates?: (taskId: string, dates: { startDate: string; endDate: string }) => Promise<void>;
@@ -175,6 +179,8 @@ export function ListView({
   onDuplicateTask,
   onMoveTask,
   phases = [],
+  milestones = [],
+  groupByPhaseDefault = false,
   assignees = [],
   onAssignTask,
   onUpdateTaskDates,
@@ -191,13 +197,17 @@ export function ListView({
   onBulkPriority,
   onBulkDelete,
 }: ListViewProps) {
-  const [groupByPhase, setGroupByPhase] = React.useState(false);
+  const [groupByPhase, setGroupByPhase] = React.useState(groupByPhaseDefault);
   const [openPhases, setOpenPhases] = React.useState<Record<string, boolean>>({});
   const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const { canEditDependencies } = useModulePermissions();
+
+  React.useEffect(() => {
+    setGroupByPhase(groupByPhaseDefault);
+  }, [projectId, groupByPhaseDefault]);
 
   const taskById = React.useMemo(() => {
     const map = new Map<string, Task>();
@@ -425,43 +435,91 @@ export function ListView({
     });
   }, [tasks, dependentsByPredecessor]);
 
-  const phaseGroups = React.useMemo(() => {
-    const map: Record<string, { id: string | null; name: string; color: string; tasks: typeof tasks }> = {};
-
-    tasks.forEach((t) => {
-      const name = t.phaseName || "Unassigned";
-      if (!map[name]) {
-        map[name] = {
-          id: t.phaseId || null,
-          name,
-          color: t.phaseColor || "#64748b",
-          tasks: [],
-        };
+  const absorbExpandableTasks = React.useCallback((loaded: Task[]) => {
+    const idsToExpand: string[] = [];
+    const walk = (t: Task) => {
+      const hasNest =
+        (t.children?.length ?? 0) > 0 ||
+        Boolean(t.hasSubtasks) ||
+        (dependentsByPredecessor.get(t.id)?.length ?? 0) > 0;
+      if (hasNest) idsToExpand.push(t.id);
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of loaded) walk(t);
+    if (idsToExpand.length === 0) return;
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of idsToExpand) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
       }
-      map[name].tasks.push(t);
+      return changed ? next : prev;
+    });
+  }, [dependentsByPredecessor]);
+
+  const phaseGroups = React.useMemo(() => {
+    const sortedPhases = [...phases].sort((a, b) => {
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+      if (!a.startDate && !b.startDate) return a.name.localeCompare(b.name);
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
     });
 
-    return Object.values(map).sort((a, b) => {
-      if (a.name === "Unassigned") return 1;
-      if (b.name === "Unassigned") return -1;
-      
-      const phaseA = phases.find((p) => p.id === a.id);
-      const phaseB = phases.find((p) => p.id === b.id);
-      
-      if (!phaseA?.startDate && !phaseB?.startDate) return a.name.localeCompare(b.name);
-      if (!phaseA?.startDate) return 1;
-      if (!phaseB?.startDate) return -1;
-      
-      const diff = new Date(phaseA.startDate).getTime() - new Date(phaseB.startDate).getTime();
-      if (diff !== 0) return diff;
-      
-      if (!phaseA?.endDate && !phaseB?.endDate) return a.name.localeCompare(b.name);
-      if (!phaseA?.endDate) return 1;
-      if (!phaseB?.endDate) return -1;
-      
-      return new Date(phaseA.endDate).getTime() - new Date(phaseB.endDate).getTime();
+    const byTargetDate = (a: ProjectMilestone, b: ProjectMilestone) =>
+      new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime();
+
+    const groups = sortedPhases.map((phase) => ({
+      id: phase.id as string | null,
+      name: phase.name,
+      color: "#8b5cf6",
+      tasks: tasks.filter((t) => t.phaseId === phase.id),
+      milestones: milestones.filter((m) => m.phaseId === phase.id).sort(byTargetDate),
+    }));
+
+    const unassignedTasks = tasks.filter((t) => !t.phaseId);
+    const unassignedMilestones = milestones.filter((m) => !m.phaseId).sort(byTargetDate);
+    if (unassignedTasks.length > 0 || unassignedMilestones.length > 0) {
+      groups.push({
+        id: null,
+        name: "Unassigned",
+        color: "#64748b",
+        tasks: unassignedTasks,
+        milestones: unassignedMilestones,
+      });
+    }
+
+    return groups;
+  }, [tasks, phases, milestones]);
+
+  const phaseGroupMeta = React.useMemo(() => {
+    const sortedPhases = [...phases].sort((a, b) => {
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+      if (!a.startDate && !b.startDate) return a.name.localeCompare(b.name);
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
     });
-  }, [tasks, phases]);
+    const byTargetDate = (a: ProjectMilestone, b: ProjectMilestone) =>
+      new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime();
+
+    const groups = sortedPhases.map((phase) => ({
+      id: phase.id as string | null,
+      name: phase.name,
+      color: "#8b5cf6",
+      milestones: milestones.filter((m) => m.phaseId === phase.id).sort(byTargetDate),
+    }));
+    groups.push({
+      id: null,
+      name: "Unassigned",
+      color: "#64748b",
+      milestones: milestones.filter((m) => !m.phaseId).sort(byTargetDate),
+    });
+    return groups;
+  }, [phases, milestones]);
 
   function getStatusBadge(status: Status, isHeader = false) {
     const label = STATUS_LABEL[status] || status;
@@ -562,6 +620,38 @@ export function ListView({
       </div>
     </div>
   );
+
+  const renderMilestoneRow = (milestone: ProjectMilestone) => {
+    const target = formatDueDate(milestone.targetDate);
+    return (
+      <div
+        key={milestone.id}
+        className="flex min-w-[110rem] items-center gap-4 px-3 py-1.5 border-b border-border/20 bg-violet-50/40 dark:bg-violet-950/15"
+      >
+        {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
+        <div className="w-4 shrink-0" />
+        <Flag className="size-3.5 shrink-0 text-primary" />
+        <div className="flex-1 min-w-[12rem] max-w-[22rem] flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Milestone
+          </span>
+          <span className="text-xs font-medium truncate text-foreground" title={milestone.title}>
+            {milestone.title}
+          </span>
+        </div>
+        <div className="shrink-0 w-8" />
+        <div className="shrink-0 w-28" />
+        <div className="shrink-0 w-28 text-center text-xs text-muted-foreground">
+          {target ?? "—"}
+        </div>
+        <div className="shrink-0 w-28 text-center">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {milestone.status || "Pending"}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   const renderTaskRow = (task: Task, depth = 0) => {
     const fullAssignee = task.owner?.id
@@ -1117,6 +1207,30 @@ export function ListView({
       <div className="flex-1 min-h-0 overflow-auto">
 
         {groupByPhase ? (
+          projectId ? (
+            phaseGroupMeta.map((group) => (
+              <ListPhaseSection
+                key={group.id ?? "unassigned"}
+                phaseId={group.id}
+                name={group.name}
+                color={group.color}
+                milestones={group.milestones}
+                filters={{
+                  projectId,
+                  search,
+                  priority: priorityFilter,
+                }}
+                isOpen={openPhases[group.name] !== false}
+                onToggle={() => togglePhaseGroup(group.name)}
+                renderColumnHeaders={renderColumnHeaders}
+                renderTaskRow={renderTaskRow}
+                renderMilestoneRow={renderMilestoneRow}
+                onLoadedTasks={absorbExpandableTasks}
+                onAddTask={onAddTask}
+                showBulkSelect={showBulkSelect}
+              />
+            ))
+          ) : (
           phaseGroups.map((group) => {
             const isOpen = openPhases[group.name] !== false;
             return (
@@ -1139,12 +1253,15 @@ export function ListView({
                       />
                       {group.name}
                     </span>
-                    <span className="text-xs text-muted-foreground font-semibold ml-1">{group.tasks.length}</span>
+                    <span className="text-xs text-muted-foreground font-semibold ml-1">
+                      {group.milestones.length + group.tasks.length}
+                    </span>
                   </button>
                 </div>
 
                 {isOpen && (
                   <>
+                    {group.milestones.map((milestone) => renderMilestoneRow(milestone))}
                     {group.tasks.length > 0 ? renderColumnHeaders() : null}
                     {group.tasks.map((task) => renderTaskRow(task))}
                     {onAddTask && group.id && (
@@ -1168,6 +1285,7 @@ export function ListView({
               </div>
             );
           })
+          )
         ) : projectId ? (
           (["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"] as Status[]).map(
             (status) => (
@@ -1335,6 +1453,132 @@ function ListStatusSection({
               <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
                 Add Task
               </span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ListPhaseSection({
+  phaseId,
+  name,
+  color,
+  milestones,
+  filters,
+  isOpen,
+  onToggle,
+  renderColumnHeaders,
+  renderTaskRow,
+  renderMilestoneRow,
+  onLoadedTasks,
+  onAddTask,
+  showBulkSelect,
+}: {
+  phaseId: string | null;
+  name: string;
+  color: string;
+  milestones: ProjectMilestone[];
+  filters: StatusColumnFilters;
+  isOpen: boolean;
+  onToggle: () => void;
+  renderColumnHeaders: () => React.ReactNode;
+  renderTaskRow: (task: Task, depth?: number) => React.ReactNode;
+  renderMilestoneRow: (milestone: ProjectMilestone) => React.ReactNode;
+  onLoadedTasks?: (tasks: Task[]) => void;
+  onAddTask?: (status: Status, phaseId?: string | null) => void;
+  showBulkSelect: boolean;
+}) {
+  const { tasks, total, hasNextPage, isLoading, isFetching, loadMore } =
+    usePaginatedPhaseTasks(phaseId, filters, {
+      pageSize: 20,
+      skip: !isOpen,
+    });
+
+  const groupTasks = tasks as unknown as Task[];
+
+  React.useEffect(() => {
+    if (!isOpen || groupTasks.length === 0) return;
+    onLoadedTasks?.(groupTasks);
+  }, [groupTasks, isOpen, onLoadedTasks]);
+  const displayCount = milestones.length + (isOpen ? total : 0);
+
+  if (
+    !phaseId &&
+    !isLoading &&
+    total === 0 &&
+    milestones.length === 0 &&
+    !hasNextPage
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-background border-b border-border/30 sticky top-0 z-10">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 flex-1 text-left"
+        >
+          {isOpen ? (
+            <ChevronDown className="size-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 text-muted-foreground" />
+          )}
+          <span className="inline-flex items-center rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+            <span
+              className="size-2 rounded-full shrink-0 mr-1.5"
+              style={{ backgroundColor: color }}
+            />
+            {name}
+          </span>
+          <span className="text-xs text-muted-foreground font-semibold ml-1">
+            {displayCount}
+          </span>
+        </button>
+      </div>
+
+      {isOpen && (
+        <>
+          {milestones.map((milestone) => renderMilestoneRow(milestone))}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              <Spinner size="sm" />
+            </div>
+          ) : (
+            <>
+              {groupTasks.length > 0 ? renderColumnHeaders() : null}
+              {groupTasks.map((task) => renderTaskRow(task))}
+              {hasNextPage && (
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={isFetching}
+                  className="flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border-b border-border/30 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-colors disabled:opacity-50"
+                >
+                  {isFetching ? <Spinner size="xs" /> : null}
+                  Load more
+                  {total > groupTasks.length ? ` (${total - groupTasks.length} left)` : ""}
+                </button>
+              )}
+            </>
+          )}
+          {onAddTask && phaseId && (
+            <div
+              onClick={() => onAddTask("To_Do", phaseId)}
+              className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+            >
+              {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
+              <div className="w-4 shrink-0" />
+              <div className="w-4 shrink-0" />
+              <div className="w-8 shrink-0" />
+              <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
+                Add Task to Phase
+              </span>
+              <div className="w-36 shrink-0" />
             </div>
           )}
         </>

@@ -8,7 +8,7 @@ export class TaskDeadlineReminderScheduler {
 
   constructor(private readonly reminderService: TaskDeadlineReminderService) {}
 
-  /** Every 5 hours: tasks due today or tomorrow (not instant on save). */
+  /** Sweep every 5 hours for tasks due today or tomorrow. */
   @Cron(process.env.TASK_DEADLINE_REMINDER_CRON ?? '0 */5 * * *')
   async handleReminders(): Promise<void> {
     try {

@@ -12,7 +12,6 @@ import {
   User,
 } from "lucide-react";
 import { type ColumnDef } from "@tanstack/react-table";
-import { createSelectColumn } from "@/shared/components/data-table-select-column";
 import { DataTable } from "@/shared/components/data-table";
 import {
   DropdownMenu,
@@ -28,7 +27,7 @@ import {
 } from "@/shared/ui/tooltip";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import type { TaskDependency } from "@/domains/projects/types/tasks.types";
-import { type ProjectTaskAssignee } from "../../../types/projects.types";
+import { type ProjectMilestone, type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
 import {
   API_PRIORITY_OPTIONS,
   getPriorityColors,
@@ -55,6 +54,7 @@ interface Task {
   parentTaskId?: string | null;
   depth?: number;
   children?: Task[];
+  phaseId?: string | null;
   effortHours?: number | null;
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
@@ -67,6 +67,10 @@ interface Task {
   baselineDurationDays?: number | null;
   actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
+  rowKind?: "phase" | "milestone" | "task";
+  phaseColor?: string;
+  /** Task nest level for Sub/Sub² labels — independent of phase indent. */
+  nestLabelDepth?: number;
 }
 
 const STATUS_PILL: Record<Status, string> = {
@@ -98,9 +102,48 @@ const STATUS_LABEL: Record<Status, string> = {
   Done: "Done",
 };
 
+function formatShortDate(value?: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function phaseRowId(phaseId: string) {
+  return `phase:${phaseId}`;
+}
+
+function groupingRow(
+  partial: Pick<Task, "id" | "name" | "rowKind" | "depth" | "dueDate"> & {
+    phaseColor?: string;
+    rawStartDate?: string | null;
+    hasSubtasks?: boolean;
+  },
+): Task {
+  return {
+    assigneeInitials: "",
+    assigneeColor: "",
+    priority: "medium",
+    status: "To_Do",
+    done: false,
+    ...partial,
+  };
+}
+
+function isTaskRow(row: Task) {
+  return (row.rowKind ?? "task") === "task";
+}
+
+function groupingDash(row: Task) {
+  if (isTaskRow(row)) return null;
+  return <span className="text-xs text-muted-foreground">—</span>;
+}
+
 interface TableViewProps {
   tasks: Task[];
   projectId?: string;
+  phases?: ProjectPhase[];
+  milestones?: ProjectMilestone[];
   toggleTask: (id: string) => void;
   onTaskClick?: (taskId: string) => void;
   onAddTask?: (status: Status) => void;
@@ -116,11 +159,15 @@ interface TableViewProps {
   onBulkPriority?: (taskIds: string[], priority: ApiPriority) => Promise<void>;
   onBulkDelete?: (taskIds: string[]) => void;
   dependencies?: TaskDependency[];
+  /** Waterfall: Phase → Milestone → Task tree. Agile/Hybrid: flat task grid. */
+  wbsTree?: boolean;
 }
 
 export function TableView({
   tasks,
   projectId,
+  phases = [],
+  milestones = [],
   toggleTask,
   onTaskClick,
   onDeleteTask,
@@ -133,6 +180,7 @@ export function TableView({
   onBulkPriority,
   onBulkDelete,
   dependencies = [],
+  wbsTree = false,
 }: TableViewProps) {
   const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
   const [bulkActive, setBulkActive] = useState(false);
@@ -142,6 +190,12 @@ export function TableView({
 
   useEffect(() => {
     const ids: string[] = [];
+    if (wbsTree) {
+      for (const phase of phases) ids.push(phaseRowId(phase.id));
+      if (tasks.some((t) => !t.phaseId) || milestones.some((m) => !m.phaseId)) {
+        ids.push(phaseRowId("unassigned"));
+      }
+    }
     const walk = (t: Task) => {
       if ((t.children?.length ?? 0) > 0 || Boolean(t.hasSubtasks)) ids.push(t.id);
       for (const c of t.children ?? []) walk(c);
@@ -159,27 +213,94 @@ export function TableView({
       }
       return changed ? next : prev;
     });
-  }, [tasks]);
+  }, [tasks, phases, milestones, wbsTree]);
+
+  const planGroups = useMemo(() => {
+    const sortedPhases = [...phases].sort((a, b) => {
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+      return a.name.localeCompare(b.name);
+    });
+    const byTarget = (a: ProjectMilestone, b: ProjectMilestone) =>
+      new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime();
+
+    const groups = sortedPhases.map((phase) => ({
+      id: phase.id,
+      name: phase.name,
+      color: "#8b5cf6",
+      startDate: phase.startDate,
+      endDate: phase.endDate,
+      tasks: tasks.filter((t) => t.phaseId === phase.id),
+      milestones: milestones.filter((m) => m.phaseId === phase.id).sort(byTarget),
+    }));
+
+    const unassignedTasks = tasks.filter((t) => !t.phaseId);
+    const unassignedMilestones = milestones.filter((m) => !m.phaseId).sort(byTarget);
+    if (unassignedTasks.length > 0 || unassignedMilestones.length > 0) {
+      groups.push({
+        id: "unassigned",
+        name: "Unassigned",
+        color: "#64748b",
+        startDate: "",
+        endDate: "",
+        tasks: unassignedTasks,
+        milestones: unassignedMilestones,
+      });
+    }
+    return groups;
+  }, [phases, milestones, tasks]);
 
   const flatRows = useMemo(() => {
     const rows: Task[] = [];
-    const walk = (task: Task, depth: number) => {
-      rows.push({ ...task, depth });
+    const walkTask = (task: Task, depth: number, nestLevel: number) => {
+      rows.push({ ...task, rowKind: "task", depth, nestLabelDepth: nestLevel });
       if ((task.children?.length ?? 0) > 0 && expandedParents.has(task.id)) {
         for (const child of task.children ?? []) {
-          walk(
-            {
-              ...child,
-              parentTaskId: child.parentTaskId ?? task.id,
-            },
+          walkTask(
+            { ...child, parentTaskId: child.parentTaskId ?? task.id },
             depth + 1,
+            nestLevel + 1,
           );
         }
       }
     };
-    for (const task of tasks) walk(task, 0);
+
+    if (!wbsTree) {
+      for (const task of tasks) walkTask(task, 0, 0);
+      return rows;
+    }
+
+    for (const group of planGroups) {
+      const pid = phaseRowId(group.id);
+      rows.push(
+        groupingRow({
+          id: pid,
+          name: group.name,
+          rowKind: "phase",
+          depth: 0,
+          dueDate: formatShortDate(group.endDate),
+          rawStartDate: group.startDate || null,
+          phaseColor: group.color,
+          hasSubtasks: true,
+        }),
+      );
+      if (!expandedParents.has(pid)) continue;
+      for (const milestone of group.milestones) {
+        rows.push(
+          groupingRow({
+            id: `ms:${milestone.id}`,
+            name: milestone.title,
+            rowKind: "milestone",
+            depth: 1,
+            dueDate: formatShortDate(milestone.targetDate),
+            rawStartDate: milestone.targetDate,
+            hasSubtasks: false,
+          }),
+        );
+      }
+      for (const task of group.tasks) walkTask(task, 1, 0);
+    }
     return rows;
-  }, [tasks, expandedParents]);
+  }, [planGroups, expandedParents, tasks, wbsTree]);
 
   const toggleParentExpand = (taskId: string, e?: { stopPropagation: () => void }) => {
     e?.stopPropagation();
@@ -192,7 +313,7 @@ export function TableView({
   };
 
   const selectedIds = useMemo(
-    () => selectedRows.map((t) => t.id),
+    () => selectedRows.filter(isTaskRow).map((t) => t.id),
     [selectedRows],
   );
 
@@ -331,7 +452,35 @@ export function TableView({
   const columns = useMemo((): ColumnDef<Task>[] => {
     const cols: ColumnDef<Task>[] = [];
     if (canBulkEdit) {
-      cols.push(createSelectColumn<Task>());
+      cols.push({
+        id: "select",
+        header: ({ table }) => (
+          <div className="flex items-center justify-center">
+            <input
+              type="checkbox"
+              checked={table.getIsAllPageRowsSelected()}
+              onChange={(event) => table.toggleAllPageRowsSelected(event.target.checked)}
+              aria-label="Select all rows"
+              className="rounded border-slate-300 accent-primary size-3.5"
+            />
+          </div>
+        ),
+        cell: ({ row }) =>
+          isTaskRow(row.original) ? (
+            <div className="flex items-center justify-center">
+              <input
+                type="checkbox"
+                checked={row.getIsSelected()}
+                onChange={(event) => row.toggleSelected(event.target.checked)}
+                aria-label="Select row"
+                className="rounded border-slate-300 accent-primary size-3.5"
+              />
+            </div>
+          ) : null,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { sticky: "left", className: "w-12 px-0" },
+      });
     }
     cols.push(
       {
@@ -340,10 +489,13 @@ export function TableView({
         header: "Name",
         cell: ({ row }) => {
           const task = row.original;
+          const kind = task.rowKind ?? "task";
           const depth = task.depth ?? 0;
           const children = task.children ?? [];
-          const hasChildren = children.length > 0 || Boolean(task.hasSubtasks);
+          const hasChildren =
+            kind === "phase" || children.length > 0 || Boolean(task.hasSubtasks);
           const isExpanded = expandedParents.has(task.id);
+          const nestLabel = kind === "task" ? nestedDepthLabel(task.nestLabelDepth ?? 0) : null;
 
           return (
             <div
@@ -355,7 +507,7 @@ export function TableView({
                   type="button"
                   onClick={(e) => toggleParentExpand(task.id, e)}
                   className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                  aria-label={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                  aria-label={isExpanded ? "Collapse" : "Expand"}
                 >
                   {isExpanded ? (
                     <ChevronDown className="size-3.5" />
@@ -363,43 +515,62 @@ export function TableView({
                     <ChevronRight className="size-3.5" />
                   )}
                 </button>
+              ) : kind === "milestone" ? (
+                <Flag className="size-3.5 shrink-0 text-primary" />
               ) : depth > 0 ? (
                 <span className="size-1.5 rounded-full bg-muted-foreground/40 shrink-0 ml-1" />
               ) : (
                 <span className="w-4 shrink-0" />
               )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleTask(task.id);
-                }}
-                className="shrink-0 mt-0.5"
-                aria-label="Toggle status"
-              >
-                {task.done ? (
-                  <CircleCheck className="size-4 text-emerald-500" />
-                ) : (
-                  <Circle className="size-4 text-muted-foreground hover:text-primary transition-colors" />
-                )}
-              </button>
+              {kind === "task" ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleTask(task.id);
+                  }}
+                  className="shrink-0 mt-0.5"
+                  aria-label="Toggle status"
+                >
+                  {task.done ? (
+                    <CircleCheck className="size-4 text-emerald-500" />
+                  ) : (
+                    <Circle className="size-4 text-muted-foreground hover:text-primary transition-colors" />
+                  )}
+                </button>
+              ) : kind === "phase" ? (
+                <span
+                  className="size-2 rounded-full shrink-0"
+                  style={{ backgroundColor: task.phaseColor ?? "#8b5cf6" }}
+                />
+              ) : null}
               <TooltipProvider delay={300}>
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <button
                         type="button"
-                        onClick={() => onTaskClick?.(task.id)}
+                        onClick={() => {
+                          if (kind === "task") onTaskClick?.(task.id);
+                        }}
                         className={cn(
-                          "min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-primary transition-colors",
-                          task.done && "line-through text-muted-foreground",
-                          depth > 0 && "font-normal",
+                          "min-w-0 flex-1 truncate text-left text-sm font-medium",
+                          kind === "task" && "hover:text-primary transition-colors",
+                          kind === "phase" && "uppercase tracking-wide font-semibold",
+                          kind === "milestone" && "font-medium",
+                          task.done && kind === "task" && "line-through text-muted-foreground",
+                          kind === "task" && depth > 0 && "font-normal",
                         )}
                       />
                     }
                   >
-                    {nestedDepthLabel(depth) && (
+                    {kind === "milestone" && (
                       <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {nestedDepthLabel(depth)}
+                        Milestone
+                      </span>
+                    )}
+                    {nestLabel && (
+                      <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {nestLabel}
                       </span>
                     )}
                     {task.name}
@@ -418,7 +589,10 @@ export function TableView({
       {
         id: "dependencies",
         header: "Deps",
-        cell: ({ row }) => (
+        cell: ({ row }) => {
+          const dash = groupingDash(row.original);
+          if (dash) return dash;
+          return (
           <div onClick={(e) => e.stopPropagation()}>
             <TaskDependenciesPicker
               taskId={row.original.id}
@@ -427,7 +601,8 @@ export function TableView({
               canEdit={canEditDependencies}
             />
           </div>
-        ),
+          );
+        },
         meta: { className: "w-[4.5rem]" },
       },
       {
@@ -435,6 +610,8 @@ export function TableView({
         accessorKey: "assigneeInitials",
         header: "Assignee",
         cell: ({ row }) => {
+          const dash = groupingDash(row.original);
+          if (dash) return dash;
           const task = row.original;
           const isUnassigned = !task.owner?.id;
           if (isUnassigned) {
@@ -469,6 +646,8 @@ export function TableView({
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => {
+          const dash = groupingDash(row.original);
+          if (dash) return dash;
           const task = row.original;
           return (
             <div className="flex items-center gap-1.5">
@@ -501,7 +680,10 @@ export function TableView({
         id: "priority",
         accessorKey: "priority",
         header: "Priority",
-        cell: ({ row }) => (
+        cell: ({ row }) => {
+          const dash = groupingDash(row.original);
+          if (dash) return dash;
+          return (
           <span
             className={cn(
               "text-xs font-medium",
@@ -510,7 +692,8 @@ export function TableView({
           >
             {PRIORITY_LABEL[row.original.priority]}
           </span>
-        ),
+          );
+        },
       },
       {
         id: "plannedHours",
@@ -678,8 +861,9 @@ export function TableView({
         id: "actions",
         header: "",
         cell: ({ row }) => {
+          if (!isTaskRow(row.original)) return null;
           const task = row.original;
-          const depth = task.depth ?? 0;
+          const nestLevel = task.nestLabelDepth ?? 0;
           return (
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -699,7 +883,7 @@ export function TableView({
                 >
                   Edit task
                 </DropdownMenuItem>
-                {depth === 0 ? (
+                {nestLevel === 0 ? (
                   <DropdownMenuItem
                     className="cursor-pointer gap-2"
                     onClick={() => onDuplicateTask?.(task.id)}
@@ -746,6 +930,8 @@ export function TableView({
           mobileLayout="scroll"
           minTableWidth="min-w-[1400px]"
           tableClassName="table-auto"
+          pageSize={wbsTree ? 50 : 20}
+          pageSizeOptions={wbsTree ? [25, 50, 100, 200] : [5, 10, 20]}
           onSelectionChange={bulkActive ? setSelectedRows : undefined}
           bulkSelect={
             canBulkEdit
