@@ -1542,7 +1542,9 @@ export class TasksService {
       // include nested tasks so sub-tasks are findable.
       filters.push({ parentTaskId: null });
     }
-    if (query.phaseId) {
+    if (query.unassignedPhase) {
+      filters.push({ phaseId: null });
+    } else if (query.phaseId) {
       filters.push({ phaseId: query.phaseId });
     }
     if (query.search) {

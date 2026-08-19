@@ -54,6 +54,7 @@ export const tasksApi = api.injectEndpoints({
         if (params.priority) queryParams.append("priority", params.priority);
         if (params.search) queryParams.append("search", params.search);
         if (params.phaseId) queryParams.append("phaseId", params.phaseId);
+        if (params.unassignedPhase) queryParams.append("unassignedPhase", "true");
         if (params.ownerId) queryParams.append("ownerId", params.ownerId);
         return `/tasks?${queryParams.toString()}`;
       },

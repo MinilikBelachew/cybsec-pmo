@@ -234,6 +234,8 @@ export interface GetTasksParams {
   priority?: TaskPriority;
   search?: string;
   phaseId?: string;
+  /** Top-level tasks with no phase (list Group by phase → Unassigned). */
+  unassignedPhase?: boolean;
   ownerId?: string;
 }
 

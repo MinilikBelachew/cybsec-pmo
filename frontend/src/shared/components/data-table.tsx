@@ -5,6 +5,8 @@ import * as React from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type OnChangeFn,
+  type PaginationState,
   type Row,
   type RowSelectionState,
   type SortingState,
@@ -67,6 +69,8 @@ export type DataTableProps<TData, TValue> = {
   onPageChange?: (pageIndex: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   pageSizeOptions?: number[];
+  /** Show every row (scroll) and hide the rows-per-page / prev-next footer. */
+  hidePagination?: boolean;
   sorting?: SortingState;
   onSortingChange?: (sorting: SortingState) => void;
   searchValue?: string;
@@ -200,6 +204,7 @@ export function DataTable<TData, TValue>({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [...PAGE_SIZE_OPTIONS],
+  hidePagination = false,
   sorting: controlledSorting,
   onSortingChange,
   searchValue = "",
@@ -228,6 +233,7 @@ export function DataTable<TData, TValue>({
     return readStoredColumnVisibility(visibilityStorageKey);
   });
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+  const [clientPageIndex, setClientPageIndex] = React.useState(0);
   const [clientPageSize, setClientPageSize] = React.useState(pageSize);
   const [draggingColumnId, setDraggingColumnId] = React.useState<string | null>(null);
   const [dropTargetColumnId, setDropTargetColumnId] = React.useState<string | null>(null);
@@ -287,6 +293,7 @@ export function DataTable<TData, TValue>({
   }, [knownColumnIds]);
 
   const resolvedPageSize = manual ? pageSize : clientPageSize;
+  const resolvedPageIndex = manual ? pageIndex : clientPageIndex;
 
   const bulkActive = bulkSelect?.active ?? false;
   const showSearch = !hideSearch && (Boolean(searchKey) || manual);
@@ -321,6 +328,32 @@ export function DataTable<TData, TValue>({
     [activeSorting, manual, onSortingChange],
   );
 
+  const handlePaginationChange = React.useCallback<OnChangeFn<PaginationState>>(
+    (updater) => {
+      const current: PaginationState = {
+        pageIndex: resolvedPageIndex,
+        pageSize: resolvedPageSize,
+      };
+      const next = typeof updater === "function" ? updater(current) : updater;
+      if (manual) {
+        if (next.pageIndex !== pageIndex) onPageChange?.(next.pageIndex);
+        if (next.pageSize !== pageSize) onPageSizeChange?.(next.pageSize);
+        return;
+      }
+      setClientPageIndex(next.pageIndex);
+      setClientPageSize(next.pageSize);
+    },
+    [
+      manual,
+      onPageChange,
+      onPageSizeChange,
+      pageIndex,
+      pageSize,
+      resolvedPageIndex,
+      resolvedPageSize,
+    ],
+  );
+
   const table = useReactTable({
     data,
     columns,
@@ -330,22 +363,20 @@ export function DataTable<TData, TValue>({
     manualPagination: manual,
     manualSorting: manual,
     manualFiltering: manual,
+    // Expanding/collapsing WBS rows (and polling) rebuilds `data`. Keep the
+    // current page instead of jumping back to page 1.
+    autoResetPageIndex: false,
     onSortingChange: handleSortingChange,
     onColumnFiltersChange: setColumnFilters,
     onRowSelectionChange: setRowSelection,
+    onPaginationChange: hidePagination ? undefined : handlePaginationChange,
     getCoreRowModel: getCoreRowModel(),
     ...(manual
       ? {}
       : {
-          getPaginationRowModel: getPaginationRowModel(),
+          ...(hidePagination ? {} : { getPaginationRowModel: getPaginationRowModel() }),
           getSortedRowModel: getSortedRowModel(),
           getFilteredRowModel: getFilteredRowModel(),
-          initialState: {
-            pagination: {
-              pageIndex,
-              pageSize,
-            },
-          },
         }),
     onColumnVisibilityChange: setColumnVisibility,
     onColumnOrderChange: enableColumnReorder ? setColumnOrder : undefined,
@@ -355,9 +386,19 @@ export function DataTable<TData, TValue>({
       columnVisibility,
       rowSelection,
       ...(enableColumnReorder ? { columnOrder: resolvedColumnOrder } : {}),
-      ...(manual ? { pagination: { pageIndex, pageSize: resolvedPageSize } } : {}),
+      ...(hidePagination
+        ? {}
+        : { pagination: { pageIndex: resolvedPageIndex, pageSize: resolvedPageSize } }),
     },
   });
+
+  React.useLayoutEffect(() => {
+    if (manual || hidePagination) return;
+    const nextPageCount = table.getPageCount();
+    if (nextPageCount > 0 && clientPageIndex >= nextPageCount) {
+      setClientPageIndex(nextPageCount - 1);
+    }
+  }, [data, resolvedPageSize, columnFilters, hidePagination, manual, table, clientPageIndex]);
 
   const onSelectionChangeRef = React.useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
@@ -415,8 +456,7 @@ export function DataTable<TData, TValue>({
     }
 
     setClientPageSize(nextSize);
-    table.setPageSize(nextSize);
-    table.setPageIndex(0);
+    setClientPageIndex(0);
   };
 
   const hideableColumns = table
@@ -793,6 +833,7 @@ export function DataTable<TData, TValue>({
           </div>
       </div>
 
+      {!hidePagination ? (
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
@@ -867,6 +908,7 @@ export function DataTable<TData, TValue>({
             </Button>
           </div>
         </div>
+      ) : null}
     </div>
   );
 }

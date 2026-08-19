@@ -73,4 +73,16 @@ export class QueryTaskDto {
   @IsUUID()
   @IsOptional()
   phaseId?: string;
+
+  @ApiPropertyOptional({
+    description: 'When true, only return tasks with no phase assigned',
+  })
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (value === 'false' || value === false) return false;
+    return true;
+  })
+  @IsBoolean()
+  @IsOptional()
+  unassignedPhase?: boolean;
 }

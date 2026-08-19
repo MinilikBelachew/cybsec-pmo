@@ -15,13 +15,17 @@ export type StatusColumnFilters = {
   ownerId?: string;
 };
 
+type TaskListQueryFilters = StatusColumnFilters & {
+  status?: TaskStatus;
+  unassignedPhase?: boolean;
+};
+
 /**
- * Option B: one paginated query per status column (top-level tasks only).
+ * Paginated top-level tasks for one list/board group.
  * Pages append via "Load more"; filter changes reset to page 1.
  */
-export function usePaginatedStatusTasks(
-  status: TaskStatus,
-  filters: StatusColumnFilters,
+function usePaginatedTaskList(
+  filters: TaskListQueryFilters,
   options?: { pageSize?: number; skip?: boolean },
 ) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
@@ -31,10 +35,10 @@ export function usePaginatedStatusTasks(
   const queryArgs = useMemo((): GetTasksParams => {
     const params: GetTasksParams = {
       projectId: filters.projectId,
-      status,
       page,
       limit: pageSize,
     };
+    if (filters.status) params.status = filters.status;
     const trimmed = filters.search?.trim();
     if (trimmed) {
       params.search = trimmed;
@@ -42,6 +46,7 @@ export function usePaginatedStatusTasks(
     }
     if (filters.priority) params.priority = filters.priority;
     if (filters.phaseId) params.phaseId = filters.phaseId;
+    if (filters.unassignedPhase) params.unassignedPhase = true;
     if (filters.ownerId) params.ownerId = filters.ownerId;
     return params;
   }, [
@@ -49,8 +54,9 @@ export function usePaginatedStatusTasks(
     filters.search,
     filters.priority,
     filters.phaseId,
+    filters.unassignedPhase,
     filters.ownerId,
-    status,
+    filters.status,
     page,
     pageSize,
   ]);
@@ -62,8 +68,9 @@ export function usePaginatedStatusTasks(
         search: filters.search?.trim() || "",
         priority: filters.priority || "",
         phaseId: filters.phaseId || "",
+        unassignedPhase: Boolean(filters.unassignedPhase),
         ownerId: filters.ownerId || "",
-        status,
+        status: filters.status || "",
         pageSize,
       }),
     [
@@ -71,13 +78,13 @@ export function usePaginatedStatusTasks(
       filters.search,
       filters.priority,
       filters.phaseId,
+      filters.unassignedPhase,
       filters.ownerId,
-      status,
+      filters.status,
       pageSize,
     ],
   );
 
-  // Reset accumulation when filters change.
   useEffect(() => {
     setPage(1);
     setRows([]);
@@ -100,7 +107,6 @@ export function usePaginatedStatusTasks(
 
   const total = data?.meta?.total;
   const hasNextPage = Boolean(data?.hasNextPage);
-  // Prefer server total when known; else fall back to loaded length.
   const loadedCount = rows.length;
 
   const loadMore = useCallback(() => {
@@ -126,4 +132,30 @@ export function usePaginatedStatusTasks(
     loadMore,
     refetch: resetAndRefetch,
   };
+}
+
+/**
+ * Option B: one paginated query per status column (top-level tasks only).
+ */
+export function usePaginatedStatusTasks(
+  status: TaskStatus,
+  filters: StatusColumnFilters,
+  options?: { pageSize?: number; skip?: boolean },
+) {
+  return usePaginatedTaskList({ ...filters, status }, options);
+}
+
+/** One paginated query per phase group (or unassigned when phaseId is null). */
+export function usePaginatedPhaseTasks(
+  phaseId: string | null,
+  filters: StatusColumnFilters,
+  options?: { pageSize?: number; skip?: boolean },
+) {
+  return usePaginatedTaskList(
+    {
+      ...filters,
+      ...(phaseId ? { phaseId } : { unassignedPhase: true }),
+    },
+    options,
+  );
 }
