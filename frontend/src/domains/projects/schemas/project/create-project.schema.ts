@@ -13,13 +13,21 @@ const requiredDate = (message: string) =>
     z.coerce.date({ message }),
   );
 
+/** Matches Keka PSA Group.Name on this tenant (255 fails; 100 does not). */
+export const PROJECT_NAME_MAX = 100;
+/** PMO + Keka description — send the full value, max 500. */
+export const PROJECT_OBJECTIVE_MAX = 500;
+
 const baseProjectSchema = z
   .object({
-    name: z.string().min(1, "Name is required").max(255, "Project name must be 255 characters or fewer"),
+    name: z
+      .string()
+      .min(1, "Name is required")
+      .max(PROJECT_NAME_MAX, "Project name must be 100 characters or fewer (Keka limit)"),
     objective: z
       .string()
       .min(5, "Objective must be at least 5 characters")
-      .max(2000, "Description must be 2000 characters or fewer"),
+      .max(PROJECT_OBJECTIVE_MAX, "Description must be 500 characters or fewer"),
     departmentId: z.string().uuid("Please select a Department"),
     customerId: z.string().uuid("Please select a Customer"),
     engagementType: z.enum(["ManagedServices", "StaffAugmentation", "FixedPrice"]),

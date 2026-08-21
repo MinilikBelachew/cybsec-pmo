@@ -47,10 +47,12 @@ import {
 } from "@/shared/ui/table";
 import { cn } from "@/shared/utils/cn";
 
-export type DataTableBulkSelectProps = {
+export type DataTableBulkSelectProps<TData = unknown> = {
   active: boolean;
   onActiveChange: (active: boolean) => void;
   actions?: React.ReactNode;
+  /** When set, only these rows can be checked (e.g. skip WBS phase/milestone rows). */
+  canSelectRow?: (row: TData) => boolean;
 };
 
 export type DataTableProps<TData, TValue> = {
@@ -77,7 +79,7 @@ export type DataTableProps<TData, TValue> = {
   onSearchChange?: (value: string) => void;
   isLoading?: boolean;
   filters?: React.ReactNode;
-  bulkSelect?: DataTableBulkSelectProps;
+  bulkSelect?: DataTableBulkSelectProps<TData>;
   onSelectionChange?: (rows: TData[]) => void;
   emptyMessage?: string;
   tableClassName?: string;
@@ -358,7 +360,8 @@ export function DataTable<TData, TValue>({
     data,
     columns,
     getRowId: getRowId ? (row) => getRowId(row) : undefined,
-    enableRowSelection: bulkActive,
+    enableRowSelection: (row) =>
+      bulkActive && (bulkSelect?.canSelectRow?.(row.original) ?? true),
     pageCount: manual ? pageCount : undefined,
     manualPagination: manual,
     manualSorting: manual,

@@ -111,20 +111,31 @@ export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
     accessorKey: "action",
     id: "action",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Action" />,
-    cell: ({ row }) => (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <code className="block max-w-full truncate rounded-md bg-muted/70 px-2 py-1 text-[11px] font-medium" />
-          }
-        >
-          {formatAuditAction(row.original.action)}
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="start" className="max-w-xs break-all">
-          {formatAuditAction(row.original.action)}
-        </TooltipContent>
-      </Tooltip>
-    ),
+    cell: ({ row }) => {
+      const functional = row.original.description?.trim();
+      const eventLabel = formatAuditAction(row.original.action);
+      const primary = functional || eventLabel;
+      return (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <p className="min-w-0 max-w-full cursor-default truncate text-sm font-medium leading-snug text-foreground" />
+            }
+          >
+            {primary}
+          </TooltipTrigger>
+          <TooltipContent
+            side="bottom"
+            align="start"
+            className="max-w-sm whitespace-pre-wrap break-words"
+          >
+            {functional && functional !== eventLabel
+              ? `${primary}\n(${eventLabel})`
+              : primary}
+          </TooltipContent>
+        </Tooltip>
+      );
+    },
     meta: { className: "w-[160px] max-w-[160px] overflow-hidden" },
   },
   {

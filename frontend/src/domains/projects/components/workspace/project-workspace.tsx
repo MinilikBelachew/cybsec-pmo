@@ -1336,7 +1336,6 @@ export function ProjectWorkspace() {
             canApproveTask={canReviewProgress}
             onUpdateTaskPriority={canManageTasks ? handleUpdateTaskPriority : undefined}
             dependencies={taskDependencies}
-            milestones={milestones}
             canBulkEdit={canManageTasks}
             onBulkAssign={canAssignTask ? handleBulkAssign : undefined}
             onBulkStatus={canManageTasks ? handleBulkStatus : undefined}

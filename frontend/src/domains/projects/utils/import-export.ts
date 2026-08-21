@@ -19,6 +19,10 @@ import {
   type ParsedExcelPredecessor,
 } from "./task-export-fields";
 import {
+  PROJECT_NAME_MAX,
+  PROJECT_OBJECTIVE_MAX,
+} from "../schemas/project/create-project.schema";
+import {
   drawPdfReportHeader,
   drawPdfSectionTitle,
   drawPdfKeyValueGrid,
@@ -1157,7 +1161,13 @@ export function processRawCSVRows(
 
     // Basic required field validations
     if (!name) errors.push("Project name is required.");
+    if (name && name.length > PROJECT_NAME_MAX) {
+      errors.push(`Project name must be ${PROJECT_NAME_MAX} characters or fewer (Keka limit).`);
+    }
     if (!objective) errors.push("Objective is required.");
+    if (objective && objective.length > PROJECT_OBJECTIVE_MAX) {
+      errors.push(`Description must be ${PROJECT_OBJECTIVE_MAX} characters or fewer.`);
+    }
     if (name && duplicateNames.has(name.trim())) {
       errors.push(`Duplicate project name "${name}" found in this file.`);
     }

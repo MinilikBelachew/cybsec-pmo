@@ -71,6 +71,7 @@ interface Task {
   phaseColor?: string;
   /** Task nest level for Sub/Sub² labels — independent of phase indent. */
   nestLabelDepth?: number;
+  createdAt?: string;
 }
 
 const STATUS_PILL: Record<Status, string> = {
@@ -942,6 +943,7 @@ export function TableView({
                     if (!active) setSelectedRows([]);
                   },
                   actions: bulkActions,
+                  canSelectRow: isTaskRow,
                 }
               : undefined
           }

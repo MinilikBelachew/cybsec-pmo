@@ -21,6 +21,20 @@ export function generateAuditDescription(input: DescriptionInput): string {
   if (action === 'LOGIN') return 'User logged in';
   if (action === 'LOGOUT') return 'User logged out';
   if (action === 'SESSION_TIMEOUT') return 'Session timed out (idle)';
+  if (action === 'UPDATE_SESSION_TIMEOUT') {
+    const record =
+      newValue && typeof newValue === 'object' && !Array.isArray(newValue)
+        ? (newValue as Record<string, unknown>)
+        : null;
+    const seconds =
+      typeof record?.idleTimeoutSec === 'number' &&
+      Number.isFinite(record.idleTimeoutSec)
+        ? record.idleTimeoutSec
+        : null;
+    return seconds != null
+      ? `Updated session timeout to ${seconds}s`
+      : 'Updated session timeout';
+  }
   if (action === 'REFRESH') return 'Session refreshed';
   if (
     action === 'UPDATE_ROLE' ||

@@ -16,17 +16,26 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ExcelTaskImportRowDto } from './excel-tasks-import.dto';
+import {
+  PROJECT_NAME_MAX_LENGTH,
+  PROJECT_OBJECTIVE_MAX_LENGTH,
+} from '../../projects/constants/project-limits';
 
 export class ExcelProjectImportRowDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(255)
+  @MaxLength(PROJECT_NAME_MAX_LENGTH, {
+    message: 'Project name must be 100 characters or fewer (Keka limit)',
+  })
   name: string;
 
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(PROJECT_OBJECTIVE_MAX_LENGTH, {
+    message: 'Description must be 500 characters or fewer',
+  })
   objective: string;
 
   @ApiProperty()

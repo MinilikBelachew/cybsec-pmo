@@ -107,6 +107,7 @@ interface ListViewProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   phases?: ProjectPhase[];
+  /** Phase grouping rows, plus hide MPP schedule-milestone DEP nest rows from the work list. */
   milestones?: ProjectMilestone[];
   /** Waterfall defaults this on; Agile/Hybrid keep status groups. Toggle still available. */
   groupByPhaseDefault?: boolean;
@@ -120,8 +121,6 @@ interface ListViewProps {
   onUpdateTaskPriority?: (taskId: string, priority: ApiPriority) => Promise<void>;
   /** Project dependency links — used to nest dependents under predecessors (DEF-P1-047). */
   dependencies?: TaskDependency[];
-  /** MPP schedule milestones — hide matching DEP FS/FF nest rows from the work list. */
-  milestones?: ProjectMilestone[];
   /** DEF-P1-036 — bulk assign / status / priority / delete */
   canBulkEdit?: boolean;
   onBulkAssign?: (taskIds: string[], ownerId: string | null) => Promise<void>;
@@ -190,7 +189,6 @@ export function ListView({
   canApproveTask = false,
   onUpdateTaskPriority,
   dependencies = [],
-  milestones = [],
   canBulkEdit = false,
   onBulkAssign,
   onBulkStatus,
@@ -201,12 +199,15 @@ export function ListView({
   const [openPhases, setOpenPhases] = React.useState<Record<string, boolean>>({});
   const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [loadedById, setLoadedById] = useState<Map<string, Task>>(() => new Map());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const { canEditDependencies } = useModulePermissions();
 
   React.useEffect(() => {
     setGroupByPhase(groupByPhaseDefault);
+    setLoadedById(new Map());
+    setSelectedIds(new Set());
   }, [projectId, groupByPhaseDefault]);
 
   const taskById = React.useMemo(() => {
@@ -322,13 +323,17 @@ export function ListView({
 
   const allSelectableIds = React.useMemo(() => {
     const ids: string[] = [];
+    const seen = new Set<string>();
     const walk = (t: Task) => {
+      if (t.treeKind === "dependency" || seen.has(t.id)) return;
+      seen.add(t.id);
       ids.push(t.id);
       for (const c of t.children ?? []) walk(c);
     };
     for (const t of tasks) walk(t);
+    for (const t of loadedById.values()) walk(t);
     return ids;
-  }, [tasks]);
+  }, [tasks, loadedById]);
   // Checkboxes only while Select mode is on (not always visible).
   const showBulkSelect = Boolean(canBulkEdit && bulkMode);
   const allSelected =
@@ -437,6 +442,15 @@ export function ListView({
 
   const absorbExpandableTasks = React.useCallback((loaded: Task[]) => {
     const idsToExpand: string[] = [];
+    setLoadedById((prev) => {
+      const next = new Map(prev);
+      const walkLoaded = (t: Task) => {
+        next.set(t.id, t);
+        for (const c of t.children ?? []) walkLoaded(c);
+      };
+      for (const t of loaded) walkLoaded(t);
+      return next;
+    });
     const walk = (t: Task) => {
       const hasNest =
         (t.children?.length ?? 0) > 0 ||
@@ -1303,6 +1317,7 @@ export function ListView({
                 getStatusBadge={getStatusBadge}
                 renderColumnHeaders={renderColumnHeaders}
                 renderTaskRow={renderTaskRow}
+                onLoadedTasks={absorbExpandableTasks}
                 onAddTask={onAddTask}
                 showBulkSelect={showBulkSelect}
               />
@@ -1369,6 +1384,7 @@ function ListStatusSection({
   getStatusBadge,
   renderColumnHeaders,
   renderTaskRow,
+  onLoadedTasks,
   onAddTask,
   showBulkSelect,
 }: {
@@ -1380,6 +1396,7 @@ function ListStatusSection({
   getStatusBadge: (status: Status, isHeader?: boolean) => React.ReactNode;
   renderColumnHeaders: () => React.ReactNode;
   renderTaskRow: (task: Task, depth?: number) => React.ReactNode;
+  onLoadedTasks?: (tasks: Task[]) => void;
   onAddTask?: (status: Status, phaseId?: string | null) => void;
   showBulkSelect: boolean;
 }) {
@@ -1392,6 +1409,11 @@ function ListStatusSection({
   const displayCount =
     typeof statusCount === "number" ? statusCount : isOpen ? total : 0;
   const groupTasks = tasks as unknown as Task[];
+
+  React.useEffect(() => {
+    if (!isOpen || groupTasks.length === 0) return;
+    onLoadedTasks?.(groupTasks);
+  }, [groupTasks, isOpen, onLoadedTasks]);
 
   return (
     <div className="mb-4">

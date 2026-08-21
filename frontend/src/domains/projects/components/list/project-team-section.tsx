@@ -53,6 +53,8 @@ interface ProjectTeamSectionProps {
   canEdit?: boolean;
   /** @deprecated Department staffing policy now controls candidate filtering. */
   filterByDepartment?: boolean;
+  /** `form` = create/edit project sheet; `workspace` = Team tab copy for dates. */
+  variant?: "form" | "workspace";
   /** Shown under over-allocation comments when save validation fails. */
   validationError?: string | null;
 }

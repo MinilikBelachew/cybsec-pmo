@@ -188,6 +188,9 @@ export function ImportProjectsDialog({
     () => parsedRows.filter((r) => r.errors.length === 0),
     [parsedRows],
   );
+  /** Live count after inline edits — do not use the first preview snapshot. */
+  const projectsReadyCount = validRows.length;
+  const projectsTotalCount = counts?.projectsTotal ?? parsedRows.length;
 
   const nestedErrorCount = useMemo(() => {
     let count = 0;
@@ -732,7 +735,7 @@ export function ImportProjectsDialog({
       toast.error("No preview available to import.");
       return;
     }
-    if (!counts || counts.projectsValid <= 0) {
+    if (projectsReadyCount <= 0) {
       toast.error("No valid projects to import.");
       return;
     }
@@ -745,7 +748,7 @@ export function ImportProjectsDialog({
       const enqueue = await confirmExcelProjectsImport({ previewId }).unwrap();
 
       const trackArgs = {
-        label: `Importing ${counts.projectsValid} project${counts.projectsValid === 1 ? "" : "s"}`,
+        label: `Importing ${projectsReadyCount} project${projectsReadyCount === 1 ? "" : "s"}`,
         kind: "excel-projects" as const,
         onComplete: (status: { result: Record<string, unknown> | null }) => {
           const result = status.result ?? {};
@@ -1046,7 +1049,7 @@ export function ImportProjectsDialog({
               )}
               {file && !validationError && !isImporting && !isParsing && counts && (
                 <span>
-                  {counts.projectsValid} of {counts.projectsTotal} projects ready to import.
+                  {projectsReadyCount} of {projectsTotalCount} projects ready to import.
                   {hasActiveErrors && (
                     <span className="text-amber-600 dark:text-amber-400 ml-1 font-medium">
                       ({nestedErrorCount} nested row{nestedErrorCount === 1 ? "" : "s"} with errors will be skipped)
@@ -1068,7 +1071,7 @@ export function ImportProjectsDialog({
               {file && !isImporting && !isParsing && (
                 <Button
                   onClick={handleImport}
-                  disabled={!counts || counts.projectsValid <= 0 || !!validationError}
+                  disabled={projectsReadyCount <= 0 || !!validationError}
                   size="sm"
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >

@@ -3,6 +3,11 @@
  * (processRawCSVRows / processRawPhaseRows / processRawMilestoneRows).
  */
 
+import {
+  PROJECT_NAME_MAX_LENGTH,
+  PROJECT_OBJECTIVE_MAX_LENGTH,
+} from '../projects/constants/project-limits';
+
 export type CatalogDepartment = { id: string; name: string; code: string };
 export type CatalogCustomer = { id: string; displayName: string };
 export type CatalogManager = { id: string; displayName: string; email: string };
@@ -161,7 +166,17 @@ export function processRawProjectRows(
     const warnings: string[] = [];
 
     if (!name) errors.push('Project name is required.');
+    if (name && name.length > PROJECT_NAME_MAX_LENGTH) {
+      errors.push(
+        `Project name must be ${PROJECT_NAME_MAX_LENGTH} characters or fewer (Keka limit).`,
+      );
+    }
     if (!objective) errors.push('Objective is required.');
+    if (objective && objective.length > PROJECT_OBJECTIVE_MAX_LENGTH) {
+      errors.push(
+        `Description must be ${PROJECT_OBJECTIVE_MAX_LENGTH} characters or fewer.`,
+      );
+    }
     if (name && duplicateNames.has(name.trim())) {
       errors.push(`Duplicate project name "${name}" found in this file.`);
     }

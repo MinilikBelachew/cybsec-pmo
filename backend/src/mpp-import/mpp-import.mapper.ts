@@ -15,6 +15,7 @@ import {
   ParsedMppTask,
 } from './mpp-import.types';
 import { joinResourceNames } from './resource-names.util';
+import { PROJECT_NAME_MAX_LENGTH } from '../projects/constants/project-limits';
 
 const PREVIEW_TASK_LIMIT = 250;
 const DEFAULT_PHASE_NAME = 'Imported Schedule';
@@ -71,7 +72,7 @@ export class MppImportMapper {
     const segments: MppPortfolioSegment[] = [];
 
     for (const root of projectRoots) {
-      const projectName = root.name.trim().slice(0, 255);
+      const projectName = root.name.trim().slice(0, PROJECT_NAME_MAX_LENGTH);
       const nameKey = projectName;
       if (seenNames.has(nameKey)) {
         warnings.push(
@@ -980,7 +981,7 @@ export class MppImportMapper {
   ): string | undefined {
     const wrapper = this.getScheduleWrapperSummary(byUid);
     if (wrapper?.name?.trim()) {
-      return wrapper.name.trim().slice(0, 255);
+      return wrapper.name.trim().slice(0, PROJECT_NAME_MAX_LENGTH);
     }
 
     const outlineZero = [...byUid.values()].find(
@@ -990,7 +991,7 @@ export class MppImportMapper {
         task.outlineLevel === 0,
     );
     if (outlineZero?.name?.trim()) {
-      return outlineZero.name.trim().slice(0, 255);
+      return outlineZero.name.trim().slice(0, PROJECT_NAME_MAX_LENGTH);
     }
 
     return parsed.project?.name?.trim() || undefined;

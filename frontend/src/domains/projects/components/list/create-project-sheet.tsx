@@ -24,6 +24,8 @@ import {
   createProjectFormSchema,
   editProjectFormSchema,
   toCreateProjectPayload,
+  PROJECT_NAME_MAX,
+  PROJECT_OBJECTIVE_MAX,
   ProjectTeamSection,
   ProjectLeaveImpactSection,
   type CreateProjectFormValues,
@@ -159,8 +161,6 @@ function toMilestoneApiPayload(draft: {
   };
 }
 
-const PROJECT_NAME_MAX = 255;
-const PROJECT_OBJECTIVE_MAX = 2000;
 const OVERRIDE_REASON_MIN = 10;
 
 const PROJECT_FORM_FIELDS = new Set([

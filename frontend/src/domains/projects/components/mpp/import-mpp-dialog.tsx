@@ -30,6 +30,7 @@ import {
   MppImportPreviewPanel,
   type MppEditableProject,
 } from "./mpp-import-preview-panel";
+import { PROJECT_NAME_MAX, PROJECT_OBJECTIVE_MAX } from "../../schemas/project/create-project.schema";
 
 const ACCEPTED_EXTENSIONS = [".mpp", ".mpx", ".xml"];
 
@@ -101,8 +102,15 @@ function valueFromParsedCost(cost?: number): string {
 function validateEditableProject(row: MppEditableProject): string[] {
   if (row.importMode === "update") return [];
   const errors: string[] = [];
+  if (!row.name.trim()) errors.push("Project name is required.");
+  if (row.name.trim().length > PROJECT_NAME_MAX) {
+    errors.push(`Project name must be ${PROJECT_NAME_MAX} characters or fewer.`);
+  }
   if (!row.objective.trim() || row.objective.trim().length < 5) {
     errors.push("Objective is required (min 5 characters).");
+  }
+  if (row.objective.trim().length > PROJECT_OBJECTIVE_MAX) {
+    errors.push(`Description must be ${PROJECT_OBJECTIVE_MAX} characters or fewer.`);
   }
   if (!row.departmentId) errors.push("Department is required.");
   if (!row.customerId) errors.push("Customer is required.");
@@ -156,7 +164,7 @@ function buildEditableProjects(
   }
 
   const row: MppEditableProject = {
-    name: (data.projectName || file.name.replace(/\.[^.]+$/, "")).slice(0, 255),
+    name: (data.projectName || file.name.replace(/\.[^.]+$/, "")).slice(0, PROJECT_NAME_MAX),
     importMode: data.importMode === "update" ? "update" : "create",
     resolvedProjectId: data.resolvedProjectId,
     objective,
@@ -355,7 +363,7 @@ export function ImportMppDialog({
 
         setEditableProjects([
           {
-            name: scheduleName.slice(0, 255),
+            name: scheduleName.slice(0, PROJECT_NAME_MAX),
             importMode: "update",
             resolvedProjectId: projectId,
             objective: "",

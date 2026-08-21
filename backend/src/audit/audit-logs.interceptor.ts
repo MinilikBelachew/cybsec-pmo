@@ -315,6 +315,19 @@ export class AuditLogsInterceptor implements NestInterceptor {
       return { objectType: 'File', action: 'CREATE_UPLOAD', resourceId: null };
     }
 
+    // DEF-P1-071 — Settings → Security session timeout is a business action,
+    // not a generic UPDATE_SETTINGS / PATCH.
+    if (root === 'settings' && url.includes('session-security')) {
+      return {
+        objectType: 'Settings',
+        action:
+          method === 'PATCH' || method === 'PUT'
+            ? 'UPDATE_SESSION_TIMEOUT'
+            : this.mapRootAction(method, root),
+        resourceId: null,
+      };
+    }
+
     if (root === 'tasks' && urlParts[1] === 'dependencies') {
       const dependencyId =
         urlParts[2] && UUID_REGEX.test(urlParts[2]) ? urlParts[2] : null;
