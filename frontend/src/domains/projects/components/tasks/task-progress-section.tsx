@@ -33,12 +33,15 @@ const STATUS_BADGE: Record<string, string> = {
 interface TaskProgressSectionProps {
   task: Task;
   onUpdated?: () => void;
+  /** After engineer progress submit — not PM review. */
+  onProgressSubmitted?: () => void;
   focusProgressReview?: boolean;
 }
 
 export function TaskProgressSection({
   task,
   onUpdated,
+  onProgressSubmitted,
   focusProgressReview = false,
 }: TaskProgressSectionProps) {
   const { user } = useAuth();
@@ -248,6 +251,7 @@ export function TaskProgressSection({
       setProgressError(null);
       setHoursError(null);
       setEvidenceFiles([]);
+      onProgressSubmitted?.();
       onUpdated?.();
     } catch (err: unknown) {
       toast.error(formatTaskApiError(err, "Failed to submit progress"));
@@ -413,6 +417,9 @@ export function TaskProgressSection({
                 max={remainingCapacity}
                 value={progressPercent}
                 aria-invalid={Boolean(progressError)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.preventDefault();
+                }}
                 onChange={(e) => {
                   setProgressPercent(e.target.value);
                   if (progressError) setProgressError(null);
@@ -435,10 +442,12 @@ export function TaskProgressSection({
                 type="number"
                 min={0.5}
                 step={0.5}
-                required
                 aria-required="true"
                 aria-invalid={Boolean(hoursError)}
                 value={hoursSpent}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.preventDefault();
+                }}
                 onChange={(e) => {
                   setHoursSpent(e.target.value);
                   if (hoursError) setHoursError(null);

@@ -19,6 +19,7 @@ import {
   type UpdateTaskFormValues,
   TaskProgressSection,
   TaskDependenciesSection,
+  canMoveTaskToStatus,
   filterStatusOptionsForRole,
   formatTaskApiError,
 } from "@/domains/projects";
@@ -274,12 +275,12 @@ export function TaskDetailPanel({
   const statusOptions = useMemo(
     () =>
       filterStatusOptionsForRole(
-        watchedStatus ?? task?.status ?? "To_Do",
+        task?.status ?? watchedStatus ?? "To_Do",
         STATUS_OPTIONS,
         user?.id === task?.ownerId,
         ability?.can("approve", "Task") ?? false,
       ),
-    [watchedStatus, task?.status, task?.ownerId, user?.id, ability],
+    [task?.status, watchedStatus, task?.ownerId, user?.id, ability],
   );
 
   useEffect(() => {
@@ -304,7 +305,12 @@ export function TaskDetailPanel({
     !hasParent || !task?.parentTask?.parentTaskId;
 
   const handleEngineerStatusChange = async (newStatus: UpdateTaskFormValues["status"]) => {
-    if (!taskId || newStatus === watchedStatus) return;
+    if (!taskId || !task) return;
+    if (newStatus === task.status) return;
+    const canApprove = ability?.can("approve", "Task") ?? false;
+    if (!canMoveTaskToStatus(task.status, newStatus, isTaskOwner, canApprove)) {
+      return;
+    }
     try {
       await updateTask({ id: taskId, body: { status: newStatus } }).unwrap();
       reset({ ...getValues(), status: newStatus });
@@ -349,7 +355,16 @@ export function TaskDetailPanel({
   return (
     <Sheet open={open && !!taskId} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <SheetContent side="right" className={TASK_DETAIL_SHEET_CLASS} showCloseButton>
-        <form onSubmit={onSave} className="flex h-full flex-col">
+        <form
+          onSubmit={(event) => {
+            if (!canManageTasks) {
+              event.preventDefault();
+              return;
+            }
+            void onSave(event);
+          }}
+          className="flex h-full flex-col"
+        >
           {isLoading && (
             <div className="flex flex-1 items-center justify-center text-muted-foreground">
               <Spinner size="md" className="mr-2" />
@@ -434,7 +449,7 @@ export function TaskDetailPanel({
                         name="status"
                         render={({ field }) => (
                           <Select
-                            value={field.value}
+                            value={isEngineerView ? (task.status ?? field.value) : field.value}
                             onValueChange={(value) => {
                               if (isEngineerView && isTaskOwner) {
                                 void handleEngineerStatusChange(
@@ -448,7 +463,11 @@ export function TaskDetailPanel({
                           >
                             <SelectTrigger className="w-full">
                               <SelectValue>
-                                {STATUS_OPTIONS.find((opt) => opt.value === field.value)?.label ?? field.value}
+                                {STATUS_OPTIONS.find(
+                                  (opt) =>
+                                    opt.value ===
+                                    (isEngineerView ? (task.status ?? field.value) : field.value),
+                                )?.label ?? field.value}
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent alignItemWithTrigger={false}>
@@ -807,6 +826,12 @@ export function TaskDetailPanel({
                         focusProgressReview={focusProgressReview}
                         onUpdated={() => {
                           onUpdated?.();
+                        }}
+                        onProgressSubmitted={() => {
+                          reset({
+                            ...getValues(),
+                            status: "Submitted_for_Review",
+                          });
                         }}
                       />
                     )}
