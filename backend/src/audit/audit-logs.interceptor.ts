@@ -52,6 +52,11 @@ export class AuditLogsInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    // Heartbeat is not a user action — it was filling Audit Log with "POST / Auth".
+    if (url.includes('/auth/session/heartbeat')) {
+      return next.handle();
+    }
+
     if (
       url.includes('/auth/break-glass') ||
       url.includes('/auth/emergency-login')
@@ -308,7 +313,11 @@ export class AuditLogsInterceptor implements NestInterceptor {
       if (url.includes('/refresh')) {
         return { objectType: 'Session', action: 'REFRESH', resourceId: null };
       }
-      return { objectType: 'Auth', action: method, resourceId: null };
+      return {
+        objectType: 'Auth',
+        action: method === 'POST' ? 'LOGIN' : 'UPDATE_AUTH',
+        resourceId: null,
+      };
     }
 
     if (root === 'files' && urlParts.includes('upload')) {

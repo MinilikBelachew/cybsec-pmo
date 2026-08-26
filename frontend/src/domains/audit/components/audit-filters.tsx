@@ -20,17 +20,21 @@ import { cn } from "@/shared/utils/cn";
 
 const ACTION_OPTIONS = [
   { value: "", label: "All actions" },
-  { value: "POST", label: "POST" },
-  { value: "BREAK_GLASS_ACTIVATED", label: "Break-glass activated" },
-  { value: "BREAK_GLASS_STOPPED", label: "Break-glass stopped" },
-  { value: "UPDATE_USER", label: "Update user" },
-  { value: "CREATE_USER", label: "Create user" },
-  { value: "DELETE_USER", label: "Delete user" },
-  { value: "LOGOUT", label: "Logout" },
-  { value: "SESSION_TIMEOUT", label: "Session timeout" },
-  { value: "LOGIN", label: "Login" },
+  { value: "LOGIN", label: "Logged in" },
+  { value: "LOGOUT", label: "Logged out" },
   { value: "LOGIN_FAILED", label: "Login failed" },
-  { value: "REFRESH", label: "Refresh" },
+  { value: "SESSION_TIMEOUT", label: "Session timed out" },
+  { value: "REFRESH", label: "Session refreshed" },
+  { value: "UPDATE_SESSION_TIMEOUT", label: "Updated session timeout" },
+  { value: "BREAK_GLASS_ACTIVATED", label: "Activated break-glass" },
+  { value: "BREAK_GLASS_STOPPED", label: "Stopped break-glass" },
+  { value: "CREATE_PROJECT", label: "Created project" },
+  { value: "UPDATE_PROJECT", label: "Updated project" },
+  { value: "CREATE_TASK", label: "Created task" },
+  { value: "UPDATE_TASK", label: "Updated task" },
+  { value: "CREATE_USER", label: "Created user" },
+  { value: "UPDATE_USER", label: "Updated user" },
+  { value: "DELETE_USER", label: "Deleted user" },
 ];
 
 const OBJECT_OPTIONS = [

@@ -18,8 +18,19 @@ export function generateAuditDescription(input: DescriptionInput): string {
   const toProject = project ? ` to project "${project}"` : '';
   const fromProject = project ? ` from project "${project}"` : '';
 
-  if (action === 'LOGIN') return 'User logged in';
+  if (action === 'LOGIN' || (action === 'POST' && objectType === 'Auth')) {
+    return 'User logged in';
+  }
   if (action === 'LOGOUT') return 'User logged out';
+  if (
+    action === 'POST' ||
+    action === 'PATCH' ||
+    action === 'PUT' ||
+    action === 'GET' ||
+    action === 'DELETE'
+  ) {
+    return `Performed ${action.toLowerCase()} on ${friendlyType(objectType)}`;
+  }
   if (action === 'SESSION_TIMEOUT') return 'Session timed out (idle)';
   if (action === 'UPDATE_SESSION_TIMEOUT') {
     const record =
