@@ -194,15 +194,23 @@ export const formatDateTimeLabel = (
   }
 };
 
-/** Compact list/board label: `MMM D, h:mm AM`. */
+/** Compact list/table label: `Tue 4/29/26 8:00 AM`. */
 export const formatShortDateTime = (value?: string | Date | null) => {
   if (!value) return null;
   try {
     const date = value instanceof Date ? value : parseTaskDateTime(value);
     if (Number.isNaN(date.getTime())) return null;
-    const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-    return `${day}, ${time}`;
+    const weekday = date.toLocaleDateString("en-US", { weekday: "short" });
+    const day = date.toLocaleDateString("en-US", {
+      month: "numeric",
+      day: "numeric",
+      year: "2-digit",
+    });
+    const time = date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return `${weekday} ${day} ${time}`;
   } catch {
     return null;
   }
