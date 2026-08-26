@@ -732,7 +732,7 @@ export class TasksService {
   
   private toTaskDayKey(value: Date | string): string {
     if (typeof value === 'string') return value.slice(0, 10);
-    // Prisma @db.Date values are UTC midnight — use UTC parts, not local.
+    // Prefer UTC calendar day so @db.Date phase bounds and timestamptz task times compare consistently.
     const y = value.getUTCFullYear();
     const m = String(value.getUTCMonth() + 1).padStart(2, '0');
     const d = String(value.getUTCDate()).padStart(2, '0');

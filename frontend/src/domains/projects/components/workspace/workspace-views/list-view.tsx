@@ -20,6 +20,7 @@ import {
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { TaskDependenciesPicker } from "./task-predecessors-cell";
 import { nestedDepthLabel, isHiddenScheduleTask } from "@/domains/projects/utils/map-task-to-gantt";
+import { formatShortDateTime } from "@/shared/utils/date";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -65,13 +66,7 @@ interface Task {
 
 function formatDueDate(dateStr?: string | null) {
   if (!dateStr || dateStr === "No due date") return null;
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return null;
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return null;
-  }
+  return formatShortDateTime(dateStr);
 }
 
 import { type ProjectPhase,  type ProjectTaskAssignee, type ProjectMilestone } from "../../../types/projects.types";
@@ -584,7 +579,7 @@ export function ListView({
       <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Assignee
       </div>
-      <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+      <div className="shrink-0 w-36 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Due Date
       </div>
       <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
@@ -599,7 +594,7 @@ export function ListView({
       <div className="shrink-0 w-20 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Variance
       </div>
-      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+      <div className="shrink-0 w-36 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Plan start
       </div>
       <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
@@ -840,7 +835,7 @@ export function ListView({
             </span>
           )}
         </div>
-        <div className="shrink-0 w-28 text-xs text-muted-foreground text-center flex items-center justify-center">
+        <div className="shrink-0 w-36 text-xs text-muted-foreground text-center flex items-center justify-center">
           {canEditDates && onUpdateTaskDates ? (
             <TaskDatePicker
               startDate={task.rawStartDate}
@@ -922,7 +917,7 @@ export function ListView({
             : `${task.effortVarianceHours}h${task.isOverEffort ? " ⚠" : ""}`}
         </div>
         <div
-          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          className="shrink-0 w-36 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
           title="Planned start"
         >
           {task.rawStartDate

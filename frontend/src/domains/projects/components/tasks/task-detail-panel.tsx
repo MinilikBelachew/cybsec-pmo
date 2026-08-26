@@ -61,7 +61,13 @@ import {
   taskDatesOutsideParentErrors,
   toTaskDayKey,
 } from "../../schemas/task/task-date-fields";
-import { toDateString } from "@/shared/utils/date";
+import {
+  applyTimeToDate,
+  mergeDateKeepingTime,
+  toDateString,
+  toTimeInputValue,
+} from "@/shared/utils/date";
+import { TimePicker } from "@/shared/ui/time-picker";
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -103,8 +109,8 @@ function formatDateLabel(dateVal: string | Date | undefined) {
     const date = dateVal instanceof Date ? dateVal : new Date(dateVal);
     if (isNaN(date.getTime())) return "Pick a date";
     return date.toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "long",
+      weekday: "short",
+      month: "short",
       day: "numeric",
       year: "numeric",
     });
@@ -699,77 +705,113 @@ export function TaskDetailPanel({
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Start date <span className="text-destructive font-bold">*</span></Label>
+                      <Label className="text-xs text-muted-foreground">Start date & time <span className="text-destructive font-bold">*</span></Label>
                       <Controller
                         control={control}
                         name="startDate"
                         render={({ field }) => (
-                          <Popover>
-                            <PopoverTrigger
-                              type="button"
+                          <div className="flex gap-2">
+                            <Popover>
+                              <PopoverTrigger
+                                type="button"
+                                disabled={!canEditTaskFields}
+                                className="flex h-9 min-w-0 flex-1 items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm disabled:cursor-default disabled:opacity-80"
+                              >
+                                <span className={cn("truncate", !field.value && "text-muted-foreground")}>
+                                  {formatDateLabel(field.value)}
+                                </span>
+                                <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={field.value ? new Date(field.value) : undefined}
+                                  onSelect={(date) => {
+                                    const next = date
+                                      ? mergeDateKeepingTime(date, field.value, 9, 0)
+                                      : undefined;
+                                    field.onChange(next);
+                                    applyPhaseDateErrors(next, watchedEndDate);
+                                  }}
+                                  disabled={isDateDisabled}
+                                  startMonth={effectiveMin}
+                                  endMonth={effectiveMax}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <TimePicker
+                              className="w-31 shrink-0"
                               disabled={!canEditTaskFields}
-                              className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm disabled:cursor-default disabled:opacity-80"
-                            >
-                              <span className={cn("truncate", !field.value && "text-muted-foreground")}>
-                                {formatDateLabel(field.value)}
-                              </span>
-                              <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={(date) => {
-                                  field.onChange(date ?? undefined);
-                                  applyPhaseDateErrors(date ?? undefined, watchedEndDate);
-                                }}
-                                disabled={isDateDisabled}
-                                startMonth={effectiveMin}
-                                endMonth={effectiveMax}
-                              />
-                            </PopoverContent>
-                          </Popover>
+                              value={toTimeInputValue(field.value)}
+                              onChange={(timeValue) => {
+                                const base = field.value ? new Date(field.value) : new Date();
+                                const next = applyTimeToDate(base, timeValue, 9, 0);
+                                field.onChange(next);
+                                applyPhaseDateErrors(next, watchedEndDate);
+                              }}
+                            />
+                          </div>
                         )}
                       />
                       <FieldError message={errors.startDate?.message as string | undefined} />
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Due date <span className="text-destructive font-bold">*</span></Label>
+                      <Label className="text-xs text-muted-foreground">Due date & time <span className="text-destructive font-bold">*</span></Label>
                       <Controller
                         control={control}
                         name="endDate"
                         render={({ field }) => (
-                          <Popover>
-                            <PopoverTrigger
-                              type="button"
+                          <div className="flex gap-2">
+                            <Popover>
+                              <PopoverTrigger
+                                type="button"
+                                disabled={!canEditTaskFields}
+                                className="flex h-9 min-w-0 flex-1 items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm disabled:cursor-default disabled:opacity-80"
+                              >
+                                <span className={cn("truncate", !field.value && "text-muted-foreground")}>
+                                  {formatDateLabel(field.value)}
+                                </span>
+                                <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={field.value ? new Date(field.value) : undefined}
+                                  onSelect={(date) => {
+                                    const next = date
+                                      ? mergeDateKeepingTime(date, field.value, 17, 0)
+                                      : undefined;
+                                    field.onChange(next);
+                                    applyPhaseDateErrors(watchedStartDate, next);
+                                  }}
+                                  disabled={(date) => {
+                                    if (watchedStartDate) {
+                                      const startDay = new Date(watchedStartDate);
+                                      startDay.setHours(0, 0, 0, 0);
+                                      const day = new Date(date);
+                                      day.setHours(0, 0, 0, 0);
+                                      if (day < startDay) return true;
+                                    }
+                                    return isDateDisabled(date);
+                                  }}
+                                  startMonth={effectiveMin}
+                                  endMonth={effectiveMax}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <TimePicker
+                              className="w-31 shrink-0"
                               disabled={!canEditTaskFields}
-                              className="flex h-9 w-full items-center justify-between rounded-lg border border-input bg-transparent px-3 text-sm disabled:cursor-default disabled:opacity-80"
-                            >
-                              <span className={cn("truncate", !field.value && "text-muted-foreground")}>
-                                {formatDateLabel(field.value)}
-                              </span>
-                              <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={(date) => {
-                                  field.onChange(date ?? undefined);
-                                  applyPhaseDateErrors(watchedStartDate, date ?? undefined);
-                                }}
-                                disabled={(date) => {
-                                  if (watchedStartDate && date < new Date(watchedStartDate)) {
-                                    return true;
-                                  }
-                                  return isDateDisabled(date);
-                                }}
-                                startMonth={effectiveMin}
-                                endMonth={effectiveMax}
-                              />
-                            </PopoverContent>
-                          </Popover>
+                              value={toTimeInputValue(field.value)}
+                              onChange={(timeValue) => {
+                                const base = field.value ? new Date(field.value) : new Date();
+                                const next = applyTimeToDate(base, timeValue, 17, 0);
+                                field.onChange(next);
+                                applyPhaseDateErrors(watchedStartDate, next);
+                              }}
+                            />
+                          </div>
                         )}
                       />
                       <FieldError message={errors.endDate?.message} />

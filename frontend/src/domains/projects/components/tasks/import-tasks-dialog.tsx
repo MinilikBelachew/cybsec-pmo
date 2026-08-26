@@ -29,6 +29,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle, XCircle, X, PlayCircle, Download, ChevronDown, Minimize2 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
+import { formatShortDateTime, toExportDateTime } from "@/shared/utils/date";
 
 interface ImportTasksDialogProps {
   open: boolean;
@@ -549,6 +550,7 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
                   <p className="font-bold text-foreground mb-1 uppercase tracking-wider">Required Column Headers:</p>
                   <p>• Title</p>
                   <p>• Description, Priority, Status, Assignee, Phase, Start Date, End Date, Effort Hours</p>
+                  <p>• Start/End Date accept YYYY-MM-DD or YYYY-MM-DD HH:mm (date-only defaults to 09:00 / 17:00)</p>
                 </div>
               </div>
             ) : (
@@ -821,9 +823,11 @@ export function ImportTasksDialog({ open, onClose, refetch, projectId }: ImportT
 
                                   {/* Timeline Dates */}
                                   <td className="p-3">
-                                    <div className="text-xs text-foreground font-medium space-y-0.5 w-36">
-                                      <div>{row.startDate ? row.startDate.slice(0, 10) : "—"}</div>
-                                      <div className="text-muted-foreground/60">→ {row.endDate ? row.endDate.slice(0, 10) : "—"}</div>
+                                    <div className="text-xs text-foreground font-medium space-y-0.5 w-40">
+                                      <div>{row.startDate ? formatShortDateTime(row.startDate) ?? toExportDateTime(row.startDate) : "—"}</div>
+                                      <div className="text-muted-foreground/60">
+                                        → {row.endDate ? formatShortDateTime(row.endDate) ?? toExportDateTime(row.endDate) : "—"}
+                                      </div>
                                     </div>
                                   </td>
 

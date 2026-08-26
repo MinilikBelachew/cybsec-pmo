@@ -45,6 +45,7 @@ import {
   indexTaskId,
   reindexImportRowKeys,
 } from './excel-task-parents.util';
+import { parseImportTaskDateTime } from './task-datetime.util';
 
 type ProgressFn = (percent: number, step: string) => Promise<void>;
 
@@ -457,8 +458,8 @@ export class ExcelProjectsImportService {
         );
         continue;
       }
-      const startDate = this.parseDate(row.startDate) ?? new Date();
-      const endDate = this.parseDate(row.endDate) ?? startDate;
+      const startDate = parseImportTaskDateTime(row.startDate, 8, 0) ?? new Date();
+      const endDate = parseImportTaskDateTime(row.endDate, 17, 0) ?? startDate;
       prepared.push({
         row,
         mode:

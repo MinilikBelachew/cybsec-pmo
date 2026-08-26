@@ -564,8 +564,8 @@ model Task {
   resourceNames    String?       @map("resource_names") @db.VarChar(1000)
   priority         PriorityLevel @default(Medium)
   ownerId          String?       @map("owner_id") @db.Uuid
-  startDate        DateTime?     @map("start_date") @db.Date
-  endDate          DateTime?     @map("end_date") @db.Date
+  startDate        DateTime?     @map("start_date") @db.Timestamptz
+  endDate          DateTime?     @map("end_date") @db.Timestamptz
   baselineStart    DateTime?     @map("baseline_start") @db.Date
   baselineEnd      DateTime?     @map("baseline_end") @db.Date
   /// MSP working-day duration (supports fractional days e.g. 66.1).

@@ -3,6 +3,11 @@
  * (processRawTaskCSVRows + revalidateParsedTaskRow).
  */
 
+import {
+  normalizeImportTaskDateTime,
+  parseImportTaskDateTime,
+} from './task-datetime.util';
+
 export type PreviewPhase = {
   id: string;
   name: string;
@@ -260,30 +265,34 @@ export function revalidateParsedTaskRow(
   let isStartValid = false;
   let normalizedStart = '';
   if (updated.startDate) {
-    const startKey = toTaskDayKey(updated.startDate);
-    if (startKey) {
+    const startIso = normalizeImportTaskDateTime(updated.startDate, 9, 0);
+    if (startIso) {
       isStartValid = true;
-      normalizedStart = startKey;
+      normalizedStart = startIso;
     } else {
-      errors.push('Start date must be a valid date (YYYY-MM-DD).');
+      errors.push(
+        'Start date must be a valid date/time (YYYY-MM-DD or YYYY-MM-DD HH:mm).',
+      );
     }
   }
 
   let isEndValid = false;
   let normalizedEnd = '';
   if (updated.endDate) {
-    const endKey = toTaskDayKey(updated.endDate);
-    if (endKey) {
+    const endIso = normalizeImportTaskDateTime(updated.endDate, 17, 0);
+    if (endIso) {
       isEndValid = true;
-      normalizedEnd = endKey;
+      normalizedEnd = endIso;
     } else {
-      errors.push('End date must be a valid date (YYYY-MM-DD).');
+      errors.push(
+        'End date must be a valid date/time (YYYY-MM-DD or YYYY-MM-DD HH:mm).',
+      );
     }
   }
 
   if (isStartValid && isEndValid && normalizedStart && normalizedEnd) {
-    if (normalizedStart > normalizedEnd) {
-      errors.push('End date must be on or after start date.');
+    if (new Date(normalizedStart).getTime() > new Date(normalizedEnd).getTime()) {
+      errors.push('End date/time must be on or after start date/time.');
     }
   }
 
@@ -434,8 +443,8 @@ export function revalidateParsedTaskRow(
       );
     } else {
       const phaseDateErrors = taskDatesOutsidePhaseErrors({
-        start: isStartValid ? importDayToLocalDate(normalizedStart) : null,
-        end: isEndValid ? importDayToLocalDate(normalizedEnd) : null,
+        start: isStartValid ? parseImportTaskDateTime(normalizedStart, 9, 0) : null,
+        end: isEndValid ? parseImportTaskDateTime(normalizedEnd, 17, 0) : null,
         phaseStart: effectivePhase.startDate,
         phaseEnd: effectivePhase.endDate,
       });

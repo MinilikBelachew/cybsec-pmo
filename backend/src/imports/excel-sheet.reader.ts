@@ -195,7 +195,7 @@ function cellToString(value: ExcelJS.CellValue | undefined): string {
   }
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
   if (value instanceof Date) {
-    return formatDateYmd(value);
+    return formatDateCell(value);
   }
 
   if (typeof value === 'object') {
@@ -214,10 +214,17 @@ function cellToString(value: ExcelJS.CellValue | undefined): string {
   return String(value).trim();
 }
 
-function formatDateYmd(date: Date): string {
+/** Preserve time for datetime Excel cells; date-only stays YYYY-MM-DD. */
+function formatDateCell(date: Date): string {
   if (Number.isNaN(date.getTime())) return '';
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const h = date.getHours();
+  const min = date.getMinutes();
+  const s = date.getSeconds();
+  if (h === 0 && min === 0 && s === 0) {
+    return `${y}-${m}-${d}`;
+  }
+  return `${y}-${m}-${d} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }

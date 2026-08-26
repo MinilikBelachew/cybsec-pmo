@@ -169,9 +169,11 @@ function mapSubTaskToGanttRow(
       ? assigneeAvatarColor(sub.owner.id)
       : "bg-slate-500",
     dueDate: sub.endDate
-      ? new Date(sub.endDate).toLocaleDateString(undefined, {
+      ? new Date(sub.endDate).toLocaleString(undefined, {
           month: "short",
           day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
         })
       : "No due date",
     priority: PRIORITY_MAP[sub.priority ?? ""] ?? "medium",
@@ -230,7 +232,12 @@ export function mapTaskToGanttRow(
     assigneeId: task.ownerId ?? null,
     assigneeColor: task.owner?.id ? assigneeAvatarColor(task.owner.id) : "bg-slate-500",
     dueDate: task.endDate
-      ? new Date(task.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+      ? new Date(task.endDate).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
       : "No due date",
     priority: PRIORITY_MAP[task.priority] ?? "medium",
     status: task.status,
