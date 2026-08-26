@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { toDateString } from "@/shared/utils/date";
+import { parseTaskDateTime, toDateTimeString } from "@/shared/utils/date";
 import type { Task } from "../../types/tasks.types";
 import {
   requiredTaskDate,
@@ -37,22 +37,11 @@ export const updateTaskSchema = z
     ]),
   })
   .refine(taskEndDateAfterStartDate, {
-    message: "End date must be on or after start date",
+    message: "Due date/time must be on or after start date/time",
     path: ["endDate"],
   });
 
 export type UpdateTaskFormValues = z.infer<typeof updateTaskSchema>;
-
-
-/** Parse API date-only / ISO as local calendar day (avoid UTC shift). */
-function parseTaskDateLocal(value: string | Date): Date {
-  const key =
-    value instanceof Date
-      ? `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`
-      : String(value).slice(0, 10);
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
 
 export function taskToFormValues(task: Task): UpdateTaskFormValues {
   if (!task.startDate || !task.endDate) {
@@ -66,8 +55,8 @@ export function taskToFormValues(task: Task): UpdateTaskFormValues {
     ownerId: task.ownerId,
     backupOwnerId: task.backupOwnerId ?? null,
     phaseId: task.phaseId ?? "",
-    startDate: parseTaskDateLocal(task.startDate),
-    endDate: parseTaskDateLocal(task.endDate),
+    startDate: parseTaskDateTime(task.startDate),
+    endDate: parseTaskDateTime(task.endDate),
     effortHours: task.effortHours ?? 1,
     status: task.status,
   };
@@ -83,8 +72,8 @@ export function taskToFormValuesOrDefaults(task: Task): UpdateTaskFormValues {
     ownerId: task.ownerId,
     backupOwnerId: task.backupOwnerId ?? null,
     phaseId: task.phaseId ?? "",
-    startDate: task.startDate ? parseTaskDateLocal(task.startDate) : defaults.startDate,
-    endDate: task.endDate ? parseTaskDateLocal(task.endDate) : defaults.endDate,
+    startDate: task.startDate ? parseTaskDateTime(task.startDate) : defaults.startDate,
+    endDate: task.endDate ? parseTaskDateTime(task.endDate) : defaults.endDate,
     effortHours: task.effortHours ?? 1,
     status: task.status,
   };
@@ -98,8 +87,8 @@ export function toUpdateTaskPayload(values: UpdateTaskFormValues) {
     ownerId: values.ownerId || null,
     backupOwnerId: values.backupOwnerId || null,
     phaseId: values.phaseId,
-    startDate: toDateString(values.startDate),
-    endDate: toDateString(values.endDate),
+    startDate: toDateTimeString(values.startDate),
+    endDate: toDateTimeString(values.endDate),
     effortHours: values.effortHours,
     status: values.status,
   };

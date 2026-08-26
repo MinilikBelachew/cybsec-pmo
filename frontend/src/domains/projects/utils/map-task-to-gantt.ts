@@ -1,5 +1,6 @@
 import type { Task, TaskSubTask } from "../types/tasks.types";
 import { assigneeAvatarColor } from "../components/workspace/workspace-views/task-cell-pickers";
+import { formatShortDateTime } from "@/shared/utils/date";
 import {
   comparePlanOrderAsc,
   inclusiveDurationDays,
@@ -169,10 +170,7 @@ function mapSubTaskToGanttRow(
       ? assigneeAvatarColor(sub.owner.id)
       : "bg-slate-500",
     dueDate: sub.endDate
-      ? new Date(sub.endDate).toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-        })
+      ? formatShortDateTime(sub.endDate) ?? "No due date"
       : "No due date",
     priority: PRIORITY_MAP[sub.priority ?? ""] ?? "medium",
     status: (sub.status as GanttTaskStatus) ?? "To_Do",
@@ -230,7 +228,7 @@ export function mapTaskToGanttRow(
     assigneeId: task.ownerId ?? null,
     assigneeColor: task.owner?.id ? assigneeAvatarColor(task.owner.id) : "bg-slate-500",
     dueDate: task.endDate
-      ? new Date(task.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+      ? formatShortDateTime(task.endDate) ?? "No due date"
       : "No due date",
     priority: PRIORITY_MAP[task.priority] ?? "medium",
     status: task.status,

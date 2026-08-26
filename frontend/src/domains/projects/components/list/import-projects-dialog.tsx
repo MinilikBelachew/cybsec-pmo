@@ -877,7 +877,7 @@ export function ImportProjectsDialog({
                   <p className="font-bold text-foreground mb-1 uppercase tracking-wider">XLSX Sheet Guidelines:</p>
                   <p>• <strong>Projects:</strong> Contains core project metadata (Name, Objective, Department, Customer, Primary PM, timeline, etc.)</p>
                   <p>• <strong>[Project Name] Phases:</strong> Optional — Name, Description, Order, Status, Start Date, End Date</p>
-                  <p>• <strong>[Project Name] Tasks:</strong> Optional — Title, Description, Priority, Status, Phase, Start Date, End Date, Effort Hours</p>
+                  <p>• <strong>[Project Name] Tasks:</strong> Optional — Title, Description, Priority, Status, Phase, Start Date, End Date, Effort Hours (dates accept YYYY-MM-DD or YYYY-MM-DD HH:mm)</p>
                   <p>• <strong>[Project Name] Milestones:</strong> Optional — Title, Target Date, Weight (%), Status, Phase</p>
                 </div>
               </div>

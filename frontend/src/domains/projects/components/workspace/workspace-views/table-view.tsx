@@ -27,13 +27,14 @@ import {
 } from "@/shared/ui/tooltip";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import type { TaskDependency } from "@/domains/projects/types/tasks.types";
+import { formatShortDateTime } from "@/shared/utils/date";
 import { type ProjectMilestone, type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
 import {
   API_PRIORITY_OPTIONS,
   getPriorityColors,
   type ApiPriority,
 } from "./task-cell-pickers";
-import { TaskDependenciesPicker } from "./task-predecessors-cell";
+import { TaskDependenciesPicker, TaskDependencyLinksCell } from "./task-predecessors-cell";
 import { nestedDepthLabel } from "@/domains/projects/utils/map-task-to-gantt";
 
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -104,10 +105,7 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 function formatShortDate(value?: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatShortDateTime(value) ?? "—";
 }
 
 function phaseRowId(phaseId: string) {
@@ -607,6 +605,42 @@ export function TableView({
         meta: { className: "w-[4.5rem]" },
       },
       {
+        id: "predecessors",
+        header: "Pred",
+        cell: ({ row }) => {
+          const dash = groupingDash(row.original);
+          if (dash) return dash;
+          return (
+          <div className="min-w-0 max-w-[9rem]" onClick={(e) => e.stopPropagation()}>
+            <TaskDependencyLinksCell
+              taskId={row.original.id}
+              dependencies={dependencies}
+              linkMode="predecessors"
+            />
+          </div>
+          );
+        },
+        meta: { className: "w-[9rem] max-w-[9rem]" },
+      },
+      {
+        id: "successors",
+        header: "Succ",
+        cell: ({ row }) => {
+          const dash = groupingDash(row.original);
+          if (dash) return dash;
+          return (
+          <div className="min-w-0 max-w-[9rem]" onClick={(e) => e.stopPropagation()}>
+            <TaskDependencyLinksCell
+              taskId={row.original.id}
+              dependencies={dependencies}
+              linkMode="successors"
+            />
+          </div>
+          );
+        },
+        meta: { className: "w-[9rem] max-w-[9rem]" },
+      },
+      {
         id: "assignee",
         accessorKey: "assigneeInitials",
         header: "Assignee",
@@ -674,8 +708,11 @@ export function TableView({
         accessorKey: "dueDate",
         header: "Due date",
         cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">{row.original.dueDate}</span>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {row.original.dueDate}
+          </span>
         ),
+        meta: { className: "w-[9.5rem] max-w-[9.5rem]" },
       },
       {
         id: "priority",
@@ -763,15 +800,11 @@ export function TableView({
         id: "planStart",
         header: "Plan start",
         cell: ({ row }) => (
-          <span className="text-xs tabular-nums text-muted-foreground" title="Planned start">
-            {row.original.rawStartDate
-              ? new Date(row.original.rawStartDate).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })
-              : "—"}
+          <span className="text-xs tabular-nums text-muted-foreground whitespace-nowrap" title="Planned start">
+            {formatShortDate(row.original.rawStartDate)}
           </span>
         ),
+        meta: { className: "w-[9.5rem] max-w-[9.5rem]" },
       },
       {
         id: "baselineStart",
@@ -919,9 +952,8 @@ export function TableView({
   ]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-transparent">
-      <div className="flex-1 overflow-auto p-5">
-        <DataTable
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-transparent p-5">
+      <DataTable
           columns={columns}
           data={flatRows}
           getRowId={(row) => row.id}
@@ -934,6 +966,8 @@ export function TableView({
           pageSize={wbsTree ? 50 : 20}
           pageSizeOptions={wbsTree ? [25, 50, 100, 200] : [5, 10, 20]}
           onSelectionChange={bulkActive ? setSelectedRows : undefined}
+          pinToolbar
+          className="h-full min-h-0"
           bulkSelect={
             canBulkEdit
               ? {
@@ -948,7 +982,6 @@ export function TableView({
               : undefined
           }
         />
-      </div>
     </div>
   );
 }

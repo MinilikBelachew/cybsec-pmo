@@ -1,6 +1,10 @@
 import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectMilestone, ProjectTaskAssignee } from "../types/projects.types";
 import { Task } from "../types/tasks.types";
 import { taskDatesOutsidePhaseErrors, toTaskDayKey } from "../schemas/task/task-date-fields";
+import {
+  normalizeImportTaskDateTime,
+  parseTaskDateTime,
+} from "@/shared/utils/date";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -928,25 +932,25 @@ export function generateProjectsXLSXTemplate(
     [
       "Kick-off Meeting",
       "Conduct initial project kick-off meeting with stakeholders.",
-      "High", "To_Do", "", "Discovery & Planning", "2026-07-01", "2026-07-02", "4",
+      "High", "To_Do", "", "Discovery & Planning", "2026-07-01 09:00", "2026-07-02 17:00", "4",
       "",
     ],
     [
       "Prepare agenda",
       "Draft kick-off agenda as a sub-task of Kick-off Meeting.",
-      "Medium", "To_Do", "", "Discovery & Planning", "2026-07-01", "2026-07-02", "2",
+      "Medium", "To_Do", "", "Discovery & Planning", "2026-07-01 09:00", "2026-07-02 12:00", "2",
       "Kick-off Meeting",
     ],
     [
       "Scope Document",
       "Define and document the engagement scope.",
-      "High", "To_Do", "", "Discovery & Planning", "2026-07-03", "2026-07-10", "16",
+      "High", "To_Do", "", "Discovery & Planning", "2026-07-03 09:00", "2026-07-10 17:00", "16",
       "",
     ],
     [
       "Network Vulnerability Scan",
       "Run automated scans across the internal network.",
-      "Critical", "To_Do", "", "Assessment Execution", "2026-08-01", "2026-08-05", "24",
+      "Critical", "To_Do", "", "Assessment Execution", "2026-08-01 09:00", "2026-08-05 17:00", "24",
       "",
     ],
   ];
@@ -1004,8 +1008,8 @@ export function generateTasksXLSXTemplate(
       "To_Do",
       defaultAssignee,
       defaultPhase,
-      "2026-07-01",
-      "2026-07-05",
+      "2026-07-01 09:00",
+      "2026-07-05 17:00",
       "5",
       "12",
       "0",
@@ -1022,8 +1026,8 @@ export function generateTasksXLSXTemplate(
       "To_Do",
       defaultAssignee,
       defaultPhase,
-      "2026-07-01",
-      "2026-07-03",
+      "2026-07-01 09:00",
+      "2026-07-03 17:00",
       "3",
       "8",
       "0",
@@ -1040,8 +1044,8 @@ export function generateTasksXLSXTemplate(
       "In_Progress",
       defaultAssignee,
       defaultPhase,
-      "2026-07-01",
-      "2026-07-10",
+      "2026-07-01 09:00",
+      "2026-07-10 17:00",
       "8",
       "24",
       "40",
@@ -1630,30 +1634,30 @@ export function revalidateParsedTaskRow(
   let isStartValid = false;
   let normalizedStart = "";
   if (updated.startDate) {
-    const startKey = toTaskDayKey(updated.startDate);
-    if (startKey) {
+    const startIso = normalizeImportTaskDateTime(updated.startDate, 9, 0);
+    if (startIso) {
       isStartValid = true;
-      normalizedStart = startKey;
+      normalizedStart = startIso;
     } else {
-      errors.push("Start date must be a valid date (YYYY-MM-DD).");
+      errors.push("Start date must be a valid date/time (YYYY-MM-DD or YYYY-MM-DD HH:mm).");
     }
   }
 
   let isEndValid = false;
   let normalizedEnd = "";
   if (updated.endDate) {
-    const endKey = toTaskDayKey(updated.endDate);
-    if (endKey) {
+    const endIso = normalizeImportTaskDateTime(updated.endDate, 17, 0);
+    if (endIso) {
       isEndValid = true;
-      normalizedEnd = endKey;
+      normalizedEnd = endIso;
     } else {
-      errors.push("End date must be a valid date (YYYY-MM-DD).");
+      errors.push("End date must be a valid date/time (YYYY-MM-DD or YYYY-MM-DD HH:mm).");
     }
   }
 
   if (isStartValid && isEndValid && normalizedStart && normalizedEnd) {
-    if (normalizedStart > normalizedEnd) {
-      errors.push("End date must be on or after start date.");
+    if (new Date(normalizedStart).getTime() > new Date(normalizedEnd).getTime()) {
+      errors.push("End date/time must be on or after start date/time.");
     }
   }
 
@@ -1796,8 +1800,8 @@ export function revalidateParsedTaskRow(
       );
     } else {
       const phaseDateErrors = taskDatesOutsidePhaseErrors({
-        start: isStartValid ? importDayToLocalDate(normalizedStart) : null,
-        end: isEndValid ? importDayToLocalDate(normalizedEnd) : null,
+        start: isStartValid ? parseTaskDateTime(normalizedStart) : null,
+        end: isEndValid ? parseTaskDateTime(normalizedEnd) : null,
         phaseStart: effectivePhase.startDate,
         phaseEnd: effectivePhase.endDate,
       });

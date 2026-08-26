@@ -1,4 +1,5 @@
 import type { TaskDependency } from "../types/tasks.types";
+import { toExportDateTime } from "@/shared/utils/date";
 
 /** Columns for task schedule export (DEF-P1-028 fidelity fields included). */
 export const TASK_EXPORT_FIELD_OPTIONS = [
@@ -16,8 +17,8 @@ export const TASK_EXPORT_FIELD_OPTIONS = [
   { id: "Parent Task", label: "Parent Task", desc: "Parent task title when nested (hierarchy)" },
   { id: "Is Summary", label: "Is Summary", desc: "Yes when the row has child tasks" },
   { id: "Order", label: "Order", desc: "Plan order index within the export" },
-  { id: "Start Date", label: "Start Date", desc: "Scheduled start date" },
-  { id: "End Date", label: "End Date", desc: "Scheduled due date" },
+  { id: "Start Date", label: "Start Date", desc: "Scheduled start date and time (YYYY-MM-DD HH:mm)" },
+  { id: "End Date", label: "End Date", desc: "Scheduled due date and time (YYYY-MM-DD HH:mm)" },
   { id: "Duration Days", label: "Duration Days", desc: "Working duration in days" },
   { id: "Effort Hours", label: "Effort Hours", desc: "Hours allocated or logged for this task" },
   { id: "% Complete", label: "% Complete", desc: "Approved percent complete" },
@@ -47,7 +48,10 @@ export type TaskExportDependency = Pick<
 function toDay(value?: string | Date | null): string {
   if (!value) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).split("T")[0];
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value).trim());
+  if (match) return match[1];
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
 }
 
 /** Inclusive calendar-day span (start→end). */
@@ -383,8 +387,8 @@ export function buildTaskExportRow(
 
   const baselineStart = toDay(task.baselineStart);
   const baselineEnd = toDay(task.baselineEnd);
-  const start = toDay(task.startDate);
-  const end = toDay(task.endDate);
+  const start = toExportDateTime(task.startDate);
+  const end = toExportDateTime(task.endDate);
 
   const row: Record<string, string | number> = {
     Title: task.title || "",
@@ -415,8 +419,8 @@ export function buildTaskExportRow(
         : inclusiveDurationDays(baselineStart, baselineEnd),
     "Actual Start": toDay(task.actualStart),
     "Actual End": toDay(task.actualEnd),
-    "Start Variance Days": signedDayDelta(start, baselineStart),
-    "Finish Variance Days": signedDayDelta(end, baselineEnd),
+    "Start Variance Days": signedDayDelta(task.startDate, baselineStart),
+    "Finish Variance Days": signedDayDelta(task.endDate, baselineEnd),
     Predecessors: formatPredecessorsForExport(
       task.id,
       options.dependencies ?? [],

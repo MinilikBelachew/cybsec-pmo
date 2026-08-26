@@ -91,13 +91,13 @@ export class CreateTaskDto {
   @IsUUID()
   backupOwnerId?: string | null;
 
-  @ApiProperty({ example: '2026-06-01' })
+  @ApiProperty({ example: '2026-06-01T09:00:00.000Z' })
   @Type(() => Date)
   @IsDate()
   @IsNotEmpty()
   startDate: Date;
 
-  @ApiProperty({ example: '2026-06-15' })
+  @ApiProperty({ example: '2026-06-15T17:00:00.000Z' })
   @Type(() => Date)
   @IsDate()
   @IsNotEmpty()

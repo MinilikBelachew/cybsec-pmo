@@ -18,6 +18,7 @@ import {
   reindexImportRowKeys,
 } from './excel-task-parents.util';
 import { TASK_ASSIGNEE_ORG_ROLE_CODES } from '../roles/roles.enum';
+import { parseImportTaskDateTime } from './task-datetime.util';
 
 type ProgressFn = (percent: number, step: string) => Promise<void>;
 
@@ -170,8 +171,8 @@ export class ExcelTasksImportService {
         );
         continue;
       }
-      const startDate = this.parseDate(row.startDate) ?? new Date();
-      const endDate = this.parseDate(row.endDate) ?? startDate;
+      const startDate = this.parseTaskDateTime(row.startDate,8) ?? new Date();
+      const endDate = this.parseTaskDateTime(row.endDate, 17) ?? startDate;
       prepared.push({
         source: row,
         importMode: row.importMode,
@@ -718,6 +719,13 @@ export class ExcelTasksImportService {
       value.length <= 10 ? `${value}T00:00:00.000Z` : value,
     );
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private parseTaskDateTime(
+    value?: string | null,
+    defaultHours = 8,
+  ): Date | null {
+    return parseImportTaskDateTime(value, defaultHours, 0);
   }
 
   private mapEffortHours(value?: number): number | null {
