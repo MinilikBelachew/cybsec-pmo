@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/utils/cn";
+import { formatShortDateTime } from "@/shared/utils/date";
 import type {
   Customer,
   Department,
@@ -70,8 +71,10 @@ type Props = {
 
 function formatDate(value?: string): string {
   if (!value) return "—";
-  const date = new Date(value.length <= 10 ? `${value}T00:00:00Z` : value);
-  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : value.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.slice(0, 10);
+  }
+  return formatShortDateTime(value) ?? value.slice(0, 16).replace("T", " ");
 }
 
 const selectClassName =
@@ -621,9 +624,11 @@ export function MppImportPreviewPanel({
                                   const status = TASK_STATUS_CONFIG[statusKey];
                                   const priority = PRIORITY_CONFIG.Medium;
                                   const effort =
-                                    task.durationDays != null
-                                      ? `${task.durationDays * 8} hrs`
-                                      : "—";
+                                    task.workHours != null
+                                      ? `${task.workHours} hrs`
+                                      : task.durationDays != null
+                                        ? `${task.durationDays * 8} hrs`
+                                        : "—";
                                   return (
                                     <tr
                                       key={`${proj.name}-${task.uid}`}

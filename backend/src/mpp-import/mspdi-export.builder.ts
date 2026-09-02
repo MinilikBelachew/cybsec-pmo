@@ -12,6 +12,10 @@ import {
   extraResourceNames,
   mergeExportResourceNames,
 } from './resource-names.util';
+import {
+  resolveMspExportTimeZone,
+  toMspdiDateTime,
+} from './mspdi-datetime.util';
 
 type PersonRow = {
   id: string;
@@ -53,7 +57,11 @@ export class MspdiExportBuilder {
    * Load project schedule and map to the payload expected by mpxj-service /export/mspdi.
    * Phases become summary rows; leaf tasks keep plan order (createdAt desc = import plan order).
    */
-  async buildPayload(projectId: string): Promise<MspdiExportRequestPayload> {
+  async buildPayload(
+    projectId: string,
+    timeZone?: string,
+  ): Promise<MspdiExportRequestPayload> {
+    const tz = resolveMspExportTimeZone(timeZone);
     const project = await this.prisma.project.findUniqueOrThrow({
       where: { id: projectId },
       select: {
@@ -197,10 +205,14 @@ export class MspdiExportBuilder {
       const phaseExportId = `phase:${phase.id}`;
       phaseIdByExportId.set(phase.id, phaseExportId);
       const phaseTasks = tasks.filter((t) => t.phaseId === phase.id);
-      const rollup = this.rollupSchedule(phaseTasks, {
-        startDate: phase.startDate,
-        endDate: phase.endDate,
-      });
+      const rollup = this.rollupSchedule(
+        phaseTasks,
+        {
+          startDate: phase.startDate,
+          endDate: phase.endDate,
+        },
+        tz,
+      );
 
       exportTasks.push({
         id: phaseExportId,
@@ -234,10 +246,14 @@ export class MspdiExportBuilder {
       milestones.some((m) => !m.phaseId && isStandaloneMilestone(m));
     if (hasUnphased) {
       const unphasedTasks = tasks.filter((t) => !t.phaseId);
-      const rollup = this.rollupSchedule(unphasedTasks, {
-        startDate: project.startDate,
-        endDate: project.endDate,
-      });
+      const rollup = this.rollupSchedule(
+        unphasedTasks,
+        {
+          startDate: project.startDate,
+          endDate: project.endDate,
+        },
+        tz,
+      );
       exportTasks.push({
         id: unphasedParentId,
         name: 'Imported Schedule',
@@ -267,14 +283,13 @@ export class MspdiExportBuilder {
       parentId: string,
       outlineLevel: number,
     ) => {
-      const start = this.toDay(task.startDate);
-      const finish = this.toDay(task.endDate);
+      const start = toMspdiDateTime(task.startDate, false, tz);
+      const finish = toMspdiDateTime(task.endDate, true, tz);
       // Export only stored baselines (same rule as import — do not copy current→baseline).
-      const baselineStart = this.toDay(task.baselineStart);
-      const baselineFinish = this.toDay(task.baselineEnd);
-      const durationDays =
-        this.decimalToNumber(task.durationDays) ??
-        this.toDurationDays(task.effortHours, task.startDate, task.endDate);
+      const baselineStart = toMspdiDateTime(task.baselineStart, false, tz);
+      const baselineFinish = toMspdiDateTime(task.baselineEnd, true, tz);
+      const durationDays = this.inclusiveDays(task.startDate, task.endDate);
+      const workHours = this.decimalToNumber(task.effortHours);
       const baselineDurationDays =
         this.decimalToNumber(task.baselineDurationDays) ??
         this.inclusiveDays(task.baselineStart, task.baselineEnd);
@@ -291,6 +306,7 @@ export class MspdiExportBuilder {
         baselineStart,
         baselineFinish,
         durationDays: task.isScheduleMilestone ? 0 : durationDays,
+        workHours: task.isScheduleMilestone ? 0 : workHours,
         baselineDurationDays,
         startVarianceDays: this.signedDayDelta(start, baselineStart),
         finishVarianceDays: this.signedDayDelta(finish, baselineFinish),
@@ -315,7 +331,7 @@ export class MspdiExportBuilder {
         (m) => m.phaseId === phase.id && isStandaloneMilestone(m),
       );
       for (const ms of phaseMilestones) {
-        const day = this.toDay(ms.targetDate);
+        const start = toMspdiDateTime(ms.targetDate, false, tz);
         exportTasks.push({
           id: `milestone:${ms.id}`,
           name: ms.title,
@@ -323,8 +339,8 @@ export class MspdiExportBuilder {
           summary: false,
           milestone: true,
           outlineLevel: 2,
-          startDate: day,
-          finishDate: day,
+          startDate: start,
+          finishDate: toMspdiDateTime(ms.targetDate, true, tz),
           percentComplete:
             String(ms.status).toLowerCase() === 'completed' ? 100 : 0,
           priority: 500,
@@ -339,7 +355,7 @@ export class MspdiExportBuilder {
       for (const ms of milestones.filter(
         (m) => !m.phaseId && isStandaloneMilestone(m),
       )) {
-        const day = this.toDay(ms.targetDate);
+        const start = toMspdiDateTime(ms.targetDate, false, tz);
         exportTasks.push({
           id: `milestone:${ms.id}`,
           name: ms.title,
@@ -347,8 +363,8 @@ export class MspdiExportBuilder {
           summary: false,
           milestone: true,
           outlineLevel: 2,
-          startDate: day,
-          finishDate: day,
+          startDate: start,
+          finishDate: toMspdiDateTime(ms.targetDate, true, tz),
           percentComplete:
             String(ms.status).toLowerCase() === 'completed' ? 100 : 0,
           priority: 500,
@@ -371,13 +387,18 @@ export class MspdiExportBuilder {
       .sort();
 
     const rangeStart =
-      this.toDay(project.startDate) ?? taskDays[0] ?? undefined;
+      toMspdiDateTime(project.startDate, false, tz) ||
+      taskDays[0] ||
+      undefined;
     const rangeFinish =
-      this.toDay(project.endDate) ??
-      taskDays[taskDays.length - 1] ??
+      toMspdiDateTime(project.endDate, true, tz) ||
+      taskDays[taskDays.length - 1] ||
       undefined;
 
-    const holidays = await this.loadHolidays(rangeStart, rangeFinish);
+    const holidays = await this.loadHolidays(
+      this.toDay(rangeStart),
+      this.toDay(rangeFinish),
+    );
 
     const durationDays = this.decimalToNumber(project.durationDays);
     const baselineDurationDays = this.decimalToNumber(
@@ -404,8 +425,8 @@ export class MspdiExportBuilder {
         name: project.name,
         startDate: rangeStart,
         finishDate: rangeFinish,
-        baselineStart: this.toDay(project.baselineStartDate),
-        baselineFinish: this.toDay(project.baselineEndDate),
+        baselineStart: toMspdiDateTime(project.baselineStartDate, false, tz) || undefined,
+        baselineFinish: toMspdiDateTime(project.baselineEndDate, true, tz) || undefined,
         durationDays: durationDays ?? undefined,
         baselineDurationDays: baselineDurationDays ?? undefined,
         percentComplete,
@@ -529,6 +550,7 @@ export class MspdiExportBuilder {
   private rollupSchedule(
     members: TaskRow[],
     fallback: { startDate?: Date | null; endDate?: Date | null },
+    timeZone: string,
   ): {
     startDate?: string;
     finishDate?: string;
@@ -539,25 +561,28 @@ export class MspdiExportBuilder {
     percentComplete: number;
   } {
     const starts = members
-      .map((t) => this.toDay(t.startDate))
+      .map((t) => toMspdiDateTime(t.startDate, false, timeZone))
       .filter((v): v is string => Boolean(v))
       .sort();
     const finishes = members
-      .map((t) => this.toDay(t.endDate))
+      .map((t) => toMspdiDateTime(t.endDate, true, timeZone))
       .filter((v): v is string => Boolean(v))
       .sort();
     const baselineStarts = members
-      .map((t) => this.toDay(t.baselineStart))
+      .map((t) => toMspdiDateTime(t.baselineStart, false, timeZone))
       .filter((v): v is string => Boolean(v))
       .sort();
     const baselineFinishes = members
-      .map((t) => this.toDay(t.baselineEnd))
+      .map((t) => toMspdiDateTime(t.baselineEnd, true, timeZone))
       .filter((v): v is string => Boolean(v))
       .sort();
 
-    const startDate = starts[0] ?? this.toDay(fallback.startDate);
+    const startDate =
+      starts[0] || toMspdiDateTime(fallback.startDate, false, timeZone) || undefined;
     const finishDate =
-      finishes[finishes.length - 1] ?? this.toDay(fallback.endDate);
+      finishes[finishes.length - 1] ||
+      toMspdiDateTime(fallback.endDate, true, timeZone) ||
+      undefined;
     const baselineStart = baselineStarts[0];
     const baselineFinish = baselineFinishes[baselineFinishes.length - 1];
 
@@ -600,8 +625,8 @@ export class MspdiExportBuilder {
     } = {};
     if (from || to) {
       where.holidayDate = {};
-      if (from) where.holidayDate.gte = new Date(`${from}T00:00:00.000Z`);
-      if (to) where.holidayDate.lte = new Date(`${to}T00:00:00.000Z`);
+      if (from) where.holidayDate.gte = new Date(`${String(from).slice(0, 10)}T00:00:00.000Z`);
+      if (to) where.holidayDate.lte = new Date(`${String(to).slice(0, 10)}T00:00:00.000Z`);
     }
 
     const rows = await this.prisma.holiday.findMany({
@@ -643,21 +668,10 @@ export class MspdiExportBuilder {
     baseline?: string,
   ): number | undefined {
     if (!actual || !baseline) return undefined;
-    const a = Date.parse(`${actual}T00:00:00.000Z`);
-    const b = Date.parse(`${baseline}T00:00:00.000Z`);
+    const a = Date.parse(`${this.toDay(actual)}T00:00:00.000Z`);
+    const b = Date.parse(`${this.toDay(baseline)}T00:00:00.000Z`);
     if (!Number.isFinite(a) || !Number.isFinite(b)) return undefined;
     return Math.round((a - b) / 86_400_000);
-  }
-
-  private toDurationDays(
-    effortHours?: number | null,
-    start?: Date | null,
-    end?: Date | null,
-  ): number | undefined {
-    if (effortHours != null && Number.isFinite(effortHours) && effortHours > 0) {
-      return Math.round((effortHours / 8) * 10) / 10;
-    }
-    return this.inclusiveDays(start, end);
   }
 
   private decimalToNumber(value: unknown): number | undefined {

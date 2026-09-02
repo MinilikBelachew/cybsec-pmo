@@ -1,4 +1,4 @@
-export const toDateString = (date?: Date) => {
+﻿export const toDateString = (date?: Date) => {
   if (!date) return "";
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -192,6 +192,64 @@ export const formatDateTimeLabel = (
   } catch {
     return fallback;
   }
+};
+
+const DATE_ONLY_VALUE = /^\d{4}-\d{2}-\d{2}$/;
+const UTC_MIDNIGHT_VALUE = /^\d{4}-\d{2}-\d{2}T00:00:00(\.0+)?Z$/i;
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+/** True for calendar-day values that should not be shown as 03:00 in UTC+3. */
+export const isDateOnlyTaskValue = (value?: string | Date | null): boolean => {
+  if (value == null || value === "") return false;
+  if (value instanceof Date) {
+    return (
+      !Number.isNaN(value.getTime()) &&
+      value.getUTCHours() === 0 &&
+      value.getUTCMinutes() === 0 &&
+      value.getUTCSeconds() === 0 &&
+      value.getUTCMilliseconds() === 0
+    );
+  }
+  const str = String(value).trim();
+  return DATE_ONLY_VALUE.test(str) || UTC_MIDNIGHT_VALUE.test(str);
+};
+
+function calendarDayUtc(value: string | Date): string {
+  if (typeof value === "string") {
+    const match = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+    if (match) return match[1];
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`;
+}
+
+/**
+ * MSPDI `yyyy-MM-ddTHH:mm:ss` in local wall-clock.
+ * Date-only / UTC-midnight values use 08:00 start / 17:00 finish.
+ */
+export const toMspdiDateTime = (
+  value?: string | Date | null,
+  endOfDay = false,
+): string => {
+  if (!value) return "";
+  if (isDateOnlyTaskValue(value)) {
+    return `${calendarDayUtc(value)}T${endOfDay ? "17:00:00" : "08:00:00"}`;
+  }
+  const date = value instanceof Date ? value : parseTaskDateTime(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+};
+
+/** Excel MS Project sheet: `YYYY-MM-DD HH:mm`. */
+export const toMspExportDateTime = (
+  value?: string | Date | null,
+  endOfDay = false,
+): string => {
+  const stamp = toMspdiDateTime(value, endOfDay);
+  return stamp ? stamp.replace("T", " ").slice(0, 16) : "";
 };
 
 /** Compact list/table label: `Tue 4/29/26 8:00 AM`. */

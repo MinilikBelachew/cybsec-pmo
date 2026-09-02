@@ -16,6 +16,11 @@ export class MppImportPreviewTaskDto {
   @ApiPropertyOptional()
   durationDays?: number;
 
+  @ApiPropertyOptional({
+    description: 'Planned effort hours from MSP Work',
+  })
+  workHours?: number;
+
   @ApiPropertyOptional()
   baselineStartDate?: string;
 

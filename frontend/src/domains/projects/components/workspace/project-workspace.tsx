@@ -422,7 +422,10 @@ export function ProjectWorkspace() {
 
       if (format === "mspdi") {
         // Server-side Microsoft Project XML (MSPDI) via mpp-import + mpxj-service.
-        blob = await exportMspdi({ projectId: id }).unwrap();
+        blob = await exportMspdi({
+          projectId: id,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }).unwrap();
         filename = `${project?.name || "project"}_schedule.xml`;
       } else {
         const exportParams: GetTasksParams = {

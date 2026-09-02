@@ -19,6 +19,8 @@ public class ParsedTaskDto {
   private String baselineFinishDate;
   /** Working days; may be fractional (e.g. 66.1). */
   private Double durationDays;
+  /** Planned effort hours from MSP Work. */
+  private Double workHours;
   private Double baselineDurationDays;
   private String actualStartDate;
   private String actualFinishDate;
@@ -129,6 +131,14 @@ public class ParsedTaskDto {
 
   public void setDurationDays(Double durationDays) {
     this.durationDays = durationDays;
+  }
+
+  public Double getWorkHours() {
+    return workHours;
+  }
+
+  public void setWorkHours(Double workHours) {
+    this.workHours = workHours;
   }
 
   public Double getBaselineDurationDays() {

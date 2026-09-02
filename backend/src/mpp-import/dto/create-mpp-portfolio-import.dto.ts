@@ -184,6 +184,15 @@ export class CreateMppPortfolioImportDto {
   @IsUUID()
   primaryPmId?: string;
 
+  @ApiPropertyOptional({
+    description: 'IANA time zone for MPP wall-clock Start/Finish.',
+  })
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  timeZone?: string;
+
   /**
    * Multipart-safe JSON string of per-project create fields (matched by name).
    * Prefer this over `projects` — FileInterceptor + nested @Type often drops arrays.

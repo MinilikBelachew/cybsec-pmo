@@ -28,7 +28,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class MppParseService {
-  private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
+  private static final DateTimeFormatter ISO_DATE_TIME =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
   public ParsedProjectDto parse(MultipartFile file) throws Exception {
     if (file == null || file.isEmpty()) {
@@ -119,6 +120,7 @@ public class MppParseService {
       parsedTask.setBaselineStartDate(formatDate(task.getBaselineStart()));
       parsedTask.setBaselineFinishDate(formatDate(task.getBaselineFinish()));
       parsedTask.setDurationDays(toDurationDays(task.getDuration(), projectProperties));
+      parsedTask.setWorkHours(toWorkHours(task.getWork(), projectProperties));
       parsedTask.setBaselineDurationDays(
           toDurationDays(task.getBaselineDuration(), projectProperties));
       parsedTask.setActualStartDate(formatDate(task.getActualStart()));
@@ -237,7 +239,7 @@ public class MppParseService {
     if (value == null) {
       return null;
     }
-    return value.toLocalDate().format(ISO_DATE);
+    return value.format(ISO_DATE_TIME);
   }
 
   private Double toDurationDays(Duration duration, ProjectProperties properties) {
@@ -253,6 +255,20 @@ public class MppParseService {
     }
     // One decimal place matches MSP display (e.g. 66.1 / 115.1).
     return Math.round(days * 10.0) / 10.0;
+  }
+
+  private Double toWorkHours(Duration work, ProjectProperties properties) {
+    if (work == null) {
+      return null;
+    }
+
+    double hours = Duration.convertUnits(
+            work.getDuration(), work.getUnits(), TimeUnit.HOURS, properties)
+        .getDuration();
+    if (hours <= 0) {
+      return null;
+    }
+    return Math.round(hours * 10.0) / 10.0;
   }
 
   private Double toPositiveCost(Number value) {

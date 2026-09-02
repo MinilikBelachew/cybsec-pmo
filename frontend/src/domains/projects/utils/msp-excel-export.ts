@@ -1,10 +1,10 @@
 import * as XLSX from "xlsx";
+import { toMspExportDateTime } from "@/shared/utils/date";
 import {
   comparePlanOrderAsc,
   formatResourceName,
   inclusiveDurationDays,
   mergeExportResourceNames,
-  resolveTaskDurationDays,
   type TaskExportDependency,
 } from "./task-export-fields";
 import type { ProjectPhase, ProjectMilestone } from "../types/projects.types";
@@ -72,10 +72,12 @@ type BuildMspExcelOptions = {
   };
 };
 
-function toDay(value?: string | Date | null): string {
-  if (!value) return "";
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).split("T")[0];
+function toStartStamp(value?: string | Date | null): string {
+  return toMspExportDateTime(value, false);
+}
+
+function toFinishStamp(value?: string | Date | null): string {
+  return toMspExportDateTime(value, true);
 }
 
 function formatDuration(days?: number | "" | null, milestone = false): string {
@@ -123,14 +125,16 @@ function pushTaskTree(
   tasks: any[],
   projectOrganization?: string | null,
 ) {
-  const duration = resolveTaskDurationDays(task);
-  const start = toDay(task.startDate);
-  const finish = toDay(task.endDate);
-  const baselineStart = toDay(task.baselineStart);
-  const baselineFinish = toDay(task.baselineEnd);
+  const duration = task.isScheduleMilestone
+    ? 0
+    : inclusiveDurationDays(task.startDate, task.endDate);
+  const start = toStartStamp(task.startDate);
+  const finish = toFinishStamp(task.endDate);
+  const baselineStart = toStartStamp(task.baselineStart);
+  const baselineFinish = toFinishStamp(task.baselineEnd);
   const children = childTasks(tasks, task.id);
   const isMilestone =
-    Number(duration) === 0 || (Boolean(start) && start === finish && children.length === 0);
+    task.isScheduleMilestone === true || Number(duration) === 0;
 
   nodes.push({
     kind: "task",
@@ -168,14 +172,14 @@ function pushMilestone(
   milestone: ProjectMilestone,
   outlineLevel: number,
 ) {
-  const day = toDay(milestone.targetDate);
+  const start = toStartStamp(milestone.targetDate);
   nodes.push({
     kind: "milestone",
     sourceId: `ms:${milestone.id}`,
     name: String(milestone.title || "Milestone"),
     outlineLevel,
-    start: day,
-    finish: day,
+    start,
+    finish: start,
     durationDays: 0,
     percentComplete: String(milestone.status).toLowerCase() === "completed" ? 100 : 0,
     notes: "",
@@ -221,8 +225,8 @@ function emitPhaseBlock(
     sourceId: `phase:${phase.id}`,
     name: String(phase.name || "Phase"),
     outlineLevel,
-    start: toDay(phase.startDate),
-    finish: toDay(phase.endDate),
+    start: toStartStamp(phase.startDate),
+    finish: toFinishStamp(phase.endDate),
     durationDays: inclusiveDurationDays(phase.startDate, phase.endDate),
     notes: ("description" in phase ? phase.description : "") || "",
     percentComplete: 0,
@@ -334,14 +338,14 @@ function buildOutline(options: BuildMspExcelOptions): OutlineNode[] {
       sourceId: `project:${options.project.id}`,
       name: options.project.name,
       outlineLevel: 1,
-      start: toDay(options.project.startDate),
-      finish: toDay(options.project.endDate),
+      start: toStartStamp(options.project.startDate),
+      finish: toFinishStamp(options.project.endDate),
       durationDays:
         options.project.durationDays != null
           ? Number(options.project.durationDays)
           : inclusiveDurationDays(options.project.startDate, options.project.endDate),
-      baselineStart: toDay(options.project.baselineStartDate),
-      baselineFinish: toDay(options.project.baselineEndDate),
+      baselineStart: toStartStamp(options.project.baselineStartDate),
+      baselineFinish: toFinishStamp(options.project.baselineEndDate),
       baselineDurationDays:
         options.project.baselineDurationDays != null
           ? Number(options.project.baselineDurationDays)
@@ -455,6 +459,14 @@ export function createMspExcelSheet(rows: MspExcelRow[]): XLSX.WorkSheet {
       return { wch: 28 };
     }
     if (header === "Predecessors") return { wch: 18 };
+    if (
+      header === "Start" ||
+      header === "Finish" ||
+      header === "Baseline Start" ||
+      header === "Baseline Finish"
+    ) {
+      return { wch: 18 };
+    }
     return { wch: Math.max(12, header.length + 2) };
   });
   return ws;

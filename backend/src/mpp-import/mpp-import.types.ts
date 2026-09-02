@@ -18,6 +18,8 @@ export type ParsedMppTask = {
   baselineStartDate?: string;
   baselineFinishDate?: string;
   durationDays?: number;
+  /** Planned effort hours from MSP Work (not Duration). */
+  workHours?: number;
   baselineDurationDays?: number;
   actualStartDate?: string;
   actualFinishDate?: string;
@@ -99,6 +101,7 @@ export type MppImportPreviewTask = {
   startDate?: string;
   finishDate?: string;
   durationDays?: number;
+  workHours?: number;
   baselineStartDate?: string;
   baselineFinishDate?: string;
   baselineDurationDays?: number;

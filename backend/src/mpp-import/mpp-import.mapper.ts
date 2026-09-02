@@ -16,6 +16,10 @@ import {
 } from './mpp-import.types';
 import { joinResourceNames } from './resource-names.util';
 import { PROJECT_NAME_MAX_LENGTH } from '../projects/constants/project-limits';
+import {
+  fromMspdiDateTime,
+  resolveMspExportTimeZone,
+} from './mspdi-datetime.util';
 
 const PREVIEW_TASK_LIMIT = 250;
 const DEFAULT_PHASE_NAME = 'Imported Schedule';
@@ -340,6 +344,7 @@ export class MppImportMapper {
         startDate: task.startDate,
         finishDate: task.finishDate,
         durationDays: task.durationDays,
+        workHours: task.workHours,
         baselineStartDate: task.baselineStartDate,
         baselineFinishDate: task.baselineFinishDate,
         baselineDurationDays: task.baselineDurationDays,
@@ -553,7 +558,9 @@ export class MppImportMapper {
   async persistParsedProject(
     projectId: string,
     parsed: ParsedMppProject,
+    timeZone?: string,
   ): Promise<MppImportResultSummary> {
+    const tz = resolveMspExportTimeZone(timeZone);
     const warnings = [...(parsed.warnings ?? [])];
     const allTasks = parsed.tasks ?? [];
     const byUid = this.indexByUid(allTasks);
@@ -627,7 +634,7 @@ export class MppImportMapper {
         );
       }
 
-      await this.applyProjectScheduleFromParsed(tx, projectId, parsed);
+      await this.applyProjectScheduleFromParsed(tx, projectId, parsed, tz);
 
       const summaryUidToPhaseId = new Map<number, string>();
       const phaseByName = new Map(
@@ -645,12 +652,12 @@ export class MppImportMapper {
       for (const summary of phaseSummaries) {
         const phaseName = summary.name.trim().slice(0, 255);
         const startDate =
-          this.parseDate(summary.startDate) ??
-          this.parseDate(parsed.project?.startDate) ??
+          this.parseDate(summary.startDate, tz) ??
+          this.parseDate(parsed.project?.startDate, tz) ??
           project.startDate;
         const endDate =
-          this.parseDate(summary.finishDate) ??
-          this.parseDate(parsed.project?.finishDate) ??
+          this.parseDate(summary.finishDate, tz) ??
+          this.parseDate(parsed.project?.finishDate, tz) ??
           project.endDate;
 
         const existingPhase = phaseByName.get(phaseName.toLowerCase());
@@ -697,6 +704,7 @@ export class MppImportMapper {
           nextOrderIndex,
           phaseSummaries.length,
           warnings,
+          tz,
         );
         defaultPhaseId = defaultPhase.id;
         if (defaultPhase.created) {
@@ -763,7 +771,7 @@ export class MppImportMapper {
           if (existingTaskId) {
             await tx.task.update({
               where: { id: existingTaskId },
-              data: this.toTaskUpdateInput(phaseId, task, parentTaskId),
+              data: this.toTaskUpdateInput(phaseId, task, parentTaskId, tz),
             });
             uidToTaskId.set(task.uid, existingTaskId);
             existingTaskByKey.delete(matchKey);
@@ -776,6 +784,7 @@ export class MppImportMapper {
                 task,
                 parentTaskId,
                 new Date(createdAtCursor++),
+                tz,
               ),
             });
             uidToTaskId.set(task.uid, created.id);
@@ -799,6 +808,7 @@ export class MppImportMapper {
         defaultPhaseId,
         byUid,
         uidToTaskId,
+        tz,
       );
       milestonesCreated += milestoneResult.created;
       milestonesUpdated += milestoneResult.updated;
@@ -1144,6 +1154,7 @@ export class MppImportMapper {
     nextOrderIndex: number,
     summaryPhasesCreated: number,
     warnings: string[],
+    timeZone?: string,
   ): Promise<{ id: string; created: boolean }> {
     const existingDefault = project.phases.find(
       (phase) => phase.name === DEFAULT_PHASE_NAME,
@@ -1158,9 +1169,9 @@ export class MppImportMapper {
     }
 
     const startDate =
-      this.parseDate(parsed.project?.startDate) ?? project.startDate;
+      this.parseDate(parsed.project?.startDate, timeZone) ?? project.startDate;
     const endDate =
-      this.parseDate(parsed.project?.finishDate) ?? project.endDate;
+      this.parseDate(parsed.project?.finishDate, timeZone) ?? project.endDate;
 
     const phase = await tx.projectPhase.create({
       data: {
@@ -1201,6 +1212,7 @@ export class MppImportMapper {
     defaultPhaseId: string | undefined,
     byUid: Map<number, ParsedMppTask>,
     uidToTaskId: Map<number, string>,
+    timeZone?: string,
   ): Promise<{ created: number; updated: number; warnings: string[] }> {
     if (milestoneTasks.length === 0) {
       return { created: 0, updated: 0, warnings: [] };
@@ -1241,8 +1253,8 @@ export class MppImportMapper {
         null;
 
       const targetDate =
-        this.parseDate(ms.finishDate) ??
-        this.parseDate(ms.startDate) ??
+        this.parseDate(ms.finishDate, timeZone) ??
+        this.parseDate(ms.startDate, timeZone) ??
         new Date();
 
       const status = this.resolveMppMilestoneStatus(ms);
@@ -1288,7 +1300,7 @@ export class MppImportMapper {
     return `${phaseId}|${title.trim().toLowerCase()}`;
   }
 
-  private taskScheduleFields(task: ParsedMppTask): {
+  private taskScheduleFields(task: ParsedMppTask, timeZone?: string): {
     title: string;
     description: string | undefined;
     startDate: Date | undefined;
@@ -1311,18 +1323,19 @@ export class MppImportMapper {
           ? TaskStatus.In_Progress
           : TaskStatus.To_Do;
 
-    const startDate = this.parseDate(task.startDate);
-    const endDate = this.parseDate(task.finishDate);
-    const baselineStart = this.parseDate(task.baselineStartDate);
-    const baselineEnd = this.parseDate(task.baselineFinishDate);
-    const actualStart = this.parseDate(task.actualStartDate);
-    const actualEnd = this.parseDate(task.actualFinishDate);
+    const startDate = this.parseDate(task.startDate, timeZone);
+    const endDate = this.parseDate(task.finishDate, timeZone);
+    const baselineStart = this.parseDate(task.baselineStartDate, timeZone);
+    const baselineEnd = this.parseDate(task.baselineFinishDate, timeZone);
+    const actualStart = this.parseDate(task.actualStartDate, timeZone);
+    const actualEnd = this.parseDate(task.actualFinishDate, timeZone);
 
     const durationDays = this.normalizeDurationDays(task.durationDays);
     const baselineDurationDays = this.normalizeDurationDays(
       task.baselineDurationDays,
     );
 
+    const effortFromWork = this.normalizeEffortHours(task.workHours);
     const effortFromDuration =
       durationDays != null && durationDays > 0
         ? Math.max(1, Math.round(durationDays * 8))
@@ -1340,7 +1353,7 @@ export class MppImportMapper {
       actualEnd,
       durationDays,
       baselineDurationDays,
-      effortHours: effortFromDuration,
+      effortHours: effortFromWork ?? effortFromDuration,
       progressApproved: progress,
       status,
     };
@@ -1353,10 +1366,18 @@ export class MppImportMapper {
     return Math.round(Number(value) * 10) / 10;
   }
 
+  private normalizeEffortHours(value?: number | null): number | undefined {
+    if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) {
+      return undefined;
+    }
+    return Math.max(1, Math.round(Number(value)));
+  }
+
   private async applyProjectScheduleFromParsed(
     tx: Prisma.TransactionClient,
     projectId: string,
     parsed: ParsedMppProject,
+    timeZone?: string,
   ): Promise<void> {
     const props = { ...(parsed.project ?? {}) };
 
@@ -1399,12 +1420,12 @@ export class MppImportMapper {
       }
     }
 
-    const startDate = this.parseDate(props.startDate);
-    const endDate = this.parseDate(props.finishDate);
-    const baselineStartDate = this.parseDate(props.baselineStartDate);
-    const baselineEndDate = this.parseDate(props.baselineFinishDate);
-    const actualStartDate = this.parseDate(props.actualStartDate);
-    const actualEndDate = this.parseDate(props.actualFinishDate);
+    const startDate = this.parseDate(props.startDate, timeZone);
+    const endDate = this.parseDate(props.finishDate, timeZone);
+    const baselineStartDate = this.parseDate(props.baselineStartDate, timeZone);
+    const baselineEndDate = this.parseDate(props.baselineFinishDate, timeZone);
+    const actualStartDate = this.parseDate(props.actualStartDate, timeZone);
+    const actualEndDate = this.parseDate(props.actualFinishDate, timeZone);
     const durationDays = this.normalizeDurationDays(props.durationDays);
     const baselineDurationDays = this.normalizeDurationDays(
       props.baselineDurationDays,
@@ -1485,8 +1506,9 @@ export class MppImportMapper {
     task: ParsedMppTask,
     parentTaskId?: string,
     createdAt?: Date,
+    timeZone?: string,
   ): Prisma.TaskCreateInput {
-    const fields = this.taskScheduleFields(task);
+    const fields = this.taskScheduleFields(task, timeZone);
 
     return {
       project: { connect: { id: projectId } },
@@ -1513,8 +1535,9 @@ export class MppImportMapper {
     phaseId: string,
     task: ParsedMppTask,
     parentTaskId?: string,
+    timeZone?: string,
   ): Prisma.TaskUpdateInput {
-    const fields = this.taskScheduleFields(task);
+    const fields = this.taskScheduleFields(task, timeZone);
 
     return {
       phase: { connect: { id: phaseId } },
@@ -1537,13 +1560,8 @@ export class MppImportMapper {
     };
   }
 
-  private parseDate(value?: string): Date | undefined {
-    if (!value) {
-      return undefined;
-    }
-
-    const parsed = new Date(`${value}T00:00:00.000Z`);
-    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  private parseDate(value?: string, timeZone?: string): Date | undefined {
+    return fromMspdiDateTime(value, timeZone);
   }
 
   private isTaskReadyToCreate(

@@ -34,6 +34,7 @@ export type MppImportJobData = {
   projectId: string;
   fileName: string;
   filePath: string;
+  timeZone?: string;
 };
 
 export type MppPortfolioImportJobData = {
@@ -42,6 +43,7 @@ export type MppPortfolioImportJobData = {
   fileName: string;
   filePath: string;
   portfolioDto: CreateMppPortfolioImportDto;
+  timeZone?: string;
 };
 
 export type ExcelTaskImportRow = {

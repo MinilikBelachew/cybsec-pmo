@@ -29,6 +29,7 @@ export type MppImportPreviewTask = {
   startDate?: string;
   finishDate?: string;
   durationDays?: number;
+  workHours?: number;
   percentComplete?: number;
   phaseName?: string;
   hasParent: boolean;

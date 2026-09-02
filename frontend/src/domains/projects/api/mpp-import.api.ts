@@ -10,11 +10,12 @@ export const mppImportApi = api.injectEndpoints({
   endpoints: (builder) => ({
     previewMppImport: builder.mutation<
       MppImportPreview,
-      { projectId?: string; file: File }
+      { projectId?: string; file: File; timeZone?: string }
     >({
-      query: ({ projectId, file }) => {
+      query: ({ projectId, file, timeZone }) => {
         const formData = new FormData();
         if (projectId) formData.append("projectId", projectId);
+        if (timeZone) formData.append("timeZone", timeZone);
         formData.append("file", file);
         return {
           url: "/imports/mpp/preview",
@@ -26,11 +27,12 @@ export const mppImportApi = api.injectEndpoints({
 
     importMpp: builder.mutation<
       ImportEnqueueResult,
-      { projectId: string; file: File }
+      { projectId: string; file: File; timeZone?: string }
     >({
-      query: ({ projectId, file }) => {
+      query: ({ projectId, file, timeZone }) => {
         const formData = new FormData();
         formData.append("projectId", projectId);
+        if (timeZone) formData.append("timeZone", timeZone);
         formData.append("file", file);
         return {
           url: "/imports/mpp",
@@ -47,11 +49,12 @@ export const mppImportApi = api.injectEndpoints({
 
     importMppPortfolio: builder.mutation<
       ImportEnqueueResult,
-      { file: File; defaults: MppPortfolioImportDefaults }
+      { file: File; defaults: MppPortfolioImportDefaults; timeZone?: string }
     >({
-      query: ({ file, defaults }) => {
+      query: ({ file, defaults, timeZone }) => {
         const formData = new FormData();
         formData.append("file", file);
+        if (timeZone) formData.append("timeZone", timeZone);
 
         const appendIf = (key: string, value: string | number | undefined) => {
           if (value === undefined || value === null) return;
@@ -90,10 +93,14 @@ export const mppImportApi = api.injectEndpoints({
       ],
     }),
 
-    exportMspdi: builder.mutation<Blob, { projectId: string }>({
-      query: ({ projectId }) => ({
+    exportMspdi: builder.mutation<
+      Blob,
+      { projectId: string; timeZone?: string }
+    >({
+      query: ({ projectId, timeZone }) => ({
         url: `/imports/mspdi/export/${projectId}`,
         method: "GET",
+        params: timeZone ? { timeZone } : undefined,
         responseHandler: async (response) => response.blob(),
       }),
     }),

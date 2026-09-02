@@ -18,9 +18,16 @@ function esc(str: string) {
     .replace(/>/g, '&gt;');
 }
 
-function toDateTime(day?: string, end = false) {
-  if (!day) return '';
-  const d = day.slice(0, 10);
+function toDateTime(value?: string, end = false) {
+  if (!value) return '';
+  const trimmed = String(value).trim();
+  const withTime =
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?/.exec(trimmed);
+  if (withTime) {
+    const seconds = withTime[3] ?? '00';
+    return `${withTime[1]}T${withTime[2]}:${seconds}`;
+  }
+  const d = trimmed.slice(0, 10);
   return `${d}T${end ? '17:00:00' : '08:00:00'}`;
 }
 
@@ -41,19 +48,12 @@ function toIsoDuration(days?: number | null, milestone = false): string {
   return `PT${whole}H0M0S`;
 }
 
-/** Prefer stored duration; if missing but start=finish, treat as 1 day. */
-function resolveDurationDays(task: {
+/** Inclusive calendar days from start → finish. Do not use Planned hours here. */
+function calendarDurationDays(task: {
   durationDays?: number | null;
   startDate?: string;
   finishDate?: string;
 }): number | undefined {
-  if (
-    task.durationDays != null &&
-    Number.isFinite(Number(task.durationDays)) &&
-    Number(task.durationDays) > 0
-  ) {
-    return Number(task.durationDays);
-  }
   const s = task.startDate?.slice(0, 10);
   const f = task.finishDate?.slice(0, 10);
   if (s && f) {
@@ -63,7 +63,28 @@ function resolveDurationDays(task: {
       return Math.max(1, Math.round((endMs - startMs) / 86_400_000) + 1);
     }
   }
+  if (
+    task.durationDays != null &&
+    Number.isFinite(Number(task.durationDays)) &&
+    Number(task.durationDays) > 0
+  ) {
+    return Number(task.durationDays);
+  }
   return undefined;
+}
+
+/** Planned effort as MSP Work. */
+function toIsoWork(hours?: number | null): string {
+  if (hours == null || !Number.isFinite(Number(hours)) || Number(hours) <= 0) {
+    return '';
+  }
+  const value = Math.round(Number(hours) * 10) / 10;
+  const whole = Math.floor(value);
+  const minutes = Math.round((value - whole) * 60);
+  if (minutes > 0) {
+    return `PT${whole}H${minutes}M0S`;
+  }
+  return `PT${whole}H0M0S`;
 }
 
 /** MSPDI variance is in tenths of a minute (4800 = 1 day @ 8h). */
@@ -145,13 +166,14 @@ function renderScheduleFields(
   const baselineFinish = toDateTime(task.baselineFinish, true);
   const durationDays = task.milestone
     ? 0
-    : resolveDurationDays({
+    : calendarDurationDays({
         durationDays: task.durationDays,
         startDate: task.startDate,
         finishDate: task.finishDate,
       });
   const duration =
     toIsoDuration(durationDays, Boolean(task.milestone)) || 'PT8H0M0S';
+  const work = toIsoWork(task.workHours);
   const baselineDuration = toIsoDuration(task.baselineDurationDays);
   const durationVariance =
     task.durationVarianceDays != null
@@ -166,8 +188,8 @@ function renderScheduleFields(
   if (start) parts.push(`      <Start>${start}</Start>`);
   if (finish) parts.push(`      <Finish>${finish}</Finish>`);
   parts.push(`      <Duration>${duration}</Duration>`);
-  parts.push(`      <Manual>0</Manual>`);
-  parts.push(`      <Work>${duration}</Work>`);
+  parts.push(`      <Manual>1</Manual>`);
+  if (work) parts.push(`      <Work>${work}</Work>`);
   if (baselineStart || baselineFinish || task.baselineDurationDays) {
     parts.push(`      <Baseline>`);
     if (baselineStart) parts.push(`        <Start>${baselineStart}</Start>`);
@@ -258,7 +280,7 @@ export function buildLocalMspdiXml(payload: MspdiExportRequestPayload): Buffer {
   <Name>${esc(name)}</Name>
   <Title>${esc(name)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
-  <NewTasksAreManual>0</NewTasksAreManual>
+  <NewTasksAreManual>1</NewTasksAreManual>
   ${payload.project.startDate ? `<StartDate>${toDateTime(payload.project.startDate)}</StartDate>` : ''}
   ${payload.project.finishDate ? `<FinishDate>${toDateTime(payload.project.finishDate, true)}</FinishDate>` : ''}
   <CalendarUID>1</CalendarUID>
@@ -319,7 +341,7 @@ ${projectSchedule}
       <UID>${taskUid}</UID>
       <ID>${taskUid}</ID>
       <Name>${esc(task.name)}</Name>
-      <Type>${task.summary ? 1 : 0}</Type>
+      <Type>1</Type>
       <IsNull>0</IsNull>
       <OutlineLevel>${task.outlineLevel ?? 1}</OutlineLevel>
       <OutlineNumber>${esc(outlineNumber)}</OutlineNumber>
@@ -451,20 +473,15 @@ ${schedule}
     const finish =
       toDateTime(task?.finishDate, true) ||
       toDateTime(payload.project.finishDate, true);
-    const workDays = resolveDurationDays({
-      durationDays: task?.durationDays,
-      startDate: task?.startDate,
-      finishDate: task?.finishDate,
-    });
-    const work = toIsoDuration(workDays) || 'PT8H0M0S';
+    const work = toIsoWork(task?.workHours);
     xml += `    <Assignment>
       <UID>${assignmentUid}</UID>
       <ResourceUID>${resource.uid}</ResourceUID>
       <TaskUID>${taskUid}</TaskUID>
       <Units>1</Units>
-      <Work>${work}</Work>
+      ${work ? `<Work>${work}</Work>
       <RegularWork>${work}</RegularWork>
-      <RemainingWork>${work}</RemainingWork>
+      <RemainingWork>${work}</RemainingWork>` : ''}
       ${start ? `<Start>${start}</Start>` : ''}
       ${finish ? `<Finish>${finish}</Finish>` : ''}
       <FinishVariance>0</FinishVariance>

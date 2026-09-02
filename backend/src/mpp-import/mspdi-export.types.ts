@@ -8,8 +8,10 @@ export type MspdiExportTaskPayload = {
   finishDate?: string;
   baselineStart?: string;
   baselineFinish?: string;
-  /** Working days for the task. */
+  /** Calendar span from start → finish (working-day units for MSP Duration). */
   durationDays?: number;
+  /** Planned effort hours for MSP Work (not Duration). */
+  workHours?: number;
   /** Working days for the baseline span. */
   baselineDurationDays?: number;
   /** MS Project milestone (0-day checkpoint). */

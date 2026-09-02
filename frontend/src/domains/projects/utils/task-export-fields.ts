@@ -1,5 +1,5 @@
 import type { TaskDependency } from "../types/tasks.types";
-import { toExportDateTime } from "@/shared/utils/date";
+import { toMspExportDateTime } from "@/shared/utils/date";
 
 /** Columns for task schedule export (DEF-P1-028 fidelity fields included). */
 export const TASK_EXPORT_FIELD_OPTIONS = [
@@ -22,11 +22,11 @@ export const TASK_EXPORT_FIELD_OPTIONS = [
   { id: "Duration Days", label: "Duration Days", desc: "Working duration in days" },
   { id: "Effort Hours", label: "Effort Hours", desc: "Hours allocated or logged for this task" },
   { id: "% Complete", label: "% Complete", desc: "Approved percent complete" },
-  { id: "Baseline Start", label: "Baseline Start", desc: "Baseline start date" },
-  { id: "Baseline End", label: "Baseline End", desc: "Baseline finish date" },
+  { id: "Baseline Start", label: "Baseline Start", desc: "Baseline start date and time (YYYY-MM-DD HH:mm)" },
+  { id: "Baseline End", label: "Baseline End", desc: "Baseline finish date and time (YYYY-MM-DD HH:mm)" },
   { id: "Baseline Duration Days", label: "Baseline Duration Days", desc: "Baseline duration in days" },
-  { id: "Actual Start", label: "Actual Start", desc: "Actual start date from schedule" },
-  { id: "Actual End", label: "Actual End", desc: "Actual finish date from schedule" },
+  { id: "Actual Start", label: "Actual Start", desc: "Actual start date and time (YYYY-MM-DD HH:mm)" },
+  { id: "Actual End", label: "Actual End", desc: "Actual finish date and time (YYYY-MM-DD HH:mm)" },
   { id: "Start Variance Days", label: "Start Variance Days", desc: "Start minus baseline start (days)" },
   { id: "Finish Variance Days", label: "Finish Variance Days", desc: "Finish minus baseline finish (days)" },
   { id: "Predecessors", label: "Predecessors", desc: "Predecessor titles with dependency type" },
@@ -385,10 +385,10 @@ export function buildTaskExportRow(
     task.isSummary === true ||
     (Array.isArray(task.subTasks) && task.subTasks.length > 0);
 
-  const baselineStart = toDay(task.baselineStart);
-  const baselineEnd = toDay(task.baselineEnd);
-  const start = toExportDateTime(task.startDate);
-  const end = toExportDateTime(task.endDate);
+  const baselineStart = toMspExportDateTime(task.baselineStart, false);
+  const baselineEnd = toMspExportDateTime(task.baselineEnd, true);
+  const start = toMspExportDateTime(task.startDate, false);
+  const end = toMspExportDateTime(task.endDate, true);
 
   const row: Record<string, string | number> = {
     Title: task.title || "",
@@ -417,8 +417,8 @@ export function buildTaskExportRow(
       Number(task.baselineDurationDays) > 0
         ? Math.round(Number(task.baselineDurationDays) * 10) / 10
         : inclusiveDurationDays(baselineStart, baselineEnd),
-    "Actual Start": toDay(task.actualStart),
-    "Actual End": toDay(task.actualEnd),
+    "Actual Start": toMspExportDateTime(task.actualStart, false),
+    "Actual End": toMspExportDateTime(task.actualEnd, true),
     "Start Variance Days": signedDayDelta(task.startDate, baselineStart),
     "Finish Variance Days": signedDayDelta(task.endDate, baselineEnd),
     Predecessors: formatPredecessorsForExport(

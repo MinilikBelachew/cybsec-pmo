@@ -11,6 +11,8 @@ import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -27,6 +29,8 @@ import org.mpxj.RelationType;
 import org.mpxj.Resource;
 import org.mpxj.ResourceAssignment;
 import org.mpxj.Task;
+import org.mpxj.TaskMode;
+import org.mpxj.TaskType;
 import org.mpxj.TimeUnit;
 import org.mpxj.mspdi.MSPDIWriter;
 import org.springframework.stereotype.Service;
@@ -69,6 +73,7 @@ public class MspdiExportService {
             : "Exported Schedule";
     projectProperties.setProjectTitle(name);
     projectProperties.setName(name);
+    projectProperties.setNewTasksAreManual(true);
 
     LocalDateTime projectStart = parseDateTime(props != null ? props.getStartDate() : null, false);
     LocalDateTime projectFinish = parseDateTime(props != null ? props.getFinishDate() : null, true);
@@ -223,6 +228,8 @@ public class MspdiExportService {
       task.setOutlineLevel(dto.getOutlineLevel());
     }
     task.setSummary(dto.isSummary());
+    task.setTaskMode(TaskMode.MANUALLY_SCHEDULED);
+    task.setType(TaskType.FIXED_DURATION);
 
     if (dto.isMilestone()) {
       task.setMilestone(true);
@@ -248,8 +255,13 @@ public class MspdiExportService {
 
     if (dto.isMilestone()) {
       task.setDuration(Duration.getInstance(0, TimeUnit.DAYS));
+      task.setWork(Duration.getInstance(0, TimeUnit.HOURS));
     } else if (dto.getDurationDays() != null && dto.getDurationDays() > 0) {
       task.setDuration(Duration.getInstance(dto.getDurationDays(), TimeUnit.DAYS));
+    }
+
+    if (dto.getWorkHours() != null && dto.getWorkHours() > 0) {
+      task.setWork(Duration.getInstance(dto.getWorkHours(), TimeUnit.HOURS));
     }
 
     if (dto.getBaselineDurationDays() != null && dto.getBaselineDurationDays() > 0) {
@@ -282,15 +294,37 @@ public class MspdiExportService {
     if (value == null || value.isBlank()) {
       return null;
     }
-    String day = value.trim();
-    if (day.length() >= 10) {
-      day = day.substring(0, 10);
-    }
+    String trimmed = value.trim();
     try {
-      LocalDate date = LocalDate.parse(day);
-      return LocalDateTime.of(date, endOfDay ? LocalTime.of(17, 0) : LocalTime.of(8, 0));
+      if (trimmed.length() == 10) {
+        LocalDate date = LocalDate.parse(trimmed);
+        return LocalDateTime.of(date, endOfDay ? LocalTime.of(17, 0) : LocalTime.of(8, 0));
+      }
+      if (trimmed.endsWith("Z") || trimmed.matches(".*[+-]\\d{2}:\\d{2}$")) {
+        return OffsetDateTime.parse(trimmed).toLocalDateTime();
+      }
+      try {
+        return LocalDateTime.parse(trimmed, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+      } catch (Exception ignored) {
+        // fall through to shorter patterns
+      }
+      try {
+        return LocalDateTime.parse(trimmed, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+      } catch (Exception ignored) {
+        // fall through
+      }
+      try {
+        return LocalDateTime.parse(trimmed, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"));
+      } catch (Exception ignored) {
+        return LocalDateTime.parse(trimmed, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+      }
     } catch (Exception ignored) {
-      return null;
+      try {
+        LocalDate date = LocalDate.parse(trimmed.substring(0, Math.min(10, trimmed.length())));
+        return LocalDateTime.of(date, endOfDay ? LocalTime.of(17, 0) : LocalTime.of(8, 0));
+      } catch (Exception ignoredAgain) {
+        return null;
+      }
     }
   }
 

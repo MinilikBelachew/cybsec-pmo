@@ -18,6 +18,7 @@ import { CreateMppPortfolioImportDto, MppPortfolioProjectCreateDto } from './dto
 import { MppImportMapper } from './mpp-import.mapper';
 import { MppParserClient } from './mpp-parser.client';
 import { MppImportPreview, MppImportResultSummary } from './mpp-import.types';
+import { fromMspdiDateTime } from './mspdi-datetime.util';
 
 @Injectable()
 export class MppImportService {
@@ -66,7 +67,7 @@ export class MppImportService {
     projectId: string,
     fileName: string,
     filePath: string,
-    options?: { deleteFile?: boolean },
+    options?: { deleteFile?: boolean; timeZone?: string },
   ): Promise<MppImportResultSummary> {
     await this.assertProjectAccessible(user, projectId);
     const deleteFile = options?.deleteFile !== false;
@@ -77,7 +78,11 @@ export class MppImportService {
       // Always persist the full file into this project. L1 summaries become
       // phases; nested summaries stay as parent tasks. Splitting on "portfolio"
       // would turn a single DLP-style plan into one project per phase.
-      return await this.mapper.persistParsedProject(projectId, parsed);
+      return await this.mapper.persistParsedProject(
+        projectId,
+        parsed,
+        options?.timeZone,
+      );
     } finally {
       if (deleteFile) {
         await this.safeDeleteFile(filePath);
@@ -94,7 +99,7 @@ export class MppImportService {
     dto: CreateMppPortfolioImportDto,
     fileName: string,
     filePath: string,
-    options?: { deleteFile?: boolean },
+    options?: { deleteFile?: boolean; timeZone?: string },
   ): Promise<MppImportResultSummary> {
     const deleteFile = options?.deleteFile !== false;
     try {
@@ -176,10 +181,12 @@ export class MppImportService {
           const start = this.parseDateOr(
             segment.startDate,
             new Date(),
+            options?.timeZone ?? dto.timeZone,
           );
           let end = this.parseDateOr(
             segment.finishDate,
             new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000),
+            options?.timeZone ?? dto.timeZone,
           );
           if (end.getTime() <= start.getTime()) {
             end = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -214,6 +221,7 @@ export class MppImportService {
         const summary = await this.mapper.persistParsedProject(
           projectId,
           segment.parsed,
+          options?.timeZone ?? dto.timeZone,
         );
         totals.tasksCreated += summary.tasksCreated;
         totals.tasksUpdated += summary.tasksUpdated;
@@ -255,10 +263,11 @@ export class MppImportService {
   async exportMspdi(
     user: CaslUserContext,
     projectId: string,
+    timeZone?: string,
   ): Promise<MspdiExportFileResult> {
     await this.assertProjectAccessible(user, projectId);
 
-    const payload = await this.exportBuilder.buildPayload(projectId);
+    const payload = await this.exportBuilder.buildPayload(projectId, timeZone);
     if (payload.tasks.length === 0) {
       throw new BadRequestException('Project has no tasks to export');
     }
@@ -320,14 +329,15 @@ export class MppImportService {
     });
   }
 
-  private parseDateOr(value: string | undefined, fallback: Date): Date {
+  private parseDateOr(
+    value: string | undefined,
+    fallback: Date,
+    timeZone?: string,
+  ): Date {
     if (!value) {
       return fallback;
     }
-    const parsed = new Date(
-      value.length <= 10 ? `${value}T00:00:00.000Z` : value,
-    );
-    return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+    return fromMspdiDateTime(value, timeZone) ?? fallback;
   }
 
   private async assertProjectAccessible(

@@ -13,6 +13,7 @@ public class MspdiExportTaskDto {
   private String baselineStart;
   private String baselineFinish;
   private Double durationDays;
+  private Double workHours;
   private Double baselineDurationDays;
   private Integer startVarianceDays;
   private Integer finishVarianceDays;
@@ -106,6 +107,14 @@ public class MspdiExportTaskDto {
 
   public void setDurationDays(Double durationDays) {
     this.durationDays = durationDays;
+  }
+
+  public Double getWorkHours() {
+    return workHours;
+  }
+
+  public void setWorkHours(Double workHours) {
+    this.workHours = workHours;
   }
 
   public Double getBaselineDurationDays() {

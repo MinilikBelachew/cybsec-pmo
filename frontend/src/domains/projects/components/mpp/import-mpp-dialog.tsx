@@ -31,6 +31,7 @@ import {
   type MppEditableProject,
 } from "./mpp-import-preview-panel";
 import { PROJECT_NAME_MAX, PROJECT_OBJECTIVE_MAX } from "../../schemas/project/create-project.schema";
+import { formatShortDateTime } from "@/shared/utils/date";
 
 const ACCEPTED_EXTENSIONS = [".mpp", ".mpx", ".xml"];
 
@@ -46,16 +47,23 @@ type ImportMppDialogProps = {
 
 type Step = "select" | "preview" | "done";
 
+function browserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 function formatDate(value?: string): string {
   if (!value) return "—";
-  const date = new Date(value.length <= 10 ? `${value}T00:00:00Z` : value);
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    const date = new Date(`${value.trim()}T00:00:00Z`);
+    return Number.isNaN(date.getTime())
+      ? "—"
+      : date.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+  }
+  return formatShortDateTime(value) ?? value;
 }
 
 function toIso(value: string | undefined, fallback: Date): string {
@@ -332,7 +340,11 @@ export function ImportMppDialog({
     setStep("select");
 
     try {
-      const data = await previewMpp({ projectId, file }).unwrap();
+      const data = await previewMpp({
+        projectId,
+        file,
+        timeZone: browserTimeZone(),
+      }).unwrap();
       setPreview(data);
       if (isNewProject) {
         setEditableProjects(
@@ -507,6 +519,7 @@ export function ImportMppDialog({
         const first = createRows[0];
         const enqueue = await importMppPortfolio({
           file,
+          timeZone: browserTimeZone(),
           defaults: {
             objective: first?.objective.trim(),
             departmentId: first?.departmentId,
@@ -613,7 +626,11 @@ export function ImportMppDialog({
 
       if (!targetProjectId) return;
 
-      const enqueue = await importMpp({ projectId: targetProjectId, file }).unwrap();
+      const enqueue = await importMpp({
+        projectId: targetProjectId,
+        file,
+        timeZone: browserTimeZone(),
+      }).unwrap();
       finishInBackground(
         enqueue,
         "mpp",

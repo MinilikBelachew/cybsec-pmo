@@ -4,6 +4,7 @@ import { taskDatesOutsidePhaseErrors, toTaskDayKey } from "../schemas/task/task-
 import {
   normalizeImportTaskDateTime,
   parseTaskDateTime,
+  toMspdiDateTime,
 } from "@/shared/utils/date";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -2558,9 +2559,7 @@ function escMppXml(str: string) {
 }
 
 function toMppDateTime(value?: string | null, endOfDay = false): string {
-  if (!value) return "";
-  const day = String(value).split("T")[0];
-  return `${day}T${endOfDay ? "17:00:00" : "08:00:00"}`;
+  return toMspdiDateTime(value, endOfDay);
 }
 
 function mapMppPriority(p: string) {
@@ -2629,10 +2628,6 @@ function mspdiDurationXml(task: any): string {
   if (isMspdiMilestone(task)) {
     return `<Duration>PT0H0M0S</Duration>`;
   }
-  if (task.effortHours != null && Number(task.effortHours) > 0) {
-    const hours = Math.round(Number(task.effortHours));
-    return `<Duration>PT${hours}H0M0S</Duration>`;
-  }
   if (task.startDate && task.endDate) {
     const start = new Date(`${String(task.startDate).split("T")[0]}T00:00:00Z`);
     const end = new Date(`${String(task.endDate).split("T")[0]}T00:00:00Z`);
@@ -2641,6 +2636,25 @@ function mspdiDurationXml(task: any): string {
       Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1,
     );
     return `<Duration>PT${days * 8}H0M0S</Duration>`;
+  }
+  if (task.effortHours != null && Number(task.effortHours) > 0) {
+    const hours = Math.round(Number(task.effortHours));
+    return `<Duration>PT${hours}H0M0S</Duration>`;
+  }
+  return "";
+}
+
+function mspdiWorkXml(task: any): string {
+  if (isMspdiMilestone(task)) {
+    return `<Work>PT0H0M0S</Work>`;
+  }
+  if (task.effortHours != null && Number(task.effortHours) > 0) {
+    const hours = Math.round(Number(task.effortHours) * 10) / 10;
+    const whole = Math.floor(hours);
+    const minutes = Math.round((hours - whole) * 60);
+    return minutes > 0
+      ? `<Work>PT${whole}H${minutes}M0S</Work>`
+      : `<Work>PT${whole}H0M0S</Work>`;
   }
   return "";
 }
@@ -2815,9 +2829,7 @@ function renderMppTaskXml(opts: {
     : "";
   const percent = task ? mapMppPercent(task) : 0;
   const durationXml = task ? mspdiDurationXml(task) : "";
-  const workXml = durationXml
-    ? durationXml.replace("<Duration>", "<Work>").replace("</Duration>", "</Work>")
-    : "";
+  const workXml = task ? mspdiWorkXml(task) : "";
   const baselineHours = task ? mspdiBaselineDurationHours(task) : null;
   const actualStart =
     task && percent > 0
@@ -2843,10 +2855,10 @@ ${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFin
       <WBS>${wbs}</WBS>
       <OutlineNumber>${wbs}</OutlineNumber>
       <OutlineLevel>${outlineLevel}</OutlineLevel>
-      <Type>${summary ? 1 : 0}</Type>
+      <Type>1</Type>
       <Name>${escMppXml(name)}</Name>
       <Summary>${summary ? 1 : 0}</Summary>
-      <Manual>0</Manual>
+      <Manual>1</Manual>
       <Milestone>${milestone ? 1 : 0}</Milestone>
       ${start ? `<Start>${start}</Start>` : ""}
       ${finish ? `<Finish>${finish}</Finish>` : ""}
@@ -2967,14 +2979,16 @@ function appendMspdiResourcesAndAssignments(
   for (const row of assignmentRows) {
     const start = toMppDateTime(row.task.startDate);
     const finish = toMppDateTime(row.task.endDate, true);
+    const workXml = mspdiWorkXml(row.task);
+    const work = workXml.replace("<Work>", "").replace("</Work>", "");
     xml += `    <Assignment>
       <UID>${assignmentUid++}</UID>
       <ResourceUID>${row.resourceUid}</ResourceUID>
       <TaskUID>${row.taskUid}</TaskUID>
       <Units>1</Units>
-      <Work>PT8H0M0S</Work>
-      <RegularWork>PT8H0M0S</RegularWork>
-      <RemainingWork>PT8H0M0S</RemainingWork>
+      ${work ? `<Work>${work}</Work>
+      <RegularWork>${work}</RegularWork>
+      <RemainingWork>${work}</RemainingWork>` : ""}
       ${start ? `<Start>${start}</Start>` : ""}
       ${finish ? `<Finish>${finish}</Finish>` : ""}
     </Assignment>
@@ -3155,7 +3169,7 @@ export function exportTasksToMspdi(
   <Name>${escMppXml(projectName)}</Name>
   <Title>${escMppXml(projectName)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
-  <NewTasksAreManual>0</NewTasksAreManual>
+  <NewTasksAreManual>1</NewTasksAreManual>
   ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
   ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
   <CalendarUID>1</CalendarUID>
@@ -3275,7 +3289,7 @@ export function exportProjectsToMspdi(
   <Name>Portfolio Export</Name>
   <Title>Portfolio Export</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
-  <NewTasksAreManual>0</NewTasksAreManual>
+  <NewTasksAreManual>1</NewTasksAreManual>
   ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
   ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
   <CalendarUID>1</CalendarUID>
