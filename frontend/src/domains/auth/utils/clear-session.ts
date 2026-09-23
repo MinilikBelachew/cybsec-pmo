@@ -2,15 +2,38 @@ import type { AppDispatch } from "@/store";
 import { api } from "@/core/api/api";
 import { clearUser, logout } from "@/domains/auth/store/auth.slice";
 
-export type LoginRedirectError =
-  | "session_expired"
-  | "session_timeout"
-  | "session_failed"
-  | undefined;
+export type LoginRedirectError = string | undefined;
+
+export const SESSION_ENDED_KEY = "pmo.session-ended";
+
+export function markSessionEnded() {
+  try {
+    sessionStorage.setItem(SESSION_ENDED_KEY, "1");
+  } catch {
+    // Private mode / disabled storage — history trap still applies.
+  }
+}
+
+export function clearSessionEndedMark() {
+  try {
+    sessionStorage.removeItem(SESSION_ENDED_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function isSessionEnded(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_ENDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 /** Locale-aware hard navigation to login (replaces history entry). */
 export function redirectToLogin(error?: LoginRedirectError) {
   if (typeof window === "undefined") return;
+  markSessionEnded();
   const segments = window.location.pathname.split("/").filter(Boolean);
   const locale = segments[0] || "en";
   const qs = error ? `?error=${encodeURIComponent(error)}` : "";

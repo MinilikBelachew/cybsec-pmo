@@ -22,6 +22,10 @@ export class SessionPrismaMapper {
     domainEntity.revokedAt = raw.revokedAt;
     domainEntity.isBreakGlass = raw.isBreakGlass;
     domainEntity.breakGlassReason = raw.breakGlassReason;
+    domainEntity.breakGlassSource =
+      raw.breakGlassSource === 'settings' || raw.breakGlassSource === 'emergency'
+        ? raw.breakGlassSource
+        : null;
     domainEntity.createdAt = raw.createdAt;
     if (raw.user) {
       domainEntity.user = UserPrismaMapper.toDomain(raw.user);
@@ -40,6 +44,7 @@ export class SessionPrismaMapper {
       revokedAt: domainEntity.revokedAt,
       isBreakGlass: domainEntity.isBreakGlass ?? false,
       breakGlassReason: domainEntity.breakGlassReason,
+      breakGlassSource: domainEntity.breakGlassSource ?? null,
       createdAt: domainEntity.createdAt,
     };
   }

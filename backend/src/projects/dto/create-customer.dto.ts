@@ -69,11 +69,11 @@ export class CreateCustomerDto {
   @MaxLength(2000)
   description?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ example: "billing@cisco.com" })
   @IsEmail()
+  @IsNotEmpty()
   @MaxLength(255)
-  email?: string;
+  email: string;
 
   @ApiPropertyOptional()
   @IsOptional()

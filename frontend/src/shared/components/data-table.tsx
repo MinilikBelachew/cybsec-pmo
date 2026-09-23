@@ -5,6 +5,8 @@ import * as React from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type OnChangeFn,
+  type PaginationState,
   type Row,
   type RowSelectionState,
   type SortingState,
@@ -45,10 +47,12 @@ import {
 } from "@/shared/ui/table";
 import { cn } from "@/shared/utils/cn";
 
-export type DataTableBulkSelectProps = {
+export type DataTableBulkSelectProps<TData = unknown> = {
   active: boolean;
   onActiveChange: (active: boolean) => void;
   actions?: React.ReactNode;
+  /** When set, only these rows can be checked (e.g. skip WBS phase/milestone rows). */
+  canSelectRow?: (row: TData) => boolean;
 };
 
 export type DataTableProps<TData, TValue> = {
@@ -67,13 +71,15 @@ export type DataTableProps<TData, TValue> = {
   onPageChange?: (pageIndex: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   pageSizeOptions?: number[];
+  /** Show every row (scroll) and hide the rows-per-page / prev-next footer. */
+  hidePagination?: boolean;
   sorting?: SortingState;
   onSortingChange?: (sorting: SortingState) => void;
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   isLoading?: boolean;
   filters?: React.ReactNode;
-  bulkSelect?: DataTableBulkSelectProps;
+  bulkSelect?: DataTableBulkSelectProps<TData>;
   onSelectionChange?: (rows: TData[]) => void;
   emptyMessage?: string;
   tableClassName?: string;
@@ -89,6 +95,11 @@ export type DataTableProps<TData, TValue> = {
   mobileLayout?: "cards" | "scroll";
   /** Optional custom card body; otherwise visible cells are stacked with labels. */
   renderMobileCard?: (row: TData) => React.ReactNode;
+  /**
+   * Keep the filter/select/bulk toolbar fixed above a scrollable table body.
+   * Parent should give the table a bounded height (e.g. `h-full min-h-0`).
+   */
+  pinToolbar?: boolean;
 };
 
 function stickyCellClass(
@@ -200,6 +211,7 @@ export function DataTable<TData, TValue>({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [...PAGE_SIZE_OPTIONS],
+  hidePagination = false,
   sorting: controlledSorting,
   onSortingChange,
   searchValue = "",
@@ -216,6 +228,7 @@ export function DataTable<TData, TValue>({
   columnOrderStorageKey,
   mobileLayout = "cards",
   renderMobileCard,
+  pinToolbar = false,
 }: DataTableProps<TData, TValue>) {
   const t = useTranslations("Table");
   const visibilityStorageKey = columnOrderStorageKey
@@ -228,6 +241,7 @@ export function DataTable<TData, TValue>({
     return readStoredColumnVisibility(visibilityStorageKey);
   });
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+  const [clientPageIndex, setClientPageIndex] = React.useState(0);
   const [clientPageSize, setClientPageSize] = React.useState(pageSize);
   const [draggingColumnId, setDraggingColumnId] = React.useState<string | null>(null);
   const [dropTargetColumnId, setDropTargetColumnId] = React.useState<string | null>(null);
@@ -287,6 +301,7 @@ export function DataTable<TData, TValue>({
   }, [knownColumnIds]);
 
   const resolvedPageSize = manual ? pageSize : clientPageSize;
+  const resolvedPageIndex = manual ? pageIndex : clientPageIndex;
 
   const bulkActive = bulkSelect?.active ?? false;
   const showSearch = !hideSearch && (Boolean(searchKey) || manual);
@@ -321,31 +336,56 @@ export function DataTable<TData, TValue>({
     [activeSorting, manual, onSortingChange],
   );
 
+  const handlePaginationChange = React.useCallback<OnChangeFn<PaginationState>>(
+    (updater) => {
+      const current: PaginationState = {
+        pageIndex: resolvedPageIndex,
+        pageSize: resolvedPageSize,
+      };
+      const next = typeof updater === "function" ? updater(current) : updater;
+      if (manual) {
+        if (next.pageIndex !== pageIndex) onPageChange?.(next.pageIndex);
+        if (next.pageSize !== pageSize) onPageSizeChange?.(next.pageSize);
+        return;
+      }
+      setClientPageIndex(next.pageIndex);
+      setClientPageSize(next.pageSize);
+    },
+    [
+      manual,
+      onPageChange,
+      onPageSizeChange,
+      pageIndex,
+      pageSize,
+      resolvedPageIndex,
+      resolvedPageSize,
+    ],
+  );
+
   const table = useReactTable({
     data,
     columns,
     getRowId: getRowId ? (row) => getRowId(row) : undefined,
-    enableRowSelection: bulkActive,
+    enableRowSelection: (row) =>
+      bulkActive && (bulkSelect?.canSelectRow?.(row.original) ?? true),
     pageCount: manual ? pageCount : undefined,
     manualPagination: manual,
     manualSorting: manual,
     manualFiltering: manual,
+    // Expanding/collapsing WBS rows (and polling) rebuilds `data`. Keep the
+    // current page instead of jumping back to page 1.
+    autoResetPageIndex: false,
     onSortingChange: handleSortingChange,
     onColumnFiltersChange: setColumnFilters,
     onRowSelectionChange: setRowSelection,
+    onPaginationChange: hidePagination ? undefined : handlePaginationChange,
     getCoreRowModel: getCoreRowModel(),
     ...(manual
       ? {}
       : {
-          getPaginationRowModel: getPaginationRowModel(),
+          ...(hidePagination ? {} : { getPaginationRowModel: getPaginationRowModel() }),
           getSortedRowModel: getSortedRowModel(),
           getFilteredRowModel: getFilteredRowModel(),
-          initialState: {
-            pagination: {
-              pageIndex,
-              pageSize,
-            },
-          },
         }),
     onColumnVisibilityChange: setColumnVisibility,
     onColumnOrderChange: enableColumnReorder ? setColumnOrder : undefined,
@@ -355,9 +395,19 @@ export function DataTable<TData, TValue>({
       columnVisibility,
       rowSelection,
       ...(enableColumnReorder ? { columnOrder: resolvedColumnOrder } : {}),
-      ...(manual ? { pagination: { pageIndex, pageSize: resolvedPageSize } } : {}),
+      ...(hidePagination
+        ? {}
+        : { pagination: { pageIndex: resolvedPageIndex, pageSize: resolvedPageSize } }),
     },
   });
+
+  React.useLayoutEffect(() => {
+    if (manual || hidePagination) return;
+    const nextPageCount = table.getPageCount();
+    if (nextPageCount > 0 && clientPageIndex >= nextPageCount) {
+      setClientPageIndex(nextPageCount - 1);
+    }
+  }, [data, resolvedPageSize, columnFilters, hidePagination, manual, table, clientPageIndex]);
 
   const onSelectionChangeRef = React.useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
@@ -415,8 +465,7 @@ export function DataTable<TData, TValue>({
     }
 
     setClientPageSize(nextSize);
-    table.setPageSize(nextSize);
-    table.setPageIndex(0);
+    setClientPageIndex(0);
   };
 
   const hideableColumns = table
@@ -509,158 +558,159 @@ export function DataTable<TData, TValue>({
   );
 
   const useMobileCards = mobileLayout === "cards";
+  const showToolbar = Boolean(filters || showSearch || bulkSelect || showColumnManager);
 
-  return (
-    <div className={cn("w-full space-y-3", className)}>
-      {(filters || showSearch || bulkSelect || showColumnManager) && (
-        <div>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              {filters}
-            </div>
+  const toolbar = showToolbar ? (
+    <div className="shrink-0 bg-background">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {filters}
+        </div>
 
-            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-              {showSearch && (
-                <div className="relative w-full min-w-[200px] sm:w-72 lg:w-80">
-                  <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder={searchPlaceholder ?? t("search")}
-                    value={resolvedSearchValue}
-                    onChange={(event) => handleSearchChange(event.target.value)}
-                    maxLength={200}
-                    className="h-9 border-border/60 bg-white ps-9 pe-8 shadow-none dark:bg-card"
-                  />
-                  {resolvedSearchValue && (
-                    <button
-                      type="button"
-                      aria-label={t("clearSearch")}
-                      onClick={() => handleSearchChange("")}
-                      className="absolute end-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {bulkSelect && (
-                <Button
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          {showSearch && (
+            <div className="relative w-full min-w-[200px] sm:w-72 lg:w-80">
+              <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder={searchPlaceholder ?? t("search")}
+                value={resolvedSearchValue}
+                onChange={(event) => handleSearchChange(event.target.value)}
+                maxLength={200}
+                className="h-9 border-border/60 bg-white ps-9 pe-8 shadow-none dark:bg-card"
+              />
+              {resolvedSearchValue && (
+                <button
                   type="button"
-                  variant={bulkActive ? "secondary" : "outline"}
-                  size="sm"
-                  className="h-9 gap-1.5 border-border/60 bg-white shadow-none dark:bg-card"
-                  onClick={() => bulkSelect.onActiveChange(!bulkActive)}
+                  aria-label={t("clearSearch")}
+                  onClick={() => handleSearchChange("")}
+                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
                 >
-                  <ListChecks className="size-4" />
-                  {bulkActive ? t("cancelSelect") : t("selectRows")}
-                </Button>
-              )}
-
-              {bulkActive && selectedCount > 0 && bulkSelect?.actions}
-
-              {showColumnManager && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 gap-1.5 border-border/60 bg-white shadow-none dark:bg-card"
-                      />
-                    }
-                  >
-                    <Columns3 className="size-4" />
-                    {t("columns")}
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 p-1.5">
-                    <DropdownMenuGroup>
-                      <DropdownMenuLabel className="px-1.5 text-xs text-muted-foreground">
-                        {t("toggleColumns")}
-                      </DropdownMenuLabel>
-                      {enableColumnReorder && (
-                        <p className="px-1.5 pb-1.5 text-[10px] leading-snug text-muted-foreground">
-                          {t("manageColumnsHint")}
-                        </p>
-                      )}
-                      <div className="max-h-72 space-y-0.5 overflow-y-auto">
-                        {managedColumnIds.map((columnId) => {
-                          const column = table.getColumn(columnId);
-                          if (!column) return null;
-
-                          const label = column.columnDef.meta?.label ?? column.id;
-                          const isVisible = column.getIsVisible();
-                          const canReorder = canReorderColumn(columnId);
-                          const canHide = column.getCanHide();
-
-                          return (
-                            <div
-                              key={columnId}
-                              onDragOver={
-                                canReorder ? handleColumnDragOver(columnId) : undefined
-                              }
-                              onDrop={canReorder ? handleColumnDrop(columnId) : undefined}
-                              className={cn(
-                                "flex items-center gap-1 rounded-md px-1 py-0.5",
-                                dropTargetColumnId === columnId && "bg-primary/10",
-                                draggingColumnId === columnId && "opacity-60",
-                              )}
-                            >
-                              {canReorder ? (
-                                <button
-                                  type="button"
-                                  draggable
-                                  onDragStart={handleColumnDragStart(columnId)}
-                                  onDragEnd={handleColumnDragEnd}
-                                  aria-label={t("reorderColumn")}
-                                  className="cursor-grab touch-none rounded p-0.5 text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  <GripVertical className="size-3.5" />
-                                </button>
-                              ) : (
-                                <span className="size-4 shrink-0" />
-                              )}
-
-                              <button
-                                type="button"
-                                disabled={!canHide}
-                                onClick={() => canHide && column.toggleVisibility()}
-                                className={cn(
-                                  "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-sm transition-colors",
-                                  canHide && "hover:bg-accent",
-                                  !isVisible && "text-muted-foreground",
-                                )}
-                              >
-                                <span className="truncate">{label}</span>
-                                {canHide && (
-                                  isVisible ? (
-                                    <Eye className="ms-auto size-3.5 shrink-0 text-primary" />
-                                  ) : (
-                                    <EyeOff className="ms-auto size-3.5 shrink-0 text-muted-foreground" />
-                                  )
-                                )}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </DropdownMenuGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  <X className="size-3.5" />
+                </button>
               )}
             </div>
-          </div>
+          )}
 
-          {bulkActive && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {selectedCount > 0
-                ? t("rowsSelected", { selected: selectedCount, total: data.length })
-                : t("selectRowsHint")}
-            </p>
+          {bulkSelect && (
+            <Button
+              type="button"
+              variant={bulkActive ? "secondary" : "outline"}
+              size="sm"
+              className="h-9 gap-1.5 border-border/60 bg-white shadow-none dark:bg-card"
+              onClick={() => bulkSelect.onActiveChange(!bulkActive)}
+            >
+              <ListChecks className="size-4" />
+              {bulkActive ? t("cancelSelect") : t("selectRows")}
+            </Button>
+          )}
+
+          {bulkActive && selectedCount > 0 && bulkSelect?.actions}
+
+          {showColumnManager && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5 border-border/60 bg-white shadow-none dark:bg-card"
+                  />
+                }
+              >
+                <Columns3 className="size-4" />
+                {t("columns")}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 p-1.5">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="px-1.5 text-xs text-muted-foreground">
+                    {t("toggleColumns")}
+                  </DropdownMenuLabel>
+                  {enableColumnReorder && (
+                    <p className="px-1.5 pb-1.5 text-[10px] leading-snug text-muted-foreground">
+                      {t("manageColumnsHint")}
+                    </p>
+                  )}
+                  <div className="max-h-72 space-y-0.5 overflow-y-auto">
+                    {managedColumnIds.map((columnId) => {
+                      const column = table.getColumn(columnId);
+                      if (!column) return null;
+
+                      const label = column.columnDef.meta?.label ?? column.id;
+                      const isVisible = column.getIsVisible();
+                      const canReorder = canReorderColumn(columnId);
+                      const canHide = column.getCanHide();
+
+                      return (
+                        <div
+                          key={columnId}
+                          onDragOver={
+                            canReorder ? handleColumnDragOver(columnId) : undefined
+                          }
+                          onDrop={canReorder ? handleColumnDrop(columnId) : undefined}
+                          className={cn(
+                            "flex items-center gap-1 rounded-md px-1 py-0.5",
+                            dropTargetColumnId === columnId && "bg-primary/10",
+                            draggingColumnId === columnId && "opacity-60",
+                          )}
+                        >
+                          {canReorder ? (
+                            <button
+                              type="button"
+                              draggable
+                              onDragStart={handleColumnDragStart(columnId)}
+                              onDragEnd={handleColumnDragEnd}
+                              aria-label={t("reorderColumn")}
+                              className="cursor-grab touch-none rounded p-0.5 text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <GripVertical className="size-3.5" />
+                            </button>
+                          ) : (
+                            <span className="size-4 shrink-0" />
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={!canHide}
+                            onClick={() => canHide && column.toggleVisibility()}
+                            className={cn(
+                              "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-sm transition-colors",
+                              canHide && "hover:bg-accent",
+                              !isVisible && "text-muted-foreground",
+                            )}
+                          >
+                            <span className="truncate">{label}</span>
+                            {canHide && (
+                              isVisible ? (
+                                <Eye className="ms-auto size-3.5 shrink-0 text-primary" />
+                              ) : (
+                                <EyeOff className="ms-auto size-3.5 shrink-0 text-muted-foreground" />
+                              )
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
-      )}
+      </div>
 
+      {bulkActive && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {selectedCount > 0
+            ? t("rowsSelected", { selected: selectedCount, total: data.length })
+            : t("selectRowsHint")}
+        </p>
+      )}
+    </div>
+  ) : null;
+
+  const tableBody = (
+    <>
       {useMobileCards && (
         <div className="relative md:hidden">
           {isLoading && (
@@ -793,6 +843,7 @@ export function DataTable<TData, TValue>({
           </div>
       </div>
 
+      {!hidePagination ? (
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
@@ -867,6 +918,24 @@ export function DataTable<TData, TValue>({
             </Button>
           </div>
         </div>
+      ) : null}
+    </>
+  );
+
+  return (
+    <div
+      className={cn(
+        "w-full",
+        pinToolbar ? "flex h-full min-h-0 flex-col gap-3" : "space-y-3",
+        className,
+      )}
+    >
+      {toolbar}
+      {pinToolbar ? (
+        <div className="min-h-0 flex-1 space-y-3 overflow-auto">{tableBody}</div>
+      ) : (
+        tableBody
+      )}
     </div>
   );
 }

@@ -119,6 +119,14 @@ export class ExcelTaskImportRowDto {
   @IsUUID()
   resolvedPhaseId?: string | null;
 
+  @ApiPropertyOptional({
+    description: 'Phase name from Excel. Used when resolvedPhaseId is not set.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  phaseName?: string;
+
   @ApiProperty({ enum: ['create', 'update'] })
   @IsEnum(['create', 'update'])
   importMode: 'create' | 'update';
@@ -134,6 +142,15 @@ export class ExcelTaskImportRowDto {
   @ValidateNested({ each: true })
   @Type(() => ExcelPredecessorDto)
   predecessors?: ExcelPredecessorDto[];
+
+  @ApiPropertyOptional({
+    description:
+      'Parent task title from Excel. Empty string clears the parent; omit to leave unchanged.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  parentTaskTitle?: string;
 }
 
 export class ExcelTasksImportDto {

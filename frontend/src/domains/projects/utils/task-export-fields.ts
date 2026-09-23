@@ -1,4 +1,5 @@
 import type { TaskDependency } from "../types/tasks.types";
+import { toMspExportDateTime } from "@/shared/utils/date";
 
 /** Columns for task schedule export (DEF-P1-028 fidelity fields included). */
 export const TASK_EXPORT_FIELD_OPTIONS = [
@@ -10,22 +11,22 @@ export const TASK_EXPORT_FIELD_OPTIONS = [
   {
     id: "Resource Names",
     label: "Resource Names",
-    desc: "MSP-style Name (Organization), comma-separated for owner and backup",
+    desc: "MSP-style Name (Organization): owner, backup, then unmatched import names",
   },
   { id: "Phase", label: "Phase", desc: "Project phase or roadmap stage" },
   { id: "Parent Task", label: "Parent Task", desc: "Parent task title when nested (hierarchy)" },
   { id: "Is Summary", label: "Is Summary", desc: "Yes when the row has child tasks" },
   { id: "Order", label: "Order", desc: "Plan order index within the export" },
-  { id: "Start Date", label: "Start Date", desc: "Scheduled start date" },
-  { id: "End Date", label: "End Date", desc: "Scheduled due date" },
+  { id: "Start Date", label: "Start Date", desc: "Scheduled start date and time (YYYY-MM-DD HH:mm)" },
+  { id: "End Date", label: "End Date", desc: "Scheduled due date and time (YYYY-MM-DD HH:mm)" },
   { id: "Duration Days", label: "Duration Days", desc: "Working duration in days" },
   { id: "Effort Hours", label: "Effort Hours", desc: "Hours allocated or logged for this task" },
   { id: "% Complete", label: "% Complete", desc: "Approved percent complete" },
-  { id: "Baseline Start", label: "Baseline Start", desc: "Baseline start date" },
-  { id: "Baseline End", label: "Baseline End", desc: "Baseline finish date" },
+  { id: "Baseline Start", label: "Baseline Start", desc: "Baseline start date and time (YYYY-MM-DD HH:mm)" },
+  { id: "Baseline End", label: "Baseline End", desc: "Baseline finish date and time (YYYY-MM-DD HH:mm)" },
   { id: "Baseline Duration Days", label: "Baseline Duration Days", desc: "Baseline duration in days" },
-  { id: "Actual Start", label: "Actual Start", desc: "Actual start date from schedule" },
-  { id: "Actual End", label: "Actual End", desc: "Actual finish date from schedule" },
+  { id: "Actual Start", label: "Actual Start", desc: "Actual start date and time (YYYY-MM-DD HH:mm)" },
+  { id: "Actual End", label: "Actual End", desc: "Actual finish date and time (YYYY-MM-DD HH:mm)" },
   { id: "Start Variance Days", label: "Start Variance Days", desc: "Start minus baseline start (days)" },
   { id: "Finish Variance Days", label: "Finish Variance Days", desc: "Finish minus baseline finish (days)" },
   { id: "Predecessors", label: "Predecessors", desc: "Predecessor titles with dependency type" },
@@ -47,7 +48,10 @@ export type TaskExportDependency = Pick<
 function toDay(value?: string | Date | null): string {
   if (!value) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).split("T")[0];
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value).trim());
+  if (match) return match[1];
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
 }
 
 /** Inclusive calendar-day span (start→end). */
@@ -263,6 +267,48 @@ export function formatResourceName(
   return `${n} (${org})`;
 }
 
+export function splitResourceNames(raw?: string | null): string[] {
+  if (!raw?.trim()) return [];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(",")) {
+    const name = part.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+/** "Vinayak Sonkavada (CyberKnight)" → "Vinayak Sonkavada" */
+export function bareResourceName(name: string): string {
+  return name.replace(/\s*\([^)]*\)\s*$/, "").trim() || name.trim();
+}
+
+/** Owner / Backup first, then unmatched names stored from MPP import. */
+export function mergeExportResourceNames(
+  ownerFormatted: string,
+  backupFormatted: string,
+  storedRaw?: string | null,
+): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  const add = (value?: string | null) => {
+    const text = String(value || "").trim();
+    if (!text) return;
+    const key = bareResourceName(text).toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    parts.push(text);
+  };
+  add(ownerFormatted);
+  add(backupFormatted);
+  for (const name of splitResourceNames(storedRaw)) add(name);
+  return parts.join(", ");
+}
+
 function resolvePersonOrganization(
   person: {
     isExternal?: boolean | null;
@@ -320,11 +366,11 @@ export function buildTaskExportRow(
     backupFromList?.department?.name || backupFromList?.organization,
   );
 
-  const resourceParts = [
+  const resourceNames = mergeExportResourceNames(
     formatResourceName(assigneeName, ownerOrg),
     formatResourceName(backupName, backupOrg),
-  ].filter(Boolean);
-  const resourceNames = resourceParts.join(", ");
+    task.resourceNames,
+  );
 
   const phaseName =
     task.phase?.name ||
@@ -339,10 +385,10 @@ export function buildTaskExportRow(
     task.isSummary === true ||
     (Array.isArray(task.subTasks) && task.subTasks.length > 0);
 
-  const baselineStart = toDay(task.baselineStart);
-  const baselineEnd = toDay(task.baselineEnd);
-  const start = toDay(task.startDate);
-  const end = toDay(task.endDate);
+  const baselineStart = toMspExportDateTime(task.baselineStart, false);
+  const baselineEnd = toMspExportDateTime(task.baselineEnd, true);
+  const start = toMspExportDateTime(task.startDate, false);
+  const end = toMspExportDateTime(task.endDate, true);
 
   const row: Record<string, string | number> = {
     Title: task.title || "",
@@ -371,10 +417,10 @@ export function buildTaskExportRow(
       Number(task.baselineDurationDays) > 0
         ? Math.round(Number(task.baselineDurationDays) * 10) / 10
         : inclusiveDurationDays(baselineStart, baselineEnd),
-    "Actual Start": toDay(task.actualStart),
-    "Actual End": toDay(task.actualEnd),
-    "Start Variance Days": signedDayDelta(start, baselineStart),
-    "Finish Variance Days": signedDayDelta(end, baselineEnd),
+    "Actual Start": toMspExportDateTime(task.actualStart, false),
+    "Actual End": toMspExportDateTime(task.actualEnd, true),
+    "Start Variance Days": signedDayDelta(task.startDate, baselineStart),
+    "Finish Variance Days": signedDayDelta(task.endDate, baselineEnd),
     Predecessors: formatPredecessorsForExport(
       task.id,
       options.dependencies ?? [],

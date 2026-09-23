@@ -12,7 +12,39 @@ export class ApiError extends Error {
 
 type ApiErrorPayload = {
   message?: string
-  errors?: Record<string, string>
+  errors?: Record<string, unknown>
+}
+
+export type FieldErrorLeaf = {
+  field: string
+  message: string
+}
+
+/** Walk nested `{ allocations: { 0: { overrideReason: "..." } } }` into leaf messages. */
+export function flattenFieldErrorMessages(errors: unknown): FieldErrorLeaf[] {
+  const leaves: FieldErrorLeaf[] = []
+
+  const walk = (value: unknown, path: string[]) => {
+    if (typeof value === "string" && value.trim()) {
+      leaves.push({
+        field: path[path.length - 1] ?? "form",
+        message: value.trim(),
+      })
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, [...path, String(index)]))
+      return
+    }
+    if (value && typeof value === "object") {
+      for (const [key, child] of Object.entries(value)) {
+        walk(child, [...path, key])
+      }
+    }
+  }
+
+  walk(errors, [])
+  return leaves
 }
 
 function normalizeApiErrorPayload(data: unknown): ApiErrorPayload | null {
@@ -25,7 +57,7 @@ function normalizeApiErrorPayload(data: unknown): ApiErrorPayload | null {
       message: body.message,
       errors:
         body.errors && typeof body.errors === "object"
-          ? (body.errors as Record<string, string>)
+          ? (body.errors as Record<string, unknown>)
           : undefined,
     }
   }
@@ -34,7 +66,7 @@ function normalizeApiErrorPayload(data: unknown): ApiErrorPayload | null {
     const nested = body.message as Record<string, unknown>
     const nestedErrors =
       nested.errors && typeof nested.errors === "object"
-        ? (nested.errors as Record<string, string>)
+        ? (nested.errors as Record<string, unknown>)
         : undefined
     const nestedMessage =
       typeof nested.message === "string" ? nested.message : undefined
@@ -45,7 +77,7 @@ function normalizeApiErrorPayload(data: unknown): ApiErrorPayload | null {
   }
 
   if (body.errors && typeof body.errors === "object") {
-    return { errors: body.errors as Record<string, string> }
+    return { errors: body.errors as Record<string, unknown> }
   }
 
   return null
@@ -57,9 +89,9 @@ export function getApiErrorMessage(
 ): string {
   if (error && typeof error === "object" && "data" in error) {
     const payload = normalizeApiErrorPayload((error as { data?: unknown }).data)
-    if (payload?.message) return payload.message
-    const fieldError = payload?.errors ? Object.values(payload.errors)[0] : undefined
+    const fieldError = flattenFieldErrorMessages(payload?.errors)[0]?.message
     if (fieldError) return fieldError
+    if (payload?.message) return payload.message
   }
 
   if (error instanceof Error && error.message) return error.message

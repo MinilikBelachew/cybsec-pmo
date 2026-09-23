@@ -182,7 +182,11 @@ export class ExcelProjectsPreviewService {
       const hasMsSheet = Boolean(msSheetName);
       if (!hasPhaseSheet && !hasTaskSheet && !hasMsSheet) continue;
 
-      let existingTasks: { id: string; title: string }[] = [];
+      let existingTasks: {
+        id: string;
+        title: string;
+        parentTitle?: string | null;
+      }[] = [];
       let existingPhases: {
         id: string;
         name: string;
@@ -207,7 +211,11 @@ export class ExcelProjectsPreviewService {
           hasTaskSheet
             ? this.prisma.task.findMany({
                 where: { projectId },
-                select: { id: true, title: true },
+                select: {
+                  id: true,
+                  title: true,
+                  parentTask: { select: { title: true } },
+                },
               })
             : Promise.resolve([]),
           hasPhaseSheet || hasTaskSheet
@@ -234,7 +242,11 @@ export class ExcelProjectsPreviewService {
               })
             : Promise.resolve([]),
         ]);
-        existingTasks = tasks;
+        existingTasks = tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          parentTitle: t.parentTask?.title ?? null,
+        }));
         existingPhases = phases;
         assignees = team.map((a) => ({
           userId: a.userId,
@@ -262,12 +274,29 @@ export class ExcelProjectsPreviewService {
           allowEmpty: true,
         });
         if (raw.length > 1) {
-          tasksByProject[projName] = processRawTaskRows(
+          const existingPhaseIds = new Set(existingPhases.map((p) => p.id));
+          const phasesForTasks =
+            existingPhases.length > 0
+              ? existingPhases
+              : (phasesByProject[projName] ?? []).map((p) => ({
+                  id: '',
+                  name: p.name,
+                  startDate: p.startDate || null,
+                  endDate: p.endDate || null,
+                }));
+          const parsed = processRawTaskRows(
             raw,
-            existingPhases,
+            phasesForTasks,
             assignees,
             existingTasks,
           );
+          tasksByProject[projName] = parsed.map((row) => ({
+            ...row,
+            resolvedPhaseId:
+              row.resolvedPhaseId && existingPhaseIds.has(row.resolvedPhaseId)
+                ? row.resolvedPhaseId
+                : null,
+          }));
         }
       }
 
@@ -469,12 +498,20 @@ export class ExcelProjectsPreviewService {
         objective: projRow.objective,
         engagementType: projRow.engagementType,
         billingModel: projRow.billingModel,
+        methodology: projRow.methodology || undefined,
         priority: projRow.priority,
         startDate: projRow.startDate,
         endDate: projRow.endDate,
         value: projRow.value,
         currency: projRow.currency,
         status: projRow.status,
+        durationDays: projRow.durationDays,
+        baselineStartDate: projRow.baselineStartDate,
+        baselineEndDate: projRow.baselineEndDate,
+        baselineDurationDays: projRow.baselineDurationDays,
+        actualStartDate: projRow.actualStartDate,
+        actualEndDate: projRow.actualEndDate,
+        percentComplete: projRow.percentComplete,
         importMode: projRow.importMode,
         resolvedProjectId: projRow.resolvedProjectId,
         resolvedDepartmentId: projRow.resolvedDepartmentId!,
@@ -516,7 +553,9 @@ export class ExcelProjectsPreviewService {
           status: row.status,
           startDate: row.startDate || undefined,
           endDate: row.endDate || undefined,
-          effortHours: row.effortHours || undefined,
+          effortHours: Number.isFinite(row.effortHours)
+            ? row.effortHours
+            : undefined,
           durationDays: row.durationDays,
           baselineStart: row.baselineStart,
           baselineEnd: row.baselineEnd,
@@ -526,6 +565,7 @@ export class ExcelProjectsPreviewService {
           progressApproved: row.progressApproved,
           resolvedAssigneeId: row.resolvedAssigneeId ?? null,
           resolvedPhaseId: row.resolvedPhaseId ?? null,
+          phaseName: row.phaseName || undefined,
           importMode: row.importMode,
           resolvedTaskId: row.resolvedTaskId,
           predecessors: (row.predecessors ?? []).map((p) => ({
@@ -533,6 +573,7 @@ export class ExcelProjectsPreviewService {
             depType: p.depType,
             lagDays: p.lagDays,
           })),
+          parentTaskTitle: row.parentTaskTitle,
         }));
       }
 

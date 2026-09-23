@@ -1,23 +1,51 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { PhaseStatus, PriorityLevel, Prisma, TaskStatus } from '@prisma/client';
+import {
+  BillingModel,
+  EngagementType,
+  PhaseStatus,
+  PriorityLevel,
+  Prisma,
+  ProjectMethodology,
+  ProjectStatus,
+  TaskStatus,
+} from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { ProjectsService } from '../projects/projects.service';
+import { FxService } from '../fx/fx.service';
 import {
   ApiBillingModel,
   ApiCurrencyCode,
   ApiEngagementType,
   ApiPriorityLevel,
+  ApiProjectMethodology,
   ApiProjectStatus,
 } from '../projects/enums/project-api.enum';
 import {
+  toPrismaBillingModel,
+  toPrismaEngagementType,
+  toPrismaMethodology,
+  toPrismaStatus,
+} from '../projects/mappers/project.mapper';
+import {
   ExcelMilestoneImportRow,
   ExcelPhaseImportRow,
+  ExcelProjectImportRow,
   ExcelProjectsImportJobData,
   ExcelTaskImportRow,
   ImportJobResultSummary,
 } from './imports.types';
+import {
+  applyExcelTaskParentLinks,
+  createImportRowIdCursor,
+  createTaskTitleIndex,
+  idForTitle,
+  indexExistingTask,
+  indexTaskId,
+  reindexImportRowKeys,
+} from './excel-task-parents.util';
+import { parseImportTaskDateTime } from './task-datetime.util';
 
 type ProgressFn = (percent: number, step: string) => Promise<void>;
 
@@ -43,6 +71,7 @@ export class ExcelProjectsImportService {
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
     private readonly auditLogs: AuditLogsService,
+    private readonly fx: FxService,
   ) {}
 
   async run(
@@ -77,6 +106,8 @@ export class ExcelProjectsImportService {
       try {
         let projectId: string;
         if (proj.importMode === 'update' && proj.resolvedProjectId) {
+          const value = proj.value > 0 ? proj.value : 1;
+          const usd = await this.fx.convertToUsd(value, proj.currency);
           await this.prisma.project.update({
             where: { id: proj.resolvedProjectId },
             data: {
@@ -84,16 +115,23 @@ export class ExcelProjectsImportService {
               objective: proj.objective,
               departmentId: proj.resolvedDepartmentId,
               customerId: proj.resolvedCustomerId,
-              engagementType: proj.engagementType as never,
-              billingModel: proj.billingModel as never,
-              priority: proj.priority as never,
+              engagementType: this.mapEngagement(proj.engagementType),
+              billingModel: this.mapBilling(proj.billingModel),
+              ...(proj.methodology
+                ? { methodology: this.mapMethodology(proj.methodology) }
+                : {}),
+              priority: this.mapPriority(proj.priority),
               startDate: this.requireDate(proj.startDate, 'startDate'),
               endDate: this.requireDate(proj.endDate, 'endDate'),
-              value: proj.value > 0 ? proj.value : 1,
+              value,
               currency: proj.currency as never,
+              valueUsd: usd?.valueUsd ?? null,
+              fxRateToUsd: usd?.fxRateToUsd ?? null,
+              fxRateAt: usd?.fxRateAt ?? null,
               primaryPmId: proj.resolvedPrimaryPmId,
               secondaryPmId: proj.resolvedSecondaryPmId || null,
-              ...(proj.status ? { status: proj.status as never } : {}),
+              ...(proj.status ? { status: this.mapProjectStatus(proj.status) } : {}),
+              ...this.optionalProjectSchedule(proj),
             },
           });
           projectId = proj.resolvedProjectId;
@@ -107,6 +145,9 @@ export class ExcelProjectsImportService {
               customerId: proj.resolvedCustomerId,
               engagementType: proj.engagementType as ApiEngagementType,
               billingModel: proj.billingModel as ApiBillingModel,
+              methodology: proj.methodology
+                ? (proj.methodology as ApiProjectMethodology)
+                : ApiProjectMethodology.Agile,
               priority: proj.priority as ApiPriorityLevel,
               startDate: this.requireDate(proj.startDate, 'startDate'),
               endDate: this.requireDate(proj.endDate, 'endDate'),
@@ -120,6 +161,13 @@ export class ExcelProjectsImportService {
           );
           projectId = created.id;
           projectsCreated += 1;
+          const extra = this.optionalProjectSchedule(proj);
+          if (Object.keys(extra).length > 0) {
+            await this.prisma.project.update({
+              where: { id: projectId },
+              data: extra,
+            });
+          }
         }
 
         // Order preserved: phases → tasks (+ deps) → milestones
@@ -253,7 +301,7 @@ export class ExcelProjectsImportService {
           name: row.name,
           description: row.description ?? null,
           orderIndex: row.orderIndex ?? ids.size + index + 1,
-          status: (row.status as PhaseStatus) || PhaseStatus.Planned,
+                status: this.mapPhaseStatus(row.status),
           startDate: this.parseDate(row.startDate) ?? projectStart,
           endDate: this.parseDate(row.endDate) ?? projectEnd,
         }),
@@ -281,7 +329,7 @@ export class ExcelProjectsImportService {
               name: row.name,
               description: row.description ?? null,
               orderIndex: row.orderIndex ?? ids.size + 1,
-              status: (row.status as PhaseStatus) || PhaseStatus.Planned,
+                status: this.mapPhaseStatus(row.status),
               startDate: this.parseDate(row.startDate) ?? projectStart,
               endDate: this.parseDate(row.endDate) ?? projectEnd,
             },
@@ -303,7 +351,7 @@ export class ExcelProjectsImportService {
                 name: row.name,
                 description: row.description,
                 orderIndex: row.orderIndex,
-                status: (row.status as PhaseStatus) || undefined,
+                status: this.mapPhaseStatus(row.status),
                 startDate: this.parseDate(row.startDate) ?? undefined,
                 endDate: this.parseDate(row.endDate) ?? undefined,
               },
@@ -322,7 +370,7 @@ export class ExcelProjectsImportService {
               name: row.name,
               description: row.description,
               orderIndex: row.orderIndex,
-              status: (row.status as PhaseStatus) || undefined,
+              status: this.mapPhaseStatus(row.status),
               startDate: this.parseDate(row.startDate) ?? undefined,
               endDate: this.parseDate(row.endDate) ?? undefined,
             },
@@ -347,17 +395,36 @@ export class ExcelProjectsImportService {
     let depsCreated = 0;
     let depsUpdated = 0;
     const warnings: string[] = [];
-    const titleToId = new Map<string, string>();
+    const titleIndex = createTaskTitleIndex();
     const phaseIds = new Set(phaseNameToId.values());
-    const defaultPhaseId = [...phaseNameToId.values()][0];
 
-    const existing = await this.prisma.task.findMany({
-      where: { projectId },
-      select: { id: true, title: true },
-    });
+    const [existing, project] = await Promise.all([
+      this.prisma.task.findMany({
+        where: { projectId },
+        select: {
+          id: true,
+          title: true,
+          parentTask: { select: { title: true } },
+        },
+      }),
+      this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { startDate: true, endDate: true },
+      }),
+    ]);
     for (const task of existing) {
-      titleToId.set(task.title.trim().toLowerCase(), task.id);
+      indexExistingTask(titleIndex, task.title, task.id);
     }
+
+    await this.ensureMissingPhases(
+      projectId,
+      rows,
+      phaseNameToId,
+      phaseIds,
+      project?.startDate ?? new Date(),
+      project?.endDate ?? new Date(),
+      warnings,
+    );
 
     if (rows.length === 0) {
       return { created, updated, depsCreated, depsUpdated, warnings };
@@ -370,20 +437,29 @@ export class ExcelProjectsImportService {
       startDate: Date;
       endDate: Date;
       progressApproved: number;
+      importedId?: string;
     };
 
     const prepared: Prepared[] = [];
     for (const row of rows) {
-      const phaseId =
-        (row.resolvedPhaseId && phaseIds.has(row.resolvedPhaseId)
+      const fromId =
+        row.resolvedPhaseId && phaseIds.has(row.resolvedPhaseId)
           ? row.resolvedPhaseId
-          : null) || defaultPhaseId;
+          : null;
+      const fromName = row.phaseName?.trim()
+        ? phaseNameToId.get(row.phaseName.trim().toLowerCase())
+        : undefined;
+      const phaseId = fromId || fromName;
       if (!phaseId) {
-        warnings.push(`Task "${row.title}" skipped: no phase`);
+        warnings.push(
+          row.phaseName?.trim()
+            ? `Task "${row.title}" skipped: phase "${row.phaseName.trim()}" was not found.`
+            : `Task "${row.title}" skipped: no phase name. This row was not assigned to the first phase.`,
+        );
         continue;
       }
-      const startDate = this.parseDate(row.startDate) ?? new Date();
-      const endDate = this.parseDate(row.endDate) ?? startDate;
+      const startDate = parseImportTaskDateTime(row.startDate, 8, 0) ?? new Date();
+      const endDate = parseImportTaskDateTime(row.endDate, 17, 0) ?? startDate;
       prepared.push({
         row,
         mode:
@@ -419,7 +495,7 @@ export class ExcelProjectsImportService {
         ownerId: p.row.resolvedAssigneeId ?? null,
         startDate: p.startDate,
         endDate: p.endDate,
-        effortHours: p.row.effortHours ?? null,
+        effortHours: this.mapEffortHours(p.row.effortHours),
         durationDays: p.row.durationDays ?? null,
         baselineStart: this.parseDate(p.row.baselineStart),
         baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -435,9 +511,12 @@ export class ExcelProjectsImportService {
           select: { id: true, title: true },
         });
         for (let i = 0; i < inserted.length; i++) {
-          titleToId.set(
-            chunk[i].row.title.trim().toLowerCase(),
+          chunk[i].importedId = inserted[i].id;
+          indexTaskId(
+            titleIndex,
+            chunk[i].row.title,
             inserted[i].id,
+            chunk[i].row.parentTaskTitle,
           );
         }
         created += inserted.length;
@@ -460,7 +539,7 @@ export class ExcelProjectsImportService {
                 ownerId: p.row.resolvedAssigneeId ?? null,
                 startDate: p.startDate,
                 endDate: p.endDate,
-                effortHours: p.row.effortHours ?? null,
+                effortHours: this.mapEffortHours(p.row.effortHours),
                 durationDays: p.row.durationDays ?? null,
                 baselineStart: this.parseDate(p.row.baselineStart),
                 baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -471,7 +550,13 @@ export class ExcelProjectsImportService {
               },
               select: { id: true, title: true },
             });
-            titleToId.set(task.title.trim().toLowerCase(), task.id);
+            indexTaskId(
+              titleIndex,
+              task.title,
+              task.id,
+              p.row.parentTaskTitle,
+            );
+            p.importedId = task.id;
             created += 1;
           } catch (rowError) {
             warnings.push(
@@ -504,7 +589,7 @@ export class ExcelProjectsImportService {
                 phaseId: p.phaseId,
                 startDate: p.startDate,
                 endDate: p.endDate,
-                effortHours: p.row.effortHours ?? null,
+                effortHours: this.mapEffortHours(p.row.effortHours),
                 durationDays: p.row.durationDays ?? null,
                 baselineStart: this.parseDate(p.row.baselineStart),
                 baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -517,10 +602,13 @@ export class ExcelProjectsImportService {
           ),
         );
         for (const p of chunk) {
-          titleToId.set(
-            p.row.title.trim().toLowerCase(),
+          indexTaskId(
+            titleIndex,
+            p.row.title,
             p.row.resolvedTaskId!,
+            p.row.parentTaskTitle,
           );
+          p.importedId = p.row.resolvedTaskId;
           updated += 1;
         }
       } catch {
@@ -537,7 +625,7 @@ export class ExcelProjectsImportService {
                 phaseId: p.phaseId,
                 startDate: p.startDate,
                 endDate: p.endDate,
-                effortHours: p.row.effortHours ?? null,
+                effortHours: this.mapEffortHours(p.row.effortHours),
                 durationDays: p.row.durationDays ?? null,
                 baselineStart: this.parseDate(p.row.baselineStart),
                 baselineEnd: this.parseDate(p.row.baselineEnd),
@@ -547,10 +635,13 @@ export class ExcelProjectsImportService {
                 progressApproved: p.progressApproved,
               },
             });
-            titleToId.set(
-              p.row.title.trim().toLowerCase(),
+            indexTaskId(
+              titleIndex,
+              p.row.title,
               p.row.resolvedTaskId!,
+              p.row.parentTaskTitle,
             );
+            p.importedId = p.row.resolvedTaskId;
             updated += 1;
           } catch (rowError) {
             warnings.push(
@@ -565,16 +656,31 @@ export class ExcelProjectsImportService {
 
     // Dependencies after all tasks exist — preserves FS chains by title
     await onStep('Linking task predecessors…');
+    reindexImportRowKeys(
+      titleIndex,
+      prepared.map((p) => ({
+        title: p.row.title,
+        id: p.importedId,
+        parentTaskTitle: p.row.parentTaskTitle,
+      })),
+    );
     const depPlans: DepPlan[] = [];
     const seenPairs = new Set<string>();
-    for (const row of rows) {
-      const successorId = titleToId.get(row.title.trim().toLowerCase());
-      if (!successorId || !row.predecessors?.length) continue;
-      for (const pred of row.predecessors) {
-        const predecessorId = titleToId.get(
-          pred.predecessorTitle.trim().toLowerCase(),
+    const nextImportId = createImportRowIdCursor(titleIndex);
+    for (const p of prepared) {
+      const successorId = nextImportId(p.row.title, p.row.parentTaskTitle);
+      if (!successorId || !p.row.predecessors?.length) continue;
+      for (const pred of p.row.predecessors) {
+        const { id: predecessorId, ambiguous } = idForTitle(
+          titleIndex,
+          pred.predecessorTitle,
         );
         if (!predecessorId || predecessorId === successorId) continue;
+        if (ambiguous) {
+          warnings.push(
+            `Predecessor "${pred.predecessorTitle}" matches more than one task; linked the first match to "${p.row.title}".`,
+          );
+        }
         const key = `${predecessorId}|${successorId}`;
         if (seenPairs.has(key)) continue;
         seenPairs.add(key);
@@ -689,6 +795,14 @@ export class ExcelProjectsImportService {
       }
     }
 
+    await onStep('Linking parent tasks…');
+    await applyExcelTaskParentLinks(
+      this.prisma,
+      prepared.map((p) => p.row),
+      titleIndex,
+      warnings,
+    );
+
     return {
       created,
       updated,
@@ -696,6 +810,51 @@ export class ExcelProjectsImportService {
       depsUpdated,
       warnings,
     };
+  }
+
+  private async ensureMissingPhases(
+    projectId: string,
+    rows: Array<{ phaseName?: string; resolvedPhaseId?: string | null }>,
+    phaseNameToId: Map<string, string>,
+    phaseIds: Set<string>,
+    projectStart: Date,
+    projectEnd: Date,
+    warnings: string[],
+  ): Promise<void> {
+    const missing = new Map<string, string>();
+    for (const row of rows) {
+      const name = row.phaseName?.trim();
+      if (!name) continue;
+      if (row.resolvedPhaseId && phaseIds.has(row.resolvedPhaseId)) continue;
+      const key = name.toLowerCase();
+      if (phaseNameToId.has(key) || missing.has(key)) continue;
+      missing.set(key, name);
+    }
+    if (missing.size === 0) return;
+
+    const maxOrder = await this.prisma.projectPhase.aggregate({
+      where: { projectId },
+      _max: { orderIndex: true },
+    });
+    let orderIndex = maxOrder._max.orderIndex ?? 0;
+    for (const name of missing.values()) {
+      orderIndex += 1;
+      const created = await this.prisma.projectPhase.create({
+        data: {
+          projectId,
+          name,
+          orderIndex,
+          status: PhaseStatus.Planned,
+          startDate: projectStart,
+          endDate: projectEnd,
+        },
+        select: { id: true, name: true },
+      });
+      const key = created.name.trim().toLowerCase();
+      phaseNameToId.set(key, created.id);
+      phaseIds.add(created.id);
+      warnings.push(`Created missing phase "${created.name}".`);
+    }
   }
 
   private async importMilestones(
@@ -867,6 +1026,91 @@ export class ExcelProjectsImportService {
       value.length <= 10 ? `${value}T00:00:00.000Z` : value,
     );
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private optionalProjectSchedule(
+    proj: ExcelProjectImportRow,
+  ): Prisma.ProjectUncheckedUpdateInput {
+    const data: Prisma.ProjectUncheckedUpdateInput = {};
+    if (proj.methodology) {
+      data.methodology = this.mapMethodology(proj.methodology);
+    }
+    if (proj.durationDays != null && Number.isFinite(proj.durationDays)) {
+      data.durationDays = proj.durationDays;
+    }
+    const baselineStart = this.parseDate(proj.baselineStartDate);
+    if (baselineStart) data.baselineStartDate = baselineStart;
+    const baselineEnd = this.parseDate(proj.baselineEndDate);
+    if (baselineEnd) data.baselineEndDate = baselineEnd;
+    if (
+      proj.baselineDurationDays != null &&
+      Number.isFinite(proj.baselineDurationDays)
+    ) {
+      data.baselineDurationDays = proj.baselineDurationDays;
+    }
+    const actualStart = this.parseDate(proj.actualStartDate);
+    if (actualStart) data.actualStartDate = actualStart;
+    const actualEnd = this.parseDate(proj.actualEndDate);
+    if (actualEnd) data.actualEndDate = actualEnd;
+    if (proj.percentComplete != null && Number.isFinite(proj.percentComplete)) {
+      data.percentComplete = Math.max(
+        0,
+        Math.min(100, Math.round(proj.percentComplete)),
+      );
+    }
+    return data;
+  }
+
+  private mapEngagement(value: string): EngagementType {
+    if (
+      !Object.values(ApiEngagementType).includes(value as ApiEngagementType)
+    ) {
+      throw new BadRequestException(`Invalid engagement type "${value}"`);
+    }
+    return toPrismaEngagementType(value as ApiEngagementType);
+  }
+
+  private mapBilling(value: string): BillingModel {
+    if (!Object.values(ApiBillingModel).includes(value as ApiBillingModel)) {
+      throw new BadRequestException(`Invalid billing model "${value}"`);
+    }
+    return toPrismaBillingModel(value as ApiBillingModel);
+  }
+
+  private mapMethodology(value: string): ProjectMethodology {
+    if (
+      !Object.values(ApiProjectMethodology).includes(
+        value as ApiProjectMethodology,
+      )
+    ) {
+      throw new BadRequestException(`Invalid methodology "${value}"`);
+    }
+    return toPrismaMethodology(value as ApiProjectMethodology);
+  }
+
+  private mapProjectStatus(value: string): ProjectStatus {
+    if (!Object.values(ApiProjectStatus).includes(value as ApiProjectStatus)) {
+      throw new BadRequestException(`Invalid project status "${value}"`);
+    }
+    return toPrismaStatus(value as ApiProjectStatus);
+  }
+
+  private mapPhaseStatus(value?: string): PhaseStatus {
+    switch (value) {
+      case 'Active':
+        return PhaseStatus.Active;
+      case 'Completed':
+        return PhaseStatus.Completed;
+      case 'On_Hold':
+        return PhaseStatus.On_Hold;
+      default:
+        return PhaseStatus.Planned;
+    }
+  }
+
+  private mapEffortHours(value?: number): number | null {
+    if (value == null || !Number.isFinite(value)) return null;
+    return Math.max(0, Math.round(value));
   }
 
   private mapPriority(value?: string): PriorityLevel {

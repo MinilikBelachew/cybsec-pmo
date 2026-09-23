@@ -10,6 +10,7 @@ export const ROLE_CATALOG = [
   { id: 9, code: 'sales', label: 'Sales' },
   { id: 10, code: 'client', label: 'Client' },
   { id: 11, code: 'vendor', label: 'Vendor' },
+  { id: 12, code: 'sdm', label: 'SDM' },
 ] as const;
 
 export const ROLE_ID_BY_CODE = Object.fromEntries(

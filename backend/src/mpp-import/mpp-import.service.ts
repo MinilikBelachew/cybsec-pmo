@@ -18,6 +18,7 @@ import { CreateMppPortfolioImportDto, MppPortfolioProjectCreateDto } from './dto
 import { MppImportMapper } from './mpp-import.mapper';
 import { MppParserClient } from './mpp-parser.client';
 import { MppImportPreview, MppImportResultSummary } from './mpp-import.types';
+import { fromMspdiDateTime } from './mspdi-datetime.util';
 
 @Injectable()
 export class MppImportService {
@@ -49,7 +50,10 @@ export class MppImportService {
     try {
       const parsed = await this.parserClient.parseFile(filePath, fileName);
       const existingProjects = await this.listAccessibleProjects(user);
-      return await this.mapper.buildPreview(parsed, existingProjects);
+      return await this.mapper.buildPreview(parsed, existingProjects, {
+        // Workspace import into one project: keep the whole outline (L1 = phases).
+        forceSingle: Boolean(projectId),
+      });
     } finally {
       await this.safeDeleteFile(filePath);
     }
@@ -63,7 +67,7 @@ export class MppImportService {
     projectId: string,
     fileName: string,
     filePath: string,
-    options?: { deleteFile?: boolean },
+    options?: { deleteFile?: boolean; timeZone?: string },
   ): Promise<MppImportResultSummary> {
     await this.assertProjectAccessible(user, projectId);
     const deleteFile = options?.deleteFile !== false;
@@ -71,35 +75,14 @@ export class MppImportService {
     try {
       const parsed = await this.parserClient.parseFile(filePath, fileName);
 
-      if (this.mapper.isPortfolio(parsed)) {
-        const project = await this.prisma.project.findUnique({
-          where: { id: projectId },
-          select: { name: true },
-        });
-        if (!project) {
-          throw new BadRequestException('Project not found or not accessible');
-        }
-
-        const segment = this.mapper.resolvePortfolioSegmentForProject(
-          parsed,
-          project.name,
-        );
-        if (!segment) {
-          const { segments } = this.mapper.segmentPortfolio(parsed);
-          const names = segments.map((s) => `"${s.projectName}"`).join(', ');
-          throw new BadRequestException(
-            `Portfolio file has no schedule matching "${project.name}". ` +
-              (names
-                ? `Projects in file: ${names}. `
-                : '') +
-              `Open a matching project, or import from the Projects list to create/update all portfolio projects.`,
-          );
-        }
-
-        return await this.mapper.persistParsedProject(projectId, segment.parsed);
-      }
-
-      return await this.mapper.persistParsedProject(projectId, parsed);
+      // Always persist the full file into this project. L1 summaries become
+      // phases; nested summaries stay as parent tasks. Splitting on "portfolio"
+      // would turn a single DLP-style plan into one project per phase.
+      return await this.mapper.persistParsedProject(
+        projectId,
+        parsed,
+        options?.timeZone,
+      );
     } finally {
       if (deleteFile) {
         await this.safeDeleteFile(filePath);
@@ -116,7 +99,7 @@ export class MppImportService {
     dto: CreateMppPortfolioImportDto,
     fileName: string,
     filePath: string,
-    options?: { deleteFile?: boolean },
+    options?: { deleteFile?: boolean; timeZone?: string },
   ): Promise<MppImportResultSummary> {
     const deleteFile = options?.deleteFile !== false;
     try {
@@ -135,7 +118,7 @@ export class MppImportService {
 
       const catalog = await this.listAccessibleProjects(user);
       const byName = new Map(
-        catalog.map((project) => [project.name.trim().toLowerCase(), project]),
+        catalog.map((project) => [project.name.trim(), project]),
       );
 
       let projectsCreated = 0;
@@ -157,16 +140,14 @@ export class MppImportService {
       };
 
       for (const segment of segments) {
-        const nameKey = segment.projectName.trim().toLowerCase();
+        const nameKey = segment.projectName.trim();
         let projectId = byName.get(nameKey)?.id;
         let created = false;
 
         if (!projectId) {
           const overrides = this.resolvePortfolioProjectOverrides(dto);
           const override = overrides.find(
-            (item) =>
-              item.name.trim().toLowerCase() ===
-              segment.projectName.trim().toLowerCase(),
+            (item) => item.name.trim() === segment.projectName.trim(),
           );
           const objective = override?.objective?.trim() || dto.objective?.trim();
           const departmentId = override?.departmentId || dto.departmentId;
@@ -179,7 +160,7 @@ export class MppImportService {
             override?.priority || dto.priority || ApiPriorityLevel.Medium;
           const currency =
             override?.currency || dto.currency || ApiCurrencyCode.USD;
-          const rawValue = override?.value ?? dto.value;
+          const rawValue = override?.value ?? dto.value ?? segment.parsed.project?.cost;
           const value =
             rawValue != null && rawValue > 0 ? rawValue : 1;
 
@@ -200,10 +181,12 @@ export class MppImportService {
           const start = this.parseDateOr(
             segment.startDate,
             new Date(),
+            options?.timeZone ?? dto.timeZone,
           );
           let end = this.parseDateOr(
             segment.finishDate,
             new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000),
+            options?.timeZone ?? dto.timeZone,
           );
           if (end.getTime() <= start.getTime()) {
             end = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -238,6 +221,7 @@ export class MppImportService {
         const summary = await this.mapper.persistParsedProject(
           projectId,
           segment.parsed,
+          options?.timeZone ?? dto.timeZone,
         );
         totals.tasksCreated += summary.tasksCreated;
         totals.tasksUpdated += summary.tasksUpdated;
@@ -261,7 +245,7 @@ export class MppImportService {
       totals.projectsCreated = projectsCreated;
       totals.projectsUpdated = projectsUpdated;
       totals.warnings.unshift(
-        `Portfolio import: ${projectsCreated} project(s) created, ${projectsUpdated} updated (matched by name).`,
+        `Portfolio import: ${projectsCreated} project(s) created, ${projectsUpdated} updated (matched by exact name).`,
       );
       return totals;
     } finally {
@@ -279,10 +263,11 @@ export class MppImportService {
   async exportMspdi(
     user: CaslUserContext,
     projectId: string,
+    timeZone?: string,
   ): Promise<MspdiExportFileResult> {
     await this.assertProjectAccessible(user, projectId);
 
-    const payload = await this.exportBuilder.buildPayload(projectId);
+    const payload = await this.exportBuilder.buildPayload(projectId, timeZone);
     if (payload.tasks.length === 0) {
       throw new BadRequestException('Project has no tasks to export');
     }
@@ -344,14 +329,15 @@ export class MppImportService {
     });
   }
 
-  private parseDateOr(value: string | undefined, fallback: Date): Date {
+  private parseDateOr(
+    value: string | undefined,
+    fallback: Date,
+    timeZone?: string,
+  ): Date {
     if (!value) {
       return fallback;
     }
-    const parsed = new Date(
-      value.length <= 10 ? `${value}T00:00:00.000Z` : value,
-    );
-    return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+    return fromMspdiDateTime(value, timeZone) ?? fallback;
   }
 
   private async assertProjectAccessible(

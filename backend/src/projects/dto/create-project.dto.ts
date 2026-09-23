@@ -25,6 +25,10 @@ import {
   ApiProjectMethodology,
   ApiProjectStatus,
 } from '../enums/project-api.enum';
+import {
+  PROJECT_NAME_MAX_LENGTH,
+  PROJECT_OBJECTIVE_MAX_LENGTH,
+} from '../constants/project-limits';
 
 @ValidatorConstraint({ name: 'EndDateAfterStartDate', async: false })
 export class EndDateAfterStartDateConstraint implements ValidatorConstraintInterface {
@@ -40,16 +44,21 @@ export class EndDateAfterStartDateConstraint implements ValidatorConstraintInter
 }
 
 export class CreateProjectDto {
-  @ApiProperty({ example: 'SOC Transformation 2026', maxLength: 255 })
+  @ApiProperty({ example: 'SOC Transformation 2026', maxLength: PROJECT_NAME_MAX_LENGTH })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(255)
+  @MaxLength(PROJECT_NAME_MAX_LENGTH, {
+    message: 'Project name must be 100 characters or fewer (Keka limit)',
+  })
   name: string;
 
   @ApiProperty({ example: 'Deliver a managed SOC service for the client.' })
   @IsString()
   @IsNotEmpty()
   @MinLength(5)
+  @MaxLength(PROJECT_OBJECTIVE_MAX_LENGTH, {
+    message: 'Description must be 500 characters or fewer',
+  })
   objective: string;
 
   @ApiProperty({ format: 'uuid' })

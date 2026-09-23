@@ -14,10 +14,14 @@ export type MethodologyPlanProfile = {
   defaultView: MethodologyPlanView;
   primaryViews: readonly MethodologyPlanView[];
   planViewOrder: readonly MethodologyPlanView[];
+  /** Waterfall plans open List grouped by phase; Agile/Hybrid stay status-grouped. */
+  defaultGroupByPhase: boolean;
+  /** Waterfall Table is a Phase → Milestone → Task tree; Agile/Hybrid stay a flat task grid. */
+  tableWbsTree: boolean;
 };
 
 /**
- * DEF-P1-038 — methodology drives plan UX (default view + tab order),
+ * DEF-P1-038 — methodology drives plan UX (default view, tab order, List grouping, Table layout),
  * not a separate data model / sprint engine.
  */
 export const METHODOLOGY_PLAN: Record<ProjectMethodology, MethodologyPlanProfile> = {
@@ -25,16 +29,22 @@ export const METHODOLOGY_PLAN: Record<ProjectMethodology, MethodologyPlanProfile
     defaultView: "board",
     primaryViews: ["board", "list", "calendar"],
     planViewOrder: ["board", "list", "calendar", "table", "gantt", "phases", "milestones"],
+    defaultGroupByPhase: false,
+    tableWbsTree: false,
   },
   Waterfall: {
     defaultView: "gantt",
     primaryViews: ["gantt", "phases", "milestones", "list"],
     planViewOrder: ["gantt", "phases", "milestones", "list", "table", "board", "calendar"],
+    defaultGroupByPhase: true,
+    tableWbsTree: true,
   },
   Hybrid: {
     defaultView: "list",
     primaryViews: ["list", "board", "gantt", "phases", "milestones"],
     planViewOrder: ["list", "board", "gantt", "phases", "milestones", "calendar", "table"],
+    defaultGroupByPhase: false,
+    tableWbsTree: false,
   },
 };
 
@@ -85,6 +95,18 @@ export function getMethodologyDefaultView(
   methodology: string | null | undefined,
 ): MethodologyPlanView {
   return getMethodologyPlanProfile(methodology).defaultView;
+}
+
+export function getMethodologyDefaultGroupByPhase(
+  methodology: string | null | undefined,
+): boolean {
+  return getMethodologyPlanProfile(methodology).defaultGroupByPhase;
+}
+
+export function getMethodologyTableWbsTree(
+  methodology: string | null | undefined,
+): boolean {
+  return getMethodologyPlanProfile(methodology).tableWbsTree;
 }
 
 export function isPrimaryMethodologyView(

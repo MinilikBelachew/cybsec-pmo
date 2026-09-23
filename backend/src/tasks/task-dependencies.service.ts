@@ -26,6 +26,7 @@ const TASK_SUMMARY_SELECT = {
   startDate: true,
   endDate: true,
   ownerId: true,
+  scheduleMilestone: { select: { id: true } },
   owner: {
     select: { id: true, displayName: true, email: true },
   },
@@ -1134,6 +1135,7 @@ export class TaskDependenciesService {
         endDate: row.predecessor.endDate?.toISOString().slice(0, 10) ?? null,
         ownerId: row.predecessor.ownerId,
         owner: row.predecessor.owner,
+        isScheduleMilestone: Boolean(row.predecessor.scheduleMilestone),
       },
       successor: {
         id: row.successor.id,
@@ -1143,6 +1145,7 @@ export class TaskDependenciesService {
         endDate: row.successor.endDate?.toISOString().slice(0, 10) ?? null,
         ownerId: row.successor.ownerId,
         owner: row.successor.owner,
+        isScheduleMilestone: Boolean(row.successor.scheduleMilestone),
       },
     };
   }

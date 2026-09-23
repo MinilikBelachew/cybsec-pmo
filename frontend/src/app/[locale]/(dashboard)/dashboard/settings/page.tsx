@@ -1,7 +1,12 @@
 "use client";
 
+import { Suspense } from "react";
 import { SettingsPage } from "@/domains/settings";
 
 export default function SettingsRoute() {
-  return <SettingsPage />;
+  return (
+    <Suspense fallback={null}>
+      <SettingsPage />
+    </Suspense>
+  );
 }

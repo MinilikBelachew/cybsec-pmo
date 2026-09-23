@@ -58,6 +58,8 @@ type TaskDependenciesPickerProps = {
   projectId: string;
   dependencies: TaskDependency[];
   canEdit: boolean;
+  /** Restrict UI to one link direction. Default shows both with tabs. */
+  linkMode?: "predecessors" | "successors" | "both";
 };
 
 function predEqual(a: DesiredPredecessorLink[], b: DesiredPredecessorLink[]) {
@@ -98,11 +100,14 @@ export function TaskDependenciesPicker({
   projectId,
   dependencies,
   canEdit,
+  linkMode = "both",
 }: TaskDependenciesPickerProps) {
   const { applyPredecessorLinks, applySuccessorLinks } = useSyncPredecessors();
   const [fetchOptions] = useLazyGetTaskOptionsQuery();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<LinkMode>("predecessors");
+  const initialMode: LinkMode =
+    linkMode === "successors" ? "successors" : "predecessors";
+  const [mode, setMode] = useState<LinkMode>(initialMode);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [predDraft, setPredDraft] = useState<PredDraft[]>([]);
@@ -140,9 +145,9 @@ export function TaskDependenciesPicker({
 
   const summary = useMemo(() => {
     const parts: string[] = [];
-    if (existingPred.length) {
+    if (linkMode !== "successors" && existingPred.length) {
       parts.push(
-        `Pred: ${existingPred
+        `${linkMode === "predecessors" ? "" : "Pred: "}${existingPred
           .map((l) =>
             formatLinkSummary(
               l.predecessorId,
@@ -154,9 +159,9 @@ export function TaskDependenciesPicker({
           .join(", ")}`,
       );
     }
-    if (existingSucc.length) {
+    if (linkMode !== "predecessors" && existingSucc.length) {
       parts.push(
-        `Succ: ${existingSucc
+        `${linkMode === "successors" ? "" : "Succ: "}${existingSucc
           .map((l) =>
             formatLinkSummary(l.successorId, l.depType, l.lagDays, nameById),
           )
@@ -164,7 +169,7 @@ export function TaskDependenciesPicker({
       );
     }
     return parts.join(" · ");
-  }, [existingPred, existingSucc, nameById]);
+  }, [existingPred, existingSucc, nameById, linkMode]);
 
   const mergeNames = useCallback(
     (rows: Array<{ id: string; name?: string; title?: string }>) => {
@@ -253,7 +258,7 @@ export function TaskDependenciesPicker({
     );
     setQuery("");
     setDebouncedQuery("");
-    setMode("predecessors");
+    setMode(linkMode === "successors" ? "successors" : "predecessors");
     setOptions([]);
     void loadPage(0, "", false);
     void resolveSelectedNames([
@@ -329,8 +334,12 @@ export function TaskDependenciesPicker({
   }));
 
   const dirty =
-    !predEqual(desiredPred, existingPred) ||
-    !succEqual(desiredSucc, existingSucc);
+    linkMode === "predecessors"
+      ? !predEqual(desiredPred, existingPred)
+      : linkMode === "successors"
+        ? !succEqual(desiredSucc, existingSucc)
+        : !predEqual(desiredPred, existingPred) ||
+          !succEqual(desiredSucc, existingSucc);
 
   const handleSave = async () => {
     if (!canEdit || saving || !dirty) {
@@ -339,17 +348,26 @@ export function TaskDependenciesPicker({
     }
     setSaving(true);
     try {
-      const predOk = predEqual(desiredPred, existingPred)
-        ? true
-        : await applyPredecessorLinks(taskId, desiredPred, dependencies);
-      if (!predOk) return;
+      if (linkMode !== "successors") {
+        const predOk = predEqual(desiredPred, existingPred)
+          ? true
+          : await applyPredecessorLinks(taskId, desiredPred, dependencies);
+        if (!predOk) return;
+      }
 
-      const succOk = succEqual(desiredSucc, existingSucc)
-        ? true
-        : await applySuccessorLinks(taskId, desiredSucc, dependencies);
-      if (!succOk) return;
+      if (linkMode !== "predecessors") {
+        const succOk = succEqual(desiredSucc, existingSucc)
+          ? true
+          : await applySuccessorLinks(taskId, desiredSucc, dependencies);
+        if (!succOk) return;
+      }
 
-      const totalLinks = desiredPred.length + desiredSucc.length;
+      const totalLinks =
+        linkMode === "predecessors"
+          ? desiredPred.length
+          : linkMode === "successors"
+            ? desiredSucc.length
+            : desiredPred.length + desiredSucc.length;
       toast.success(
         totalLinks
           ? `Saved ${totalLinks} dependenc${totalLinks === 1 ? "y" : "ies"}`
@@ -369,7 +387,25 @@ export function TaskDependenciesPicker({
     void loadPage(options.length, debouncedQuery, true);
   };
 
-  const count = existingPred.length + existingSucc.length;
+  const count =
+    linkMode === "predecessors"
+      ? existingPred.length
+      : linkMode === "successors"
+        ? existingSucc.length
+        : existingPred.length + existingSucc.length;
+
+  const panelTitle =
+    linkMode === "predecessors"
+      ? "Predecessors"
+      : linkMode === "successors"
+        ? "Successors"
+        : "Dependencies";
+  const panelHint =
+    linkMode === "predecessors"
+      ? "Tasks that this task depends on"
+      : linkMode === "successors"
+        ? "Tasks that depend on this task"
+        : "Choose predecessors or successors, then type and lag";
 
   return (
     <Popover
@@ -384,8 +420,8 @@ export function TaskDependenciesPicker({
         disabled={!canEdit && count === 0}
         className="text-left disabled:opacity-50"
         onClick={(e) => e.stopPropagation()}
-        title={summary || "Set dependencies"}
-        aria-label={count ? `Dependencies: ${summary}` : "Set dependencies"}
+        title={summary || `Set ${panelTitle.toLowerCase()}`}
+        aria-label={count ? `${panelTitle}: ${summary}` : `Set ${panelTitle.toLowerCase()}`}
       >
         <span
           className={cn(
@@ -410,12 +446,11 @@ export function TaskDependenciesPicker({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-3 py-2 border-b border-border">
-          <p className="text-xs font-medium text-foreground">Dependencies</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Choose predecessors or successors, then type and lag
-          </p>
+          <p className="text-xs font-medium text-foreground">{panelTitle}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{panelHint}</p>
         </div>
 
+        {linkMode === "both" ? (
         <div className="flex border-b border-border">
           {(
             [
@@ -456,6 +491,7 @@ export function TaskDependenciesPicker({
             </button>
           ))}
         </div>
+        ) : null}
 
         <div className="p-2 border-b border-border">
           <div className="relative">
@@ -616,3 +652,99 @@ export function TaskDependenciesPicker({
 export const TaskPredecessorsPicker = TaskDependenciesPicker;
 /** @deprecated Use TaskDependenciesPicker */
 export const TaskPredecessorsCell = TaskDependenciesPicker;
+
+type TaskDependencyLinksCellProps = {
+  taskId: string;
+  dependencies: TaskDependency[];
+  linkMode: "predecessors" | "successors";
+};
+
+/**
+ * Compact read-only Pred/Succ cell: first linked task name, click for the full list.
+ */
+export function TaskDependencyLinksCell({
+  taskId,
+  dependencies,
+  linkMode,
+}: TaskDependencyLinksCellProps) {
+  const links = useMemo(() => {
+    if (linkMode === "predecessors") {
+      return dependencies
+        .filter((d) => d.successorId === taskId)
+        .map((d) => ({
+          id: d.predecessorId,
+          name: d.predecessor?.title?.trim() || "Task",
+          depType: d.depType,
+          lagDays: d.lagDays ?? 0,
+        }));
+    }
+    return dependencies
+      .filter((d) => d.predecessorId === taskId)
+      .map((d) => ({
+        id: d.successorId,
+        name: d.successor?.title?.trim() || "Task",
+        depType: d.depType,
+        lagDays: d.lagDays ?? 0,
+      }));
+  }, [dependencies, linkMode, taskId]);
+
+  if (links.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
+  const labels = links.map((l) =>
+    formatLinkSummary(l.id, l.depType, l.lagDays, new Map([[l.id, l.name]])),
+  );
+  const first = labels[0];
+  const extra = links.length - 1;
+
+  if (extra === 0) {
+    return (
+      <span className="block max-w-full truncate text-xs text-foreground" title={first}>
+        {first}
+      </span>
+    );
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        type="button"
+        className="max-w-full text-left disabled:opacity-50"
+        onClick={(e) => e.stopPropagation()}
+        title={labels.join(", ")}
+        aria-label={`${linkMode}: ${labels.join(", ")}`}
+      >
+        <span className="inline-flex max-w-full items-center gap-1 text-xs text-foreground hover:text-primary">
+          <span className="truncate">{first}</span>
+          <span className="shrink-0 font-medium text-muted-foreground">+{extra}</span>
+        </span>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        className="w-64 p-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-3 py-2">
+          <p className="text-xs font-medium text-foreground">
+            {linkMode === "predecessors" ? "Predecessors" : "Successors"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {links.length} linked task{links.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        <ul className="max-h-56 space-y-0.5 overflow-y-auto p-1.5">
+          {labels.map((label, index) => (
+            <li
+              key={`${links[index].id}-${index}`}
+              className="rounded-md px-2 py-1.5 text-xs text-foreground"
+            >
+              {label}
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
+}

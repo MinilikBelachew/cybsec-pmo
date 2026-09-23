@@ -11,6 +11,7 @@ export const DEFAULT_RECORD_SCOPE_BY_ROLE: Record<string, string> = {
   sales: "all",
   client: "shared",
   vendor: "assigned",
+  sdm: "all",
 };
 
 export function defaultRecordScopeForRole(roleCode: string): string {

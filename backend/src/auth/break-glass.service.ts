@@ -45,9 +45,9 @@ export class BreakGlassService {
     const user = await this.usersService.findById(userId);
     const roleCode = user?.role?.code;
 
-    if (!user?.isActive || roleCode !== RoleEnum.super_admin) {
+    if (!user?.isActive || !roleCode || !BREAK_GLASS_ROLES.has(roleCode)) {
       throw new ForbiddenException(
-        'Only active Super Admins can activate break-glass',
+        'Only Super Admin or IT Admin can activate break-glass',
       );
     }
 
@@ -62,7 +62,7 @@ export class BreakGlassService {
       user,
       reason,
       context,
-      'SUPER_ADMIN_ACTIVATE',
+      'settings',
     );
   }
 
@@ -106,14 +106,17 @@ export class BreakGlassService {
       email.toLowerCase(),
     );
 
-    return this.createBreakGlassSession(user, reason, context, 'EMERGENCY_LOGIN');
+    return this.createBreakGlassSession(user, reason, context, 'emergency');
   }
 
   async stopBreakGlassSession(
     userId: string,
     sessionId: string,
     context: AuthLoginContext,
-  ): Promise<{ redirectTo: 'entra' | 'login' }> {
+  ): Promise<
+    | { redirectTo: 'login' }
+    | { redirectTo: 'settings'; session: AuthSessionResult }
+  > {
     const session = await this.sessionService.findById(sessionId);
 
     if (!session?.isBreakGlass) {
@@ -122,6 +125,7 @@ export class BreakGlassService {
 
     const user = await this.usersService.findById(userId);
     const roleCode = user?.role?.code;
+    const startedFromSettings = session.breakGlassSource === 'settings';
 
     await this.sessionService.deleteById(sessionId);
 
@@ -135,6 +139,7 @@ export class BreakGlassService {
         userId,
         email: user?.email,
         roleCode,
+        source: session.breakGlassSource,
         stoppedAt: new Date().toISOString(),
         originalReason: session.breakGlassReason,
         ipAddress: context.ipAddress,
@@ -146,16 +151,22 @@ export class BreakGlassService {
       user: { connect: { id: userId } },
     });
 
-    return {
-      redirectTo: roleCode === RoleEnum.super_admin ? 'entra' : 'login',
-    };
+    if (startedFromSettings && user?.isActive) {
+      const nextSession = await this.authService.createAuthenticatedSession(
+        user,
+        context,
+      );
+      return { redirectTo: 'settings', session: nextSession };
+    }
+
+    return { redirectTo: 'login' };
   }
 
   private async createBreakGlassSession(
     user: NonNullable<Awaited<ReturnType<UsersService['findById']>>>,
     reason: string,
     context: AuthLoginContext,
-    activationType: 'SUPER_ADMIN_ACTIVATE' | 'EMERGENCY_LOGIN',
+    activationType: 'settings' | 'emergency',
   ): Promise<AuthSessionResult> {
     const ttl = this.configService.getOrThrow('breakGlass.ttl', { infer: true });
     const sessionExpiresAt = new Date(Date.now() + ms(ttl));
@@ -166,6 +177,7 @@ export class BreakGlassService {
       {
         isBreakGlass: true,
         breakGlassReason: reason,
+        breakGlassSource: activationType,
         sessionExpiresAt,
         accessTokenExpiresIn: ttl,
       },

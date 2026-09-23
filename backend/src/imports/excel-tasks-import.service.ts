@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { PriorityLevel, Prisma, TaskStatus } from '@prisma/client';
+import { PhaseStatus, PriorityLevel, Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditLogsService } from '../audit/audit-logs.service';
 import { CaslUserContext } from '../casl/casl.types';
@@ -8,6 +8,17 @@ import {
   ExcelTaskImportRow,
   ImportJobResultSummary,
 } from './imports.types';
+import {
+  applyExcelTaskParentLinks,
+  createImportRowIdCursor,
+  createTaskTitleIndex,
+  idForTitle,
+  indexExistingTask,
+  indexTaskId,
+  reindexImportRowKeys,
+} from './excel-task-parents.util';
+import { TASK_ASSIGNEE_ORG_ROLE_CODES } from '../roles/roles.enum';
+import { parseImportTaskDateTime } from './task-datetime.util';
 
 type ProgressFn = (percent: number, step: string) => Promise<void>;
 
@@ -26,6 +37,7 @@ type PreparedTaskRow = {
   baselineEnd: Date | null;
   actualStart: Date | null;
   actualEnd: Date | null;
+  importedId?: string;
 };
 
 type DepPlan = {
@@ -59,20 +71,23 @@ export class ExcelTasksImportService {
     const user = await this.loadCaslUser(userId);
     await this.assertProjectAccessible(user, projectId);
 
-    const [defaultPhase, projectPhases, projectTasks, teamUserIds] =
+    const [project, projectPhases, projectTasks, teamUserIds] =
       await Promise.all([
-        this.prisma.projectPhase.findFirst({
-          where: { projectId },
-          orderBy: { orderIndex: 'asc' },
-          select: { id: true },
+        this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { startDate: true, endDate: true },
         }),
         this.prisma.projectPhase.findMany({
           where: { projectId },
-          select: { id: true },
+          select: { id: true, name: true },
         }),
         this.prisma.task.findMany({
           where: { projectId },
-          select: { id: true, title: true },
+          select: {
+            id: true,
+            title: true,
+            parentTask: { select: { title: true } },
+          },
         }),
         this.prisma.allocation.findMany({
           where: { projectId, status: 'Active' },
@@ -80,13 +95,17 @@ export class ExcelTasksImportService {
         }),
       ]);
 
-    if (!defaultPhase) {
+    const namedPhaseRows = rows.some((r) => r.phaseName?.trim());
+    if (projectPhases.length === 0 && !namedPhaseRows) {
       throw new BadRequestException(
         'Project has no phases. Create a phase before importing tasks.',
       );
     }
 
     const phaseIds = new Set(projectPhases.map((p) => p.id));
+    const phaseNameToId = new Map(
+      projectPhases.map((p) => [p.name.trim().toLowerCase(), p.id]),
+    );
     const taskIds = new Set(projectTasks.map((t) => t.id));
     const assigneeIds = new Set(
       teamUserIds
@@ -101,11 +120,32 @@ export class ExcelTasksImportService {
     if (projectPms?.primaryPmId) assigneeIds.add(projectPms.primaryPmId);
     if (projectPms?.secondaryPmId) assigneeIds.add(projectPms.secondaryPmId);
 
-    const warnings: string[] = [];
-    const titleToId = new Map<string, string>();
-    for (const task of projectTasks) {
-      titleToId.set(task.title.trim().toLowerCase(), task.id);
+    const orgRoleUsers = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { code: { in: TASK_ASSIGNEE_ORG_ROLE_CODES } },
+      },
+      select: { id: true },
+    });
+    for (const user of orgRoleUsers) {
+      assigneeIds.add(user.id);
     }
+
+    const warnings: string[] = [];
+    const titleIndex = createTaskTitleIndex();
+    for (const task of projectTasks) {
+      indexExistingTask(titleIndex, task.title, task.id);
+    }
+
+    await this.ensureMissingPhases(
+      projectId,
+      rows,
+      phaseNameToId,
+      phaseIds,
+      project?.startDate ?? new Date(),
+      project?.endDate ?? new Date(),
+      warnings,
+    );
 
     await onProgress?.(5, 'Preparing task rows…');
 
@@ -117,11 +157,22 @@ export class ExcelTasksImportService {
         assigneeIds,
       });
       const phaseId =
-        row.resolvedPhaseId && phaseIds.has(row.resolvedPhaseId)
+        (row.resolvedPhaseId && phaseIds.has(row.resolvedPhaseId)
           ? row.resolvedPhaseId
-          : defaultPhase.id;
-      const startDate = this.parseDate(row.startDate) ?? new Date();
-      const endDate = this.parseDate(row.endDate) ?? startDate;
+          : null) ||
+        (row.phaseName?.trim()
+          ? phaseNameToId.get(row.phaseName.trim().toLowerCase())
+          : undefined);
+      if (!phaseId) {
+        warnings.push(
+          row.phaseName?.trim()
+            ? `Task "${row.title}" skipped: phase "${row.phaseName.trim()}" was not found.`
+            : `Task "${row.title}" skipped: no phase name. This row was not assigned to the first phase.`,
+        );
+        continue;
+      }
+      const startDate = this.parseTaskDateTime(row.startDate,8) ?? new Date();
+      const endDate = this.parseTaskDateTime(row.endDate, 17) ?? startDate;
       prepared.push({
         source: row,
         importMode: row.importMode,
@@ -174,7 +225,7 @@ export class ExcelTasksImportService {
         ownerId: row.ownerId,
         startDate: row.startDate,
         endDate: row.endDate,
-        effortHours: row.source.effortHours ?? null,
+        effortHours: this.mapEffortHours(row.source.effortHours),
         durationDays: row.source.durationDays ?? null,
         baselineStart: row.baselineStart,
         baselineEnd: row.baselineEnd,
@@ -191,8 +242,13 @@ export class ExcelTasksImportService {
         });
         // Prefer input order so title→id mapping stays correct even with duplicate titles
         for (let i = 0; i < created.length; i++) {
-          const titleKey = chunk[i].source.title.trim().toLowerCase();
-          titleToId.set(titleKey, created[i].id);
+          chunk[i].importedId = created[i].id;
+          indexTaskId(
+            titleIndex,
+            chunk[i].source.title,
+            created[i].id,
+            chunk[i].source.parentTaskTitle,
+          );
         }
         tasksCreated += created.length;
       } catch (error) {
@@ -215,7 +271,7 @@ export class ExcelTasksImportService {
                 ownerId: row.ownerId,
                 startDate: row.startDate,
                 endDate: row.endDate,
-                effortHours: row.source.effortHours ?? null,
+                effortHours: this.mapEffortHours(row.source.effortHours),
                 durationDays: row.source.durationDays ?? null,
                 baselineStart: row.baselineStart,
                 baselineEnd: row.baselineEnd,
@@ -226,7 +282,13 @@ export class ExcelTasksImportService {
               },
               select: { id: true, title: true },
             });
-            titleToId.set(created.title.trim().toLowerCase(), created.id);
+            indexTaskId(
+              titleIndex,
+              created.title,
+              created.id,
+              row.source.parentTaskTitle,
+            );
+            row.importedId = created.id;
             tasksCreated += 1;
           } catch (rowError) {
             failed += 1;
@@ -261,7 +323,7 @@ export class ExcelTasksImportService {
                 phaseId: row.phaseId,
                 startDate: row.startDate,
                 endDate: row.endDate,
-                effortHours: row.source.effortHours ?? null,
+                effortHours: this.mapEffortHours(row.source.effortHours),
                 durationDays: row.source.durationDays ?? null,
                 baselineStart: row.baselineStart,
                 baselineEnd: row.baselineEnd,
@@ -274,10 +336,13 @@ export class ExcelTasksImportService {
           ),
         );
         for (const row of chunk) {
-          titleToId.set(
-            row.source.title.trim().toLowerCase(),
+          indexTaskId(
+            titleIndex,
+            row.source.title,
             row.resolvedTaskId!,
+            row.source.parentTaskTitle,
           );
+          row.importedId = row.resolvedTaskId;
           tasksUpdated += 1;
         }
       } catch (error) {
@@ -299,7 +364,7 @@ export class ExcelTasksImportService {
                 phaseId: row.phaseId,
                 startDate: row.startDate,
                 endDate: row.endDate,
-                effortHours: row.source.effortHours ?? null,
+                effortHours: this.mapEffortHours(row.source.effortHours),
                 durationDays: row.source.durationDays ?? null,
                 baselineStart: row.baselineStart,
                 baselineEnd: row.baselineEnd,
@@ -309,10 +374,13 @@ export class ExcelTasksImportService {
                 progressApproved: row.progressApproved,
               },
             });
-            titleToId.set(
-              row.source.title.trim().toLowerCase(),
+            indexTaskId(
+              titleIndex,
+              row.source.title,
               row.resolvedTaskId!,
+              row.source.parentTaskTitle,
             );
+            row.importedId = row.resolvedTaskId;
             tasksUpdated += 1;
           } catch (rowError) {
             failed += 1;
@@ -326,21 +394,39 @@ export class ExcelTasksImportService {
 
     // ── Dependencies AFTER all tasks exist (preserves FS chains by title) ─
     await onProgress?.(82, 'Resolving predecessor links…');
+    reindexImportRowKeys(
+      titleIndex,
+      prepared.map((row) => ({
+        title: row.source.title,
+        id: row.importedId,
+        parentTaskTitle: row.source.parentTaskTitle,
+      })),
+    );
 
     const depPlans: DepPlan[] = [];
     const seenPairs = new Set<string>();
+    const nextImportId = createImportRowIdCursor(titleIndex);
     for (const row of prepared) {
-      const successorId = titleToId.get(row.source.title.trim().toLowerCase());
+      const successorId = nextImportId(
+        row.source.title,
+        row.source.parentTaskTitle,
+      );
       if (!successorId || !row.source.predecessors?.length) continue;
       for (const pred of row.source.predecessors) {
-        const predecessorId = titleToId.get(
-          pred.predecessorTitle.trim().toLowerCase(),
+        const { id: predecessorId, ambiguous } = idForTitle(
+          titleIndex,
+          pred.predecessorTitle,
         );
         if (!predecessorId) {
           warnings.push(
             `Predecessor "${pred.predecessorTitle}" not found for "${row.source.title}".`,
           );
           continue;
+        }
+        if (ambiguous) {
+          warnings.push(
+            `Predecessor "${pred.predecessorTitle}" matches more than one task; linked the first match to "${row.source.title}".`,
+          );
         }
         if (predecessorId === successorId) continue;
         const key = `${predecessorId}|${successorId}`;
@@ -467,6 +553,14 @@ export class ExcelTasksImportService {
       }
     }
 
+    await onProgress?.(98, 'Linking parent tasks…');
+    await applyExcelTaskParentLinks(
+      this.prisma,
+      prepared.map((row) => row.source),
+      titleIndex,
+      warnings,
+    );
+
     await onProgress?.(100, 'Done');
 
     const summary: ImportJobResultSummary = {
@@ -491,6 +585,51 @@ export class ExcelTasksImportService {
     });
 
     return summary;
+  }
+
+  private async ensureMissingPhases(
+    projectId: string,
+    rows: Array<{ phaseName?: string; resolvedPhaseId?: string | null }>,
+    phaseNameToId: Map<string, string>,
+    phaseIds: Set<string>,
+    projectStart: Date,
+    projectEnd: Date,
+    warnings: string[],
+  ): Promise<void> {
+    const missing = new Map<string, string>();
+    for (const row of rows) {
+      const name = row.phaseName?.trim();
+      if (!name) continue;
+      if (row.resolvedPhaseId && phaseIds.has(row.resolvedPhaseId)) continue;
+      const key = name.toLowerCase();
+      if (phaseNameToId.has(key) || missing.has(key)) continue;
+      missing.set(key, name);
+    }
+    if (missing.size === 0) return;
+
+    const maxOrder = await this.prisma.projectPhase.aggregate({
+      where: { projectId },
+      _max: { orderIndex: true },
+    });
+    let orderIndex = maxOrder._max.orderIndex ?? 0;
+    for (const name of missing.values()) {
+      orderIndex += 1;
+      const created = await this.prisma.projectPhase.create({
+        data: {
+          projectId,
+          name,
+          orderIndex,
+          status: PhaseStatus.Planned,
+          startDate: projectStart,
+          endDate: projectEnd,
+        },
+        select: { id: true, name: true },
+      });
+      const key = created.name.trim().toLowerCase();
+      phaseNameToId.set(key, created.id);
+      phaseIds.add(created.id);
+      warnings.push(`Created missing phase "${created.name}".`);
+    }
   }
 
   private chunk<T>(items: T[], size: number): T[][] {
@@ -580,6 +719,18 @@ export class ExcelTasksImportService {
       value.length <= 10 ? `${value}T00:00:00.000Z` : value,
     );
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private parseTaskDateTime(
+    value?: string | null,
+    defaultHours = 8,
+  ): Date | null {
+    return parseImportTaskDateTime(value, defaultHours, 0);
+  }
+
+  private mapEffortHours(value?: number): number | null {
+    if (value == null || !Number.isFinite(value)) return null;
+    return Math.max(0, Math.round(value));
   }
 
   private mapPriority(value?: string): PriorityLevel {

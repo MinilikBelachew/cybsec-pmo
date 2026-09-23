@@ -27,10 +27,14 @@ export class CreateProgressUpdateDto {
   @Max(100)
   progressPercent: number;
 
-  @ApiProperty({ example: 8.5, minimum: 0 })
+  @ApiProperty({
+    example: 8.5,
+    minimum: 0.01,
+    description: 'Hours spent on this update. Required and must be greater than 0.',
+  })
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
+  @Min(0.01)
   hoursSpent: number;
 
   @ApiPropertyOptional()

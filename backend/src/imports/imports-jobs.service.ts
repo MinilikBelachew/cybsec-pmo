@@ -74,6 +74,7 @@ export class ImportsJobsService {
     projectId: string;
     fileName: string;
     filePath: string;
+    timeZone?: string;
   }): Promise<ImportEnqueueResultDto> {
     const data: MppImportJobData = {
       kind: 'mpp',
@@ -81,6 +82,7 @@ export class ImportsJobsService {
       projectId: input.projectId,
       fileName: input.fileName,
       filePath: input.filePath,
+      timeZone: input.timeZone,
     };
     return this.enqueue(MPP_IMPORT_JOB, data);
   }
@@ -90,6 +92,7 @@ export class ImportsJobsService {
     fileName: string;
     filePath: string;
     portfolioDto: CreateMppPortfolioImportDto;
+    timeZone?: string;
   }): Promise<ImportEnqueueResultDto> {
     const data: MppPortfolioImportJobData = {
       kind: 'mpp-portfolio',
@@ -97,6 +100,7 @@ export class ImportsJobsService {
       fileName: input.fileName,
       filePath: input.filePath,
       portfolioDto: input.portfolioDto,
+      timeZone: input.timeZone ?? input.portfolioDto.timeZone,
     };
     return this.enqueue(MPP_PORTFOLIO_IMPORT_JOB, data);
   }

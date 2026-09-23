@@ -54,7 +54,11 @@ export const tasksApi = api.injectEndpoints({
         if (params.priority) queryParams.append("priority", params.priority);
         if (params.search) queryParams.append("search", params.search);
         if (params.phaseId) queryParams.append("phaseId", params.phaseId);
+        if (params.unassignedPhase) queryParams.append("unassignedPhase", "true");
         if (params.ownerId) queryParams.append("ownerId", params.ownerId);
+        if (params.includeScheduleMilestones) {
+          queryParams.append("includeScheduleMilestones", "true");
+        }
         return `/tasks?${queryParams.toString()}`;
       },
       providesTags: (result, _error, params) => {
@@ -557,6 +561,40 @@ export const tasksApi = api.injectEndpoints({
         method: "POST",
         body,
       }),
+      async onQueryStarted({ taskId, progressPercent }, { dispatch, queryFulfilled, getState }) {
+        const patchResults: Array<{ undo: () => void }> = [];
+        const applyPendingReview = (draft: Task) => {
+          const floor = Math.max(draft.progressApproved ?? 0, draft.progressPending ?? 0);
+          draft.status = "Submitted_for_Review";
+          draft.progressPending = floor + progressPercent;
+        };
+
+        const taskByIdState = tasksApi.endpoints.getTaskById.select(taskId)(getState());
+        if (taskByIdState?.data) {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTaskById", taskId, applyPendingReview),
+            ),
+          );
+        }
+
+        forEachGetTasksQuery(getState, (args) => {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTasks", args, (draft) => {
+                const task = draft.data.find((item) => item.id === taskId);
+                if (task) applyPendingReview(task);
+              }),
+            ),
+          );
+        });
+
+        try {
+          await queryFulfilled;
+        } catch {
+          patchResults.forEach((patch) => patch.undo());
+        }
+      },
       invalidatesTags: (result, error, { taskId }) => [
         { type: "Tasks", id: taskId },
         { type: "Tasks", id: "LIST" },

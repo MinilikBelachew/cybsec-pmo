@@ -3,16 +3,21 @@
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useAuth } from "@/domains/auth";
-import { useStopBreakGlassMutation } from "@/domains/auth/api/auth.api";
+import {
+  useLazyGetMeQuery,
+  useStopBreakGlassMutation,
+} from "@/domains/auth/api/auth.api";
 import { useAppDispatch } from "@/store/hooks";
-import { env } from "@/config/env.config";
+import { apiUserToUser } from "@/domains/auth/transformers/auth.transformer";
+import { setUser } from "@/domains/auth/store/auth.slice";
 import { Button } from "@/shared/ui/button";
-import { endClientSession, clearClientSession } from "@/domains/auth/utils/clear-session";
+import { endClientSession } from "@/domains/auth/utils/clear-session";
 
 export function BreakGlassBanner() {
   const { user } = useAuth();
   const dispatch = useAppDispatch();
   const [stopBreakGlass, { isLoading }] = useStopBreakGlassMutation();
+  const [getMe] = useLazyGetMeQuery();
   const [error, setError] = useState<string | null>(null);
 
   if (!user?.breakGlass) {
@@ -25,11 +30,11 @@ export function BreakGlassBanner() {
     try {
       const { redirectTo } = await stopBreakGlass().unwrap();
 
-      if (redirectTo === "entra") {
-        clearClientSession(dispatch);
-        const url = new URL(`${env.apiUrl}/auth/entra/authorize`);
-        url.searchParams.set("returnTo", "/dashboard");
-        window.location.href = url.toString();
+      if (redirectTo === "settings") {
+        const apiUser = await getMe().unwrap();
+        dispatch(setUser(apiUserToUser(apiUser)));
+        const locale = window.location.pathname.split("/").filter(Boolean)[0] || "en";
+        window.location.assign(`/${locale}/dashboard/settings?tab=security`);
         return;
       }
 

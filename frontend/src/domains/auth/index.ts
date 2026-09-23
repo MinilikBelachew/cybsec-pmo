@@ -17,7 +17,7 @@ export { hasModulePermission } from "./utils/module-permissions";
 export type { PermissionRow } from "./types/permissions.types";
 export {
   clearClientSession,
-  endClientSession,
+  endClientSession, 
   redirectToLogin,
 } from "./utils/clear-session";
 

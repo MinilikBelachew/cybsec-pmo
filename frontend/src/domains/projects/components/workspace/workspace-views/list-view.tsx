@@ -2,7 +2,7 @@
 import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, ListChecks, MessageSquare, Plus, MoreHorizontal, User, Calendar, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleCheck, Flag, ListChecks, MessageSquare, Plus, MoreHorizontal, User, Calendar } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { Button } from "@/shared/ui/button";
 import {
@@ -13,11 +13,14 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import type { TaskPriority } from "@/domains/projects/types/tasks.types";
 import {
+  usePaginatedPhaseTasks,
   usePaginatedStatusTasks,
   type StatusColumnFilters,
 } from "@/domains/projects/hooks/use-paginated-status-tasks";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
-import { TaskDependenciesPicker } from "./task-predecessors-cell";
+import { TaskDependenciesPicker, TaskDependencyLinksCell } from "./task-predecessors-cell";
+import { nestedDepthLabel } from "@/domains/projects/utils/map-task-to-gantt";
+import { formatShortDateTime } from "@/shared/utils/date";
 
 type Priority = "high" | "medium" | "low" | "critical";
 type Status = "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done";
@@ -51,23 +54,22 @@ interface Task {
   actualHoursLogged?: number;
   effortVarianceHours?: number | null;
   isOverEffort?: boolean;
+  baselineStartLabel?: string | null;
   baselineEndLabel?: string | null;
+  actualStartLabel?: string | null;
   actualEndLabel?: string | null;
+  plannedDurationDays?: number | null;
+  baselineDurationDays?: number | null;
+  actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
 }
 
 function formatDueDate(dateStr?: string | null) {
   if (!dateStr || dateStr === "No due date") return null;
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return null;
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return null;
-  }
+  return formatShortDateTime(dateStr);
 }
 
-import { type ProjectPhase, type ProjectTaskAssignee } from "../../../types/projects.types";
+import { type ProjectPhase,  type ProjectTaskAssignee, type ProjectMilestone } from "../../../types/projects.types";
 import type { TaskDependency } from "../../../types/tasks.types";
 import { EmployeeTooltip } from "../../shared/employee-tooltip";
 import {
@@ -100,6 +102,10 @@ interface ListViewProps {
   onDuplicateTask?: (taskId: string) => void;
   onMoveTask?: (taskId: string, toStatus: Status) => void;
   phases?: ProjectPhase[];
+  /** Phase grouping rows, plus hide MPP schedule-milestone DEP nest rows from the work list. */
+  milestones?: ProjectMilestone[];
+  /** Waterfall defaults this on; Agile/Hybrid keep status groups. Toggle still available. */
+  groupByPhaseDefault?: boolean;
   assignees?: ProjectTaskAssignee[];
   onAssignTask?: (taskId: string, ownerId: string | null) => Promise<void>;
   onUpdateTaskDates?: (taskId: string, dates: { startDate: string; endDate: string }) => Promise<void>;
@@ -167,6 +173,8 @@ export function ListView({
   onDuplicateTask,
   onMoveTask,
   phases = [],
+  milestones = [],
+  groupByPhaseDefault = false,
   assignees = [],
   onAssignTask,
   onUpdateTaskDates,
@@ -182,93 +190,27 @@ export function ListView({
   onBulkPriority,
   onBulkDelete,
 }: ListViewProps) {
-  const [groupByPhase, setGroupByPhase] = React.useState(false);
+  const [groupByPhase, setGroupByPhase] = React.useState(groupByPhaseDefault);
   const [openPhases, setOpenPhases] = React.useState<Record<string, boolean>>({});
   const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [loadedById, setLoadedById] = useState<Map<string, Task>>(() => new Map());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const { canEditDependencies } = useModulePermissions();
 
-  const taskById = React.useMemo(() => {
-    const map = new Map<string, Task>();
-    const walk = (t: Task) => {
-      map.set(t.id, t);
-      for (const c of t.children ?? []) walk(c);
-    };
-    for (const t of tasks) walk(t);
-    return map;
-  }, [tasks]);
-
-  /** DEF-P1-047 — successors that depend on this task (this task is the predecessor). */
-  const dependentsByPredecessor = React.useMemo(() => {
-    const map = new Map<string, Task[]>();
-    for (const dep of dependencies) {
-      const related = taskById.get(dep.successorId);
-      const row: Task = related
-        ? {
-            ...related,
-            depth: 1,
-            children: undefined,
-            hasSubtasks: false,
-            treeKind: "dependency",
-            depType: dep.depType,
-            parentTaskId: related.parentTaskId ?? null,
-          }
-        : {
-            id: dep.successor.id,
-            name: dep.successor.title,
-            assigneeInitials: dep.successor.owner?.displayName
-              ? dep.successor.owner.displayName
-                  .split(" ")
-                  .map((w) => w[0])
-                  .join("")
-                  .toUpperCase()
-              : "UA",
-            assigneeColor: "bg-slate-500",
-            dueDate: dep.successor.endDate
-              ? new Date(dep.successor.endDate).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })
-              : "No due date",
-            priority: "medium",
-            status: "To_Do",
-            comments: 0,
-            done: false,
-            rawStartDate: dep.successor.startDate,
-            rawEndDate: dep.successor.endDate,
-            owner: dep.successor.owner
-              ? {
-                  id: dep.successor.owner.id,
-                  displayName: dep.successor.owner.displayName,
-                  email: dep.successor.owner.email,
-                }
-              : undefined,
-            depth: 1,
-            treeKind: "dependency",
-            depType: dep.depType,
-          };
-      const list = map.get(dep.predecessorId) ?? [];
-      if (!list.some((t) => t.id === row.id)) list.push(row);
-      map.set(dep.predecessorId, list);
-    }
-    return map;
-  }, [dependencies, taskById]);
+  React.useEffect(() => {
+    setGroupByPhase(groupByPhaseDefault);
+    setLoadedById(new Map());
+    setSelectedIds(new Set());
+  }, [projectId, groupByPhaseDefault]);
 
   function nestedRowsFor(task: Task, childDepth: number): Task[] {
-    const subs = (task.children ?? []).map((c) => ({
+    return (task.children ?? []).map((c) => ({
       ...c,
       treeKind: "subtask" as const,
       depth: childDepth,
     }));
-    // Dependency links only under top-level rows (avoid noise under deep nests).
-    if (childDepth > 1) {
-      return subs;
-    }
-    const deps = dependentsByPredecessor.get(task.id) ?? [];
-    const subIds = new Set(subs.map((s) => s.id));
-    return [...subs, ...deps.filter((d) => !subIds.has(d.id))];
   }
 
   const togglePhaseGroup = (name: string) => {
@@ -290,13 +232,17 @@ export function ListView({
 
   const allSelectableIds = React.useMemo(() => {
     const ids: string[] = [];
+    const seen = new Set<string>();
     const walk = (t: Task) => {
+      if (seen.has(t.id)) return;
+      seen.add(t.id);
       ids.push(t.id);
       for (const c of t.children ?? []) walk(c);
     };
     for (const t of tasks) walk(t);
+    for (const t of loadedById.values()) walk(t);
     return ids;
-  }, [tasks]);
+  }, [tasks, loadedById]);
   // Checkboxes only while Select mode is on (not always visible).
   const showBulkSelect = Boolean(canBulkEdit && bulkMode);
   const allSelected =
@@ -377,14 +323,11 @@ export function ListView({
     clearSelection();
   };
 
-  // Expand parents that have sub-tasks or dependents so the tree is visible by default.
+  // Expand parents that have sub-tasks so the tree is visible by default.
   React.useEffect(() => {
     const idsToExpand: string[] = [];
     const walk = (t: Task) => {
-      const hasNest =
-        (t.children?.length ?? 0) > 0 ||
-        Boolean(t.hasSubtasks) ||
-        (dependentsByPredecessor.get(t.id)?.length ?? 0) > 0;
+      const hasNest = (t.children?.length ?? 0) > 0 || Boolean(t.hasSubtasks);
       if (hasNest) idsToExpand.push(t.id);
       for (const c of t.children ?? []) walk(c);
     };
@@ -401,45 +344,99 @@ export function ListView({
       }
       return changed ? next : prev;
     });
-  }, [tasks, dependentsByPredecessor]);
+  }, [tasks]);
+
+  const absorbExpandableTasks = React.useCallback((loaded: Task[]) => {
+    const idsToExpand: string[] = [];
+    setLoadedById((prev) => {
+      const next = new Map(prev);
+      const walkLoaded = (t: Task) => {
+        next.set(t.id, t);
+        for (const c of t.children ?? []) walkLoaded(c);
+      };
+      for (const t of loaded) walkLoaded(t);
+      return next;
+    });
+    const walk = (t: Task) => {
+      const hasNest = (t.children?.length ?? 0) > 0 || Boolean(t.hasSubtasks);
+      if (hasNest) idsToExpand.push(t.id);
+      for (const c of t.children ?? []) walk(c);
+    };
+    for (const t of loaded) walk(t);
+    if (idsToExpand.length === 0) return;
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of idsToExpand) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
 
   const phaseGroups = React.useMemo(() => {
-    const map: Record<string, { id: string | null; name: string; color: string; tasks: typeof tasks }> = {};
-
-    tasks.forEach((t) => {
-      const name = t.phaseName || "Unassigned";
-      if (!map[name]) {
-        map[name] = {
-          id: t.phaseId || null,
-          name,
-          color: t.phaseColor || "#64748b",
-          tasks: [],
-        };
-      }
-      map[name].tasks.push(t);
+    const sortedPhases = [...phases].sort((a, b) => {
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+      if (!a.startDate && !b.startDate) return a.name.localeCompare(b.name);
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
     });
 
-    return Object.values(map).sort((a, b) => {
-      if (a.name === "Unassigned") return 1;
-      if (b.name === "Unassigned") return -1;
-      
-      const phaseA = phases.find((p) => p.id === a.id);
-      const phaseB = phases.find((p) => p.id === b.id);
-      
-      if (!phaseA?.startDate && !phaseB?.startDate) return a.name.localeCompare(b.name);
-      if (!phaseA?.startDate) return 1;
-      if (!phaseB?.startDate) return -1;
-      
-      const diff = new Date(phaseA.startDate).getTime() - new Date(phaseB.startDate).getTime();
-      if (diff !== 0) return diff;
-      
-      if (!phaseA?.endDate && !phaseB?.endDate) return a.name.localeCompare(b.name);
-      if (!phaseA?.endDate) return 1;
-      if (!phaseB?.endDate) return -1;
-      
-      return new Date(phaseA.endDate).getTime() - new Date(phaseB.endDate).getTime();
+    const byTargetDate = (a: ProjectMilestone, b: ProjectMilestone) =>
+      new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime();
+
+    const groups = sortedPhases.map((phase) => ({
+      id: phase.id as string | null,
+      name: phase.name,
+      color: "#8b5cf6",
+      tasks: tasks.filter((t) => t.phaseId === phase.id),
+      milestones: milestones.filter((m) => m.phaseId === phase.id).sort(byTargetDate),
+    }));
+
+    const unassignedTasks = tasks.filter((t) => !t.phaseId);
+    const unassignedMilestones = milestones.filter((m) => !m.phaseId).sort(byTargetDate);
+    if (unassignedTasks.length > 0 || unassignedMilestones.length > 0) {
+      groups.push({
+        id: null,
+        name: "Unassigned",
+        color: "#64748b",
+        tasks: unassignedTasks,
+        milestones: unassignedMilestones,
+      });
+    }
+
+    return groups;
+  }, [tasks, phases, milestones]);
+
+  const phaseGroupMeta = React.useMemo(() => {
+    const sortedPhases = [...phases].sort((a, b) => {
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+      if (!a.startDate && !b.startDate) return a.name.localeCompare(b.name);
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
     });
-  }, [tasks, phases]);
+    const byTargetDate = (a: ProjectMilestone, b: ProjectMilestone) =>
+      new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime();
+
+    const groups = sortedPhases.map((phase) => ({
+      id: phase.id as string | null,
+      name: phase.name,
+      color: "#8b5cf6",
+      milestones: milestones.filter((m) => m.phaseId === phase.id).sort(byTargetDate),
+    }));
+    groups.push({
+      id: null,
+      name: "Unassigned",
+      color: "#64748b",
+      milestones: milestones.filter((m) => !m.phaseId).sort(byTargetDate),
+    });
+    return groups;
+  }, [phases, milestones]);
 
   function getStatusBadge(status: Status, isHeader = false) {
     const label = STATUS_LABEL[status] || status;
@@ -477,7 +474,7 @@ export function ListView({
   }
 
   const renderColumnHeaders = () => (
-    <div className="flex min-w-[72rem] items-center gap-4 px-3 py-1.5 border-b border-border/30 bg-slate-50/30 dark:bg-slate-900/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+    <div className="flex min-w-[110rem] items-center gap-4 px-3 py-1.5 border-b border-border/30 bg-slate-50/30 dark:bg-slate-900/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
       {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
       <div className="w-4 shrink-0" />
       <div className="w-4 shrink-0" />
@@ -488,9 +485,15 @@ export function ListView({
         Deps
       </div>
       <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
-        Assignee
+        Pred
       </div>
       <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Succ
+      </div>
+      <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Assignee
+      </div>
+      <div className="shrink-0 w-44 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Due Date
       </div>
       <div className="shrink-0 w-28 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
@@ -505,11 +508,26 @@ export function ListView({
       <div className="shrink-0 w-20 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Variance
       </div>
-      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
-        Base
+      <div className="shrink-0 w-44 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Plan start
       </div>
       <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
-        Actual
+        BL start
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        BL end
+      </div>
+      <div className="shrink-0 w-14 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        BL d
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Act start
+      </div>
+      <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Act end
+      </div>
+      <div className="shrink-0 w-14 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
+        Act d
       </div>
       <div className="shrink-0 w-16 text-[11px] font-medium text-slate-400 dark:text-slate-500 tracking-wider text-center">
         Sched
@@ -525,6 +543,40 @@ export function ListView({
       </div>
     </div>
   );
+
+  const renderMilestoneRow = (milestone: ProjectMilestone) => {
+    const target = formatDueDate(milestone.targetDate);
+    return (
+      <div
+        key={milestone.id}
+        className="flex min-w-[110rem] items-center gap-4 px-3 py-1.5 border-b border-border/20 bg-violet-50/40 dark:bg-violet-950/15"
+      >
+        {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
+        <div className="w-4 shrink-0" />
+        <Flag className="size-3.5 shrink-0 text-primary" />
+        <div className="flex-1 min-w-[12rem] max-w-[22rem] flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Milestone
+          </span>
+          <span className="text-xs font-medium truncate text-foreground" title={milestone.title}>
+            {milestone.title}
+          </span>
+        </div>
+        <div className="shrink-0 w-8" />
+        <div className="shrink-0 w-28" />
+        <div className="shrink-0 w-28" />
+        <div className="shrink-0 w-28" />
+        <div className="shrink-0 w-28 text-center text-xs text-muted-foreground">
+          {target ?? "—"}
+        </div>
+        <div className="shrink-0 w-28 text-center">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {milestone.status || "Pending"}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   const renderTaskRow = (task: Task, depth = 0) => {
     const fullAssignee = task.owner?.id
@@ -547,44 +599,38 @@ export function ListView({
         }
       : null;
 
-    const nested = depth < 2 ? nestedRowsFor(task, depth + 1) : [];
+    const nested = nestedRowsFor(task, depth + 1);
     const hasChildren = nested.length > 0 || Boolean(task.children?.length || task.hasSubtasks);
     const isExpanded = expandedParents.has(task.id);
-    const indentPx = depth * 20;
-    const isDependencyRow = task.treeKind === "dependency";
+    const indentPx = Math.min(depth, 10) * 16;
 
     return (
       <React.Fragment key={`${task.treeKind ?? "task"}-${task.id}-${depth}`}>
       <div
         className={cn(
-          "flex min-w-[72rem] items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
+          "flex min-w-[110rem] items-center gap-4 px-3 py-2 border-b border-border/30 hover:bg-muted/30 transition-colors group cursor-pointer",
           task.done && "opacity-60",
           depth > 0 && "bg-muted/10",
-          isDependencyRow && "bg-violet-50/40 dark:bg-violet-950/20",
           selectedIds.has(task.id) && "bg-primary/5"
         )}
       >
         {showBulkSelect ? (
-          isDependencyRow ? (
-            <div className="w-4 shrink-0" />
-          ) : (
-            <div className="w-4 shrink-0 flex items-center justify-center">
-              <input
-                type="checkbox"
-                checked={selectedIds.has(task.id)}
-                onChange={() => toggleSelect(task.id)}
-                onClick={(e) => e.stopPropagation()}
-                className="rounded border-slate-300 dark:border-white/10 accent-primary size-3.5"
-                aria-label={`Select ${task.name}`}
-              />
-            </div>
-          )
+          <div className="w-4 shrink-0 flex items-center justify-center">
+            <input
+              type="checkbox"
+              checked={selectedIds.has(task.id)}
+              onChange={() => toggleSelect(task.id)}
+              onClick={(e) => e.stopPropagation()}
+              className="rounded border-slate-300 dark:border-white/10 accent-primary size-3.5"
+              aria-label={`Select ${task.name}`}
+            />
+          </div>
         ) : null}
         <div
           className="w-4 shrink-0 flex items-center justify-center"
           style={{ marginLeft: indentPx }}
         >
-          {hasChildren && depth < 2 ? (
+          {hasChildren ? (
             <button
               type="button"
               onClick={(e) => toggleParentExpand(task.id, e)}
@@ -598,11 +644,7 @@ export function ListView({
               )}
             </button>
           ) : depth > 0 ? (
-            isDependencyRow ? (
-              <GitBranch className="size-3 text-violet-500" />
-            ) : (
-              <span className="size-1.5 rounded-full bg-muted-foreground/40" />
-            )
+            <span className="size-1.5 rounded-full bg-muted-foreground/40" />
           ) : null}
         </div>
         <button
@@ -629,17 +671,8 @@ export function ListView({
           title={task.name}
         >
           {depth > 0 && (
-            <span
-              className={cn(
-                "mr-1.5 text-[10px] font-semibold uppercase tracking-wide",
-                isDependencyRow ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground",
-              )}
-            >
-              {isDependencyRow
-                ? `Dep${task.depType ? ` ${task.depType}` : ""}`
-                : depth >= 2
-                  ? "Sub²"
-                  : "Sub"}
+            <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {nestedDepthLabel(depth)}
             </span>
           )}
           {task.name}
@@ -648,16 +681,32 @@ export function ListView({
           className="shrink-0 w-8 flex items-center justify-center"
           onClick={(e) => e.stopPropagation()}
         >
-          {isDependencyRow ? (
-            <span className="text-xs text-muted-foreground">—</span>
-          ) : (
-            <TaskDependenciesPicker
-              taskId={task.id}
-              projectId={projectId!}
-              dependencies={dependencies}
-              canEdit={canEditDependencies}
-            />
-          )}
+          <TaskDependenciesPicker
+            taskId={task.id}
+            projectId={projectId!}
+            dependencies={dependencies}
+            canEdit={canEditDependencies}
+          />
+        </div>
+        <div
+          className="shrink-0 w-28 flex items-center justify-center px-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <TaskDependencyLinksCell
+            taskId={task.id}
+            dependencies={dependencies}
+            linkMode="predecessors"
+          />
+        </div>
+        <div
+          className="shrink-0 w-28 flex items-center justify-center px-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <TaskDependencyLinksCell
+            taskId={task.id}
+            dependencies={dependencies}
+            linkMode="successors"
+          />
         </div>
         <div className="shrink-0 w-28 flex items-center justify-center">
           {canAssignTask && onAssignTask ? (
@@ -701,7 +750,7 @@ export function ListView({
             </span>
           )}
         </div>
-        <div className="shrink-0 w-28 text-xs text-muted-foreground text-center flex items-center justify-center">
+        <div className="shrink-0 w-44 text-xs text-muted-foreground text-center flex items-center justify-center">
           {canEditDates && onUpdateTaskDates ? (
             <TaskDatePicker
               startDate={task.rawStartDate}
@@ -709,7 +758,7 @@ export function ListView({
               onSave={(dates) => onUpdateTaskDates(task.id, dates)}
             >
               {task.rawEndDate || (task.dueDate && task.dueDate !== "No due date") ? (
-                <span className="cursor-pointer hover:text-primary transition-colors">
+                <span className="cursor-pointer hover:text-primary transition-colors whitespace-nowrap">
                   {formatDueDate(task.rawEndDate || task.dueDate)}
                 </span>
               ) : (
@@ -719,7 +768,7 @@ export function ListView({
               )}
             </TaskDatePicker>
           ) : task.rawEndDate || (task.dueDate && task.dueDate !== "No due date") ? (
-            <span>{formatDueDate(task.rawEndDate || task.dueDate)}</span>
+            <span className="whitespace-nowrap">{formatDueDate(task.rawEndDate || task.dueDate)}</span>
           ) : (
             <span className="text-slate-350 dark:text-slate-650">
               <Calendar className="size-4" />
@@ -768,17 +817,33 @@ export function ListView({
             "shrink-0 w-20 flex items-center justify-center text-xs font-medium tabular-nums",
             task.isOverEffort
               ? "text-amber-700 dark:text-amber-300"
-              : (task.effortVarianceHours ?? 0) < 0
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-muted-foreground",
+              : "text-muted-foreground",
           )}
           title={
-            task.isOverEffort ? "Logged hours exceed planned effort" : undefined
+            task.isOverEffort
+              ? "Logged hours exceed planned effort"
+              : (task.actualHoursLogged ?? 0) === 0
+                ? "No variance until hours are logged"
+                : "Hours remaining (planned − logged)"
           }
         >
           {task.effortVarianceHours == null || task.effortHours == null
             ? "—"
-            : `${task.effortVarianceHours > 0 ? "+" : ""}${task.effortVarianceHours}h${task.isOverEffort ? " ⚠" : ""}`}
+            : `${task.effortVarianceHours}h${task.isOverEffort ? " ⚠" : ""}`}
+        </div>
+        <div
+          className="shrink-0 w-44 flex items-center justify-center text-xs tabular-nums text-muted-foreground whitespace-nowrap"
+          title="Planned start"
+        >
+          {task.rawStartDate
+            ? formatDueDate(task.rawStartDate) ?? "—"
+            : "—"}
+        </div>
+        <div
+          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Baseline start"
+        >
+          {task.baselineStartLabel || "—"}
         </div>
         <div
           className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
@@ -787,10 +852,28 @@ export function ListView({
           {task.baselineEndLabel || "—"}
         </div>
         <div
+          className="shrink-0 w-14 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Baseline duration (days)"
+        >
+          {task.baselineDurationDays == null ? "—" : `${task.baselineDurationDays}d`}
+        </div>
+        <div
+          className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Actual start"
+        >
+          {task.actualStartLabel || "—"}
+        </div>
+        <div
           className="shrink-0 w-16 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
           title="Actual end"
         >
           {task.actualEndLabel || "—"}
+        </div>
+        <div
+          className="shrink-0 w-14 flex items-center justify-center text-xs tabular-nums text-muted-foreground"
+          title="Actual duration (days)"
+        >
+          {task.actualDurationDays == null ? "—" : `${task.actualDurationDays}d`}
         </div>
         <div
           className={cn(
@@ -1048,6 +1131,30 @@ export function ListView({
       <div className="flex-1 min-h-0 overflow-auto">
 
         {groupByPhase ? (
+          projectId ? (
+            phaseGroupMeta.map((group) => (
+              <ListPhaseSection
+                key={group.id ?? "unassigned"}
+                phaseId={group.id}
+                name={group.name}
+                color={group.color}
+                milestones={group.milestones}
+                filters={{
+                  projectId,
+                  search,
+                  priority: priorityFilter,
+                }}
+                isOpen={openPhases[group.name] !== false}
+                onToggle={() => togglePhaseGroup(group.name)}
+                renderColumnHeaders={renderColumnHeaders}
+                renderTaskRow={renderTaskRow}
+                renderMilestoneRow={renderMilestoneRow}
+                onLoadedTasks={absorbExpandableTasks}
+                onAddTask={onAddTask}
+                showBulkSelect={showBulkSelect}
+              />
+            ))
+          ) : (
           phaseGroups.map((group) => {
             const isOpen = openPhases[group.name] !== false;
             return (
@@ -1070,23 +1177,28 @@ export function ListView({
                       />
                       {group.name}
                     </span>
-                    <span className="text-xs text-muted-foreground font-semibold ml-1">{group.tasks.length}</span>
+                    <span className="text-xs text-muted-foreground font-semibold ml-1">
+                      {group.milestones.length + group.tasks.length}
+                    </span>
                   </button>
                 </div>
 
                 {isOpen && (
                   <>
+                    {group.milestones.map((milestone) => renderMilestoneRow(milestone))}
                     {group.tasks.length > 0 ? renderColumnHeaders() : null}
                     {group.tasks.map((task) => renderTaskRow(task))}
                     {onAddTask && group.id && (
                       <div
                         onClick={() => onAddTask("To_Do", group.id)}
-                        className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+                        className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
                         <div className="w-4 shrink-0" />
                         <div className="w-4 shrink-0" />
                         <div className="w-8 shrink-0" />
+                        <div className="w-28 shrink-0" />
+                        <div className="w-28 shrink-0" />
                         <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                         <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
                           Add Task to Phase
@@ -1099,6 +1211,7 @@ export function ListView({
               </div>
             );
           })
+          )
         ) : projectId ? (
           (["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"] as Status[]).map(
             (status) => (
@@ -1116,6 +1229,7 @@ export function ListView({
                 getStatusBadge={getStatusBadge}
                 renderColumnHeaders={renderColumnHeaders}
                 renderTaskRow={renderTaskRow}
+                onLoadedTasks={absorbExpandableTasks}
                 onAddTask={onAddTask}
                 showBulkSelect={showBulkSelect}
               />
@@ -1151,7 +1265,7 @@ export function ListView({
                     {onAddTask && (
                       <div
                         onClick={() => onAddTask(status)}
-                        className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+                        className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
                       >
                         {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
                         <div className="w-4 shrink-0" />
@@ -1182,6 +1296,7 @@ function ListStatusSection({
   getStatusBadge,
   renderColumnHeaders,
   renderTaskRow,
+  onLoadedTasks,
   onAddTask,
   showBulkSelect,
 }: {
@@ -1193,6 +1308,7 @@ function ListStatusSection({
   getStatusBadge: (status: Status, isHeader?: boolean) => React.ReactNode;
   renderColumnHeaders: () => React.ReactNode;
   renderTaskRow: (task: Task, depth?: number) => React.ReactNode;
+  onLoadedTasks?: (tasks: Task[]) => void;
   onAddTask?: (status: Status, phaseId?: string | null) => void;
   showBulkSelect: boolean;
 }) {
@@ -1205,6 +1321,11 @@ function ListStatusSection({
   const displayCount =
     typeof statusCount === "number" ? statusCount : isOpen ? total : 0;
   const groupTasks = tasks as unknown as Task[];
+
+  React.useEffect(() => {
+    if (!isOpen || groupTasks.length === 0) return;
+    onLoadedTasks?.(groupTasks);
+  }, [groupTasks, isOpen, onLoadedTasks]);
 
   return (
     <div className="mb-4">
@@ -1257,7 +1378,7 @@ function ListStatusSection({
           {onAddTask && (
             <div
               onClick={() => onAddTask(status)}
-              className="flex min-w-[72rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+              className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
             >
               {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
               <div className="w-4 shrink-0" />
@@ -1266,6 +1387,134 @@ function ListStatusSection({
               <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
                 Add Task
               </span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ListPhaseSection({
+  phaseId,
+  name,
+  color,
+  milestones,
+  filters,
+  isOpen,
+  onToggle,
+  renderColumnHeaders,
+  renderTaskRow,
+  renderMilestoneRow,
+  onLoadedTasks,
+  onAddTask,
+  showBulkSelect,
+}: {
+  phaseId: string | null;
+  name: string;
+  color: string;
+  milestones: ProjectMilestone[];
+  filters: StatusColumnFilters;
+  isOpen: boolean;
+  onToggle: () => void;
+  renderColumnHeaders: () => React.ReactNode;
+  renderTaskRow: (task: Task, depth?: number) => React.ReactNode;
+  renderMilestoneRow: (milestone: ProjectMilestone) => React.ReactNode;
+  onLoadedTasks?: (tasks: Task[]) => void;
+  onAddTask?: (status: Status, phaseId?: string | null) => void;
+  showBulkSelect: boolean;
+}) {
+  const { tasks, total, hasNextPage, isLoading, isFetching, loadMore } =
+    usePaginatedPhaseTasks(phaseId, filters, {
+      pageSize: 20,
+      skip: !isOpen,
+    });
+
+  const groupTasks = tasks as unknown as Task[];
+
+  React.useEffect(() => {
+    if (!isOpen || groupTasks.length === 0) return;
+    onLoadedTasks?.(groupTasks);
+  }, [groupTasks, isOpen, onLoadedTasks]);
+  const displayCount = milestones.length + (isOpen ? total : 0);
+
+  if (
+    !phaseId &&
+    !isLoading &&
+    total === 0 &&
+    milestones.length === 0 &&
+    !hasNextPage
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-background border-b border-border/30 sticky top-0 z-10">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 flex-1 text-left"
+        >
+          {isOpen ? (
+            <ChevronDown className="size-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 text-muted-foreground" />
+          )}
+          <span className="inline-flex items-center rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+            <span
+              className="size-2 rounded-full shrink-0 mr-1.5"
+              style={{ backgroundColor: color }}
+            />
+            {name}
+          </span>
+          <span className="text-xs text-muted-foreground font-semibold ml-1">
+            {displayCount}
+          </span>
+        </button>
+      </div>
+
+      {isOpen && (
+        <>
+          {milestones.map((milestone) => renderMilestoneRow(milestone))}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              <Spinner size="sm" />
+            </div>
+          ) : (
+            <>
+              {groupTasks.length > 0 ? renderColumnHeaders() : null}
+              {groupTasks.map((task) => renderTaskRow(task))}
+              {hasNextPage && (
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={isFetching}
+                  className="flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border-b border-border/30 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-colors disabled:opacity-50"
+                >
+                  {isFetching ? <Spinner size="xs" /> : null}
+                  Load more
+                  {total > groupTasks.length ? ` (${total - groupTasks.length} left)` : ""}
+                </button>
+              )}
+            </>
+          )}
+          {onAddTask && phaseId && (
+            <div
+              onClick={() => onAddTask("To_Do", phaseId)}
+              className="flex min-w-[110rem] items-center gap-2 px-3 py-2 border-b border-border/30 hover:bg-muted/10 transition-colors cursor-pointer group"
+            >
+              {showBulkSelect ? <div className="w-4 shrink-0" /> : null}
+              <div className="w-4 shrink-0" />
+              <div className="w-4 shrink-0" />
+              <div className="w-8 shrink-0" />
+              <div className="w-28 shrink-0" />
+              <div className="w-28 shrink-0" />
+              <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors font-medium">
+                Add Task to Phase
+              </span>
+              <div className="w-36 shrink-0" />
             </div>
           )}
         </>

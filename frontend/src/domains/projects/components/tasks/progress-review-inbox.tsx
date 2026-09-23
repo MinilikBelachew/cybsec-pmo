@@ -38,7 +38,8 @@ export function ProgressReviewInbox({
     { projectId, limit: visibleLimit },
     { skip: !projectId, pollingInterval: TASKS_POLLING_INTERVAL_MS },
   );
-  const [reviewProgress, { isLoading: isReviewing }] = useReviewTaskProgressUpdateMutation();
+  const [reviewProgress] = useReviewTaskProgressUpdateMutation();
+  const [reviewingUpdateId, setReviewingUpdateId] = useState<string | null>(null);
 
   const pending = data?.data ?? [];
   const total = data?.meta.total ?? 0;
@@ -64,6 +65,7 @@ export function ProgressReviewInbox({
   }
 
   async function handleApprove(update: TaskProgressUpdate) {
+    setReviewingUpdateId(update.id);
     try {
       await reviewProgress({
         taskId: update.taskId,
@@ -82,6 +84,8 @@ export function ProgressReviewInbox({
           ? Object.values(apiError.data.errors)[0]
           : apiError?.data?.message ?? "Failed to approve progress",
       );
+    } finally {
+      setReviewingUpdateId(null);
     }
   }
 
@@ -94,6 +98,7 @@ export function ProgressReviewInbox({
       return;
     }
 
+    setReviewingUpdateId(update.id);
     try {
       await reviewProgress({
         taskId: update.taskId,
@@ -113,6 +118,8 @@ export function ProgressReviewInbox({
           ? Object.values(apiError.data.errors)[0]
           : apiError?.data?.message ?? "Failed to submit review",
       );
+    } finally {
+      setReviewingUpdateId(null);
     }
   }
 
@@ -141,7 +148,9 @@ export function ProgressReviewInbox({
               Loading review queue…
             </div>
           ) : (
-            pending.map((update) => (
+            pending.map((update) => {
+              const isThisReviewing = reviewingUpdateId === update.id;
+              return (
               <div
                 key={update.id}
                 className="rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs"
@@ -172,10 +181,10 @@ export function ProgressReviewInbox({
                     <Button
                       type="button"
                       size="sm"
-                      disabled={isReviewing}
+                      disabled={isThisReviewing}
                       onClick={() => void handleApprove(update)}
                     >
-                      {isReviewing ? (
+                      {isThisReviewing ? (
                         <Spinner size="xs" />
                       ) : (
                         <CheckCircle2 className="size-3.5" />
@@ -222,27 +231,28 @@ export function ProgressReviewInbox({
                         type="button"
                         size="sm"
                         variant="outline"
-                        disabled={isReviewing}
+                        disabled={isThisReviewing}
                         onClick={() => void handleDecision(update, "rework")}
                       >
-                        <RotateCcw className="size-3.5" />
+                        {isThisReviewing ? <Spinner size="xs" /> : <RotateCcw className="size-3.5" />}
                         Request rework
                       </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="destructive"
-                        disabled={isReviewing}
+                        disabled={isThisReviewing}
                         onClick={() => void handleDecision(update, "reject")}
                       >
-                        <XCircle className="size-3.5" />
+                        {isThisReviewing ? <Spinner size="xs" /> : <XCircle className="size-3.5" />}
                         Reject
                       </Button>
                     </div>
                   </div>
                 )}
               </div>
-            ))
+            );
+            })
           )}
 
           {!isLoading && hasMore && (

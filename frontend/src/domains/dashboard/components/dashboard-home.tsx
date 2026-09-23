@@ -249,6 +249,7 @@ export function DashboardHome() {
           const proj = projectsToExport[index];
           return tasks.map((t) => ({
             ...t,
+            projectId: proj.id,
             projectName: proj.name,
           }));
         });
@@ -562,7 +563,10 @@ export function DashboardHome() {
                 <p className="text-2xl font-bold tracking-tight text-foreground">
                   {layout.showPortfolioBudget
                     ? portfolioBudgetVisible
-                      ? `$${Number(totalValue).toLocaleString()}.00`
+                      ? `$${Number(totalValue).toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`
                       : "••••••••••"
                     : totalProjects}
                 </p>

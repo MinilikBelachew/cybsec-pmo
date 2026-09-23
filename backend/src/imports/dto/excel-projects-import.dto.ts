@@ -16,17 +16,26 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ExcelTaskImportRowDto } from './excel-tasks-import.dto';
+import {
+  PROJECT_NAME_MAX_LENGTH,
+  PROJECT_OBJECTIVE_MAX_LENGTH,
+} from '../../projects/constants/project-limits';
 
 export class ExcelProjectImportRowDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(255)
+  @MaxLength(PROJECT_NAME_MAX_LENGTH, {
+    message: 'Project name must be 100 characters or fewer (Keka limit)',
+  })
   name: string;
 
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(PROJECT_OBJECTIVE_MAX_LENGTH, {
+    message: 'Description must be 500 characters or fewer',
+  })
   objective: string;
 
   @ApiProperty()
@@ -36,6 +45,11 @@ export class ExcelProjectImportRowDto {
   @ApiProperty()
   @IsString()
   billingModel: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  methodology?: string;
 
   @ApiProperty()
   @IsString()
@@ -62,6 +76,41 @@ export class ExcelProjectImportRowDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  durationDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  baselineStartDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  baselineEndDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  baselineDurationDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  actualStartDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  actualEndDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  percentComplete?: number;
 
   @ApiProperty({ enum: ['create', 'update'] })
   @IsEnum(['create', 'update'])

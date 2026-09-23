@@ -183,6 +183,26 @@ export function resolveDashboardLayout(
     });
   }
 
+  if (roleCode === "sdm") {
+    return buildLayout({
+      title: "SDM Dashboard",
+      subtitle: "Delivery overview",
+      tabs: canViewTeam ? ["portfolio", "execution", "people"] : ["portfolio", "execution"],
+      defaultTab: "portfolio",
+      showPortfolioBudget: canViewFinancials,
+      showBurnRate: canLoadBurnRate,
+      showFilters: canLoadProjectHealth,
+      showPmFilter: canLoadProjectHealth,
+      canLoadStats,
+      canLoadProjectHealth,
+      canLoadMilestones,
+      canLoadResources,
+      canLoadBurnRate,
+      showRiskMatrix: true,
+      showSimulation: true,
+    });
+  }
+
   if (roleCode === "pm" || roleCode === "team_lead") {
     return buildLayout({
       title: roleCode === "pm" ? "PM Dashboard" : "Team Dashboard",

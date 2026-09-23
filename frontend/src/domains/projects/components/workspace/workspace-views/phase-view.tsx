@@ -41,6 +41,7 @@ import { PhaseStatus } from "../../../types/projects.types";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
 import type { GetTasksParams } from "../../../types/tasks.types";
+import { isHiddenScheduleTask } from "../../../utils/map-task-to-gantt";
 import { getPriorityColors } from "./task-cell-pickers";
 
 export interface PhaseViewRef {
@@ -431,7 +432,10 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
     }
   };
 
-  const tasks = useMemo(() => tasksResponse?.data || [], [tasksResponse]);
+  const tasks = useMemo(() => {
+    const rows = tasksResponse?.data || [];
+    return rows.filter((t) => !isHiddenScheduleTask(t, milestones));
+  }, [tasksResponse, milestones]);
 
   // Sort phases by startDate (earliest first, nulls at the end)
   const sortedPhases = useMemo(() => {

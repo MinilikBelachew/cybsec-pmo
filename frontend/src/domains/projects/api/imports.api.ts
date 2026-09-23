@@ -68,6 +68,7 @@ export type ExcelTasksPreviewRow = {
     depType?: string;
     lagDays?: number;
   }>;
+  parentTaskTitle?: string;
   resolvedAssigneeId?: string | null;
   resolvedPhaseId?: string | null;
   importMode: "create" | "update";
@@ -90,7 +91,7 @@ export type ExcelTasksPreviewResult = {
   previewId: string;
   rows: ExcelTasksPreviewRow[];
   counts: ExcelTasksPreviewCounts;
-  existingTasks: Array<{ id: string; title: string }>;
+  existingTasks: Array<{ id: string; title: string; parentTitle?: string | null }>;
   total: number;
   offset: number;
   limit: number;

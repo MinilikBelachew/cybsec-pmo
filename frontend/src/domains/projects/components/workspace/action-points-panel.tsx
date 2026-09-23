@@ -93,6 +93,7 @@ const ACTION_POINT_MANAGER_ROLES = new Set([
   "super_admin",
   "it_admin",
   "pmo_lead",
+  "sdm",
   "pm",
   "team_lead",
 ]);

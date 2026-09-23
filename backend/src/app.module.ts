@@ -52,6 +52,8 @@ import { ResourcesModule } from './resources/resources.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
 import { ReportsModule } from './reports/reports.module';
 import kekaConfig from './integrations/keka/config/keka.config';
+import fxConfig from './fx/config/fx.config';
+import { FxModule } from './fx/fx.module';
 import { MeetingsModule } from './meetings/meetings.module';
 
 @Module({
@@ -71,6 +73,7 @@ import { MeetingsModule } from './meetings/meetings.module';
         breakGlassConfig,
         mppImportConfig,
         kekaConfig,
+        fxConfig,
       ],
       envFilePath: ['.env'],
     }),
@@ -125,6 +128,7 @@ import { MeetingsModule } from './meetings/meetings.module';
     MailerModule,
     HomeModule,
     IntegrationsModule.register(),
+    FxModule,
     ProjectsModule,
     ProjectTemplatesModule,
     ActionPointsModule,

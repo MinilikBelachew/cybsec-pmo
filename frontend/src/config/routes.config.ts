@@ -17,6 +17,6 @@ export const routes = {
   login: "/login",
   register: "/register",
   dashboard: "/dashboard",
-  profile: "/profile",
+  profile: "/dashboard/profile",
   settings: "/settings",
 };

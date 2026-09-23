@@ -31,9 +31,13 @@ import { LeaveBackupService } from '../resources/leave-backup.service';
 import { TaskDependenciesService } from './task-dependencies.service';
 import { WorkspaceDocumentsService, TASK_ATTACHMENT_MAX_FILES } from '../workspace-documents/workspace-documents.service';
 import { ProjectLinkService } from '../integrations/keka/sync/project-link.service';
-import { TaskStatus, PriorityLevel, Prisma } from '@prisma/client';
-import { RoleEnum } from '../roles/roles.enum';
+import { TaskStatus, PriorityLevel, Prisma, ProjectStatus } from '@prisma/client';
+import { RoleEnum, TASK_ASSIGNEE_ORG_ROLE_CODES } from '../roles/roles.enum';
 import { assignExclusivePhaseGate } from '../projects/phase-gate.util';
+import {
+  actualStampsForTaskStatus,
+  freezeBaselineIfEmpty,
+} from '../projects/utils/schedule-dates.util';
 
 const EXTERNAL_ROLES = [RoleEnum.client, RoleEnum.vendor];
 
@@ -86,7 +90,7 @@ const TASK_INCLUDE = {
       endDate: true,
     },
   },
-  // Up to 3 levels total: task → sub → sub-sub.
+  // Nested children are attached after fetch (any MPP outline depth).
   subTasks: {
     select: {
       id: true,
@@ -126,7 +130,53 @@ const TASK_INCLUDE = {
     },
     orderBy: { createdAt: 'desc' as const },
   },
+  scheduleMilestone: { select: { id: true } },
 } as const;
+
+/** Nested tree rows (any depth). Used after list/detail so MPP outlines are not capped at 3 levels. */
+const SUBTASK_TREE_SELECT = {
+  id: true,
+  title: true,
+  status: true,
+  priority: true,
+  parentTaskId: true,
+  startDate: true,
+  endDate: true,
+  createdAt: true,
+  baselineStart: true,
+  baselineEnd: true,
+  actualStart: true,
+  actualEnd: true,
+  durationDays: true,
+  baselineDurationDays: true,
+  effortHours: true,
+  progressApproved: true,
+  owner: { select: { id: true, displayName: true, email: true } },
+  scheduleMilestone: { select: { id: true } },
+} as const;
+
+type SubTaskTreeRow = {
+  id: string;
+  title: string;
+  status: string;
+  priority?: string;
+  parentTaskId: string | null;
+  startDate?: Date | string | null;
+  endDate?: Date | string | null;
+  createdAt?: Date | string;
+  baselineStart?: Date | string | null;
+  baselineEnd?: Date | string | null;
+  actualStart?: Date | string | null;
+  actualEnd?: Date | string | null;
+  durationDays?: unknown;
+  baselineDurationDays?: unknown;
+  effortHours?: number | null;
+  progressApproved?: number;
+  owner?: { id: string; displayName: string; email: string } | null;
+  scheduleMilestone?: { id: string } | null;
+  isScheduleMilestone?: boolean;
+  subTasks?: SubTaskTreeRow[];
+};
 
 const LEGAL_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   To_Do: [TaskStatus.In_Progress],
@@ -155,11 +205,17 @@ export class TasksService {
 
   /** Soft-fail outbound sync to Keka PSA (never blocks local task save). */
   private pushTaskToKeka(taskId: string): void {
-    void this.projectLinkService.syncTaskToKeka(taskId).catch((error) => {
-      const message =
-        error instanceof Error ? error.message : 'Keka task sync failed';
-      this.logger.error(`Keka task sync threw for ${taskId}: ${message}`);
-    });
+    void this.prisma.projectMilestone
+      .findUnique({ where: { taskId }, select: { id: true } })
+      .then((linked) => {
+        if (linked) return;
+        return this.projectLinkService.syncTaskToKeka(taskId);
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error ? error.message : 'Keka task sync failed';
+        this.logger.error(`Keka task sync threw for ${taskId}: ${message}`);
+      });
   }
 
   private mapStatusToPrisma(status: TaskStatusEnum): TaskStatus {
@@ -204,13 +260,119 @@ export class TasksService {
     return comments;
   }
 
+  private async hiddenScheduleTaskIds(projectId?: string): Promise<string[]> {
+    if (!projectId) {
+      return [];
+    }
+    const milestones = await this.prisma.projectMilestone.findMany({
+      where: { projectId },
+      select: { taskId: true, title: true, phaseId: true },
+    });
+    if (milestones.length === 0) {
+      return [];
+    }
+    const linkedIds = milestones
+      .map((row) => row.taskId)
+      .filter((id): id is string => Boolean(id));
+    const matched = await this.prisma.task.findMany({
+      where: {
+        projectId,
+        OR: milestones.map((row) => ({
+          title: { equals: row.title, mode: 'insensitive' as const },
+          phaseId: row.phaseId,
+        })),
+      },
+      select: { id: true },
+    });
+    return [...new Set([...linkedIds, ...matched.map((row) => row.id)])];
+  }
+
+  private withHiddenScheduleTasks(
+    where: Prisma.TaskWhereInput,
+    hiddenIds: string[],
+  ): Prisma.TaskWhereInput {
+    if (hiddenIds.length === 0) {
+      return where;
+    }
+    return { AND: [where, { id: { notIn: hiddenIds } }] };
+  }
+
+  private async attachFullSubTaskTrees<
+    T extends { id: string; projectId: string; subTasks?: unknown },
+  >(roots: T[], hiddenIds: string[] = []): Promise<T[]> {
+    if (roots.length === 0) {
+      return roots;
+    }
+
+    const projectIds = [
+      ...new Set(roots.map((root) => root.projectId).filter(Boolean)),
+    ];
+    if (projectIds.length === 0) {
+      return roots;
+    }
+
+    const rows = await this.prisma.task.findMany({
+      where: {
+        projectId: { in: projectIds },
+        parentTaskId: { not: null },
+      },
+      select: SUBTASK_TREE_SELECT,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const hidden = new Set(hiddenIds);
+    const byParent = new Map<string, SubTaskTreeRow[]>();
+    for (const row of rows) {
+      if (
+        !row.parentTaskId ||
+        hidden.has(row.id) ||
+        Boolean(row.scheduleMilestone)
+      ) {
+        continue;
+      }
+      const list = byParent.get(row.parentTaskId) ?? [];
+      list.push(row as SubTaskTreeRow);
+      byParent.set(row.parentTaskId, list);
+    }
+
+    const mapRow = (row: SubTaskTreeRow, visited: Set<string>): SubTaskTreeRow => {
+      if (visited.has(row.id)) {
+        return { ...row, subTasks: [] };
+      }
+      visited.add(row.id);
+      const children = byParent.get(row.id) ?? [];
+      return {
+        ...row,
+        durationDays:
+          row.durationDays != null && Number.isFinite(Number(row.durationDays))
+            ? Number(row.durationDays)
+            : null,
+        baselineDurationDays:
+          row.baselineDurationDays != null &&
+          Number.isFinite(Number(row.baselineDurationDays))
+            ? Number(row.baselineDurationDays)
+            : null,
+        isScheduleMilestone: Boolean(row.scheduleMilestone),
+        subTasks: children.map((child) => mapRow(child, visited)),
+      };
+    };
+
+    return roots.map((root) => ({
+      ...root,
+      subTasks: (byParent.get(root.id) ?? []).map((child) =>
+        mapRow(child, new Set([root.id])),
+      ),
+    }));
+  }
+
   private formatTask(
     task: Awaited<ReturnType<typeof this.prisma.task.findUnique>> & object,
     roleCode?: string | null,
   ) {
-    const { comments, workspaceDocuments, ...rest } = task as any;
+    const { comments, workspaceDocuments, scheduleMilestone, ...rest } = task as any;
     return {
       ...rest,
+      isScheduleMilestone: Boolean(scheduleMilestone),
       durationDays:
         rest.durationDays != null && Number.isFinite(Number(rest.durationDays))
           ? Number(rest.durationDays)
@@ -297,8 +459,8 @@ export class TasksService {
           ? Number(task.effortHours)
           : null;
       const effortVarianceHours =
-        planned != null
-          ? Math.round((actualHoursLogged - planned) * 100) / 100
+        planned != null && actualHoursLogged > 0
+          ? Math.round((planned - actualHoursLogged) * 100) / 100
           : null;
       const isOverEffort =
         planned != null && planned > 0 && actualHoursLogged > planned;
@@ -467,6 +629,7 @@ export class TasksService {
     if (ownerId) {
       const user = await this.prisma.user.findUnique({
         where: { id: ownerId },
+        include: { role: { select: { code: true } } },
       });
       if (!user) {
         throw new UnprocessableEntityException({
@@ -488,14 +651,18 @@ export class TasksService {
 
       if (!teamAllocation) {
         // DEF-P1-026 — project PMs may own tasks without a team allocation row.
-        const project = await this.prisma.project.findUnique({
+        // DEF-P1-088 — PMO Lead and SDM may own tasks without a team allocation row.
+        const projectOwners = await this.prisma.project.findUnique({
           where: { id: projectId },
           select: { primaryPmId: true, secondaryPmId: true },
         });
         const isProjectPm =
-          project?.primaryPmId === ownerId ||
-          project?.secondaryPmId === ownerId;
-        if (!isProjectPm) {
+          projectOwners?.primaryPmId === ownerId ||
+          projectOwners?.secondaryPmId === ownerId;
+        const isOrgDeliveryRole = TASK_ASSIGNEE_ORG_ROLE_CODES.includes(
+          user.role.code as RoleEnum,
+        );
+        if (!isProjectPm && !isOrgDeliveryRole) {
           throw new UnprocessableEntityException({
             status: HttpStatus.UNPROCESSABLE_ENTITY,
             errors: { ownerId: 'assigneeMustBeOnProjectTeam' },
@@ -565,7 +732,7 @@ export class TasksService {
   
   private toTaskDayKey(value: Date | string): string {
     if (typeof value === 'string') return value.slice(0, 10);
-    // Prisma @db.Date values are UTC midnight — use UTC parts, not local.
+    // Prefer UTC calendar day so @db.Date phase bounds and timestamptz task times compare consistently.
     const y = value.getUTCFullYear();
     const m = String(value.getUTCMonth() + 1).padStart(2, '0');
     const d = String(value.getUTCDate()).padStart(2, '0');
@@ -688,6 +855,50 @@ export class TasksService {
     }
   }
 
+  private async resolveNewTaskSchedule(dto: {
+    projectId: string;
+    startDate?: Date | null;
+    endDate?: Date | null;
+    durationDays?: number | null;
+    baselineStart?: Date | null;
+    baselineEnd?: Date | null;
+    baselineDurationDays?: number | null;
+    actualStart?: Date | null;
+    actualEnd?: Date | null;
+    status?: TaskStatusEnum;
+  }) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      select: { status: true },
+    });
+    const freeze =
+      project?.status === ProjectStatus.Active
+        ? freezeBaselineIfEmpty({
+            start: dto.startDate,
+            end: dto.endDate,
+            durationDays: dto.durationDays,
+            baselineStart: dto.baselineStart,
+            baselineEnd: dto.baselineEnd,
+          })
+        : {};
+    const nextStatus = dto.status
+      ? this.mapStatusToPrisma(dto.status)
+      : TaskStatus.To_Do;
+    const actuals = actualStampsForTaskStatus({
+      nextStatus,
+      actualStart: dto.actualStart,
+      actualEnd: dto.actualEnd,
+    });
+    return {
+      baselineStart: dto.baselineStart ?? freeze.baselineStart ?? null,
+      baselineEnd: dto.baselineEnd ?? freeze.baselineEnd ?? null,
+      baselineDurationDays:
+        dto.baselineDurationDays ?? freeze.baselineDurationDays ?? null,
+      actualStart: dto.actualStart ?? actuals.actualStart ?? null,
+      actualEnd: dto.actualEnd ?? actuals.actualEnd ?? null,
+    };
+  }
+
   async create(dto: CreateTaskDto, actorId: string, viewerRoleCode?: string) {
     await this.validateReferences(dto.projectId, dto.ownerId, dto.parentTaskId, dto.phaseId);
     await this.assertTaskDatesWithinPhase(
@@ -701,6 +912,8 @@ export class TasksService {
       dto.startDate,
       dto.endDate,
     );
+
+    const schedule = await this.resolveNewTaskSchedule(dto);
 
     const isPhaseGate = this.resolveIsPhaseGate({
       requested: dto.isPhaseGate,
@@ -721,13 +934,13 @@ export class TasksService {
           backupOwnerId: dto.backupOwnerId ?? null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
-          baselineStart: dto.baselineStart ?? null,
-        baselineEnd: dto.baselineEnd ?? null,
-        actualStart: dto.actualStart ?? null,
-        actualEnd: dto.actualEnd ?? null,
-        durationDays: dto.durationDays ?? null,
-        baselineDurationDays: dto.baselineDurationDays ?? null,
-        effortHours: dto.effortHours ?? null,
+          baselineStart: schedule.baselineStart,
+          baselineEnd: schedule.baselineEnd,
+          actualStart: schedule.actualStart,
+          actualEnd: schedule.actualEnd,
+          durationDays: dto.durationDays ?? null,
+          baselineDurationDays: schedule.baselineDurationDays,
+          effortHours: dto.effortHours ?? null,
           progressApproved:
           dto.progressApproved != null
             ? Math.max(0, Math.min(100, Math.round(dto.progressApproved)))
@@ -805,6 +1018,8 @@ export class TasksService {
       uploadedFiles.push(await this.filesUploadService.upload(file));
     }
 
+    const schedule = await this.resolveNewTaskSchedule(dto);
+
     const task = await this.prisma.$transaction(async (tx) => {
       const isPhaseGate = this.resolveIsPhaseGate({
         requested: dto.isPhaseGate,
@@ -823,12 +1038,12 @@ export class TasksService {
           ownerId: dto.ownerId ?? null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
-          baselineStart: dto.baselineStart ?? null,
-          baselineEnd: dto.baselineEnd ?? null,
-          actualStart: dto.actualStart ?? null,
-          actualEnd: dto.actualEnd ?? null,
+          baselineStart: schedule.baselineStart,
+          baselineEnd: schedule.baselineEnd,
+          actualStart: schedule.actualStart,
+          actualEnd: schedule.actualEnd,
           durationDays: dto.durationDays ?? null,
-          baselineDurationDays: dto.baselineDurationDays ?? null,
+          baselineDurationDays: schedule.baselineDurationDays,
           effortHours: dto.effortHours ?? null,
           progressApproved:
             dto.progressApproved != null
@@ -855,6 +1070,9 @@ export class TasksService {
             status: TaskStatus.To_Do,
             startDate: dto.startDate ?? null,
             endDate: dto.endDate ?? null,
+            baselineStart: schedule.baselineStart,
+            baselineEnd: schedule.baselineEnd,
+            baselineDurationDays: schedule.baselineDurationDays,
             effortHours: dto.effortHours ?? 1,
           },
         });
@@ -1030,6 +1248,14 @@ export class TasksService {
       );
     }
 
+    const bundleStatusStamps = dto.status
+      ? actualStampsForTaskStatus({
+          nextStatus: this.mapStatusToPrisma(dto.status),
+          actualStart: existing.actualStart,
+          actualEnd: existing.actualEnd,
+        })
+      : {};
+
     if (files.length > 0 || removeAttachmentIds.length > 0) {
       const existingAttachmentCount = await this.prisma.workspaceDocument.count({
         where: { taskId: id, category: 'Task' },
@@ -1073,6 +1299,7 @@ export class TasksService {
           endDate: dto.endDate !== undefined ? dto.endDate : undefined,
           effortHours: dto.effortHours !== undefined ? dto.effortHours : undefined,
           status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
+          ...bundleStatusStamps,
           isPhaseGate: false,
         },
       });
@@ -1260,7 +1487,13 @@ export class TasksService {
   ) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
-    const where = this.buildTaskListWhere(query, caslUser);
+    const hiddenIds = query.includeScheduleMilestones
+      ? []
+      : await this.hiddenScheduleTaskIds(query.projectId);
+    const where = this.withHiddenScheduleTasks(
+      this.buildTaskListWhere(query, caslUser),
+      hiddenIds,
+    );
 
     const tasks = await this.prisma.task.findMany({
       where,
@@ -1276,20 +1509,33 @@ export class TasksService {
       ),
     );
 
-    return this.attachEffortVarianceMany(formatted);
+    const withTrees = await this.attachFullSubTaskTrees(formatted, hiddenIds);
+    return this.attachEffortVarianceMany(withTrees);
   }
 
   async countMany(query: QueryTaskDto, caslUser: CaslUserContext) {
+    const hiddenIds = query.includeScheduleMilestones
+      ? []
+      : await this.hiddenScheduleTaskIds(query.projectId);
     return this.prisma.task.count({
-      where: this.buildTaskListWhere(query, caslUser),
+      where: this.withHiddenScheduleTasks(
+        this.buildTaskListWhere(query, caslUser),
+        hiddenIds,
+      ),
     });
   }
 
   async getTaskStats(query: QueryTaskDto, caslUser: CaslUserContext) {
     // Stats always count top-level tasks (same unit as board/list columns).
-    const where = this.buildTaskListWhere(
-      { ...query, topLevelOnly: true, page: undefined, limit: undefined },
-      caslUser,
+    const hiddenIds = query.includeScheduleMilestones
+      ? []
+      : await this.hiddenScheduleTaskIds(query.projectId);
+    const where = this.withHiddenScheduleTasks(
+      this.buildTaskListWhere(
+        { ...query, topLevelOnly: true, page: undefined, limit: undefined },
+        caslUser,
+      ),
+      hiddenIds,
     );
 
     const endOfToday = new Date();
@@ -1368,8 +1614,13 @@ export class TasksService {
       // include nested tasks so sub-tasks are findable.
       filters.push({ parentTaskId: null });
     }
-    if (query.phaseId) {
+    if (query.unassignedPhase) {
+      filters.push({ phaseId: null });
+    } else if (query.phaseId) {
       filters.push({ phaseId: query.phaseId });
+    }
+    if (!query.includeScheduleMilestones) {
+      filters.push({ scheduleMilestone: { is: null } });
     }
     if (query.search) {
       filters.push({
@@ -1503,8 +1754,10 @@ export class TasksService {
       });
     }
 
+    const formatted = this.formatTask(task, viewerRoleCode);
+    const [withTree] = await this.attachFullSubTaskTrees([formatted]);
     return this.attachEffortVariance(
-      await this.attachScheduleImpact(this.formatTask(task, viewerRoleCode)),
+      await this.attachScheduleImpact(withTree),
     );
   }
 
@@ -1618,6 +1871,18 @@ export class TasksService {
       );
     }
 
+    const statusStamps = dto.status
+      ? actualStampsForTaskStatus({
+          nextStatus: this.mapStatusToPrisma(dto.status),
+          actualStart:
+            dto.actualStart !== undefined
+              ? dto.actualStart
+              : existing.actualStart,
+          actualEnd:
+            dto.actualEnd !== undefined ? dto.actualEnd : existing.actualEnd,
+        })
+      : {};
+
     const isPhaseGate = this.resolveIsPhaseGate({
       requested: dto.isPhaseGate,
       phaseId,
@@ -1641,8 +1906,12 @@ export class TasksService {
           baselineStart:
           dto.baselineStart !== undefined ? dto.baselineStart : undefined,
         baselineEnd: dto.baselineEnd !== undefined ? dto.baselineEnd : undefined,
-        actualStart: dto.actualStart !== undefined ? dto.actualStart : undefined,
-        actualEnd: dto.actualEnd !== undefined ? dto.actualEnd : undefined,
+        actualStart:
+          dto.actualStart !== undefined
+            ? dto.actualStart
+            : statusStamps.actualStart,
+        actualEnd:
+          dto.actualEnd !== undefined ? dto.actualEnd : statusStamps.actualEnd,
         durationDays:
           dto.durationDays !== undefined ? dto.durationDays : undefined,
         baselineDurationDays:

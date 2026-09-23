@@ -10,6 +10,7 @@ export class Session {
   revokedAt: Date | null;
   isBreakGlass: boolean;
   breakGlassReason: string | null;
+  breakGlassSource: 'settings' | 'emergency' | null;
   createdAt: Date;
   user?: User;
 }

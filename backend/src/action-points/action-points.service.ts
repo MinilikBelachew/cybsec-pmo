@@ -28,6 +28,7 @@ const ACTION_POINT_MANAGER_ROLES = new Set<string>([
   RoleEnum.it_admin,
   RoleEnum.pmo_lead,
   RoleEnum.pm,
+  RoleEnum.sdm,
   RoleEnum.team_lead,
 ]);
 

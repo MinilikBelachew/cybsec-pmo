@@ -1,6 +1,11 @@
 import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectMilestone, ProjectTaskAssignee } from "../types/projects.types";
 import { Task } from "../types/tasks.types";
 import { taskDatesOutsidePhaseErrors, toTaskDayKey } from "../schemas/task/task-date-fields";
+import {
+  normalizeImportTaskDateTime,
+  parseTaskDateTime,
+  toMspdiDateTime,
+} from "@/shared/utils/date";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -13,9 +18,15 @@ import {
   signedDayDelta,
   parsePredecessorsCell,
   formatResourceName,
+  mergeExportResourceNames,
+  splitResourceNames,
   type TaskExportDependency,
   type ParsedExcelPredecessor,
 } from "./task-export-fields";
+import {
+  PROJECT_NAME_MAX,
+  PROJECT_OBJECTIVE_MAX,
+} from "../schemas/project/create-project.schema";
 import {
   drawPdfReportHeader,
   drawPdfSectionTitle,
@@ -24,6 +35,11 @@ import {
   resolveTaskPdfHeaders,
 } from "./pdf-export-layout";
 import { renderWordTaskScheduleSection } from "./word-export-layout";
+import {
+  buildMspExcelRows,
+  buildMspExcelRowsFromProjects,
+  prependMspExcelSheet,
+} from "./msp-excel-export";
 
 export {
   TASK_EXPORT_FIELD_OPTIONS,
@@ -534,6 +550,55 @@ export function exportProjectsToXLSX(
     });
   }
 
+  const mspRows = buildMspExcelRowsFromProjects(
+    projects.map((p) => {
+      const projectId = String(p.id ?? "");
+      const projectTasks = (tasks ?? []).filter(
+        (t) =>
+          t.projectId === projectId ||
+          t.projectName === p.name,
+      );
+      const deptName =
+        p.department?.name ||
+        departments.find((d) => d.id === p.departmentId)?.name ||
+        "";
+      const custName =
+        p.customer?.displayName ||
+        customers.find((c) => c.id === p.customerId)?.displayName ||
+        "";
+      return {
+        tasks: projectTasks,
+        phases: phasesByProjectId[projectId] ?? [],
+        milestones: milestonesByProjectId[projectId] ?? [],
+        dependencies,
+        projectOrganization: custName || deptName || null,
+        project: {
+          id: projectId || p.name,
+          name: String(p.name ?? "Project"),
+          startDate: p.startDate,
+          endDate: p.endDate,
+          baselineStartDate: p.baselineStartDate,
+          baselineEndDate: p.baselineEndDate,
+          durationDays: p.durationDays,
+          baselineDurationDays: p.baselineDurationDays,
+          percentComplete: p.percentComplete,
+          objective: p.objective,
+          primaryPmName:
+            p.primaryPm?.displayName ||
+            managers.find((m) => m.id === p.primaryPmId)?.displayName ||
+            null,
+          secondaryPmName:
+            p.secondaryPm?.displayName ||
+            managers.find((m) => m.id === p.secondaryPmId)?.displayName ||
+            null,
+        },
+      };
+    }),
+  );
+  if (mspRows.length > 0) {
+    prependMspExcelSheet(workbook, mspRows);
+  }
+
   return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
 // XLSX IMPORT UTILITIES
@@ -543,8 +608,7 @@ export function exportProjectsToXLSX(
  * 2-D string array (same shape as parseCSV output) so existing row processors
  * can be reused without modification.
  *
- * Falls back to the first sheet when `sheetName` is not found, unless
- * `strict` is true — in which case it returns an empty array.
+ * Prefer `Tasks` / `{project} Tasks`. Never fall back to the MS Project sheet.
  */
 export function parseXLSXSheet(
   buffer: ArrayBuffer,
@@ -552,15 +616,21 @@ export function parseXLSXSheet(
   strict = false,
 ): string[][] {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
+  const skip = new Set(["MS Project", "Projects"]);
 
-  const target =
-    workbook.SheetNames.includes(sheetName)
-      ? sheetName
-      : strict
-        ? null
-        : workbook.SheetNames[0] ?? null;
+  let target: string | null = workbook.SheetNames.includes(sheetName) ? sheetName : null;
+  if (!target && !strict) {
+    if (workbook.SheetNames.includes("Tasks")) {
+      target = "Tasks";
+    } else {
+      target =
+        workbook.SheetNames.find((n) => n.endsWith(" Tasks") && !skip.has(n)) ??
+        workbook.SheetNames.find((n) => !skip.has(n)) ??
+        null;
+    }
+  }
 
-  if (!target) return [];
+  if (!target || skip.has(target)) return [];
 
   const sheet = workbook.Sheets[target];
   if (!sheet) return [];
@@ -857,22 +927,32 @@ export function generateProjectsXLSXTemplate(
   const taskHeaders = [
     "Title", "Description", "Priority", "Status",
     "Assignee", "Phase", "Start Date", "End Date", "Effort Hours",
+    "Parent Task",
   ];
   const taskRows = [
     [
       "Kick-off Meeting",
       "Conduct initial project kick-off meeting with stakeholders.",
-      "High", "To_Do", "", "Discovery & Planning", "2026-07-01", "2026-07-02", "4",
+      "High", "To_Do", "", "Discovery & Planning", "2026-07-01 09:00", "2026-07-02 17:00", "4",
+      "",
+    ],
+    [
+      "Prepare agenda",
+      "Draft kick-off agenda as a sub-task of Kick-off Meeting.",
+      "Medium", "To_Do", "", "Discovery & Planning", "2026-07-01 09:00", "2026-07-02 12:00", "2",
+      "Kick-off Meeting",
     ],
     [
       "Scope Document",
       "Define and document the engagement scope.",
-      "High", "To_Do", "", "Discovery & Planning", "2026-07-03", "2026-07-10", "16",
+      "High", "To_Do", "", "Discovery & Planning", "2026-07-03 09:00", "2026-07-10 17:00", "16",
+      "",
     ],
     [
       "Network Vulnerability Scan",
       "Run automated scans across the internal network.",
-      "Critical", "To_Do", "", "Assessment Execution", "2026-08-01", "2026-08-05", "24",
+      "Critical", "To_Do", "", "Assessment Execution", "2026-08-01 09:00", "2026-08-05 17:00", "24",
+      "",
     ],
   ];
   const taskWS = XLSX.utils.aoa_to_sheet([taskHeaders, ...taskRows]);
@@ -919,6 +999,7 @@ export function generateTasksXLSXTemplate(
     "Baseline End",
     "Baseline Duration Days",
     "Predecessors",
+    "Parent Task",
   ];
   const rows = [
     [
@@ -928,8 +1009,8 @@ export function generateTasksXLSXTemplate(
       "To_Do",
       defaultAssignee,
       defaultPhase,
-      "2026-07-01",
-      "2026-07-05",
+      "2026-07-01 09:00",
+      "2026-07-05 17:00",
       "5",
       "12",
       "0",
@@ -937,6 +1018,25 @@ export function generateTasksXLSXTemplate(
       "2026-07-05",
       "5",
       "",
+      "",
+    ],
+    [
+      "Login screen mockups",
+      "Sub-task nested under Design Authentication UI via Parent Task.",
+      "High",
+      "To_Do",
+      defaultAssignee,
+      defaultPhase,
+      "2026-07-01 09:00",
+      "2026-07-03 17:00",
+      "3",
+      "8",
+      "0",
+      "2026-07-01",
+      "2026-07-03",
+      "3",
+      "",
+      "Design Authentication UI",
     ],
     [
       "Setup NestJS Backend API",
@@ -945,8 +1045,8 @@ export function generateTasksXLSXTemplate(
       "In_Progress",
       defaultAssignee,
       defaultPhase,
-      "2026-07-01",
-      "2026-07-10",
+      "2026-07-01 09:00",
+      "2026-07-10 17:00",
       "8",
       "24",
       "40",
@@ -954,6 +1054,7 @@ export function generateTasksXLSXTemplate(
       "2026-07-10",
       "8",
       "Design Authentication UI (FS)",
+      "",
     ],
   ];
 
@@ -1031,7 +1132,7 @@ export function processRawCSVRows(
 
   const nameFrequency: Record<string, number> = {};
   for (const row of rows) {
-    const n = (nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : "").toLowerCase();
+    const n = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : "";
     if (n) nameFrequency[n] = (nameFrequency[n] ?? 0) + 1;
   }
   const duplicateNames = new Set(
@@ -1065,8 +1166,14 @@ export function processRawCSVRows(
 
     // Basic required field validations
     if (!name) errors.push("Project name is required.");
+    if (name && name.length > PROJECT_NAME_MAX) {
+      errors.push(`Project name must be ${PROJECT_NAME_MAX} characters or fewer (Keka limit).`);
+    }
     if (!objective) errors.push("Objective is required.");
-    if (name && duplicateNames.has(name.trim().toLowerCase())) {
+    if (objective && objective.length > PROJECT_OBJECTIVE_MAX) {
+      errors.push(`Description must be ${PROJECT_OBJECTIVE_MAX} characters or fewer.`);
+    }
+    if (name && duplicateNames.has(name.trim())) {
       errors.push(`Duplicate project name "${name}" found in this file.`);
     }
 
@@ -1343,6 +1450,7 @@ export function exportTasksToXLSX(
   selectedFields?: string[],
   dependencies: TaskExportDependency[] = [],
   projectOrganization?: string | null,
+  milestones: ProjectMilestone[] = [],
 ): ArrayBuffer {
   const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
 
@@ -1356,6 +1464,18 @@ export function exportTasksToXLSX(
   const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Tasks");
+
+  const mspRows = buildMspExcelRows({
+    tasks,
+    phases,
+    milestones,
+    dependencies,
+    projectOrganization,
+  });
+  if (mspRows.length > 0) {
+    prependMspExcelSheet(workbook, mspRows);
+  }
+
   return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
 
@@ -1379,6 +1499,8 @@ export interface ParsedTaskRow {
   progressApproved?: number;
   /** Parsed from Excel "Predecessors" column (applied after all tasks exist). */
   predecessors?: ParsedExcelPredecessor[];
+  /** Excel "Parent Task" title. Undefined when the column is absent. */
+  parentTaskTitle?: string;
 
   resolvedAssigneeId?: string | null;
   resolvedPhaseId?: string | null;
@@ -1443,9 +1565,9 @@ export function resolveProjectImportMatch(
   name: string,
   existingProjects?: { id: string; name: string }[],
 ): { importMode: "create" | "update"; resolvedProjectId?: string } {
-  const lower = name.trim().toLowerCase();
-  if (!lower || !existingProjects?.length) return { importMode: "create" };
-  const match = existingProjects.find((p) => p.name.trim().toLowerCase() === lower);
+  const key = name.trim();
+  if (!key || !existingProjects?.length) return { importMode: "create" };
+  const match = existingProjects.find((p) => p.name.trim() === key);
   return match
     ? { importMode: "update", resolvedProjectId: match.id }
     : { importMode: "create" };
@@ -1453,22 +1575,42 @@ export function resolveProjectImportMatch(
 
 export function resolveTaskImportMatch(
   title: string,
-  existingTasks?: { id: string; title: string }[],
+  parentTitle?: string | null,
+  existingTasks?: { id: string; title: string; parentTitle?: string | null }[],
+  claimedIds?: Set<string>,
 ): { importMode: "create" | "update"; resolvedTaskId?: string } {
   const lower = title.trim().toLowerCase();
   if (!lower || !existingTasks?.length) return { importMode: "create" };
-  const match = existingTasks.find((t) => t.title.trim().toLowerCase() === lower);
-  return match
-    ? { importMode: "update", resolvedTaskId: match.id }
-    : { importMode: "create" };
+  const parentKey = (parentTitle ?? "").trim().toLowerCase();
+  const sameParent = existingTasks.filter(
+    (t) =>
+      t.title.trim().toLowerCase() === lower &&
+      (t.parentTitle ?? "").trim().toLowerCase() === parentKey,
+  );
+  const unusedSameParent = sameParent.find((t) => !claimedIds?.has(t.id));
+  if (unusedSameParent) {
+    claimedIds?.add(unusedSameParent.id);
+    return { importMode: "update", resolvedTaskId: unusedSameParent.id };
+  }
+  if (parentTitle === undefined) {
+    const byTitle = existingTasks.filter(
+      (t) => t.title.trim().toLowerCase() === lower && !claimedIds?.has(t.id),
+    );
+    if (byTitle.length === 1) {
+      claimedIds?.add(byTitle[0].id);
+      return { importMode: "update", resolvedTaskId: byTitle[0].id };
+    }
+  }
+  return { importMode: "create" };
 }
 
 export function revalidateParsedTaskRow(
   row: ParsedTaskRow,
   phases: ProjectPhase[],
   assignees: ProjectTaskAssignee[],
-  duplicateTitles?: Set<string>,
-  existingTasks?: { id: string; title: string }[],
+  _duplicateTitles?: Set<string>,
+  existingTasks?: { id: string; title: string; parentTitle?: string | null }[],
+  claimedExistingIds?: Set<string>,
 ): ParsedTaskRow {
   const updated = {
     ...row,
@@ -1481,41 +1623,42 @@ export function revalidateParsedTaskRow(
 
   if (!updated.title) errors.push("Task title is required.");
 
-  if (updated.title && duplicateTitles?.has(updated.title.toLowerCase())) {
-    errors.push(`Duplicate task title "${updated.title}" found in this file.`);
-  }
-
   const { importMode, resolvedTaskId } = existingTasks
-    ? resolveTaskImportMatch(updated.title, existingTasks)
+    ? resolveTaskImportMatch(
+        updated.title,
+        updated.parentTaskTitle,
+        existingTasks,
+        claimedExistingIds,
+      )
     : { importMode: updated.importMode, resolvedTaskId: updated.resolvedTaskId };
 
   let isStartValid = false;
   let normalizedStart = "";
   if (updated.startDate) {
-    const startKey = toTaskDayKey(updated.startDate);
-    if (startKey) {
+    const startIso = normalizeImportTaskDateTime(updated.startDate, 9, 0);
+    if (startIso) {
       isStartValid = true;
-      normalizedStart = startKey;
+      normalizedStart = startIso;
     } else {
-      errors.push("Start date must be a valid date (YYYY-MM-DD).");
+      errors.push("Start date must be a valid date/time (YYYY-MM-DD or YYYY-MM-DD HH:mm).");
     }
   }
 
   let isEndValid = false;
   let normalizedEnd = "";
   if (updated.endDate) {
-    const endKey = toTaskDayKey(updated.endDate);
-    if (endKey) {
+    const endIso = normalizeImportTaskDateTime(updated.endDate, 17, 0);
+    if (endIso) {
       isEndValid = true;
-      normalizedEnd = endKey;
+      normalizedEnd = endIso;
     } else {
-      errors.push("End date must be a valid date (YYYY-MM-DD).");
+      errors.push("End date must be a valid date/time (YYYY-MM-DD or YYYY-MM-DD HH:mm).");
     }
   }
 
   if (isStartValid && isEndValid && normalizedStart && normalizedEnd) {
-    if (normalizedStart > normalizedEnd) {
-      errors.push("End date must be on or after start date.");
+    if (new Date(normalizedStart).getTime() > new Date(normalizedEnd).getTime()) {
+      errors.push("End date/time must be on or after start date/time.");
     }
   }
 
@@ -1639,18 +1782,15 @@ export function revalidateParsedTaskRow(
     if (resolvedPhase) {
       resolvedPhaseId = resolvedPhase.id;
       phaseName = resolvedPhase.name;
-    } else if (phases.length === 0) {
-      warnings.push("No project phases exist yet. Create phases first, then re-select.");
     } else {
-      errors.push(`Phase "${phaseName}" not found. Please select one.`);
+      warnings.push(`Phase "${phaseName}" was not found. It will be created on import.`);
     }
+  } else if (!resolvedPhaseId && !phaseName) {
+    errors.push("Phase is required. This row will not be assigned to the first phase.");
   }
 
-  // Import falls back to the first project phase when none is selected — validate that too.
-  // Skip the fallback when a CSV phase name failed to resolve (already an error).
-  const effectivePhase =
-    resolvedPhase ??
-    (!resolvedPhaseId && !phaseName && phases[0] ? phases[0] : undefined);
+  // Import no longer dumps unmatched/blank rows onto the first phase.
+  const effectivePhase = resolvedPhase;
 
   if (effectivePhase && (isStartValid || isEndValid)) {
     const phaseStartKey = toTaskDayKey(effectivePhase.startDate);
@@ -1661,8 +1801,8 @@ export function revalidateParsedTaskRow(
       );
     } else {
       const phaseDateErrors = taskDatesOutsidePhaseErrors({
-        start: isStartValid ? importDayToLocalDate(normalizedStart) : null,
-        end: isEndValid ? importDayToLocalDate(normalizedEnd) : null,
+        start: isStartValid ? parseTaskDateTime(normalizedStart) : null,
+        end: isEndValid ? parseTaskDateTime(normalizedEnd) : null,
         phaseStart: effectivePhase.startDate,
         phaseEnd: effectivePhase.endDate,
       });
@@ -1683,8 +1823,19 @@ export function revalidateParsedTaskRow(
     errors.push(`Status "${row.status}" is invalid. Please select one.`);
   }
 
+  let parentTaskTitle = updated.parentTaskTitle;
+  if (parentTaskTitle?.trim()) {
+    if (parentTaskTitle.trim().toLowerCase() === updated.title.trim().toLowerCase()) {
+      warnings.push(
+        "Parent Task cannot be the same as the task title. This row will import as a top-level task.",
+      );
+      parentTaskTitle = "";
+    }
+  }
+
   return {
     ...updated,
+    parentTaskTitle,
     startDate: isStartValid ? normalizedStart : updated.startDate,
     endDate: isEndValid ? normalizedEnd : updated.endDate,
     baselineStart: normalizedBaselineStart || undefined,
@@ -1714,22 +1865,32 @@ export function revalidateParsedTaskRow(
   };
 }
 
+function isSameParentDuplicateError(message: string): boolean {
+  return (
+    message.startsWith("Duplicate task title \"") &&
+    (message.includes("under the same parent") || message.includes("found in this file"))
+  );
+}
+
+/** Duplicate titles under the same parent are kept (same as MPP import). */
+export function markExtraSameParentTitleRows(rows: ParsedTaskRow[]): ParsedTaskRow[] {
+  return rows.map((row) => ({
+    ...row,
+    errors: row.errors.filter((e) => !isSameParentDuplicateError(e)),
+  }));
+}
+
 export function processRawTaskCSVRows(
   csvData: string[][],
   phases: ProjectPhase[],
   assignees: ProjectTaskAssignee[],
-  existingTasks?: { id: string; title: string }[]
+  existingTasks?: { id: string; title: string; parentTitle?: string | null }[]
 ): ParsedTaskRow[] {
-  const existingTaskMap = new Map<string, string>();
-  if (existingTasks) {
-    for (const t of existingTasks) {
-      existingTaskMap.set(t.title.trim().toLowerCase(), t.id);
-    }
-  }
   if (csvData.length <= 1) return [];
 
   const headers = csvData[0].map((h) => h.toLowerCase());
   const rows = csvData.slice(1);
+  const claimedExistingIds = new Set<string>();
 
   const getIndex = (aliases: string[]) => {
     return headers.findIndex((h) => aliases.includes(h.trim()));
@@ -1743,7 +1904,7 @@ export function processRawTaskCSVRows(
   const phaseIdx = getIndex(["phase", "project phase", "stage"]);
   const startIdx = getIndex(["start date", "start"]);
   const endIdx = getIndex(["end date", "end"]);
-  const effortIdx = getIndex(["effort hours", "effort", "hours"]);
+  const effortIdx = getIndex(["effort hours", "effort", "hours", "working hours", "work hours"]);
   const durationIdx = getIndex(["duration days"]);
   const baselineStartIdx = getIndex(["baseline start", "baseline start date"]);
   const baselineEndIdx = getIndex(["baseline end", "baseline finish", "baseline end date"]);
@@ -1766,17 +1927,12 @@ export function processRawTaskCSVRows(
     "progress approved",
   ]);
   const predecessorsIdx = getIndex(["predecessors", "predecessor", "preds"]);
-
-  const titleFrequency: Record<string, number> = {};
-  for (const row of rows) {
-    const t = (titleIdx !== -1 && row[titleIdx] ? row[titleIdx].trim() : "").toLowerCase();
-    if (t) titleFrequency[t] = (titleFrequency[t] ?? 0) + 1;
-  }
-  const duplicateTitles = new Set(
-    Object.entries(titleFrequency)
-      .filter(([, count]) => count > 1)
-      .map(([title]) => title),
-  );
+  const parentIdx = getIndex([
+    "parent task",
+    "parent task title",
+    "parent title",
+    "parent",
+  ]);
 
   const parseOptionalNumber = (raw: string): number | undefined => {
     if (!raw) return undefined;
@@ -1784,7 +1940,7 @@ export function processRawTaskCSVRows(
     return Number.isFinite(parsed) ? parsed : NaN;
   };
 
-  return rows.map((row) => {
+  const parsed = rows.map((row) => {
     const getVal = (idx: number, fallback = "") => (idx !== -1 && row[idx] ? row[idx].trim() : fallback);
 
     const title = getVal(titleIdx);
@@ -1811,10 +1967,7 @@ export function processRawTaskCSVRows(
     const actualStart = getVal(actualStartIdx) || undefined;
     const actualEnd = getVal(actualEndIdx) || undefined;
     const predecessors = parsePredecessorsCell(getVal(predecessorsIdx));
-
-    const lowerTitle = title.trim().toLowerCase();
-    const resolvedTaskId = lowerTitle ? existingTaskMap.get(lowerTitle) : undefined;
-    const importMode: "create" | "update" = resolvedTaskId ? "update" : "create";
+    const parentTaskTitle = parentIdx === -1 ? undefined : getVal(parentIdx);
 
     return revalidateParsedTaskRow(
       {
@@ -1835,17 +1988,20 @@ export function processRawTaskCSVRows(
         actualEnd,
         progressApproved,
         predecessors,
-        importMode,
-        resolvedTaskId,
+        parentTaskTitle,
+        importMode: "create",
         errors: [],
         warnings: [],
       },
       phases,
       assignees,
-      duplicateTitles,
+      undefined,
       existingTasks,
+      claimedExistingIds,
     );
   });
+
+  return markExtraSameParentTitleRows(parsed);
 }
 
 /** Schedule fields for create/update task API (Excel export round-trip). */
@@ -2403,9 +2559,7 @@ function escMppXml(str: string) {
 }
 
 function toMppDateTime(value?: string | null, endOfDay = false): string {
-  if (!value) return "";
-  const day = String(value).split("T")[0];
-  return `${day}T${endOfDay ? "17:00:00" : "08:00:00"}`;
+  return toMspdiDateTime(value, endOfDay);
 }
 
 function mapMppPriority(p: string) {
@@ -2474,10 +2628,6 @@ function mspdiDurationXml(task: any): string {
   if (isMspdiMilestone(task)) {
     return `<Duration>PT0H0M0S</Duration>`;
   }
-  if (task.effortHours != null && Number(task.effortHours) > 0) {
-    const hours = Math.round(Number(task.effortHours));
-    return `<Duration>PT${hours}H0M0S</Duration>`;
-  }
   if (task.startDate && task.endDate) {
     const start = new Date(`${String(task.startDate).split("T")[0]}T00:00:00Z`);
     const end = new Date(`${String(task.endDate).split("T")[0]}T00:00:00Z`);
@@ -2486,6 +2636,25 @@ function mspdiDurationXml(task: any): string {
       Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1,
     );
     return `<Duration>PT${days * 8}H0M0S</Duration>`;
+  }
+  if (task.effortHours != null && Number(task.effortHours) > 0) {
+    const hours = Math.round(Number(task.effortHours));
+    return `<Duration>PT${hours}H0M0S</Duration>`;
+  }
+  return "";
+}
+
+function mspdiWorkXml(task: any): string {
+  if (isMspdiMilestone(task)) {
+    return `<Work>PT0H0M0S</Work>`;
+  }
+  if (task.effortHours != null && Number(task.effortHours) > 0) {
+    const hours = Math.round(Number(task.effortHours) * 10) / 10;
+    const whole = Math.floor(hours);
+    const minutes = Math.round((hours - whole) * 60);
+    return minutes > 0
+      ? `<Work>PT${whole}H${minutes}M0S</Work>`
+      : `<Work>PT${whole}H0M0S</Work>`;
   }
   return "";
 }
@@ -2660,9 +2829,7 @@ function renderMppTaskXml(opts: {
     : "";
   const percent = task ? mapMppPercent(task) : 0;
   const durationXml = task ? mspdiDurationXml(task) : "";
-  const workXml = durationXml
-    ? durationXml.replace("<Duration>", "<Work>").replace("</Duration>", "</Work>")
-    : "";
+  const workXml = task ? mspdiWorkXml(task) : "";
   const baselineHours = task ? mspdiBaselineDurationHours(task) : null;
   const actualStart =
     task && percent > 0
@@ -2688,10 +2855,10 @@ ${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFin
       <WBS>${wbs}</WBS>
       <OutlineNumber>${wbs}</OutlineNumber>
       <OutlineLevel>${outlineLevel}</OutlineLevel>
-      <Type>${summary ? 1 : 0}</Type>
+      <Type>1</Type>
       <Name>${escMppXml(name)}</Name>
       <Summary>${summary ? 1 : 0}</Summary>
-      <Manual>0</Manual>
+      <Manual>1</Manual>
       <Milestone>${milestone ? 1 : 0}</Milestone>
       ${start ? `<Start>${start}</Start>` : ""}
       ${finish ? `<Finish>${finish}</Finish>` : ""}
@@ -2714,6 +2881,7 @@ ${predecessorXml}    </Task>
 function appendMspdiResourcesAndAssignments(
   tasks: any[],
   idToUid: Map<string, number>,
+  projectOrganization?: string | null,
 ): string {
   const resourcesByKey = new Map<string, { uid: number; name: string }>();
   const assignmentRows: { taskUid: number; resourceUid: number; task: any }[] =
@@ -2741,28 +2909,36 @@ function appendMspdiResourcesAndAssignments(
     );
   };
 
+  const personOrg = (person: any): string => {
+    if (person?.organization?.trim()) return person.organization.trim();
+    const dept =
+      person?.employees?.[0]?.department?.name ||
+      person?.employees?.department?.name ||
+      person?.department?.name ||
+      "";
+    if (person?.isExternal && projectOrganization?.trim()) {
+      return projectOrganization.trim();
+    }
+    return dept.trim() || projectOrganization?.trim() || "";
+  };
+
   for (const task of tasks) {
     const taskUid = idToUid.get(task.id);
     if (taskUid == null) continue;
-    // Export only matched Cybsec assignees (owner / backup), not unmatched MPP names.
-    const names: string[] = [];
     const ownerName = task.owner?.displayName?.trim() || "";
     const backupName = task.backupOwner?.displayName?.trim() || "";
-    const ownerOrg =
-      task.owner?.employees?.[0]?.department?.name ||
-      task.owner?.employees?.department?.name ||
-      "";
-    const backupOrg =
-      task.backupOwner?.employees?.[0]?.department?.name ||
-      task.backupOwner?.employees?.department?.name ||
-      "";
-    if (ownerName && !isPlaceholderResource(ownerName)) {
-      names.push(formatResourceName(ownerName, ownerOrg) || ownerName);
-    }
-    if (backupName && !isPlaceholderResource(backupName)) {
-      names.push(formatResourceName(backupName, backupOrg) || backupName);
-    }
-    for (const name of names) {
+    const merged = mergeExportResourceNames(
+      ownerName && !isPlaceholderResource(ownerName)
+        ? formatResourceName(ownerName, personOrg(task.owner)) || ownerName
+        : "",
+      backupName && !isPlaceholderResource(backupName)
+        ? formatResourceName(backupName, personOrg(task.backupOwner)) ||
+          backupName
+        : "",
+      task.resourceNames,
+    );
+    for (const name of splitResourceNames(merged)) {
+      if (isPlaceholderResource(name)) continue;
       assignmentRows.push({
         taskUid,
         resourceUid: ensureResource(name),
@@ -2803,14 +2979,16 @@ function appendMspdiResourcesAndAssignments(
   for (const row of assignmentRows) {
     const start = toMppDateTime(row.task.startDate);
     const finish = toMppDateTime(row.task.endDate, true);
+    const workXml = mspdiWorkXml(row.task);
+    const work = workXml.replace("<Work>", "").replace("</Work>", "");
     xml += `    <Assignment>
       <UID>${assignmentUid++}</UID>
       <ResourceUID>${row.resourceUid}</ResourceUID>
       <TaskUID>${row.taskUid}</TaskUID>
       <Units>1</Units>
-      <Work>PT8H0M0S</Work>
-      <RegularWork>PT8H0M0S</RegularWork>
-      <RemainingWork>PT8H0M0S</RemainingWork>
+      ${work ? `<Work>${work}</Work>
+      <RegularWork>${work}</RegularWork>
+      <RemainingWork>${work}</RemainingWork>` : ""}
       ${start ? `<Start>${start}</Start>` : ""}
       ${finish ? `<Finish>${finish}</Finish>` : ""}
     </Assignment>
@@ -2991,7 +3169,7 @@ export function exportTasksToMspdi(
   <Name>${escMppXml(projectName)}</Name>
   <Title>${escMppXml(projectName)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
-  <NewTasksAreManual>0</NewTasksAreManual>
+  <NewTasksAreManual>1</NewTasksAreManual>
   ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
   ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
   <CalendarUID>1</CalendarUID>
@@ -3111,7 +3289,7 @@ export function exportProjectsToMspdi(
   <Name>Portfolio Export</Name>
   <Title>Portfolio Export</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
-  <NewTasksAreManual>0</NewTasksAreManual>
+  <NewTasksAreManual>1</NewTasksAreManual>
   ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
   ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
   <CalendarUID>1</CalendarUID>

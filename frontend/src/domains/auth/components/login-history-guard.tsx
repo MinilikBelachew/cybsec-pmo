@@ -1,23 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
+import { installLoginHistoryTrap } from "../utils/login-history-trap";
 
 /**
- * After logout, history still contains protected URLs. Trap Back on the login
- * page so those entries cannot be restored as an interactive signed-in shell.
+ * After logout, history still contains Microsoft Entra pages from SSO.
+ * Trap Back on the login page so those entries cannot auto-start Entra.
  */
 export function LoginHistoryGuard() {
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    window.history.pushState(null, "", window.location.href);
-
-    const onPopState = () => {
-      window.history.pushState(null, "", window.location.href);
-    };
-
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    installLoginHistoryTrap();
   }, []);
 
   return null;

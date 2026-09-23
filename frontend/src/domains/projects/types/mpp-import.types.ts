@@ -29,6 +29,7 @@ export type MppImportPreviewTask = {
   startDate?: string;
   finishDate?: string;
   durationDays?: number;
+  workHours?: number;
   percentComplete?: number;
   phaseName?: string;
   hasParent: boolean;
@@ -45,6 +46,7 @@ export type MppImportPreviewProject = {
   baselineDurationDays?: number;
   percentComplete?: number;
   durationVarianceDays?: number;
+  cost?: number;
   taskCount: number;
   phaseCount: number;
   milestoneCount: number;
@@ -60,6 +62,9 @@ export type MppImportPreview = {
   projectName?: string;
   startDate?: string;
   finishDate?: string;
+  cost?: number;
+  importMode?: "create" | "update";
+  resolvedProjectId?: string;
   counts: {
     importableTasks: number;
     phasesFromSummaries: number;

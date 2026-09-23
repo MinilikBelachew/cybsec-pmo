@@ -18,7 +18,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Calendar } from "@/shared/ui/calendar";
 import { Button } from "@/shared/ui/button";
-import { toDateString } from "@/shared/utils/date";
+import { toDateString, parseTaskDateTime } from "@/shared/utils/date";
 import { BoardTaskDatePicker } from "./board-task-date-picker";
 import { TaskDependenciesPicker } from "./task-predecessors-cell";
 import { filterStatusOptionsForRole } from "../../tasks/task-progress-section";
@@ -167,26 +167,18 @@ function tagColor(tag: string) {
   return TAG_COLORS[h];
 }
 
-function isDueSoon(dueDate: string) {
-  const MONTHS: Record<string, number> = {
-    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-  };
-  const parts = dueDate.trim().split(" ");
-  if (parts.length !== 2) return false;
-  const d = new Date(2026, MONTHS[parts[0]] ?? 0, parseInt(parts[1], 10));
+function isDueSoon(rawEndDate?: string | null) {
+  if (!rawEndDate) return false;
+  const d = new Date(rawEndDate);
+  if (Number.isNaN(d.getTime())) return false;
   const diff = (d.getTime() - Date.now()) / 86400000;
-  return diff < 3;
+  return diff >= 0 && diff < 3;
 }
 
-function isOverdue(dueDate: string) {
-  const MONTHS: Record<string, number> = {
-    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-  };
-  const parts = dueDate.trim().split(" ");
-  if (parts.length !== 2) return false;
-  const d = new Date(2026, MONTHS[parts[0]] ?? 0, parseInt(parts[1], 10));
+function isOverdue(rawEndDate?: string | null) {
+  if (!rawEndDate) return false;
+  const d = new Date(rawEndDate);
+  if (Number.isNaN(d.getTime())) return false;
   return d.getTime() < Date.now();
 }
 
@@ -1154,9 +1146,25 @@ function BoardCardMeta({
   projectId: string;
   canEditDependencies?: boolean;
 }) {
-  const overdue = task.dueDate && !task.dueDate.includes("-") ? isOverdue(task.dueDate) : false;
-  const dueSoon =
-    task.dueDate && !task.dueDate.includes("-") ? !overdue && isDueSoon(task.dueDate) : false;
+  const overdue = isOverdue(task.rawEndDate);
+  const dueSoon = !overdue && isDueSoon(task.rawEndDate);
+  let dueDayLabel: string | null = null;
+  let dueTimeLabel: string | null = null;
+  if (task.rawEndDate) {
+    try {
+      const due = parseTaskDateTime(task.rawEndDate);
+      if (!Number.isNaN(due.getTime())) {
+        dueDayLabel = due.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        dueTimeLabel = due.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      }
+    } catch {
+      dueDayLabel = null;
+      dueTimeLabel = null;
+    }
+  } else if (task.dueDate && task.dueDate !== "No due date") {
+    dueDayLabel = task.dueDate;
+  }
+  const hasDueLabel = Boolean(dueDayLabel);
 
   const fullAssignee = task.owner?.id
     ? assignees.find((a) => a.userId === task.owner?.id)
@@ -1217,99 +1225,113 @@ function BoardCardMeta({
   );
 
   return (
-    <div className="flex items-center gap-2">
-      {canAssignTask && onAssignTask ? (
-        <BoardAssigneePicker
-          assignees={assignees}
-          currentUserId={currentUserId}
-          selectedUserId={task.assigneeId}
-          onAssign={(ownerId) => onAssignTask(task.id, ownerId)}
-        >
-          {assigneeAvatar}
-        </BoardAssigneePicker>
-      ) : (
-        assigneeAvatar
-      )}
+    <div className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+        {canAssignTask && onAssignTask ? (
+          <BoardAssigneePicker
+            assignees={assignees}
+            currentUserId={currentUserId}
+            selectedUserId={task.assigneeId}
+            onAssign={(ownerId) => onAssignTask(task.id, ownerId)}
+          >
+            {assigneeAvatar}
+          </BoardAssigneePicker>
+        ) : (
+          assigneeAvatar
+        )}
 
-      <TaskDependenciesPicker
-        taskId={task.id}
-        projectId={projectId}
-        dependencies={dependencies}
-        canEdit={canEditDependencies}
-      />
+        <TaskDependenciesPicker
+          taskId={task.id}
+          projectId={projectId}
+          dependencies={dependencies}
+          canEdit={canEditDependencies}
+        />
 
-      {canEditDates && onUpdateTaskDates ? (
-        <BoardTaskDatePicker
-          startDate={task.rawStartDate}
-          endDate={task.rawEndDate}
-          onSave={(dates) => onUpdateTaskDates(task.id, dates)}
-        >
+        {canEditDates && onUpdateTaskDates ? (
+          <BoardTaskDatePicker
+            startDate={task.rawStartDate}
+            endDate={task.rawEndDate}
+            onSave={(dates) => onUpdateTaskDates(task.id, dates)}
+          >
+            <span
+              className={cn(
+                "inline-flex max-w-full shrink items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-semibold transition-colors hover:bg-muted/50",
+                overdue
+                  ? "text-rose-500"
+                  : dueSoon
+                    ? "text-amber-500"
+                    : "text-muted-foreground hover:text-foreground",
+              )}
+              aria-label="Set dates"
+            >
+              <CalendarIcon className={cn(iconSize, "shrink-0")} />
+              {hasDueLabel ? (
+                <span className="flex min-w-0 flex-col leading-tight tabular-nums">
+                  <span className="truncate whitespace-nowrap">{dueDayLabel}</span>
+                  {dueTimeLabel ? (
+                    <span className="truncate whitespace-nowrap font-medium opacity-80">{dueTimeLabel}</span>
+                  ) : null}
+                </span>
+              ) : null}
+            </span>
+          </BoardTaskDatePicker>
+        ) : (
           <span
             className={cn(
-              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors hover:bg-muted/50",
-              overdue
-                ? "text-rose-500"
-                : dueSoon
-                  ? "text-amber-500"
-                  : "text-muted-foreground hover:text-foreground",
+              "inline-flex max-w-full shrink items-center gap-1 text-[10px] font-semibold text-muted-foreground",
+              overdue && "text-rose-500",
+              dueSoon && !overdue && "text-amber-500",
             )}
-            aria-label="Set dates"
+            aria-label="Dates"
           >
             <CalendarIcon className={cn(iconSize, "shrink-0")} />
-            {task.dueDate && task.dueDate !== "No due date" ? (
-              <span>{task.dueDate}</span>
+            {hasDueLabel ? (
+              <span className="flex min-w-0 flex-col leading-tight tabular-nums">
+                <span className="truncate whitespace-nowrap">{dueDayLabel}</span>
+                {dueTimeLabel ? (
+                  <span className="truncate whitespace-nowrap font-medium opacity-80">{dueTimeLabel}</span>
+                ) : null}
+              </span>
             ) : null}
           </span>
-        </BoardTaskDatePicker>
-      ) : (
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground",
-            overdue && "text-rose-500",
-            dueSoon && !overdue && "text-amber-500",
-          )}
-          aria-label="Dates"
-        >
-          <CalendarIcon className={cn(iconSize, "shrink-0")} />
-          {task.dueDate && task.dueDate !== "No due date" && <span>{task.dueDate}</span>}
-        </span>
-      )}
+        )}
+      </div>
 
-      <div className="flex-1" />
-
-      {onUpdateTaskPriority ? (
-        <TaskPriorityPicker
-          priority={task.priority}
-          onPriorityChange={(priority) => onUpdateTaskPriority(task.id, priority)}
-        >
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-semibold transition-colors hover:bg-muted/50",
-              getPriorityColors(task.priority).text,
-            )}
-            aria-label="Set priority"
-            title={`Priority: ${task.priority || "Medium"}`}
+      <div className="flex shrink-0 items-center gap-0.5">
+        {onUpdateTaskPriority ? (
+          <TaskPriorityPicker
+            priority={task.priority}
+            onPriorityChange={(priority) => onUpdateTaskPriority(task.id, priority)}
           >
-            <Flag className={cn(iconSize, "shrink-0")} />
-            {!compact && <span>{PRIORITY_LABEL[task.priority] || "Medium"}</span>}
-          </span>
-        </TaskPriorityPicker>
-      ) : (
-        task.priority && (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground",
-              getPriorityColors(task.priority).text,
-            )}
-            title={`Priority: ${task.priority}`}
-          >
-            <Flag className={cn(iconSize, "shrink-0")} />
-            {!compact && <span>{PRIORITY_LABEL[task.priority]}</span>}
-          </span>
-        )
-      )}
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[10px] font-semibold transition-colors hover:bg-muted/50",
+                getPriorityColors(task.priority).text,
+              )}
+              aria-label="Set priority"
+              title={`Priority: ${task.priority || "Medium"}`}
+            >
+              <Flag className={cn(iconSize, "shrink-0")} />
+              <span>{PRIORITY_LABEL[task.priority] || "Medium"}</span>
+            </span>
+          </TaskPriorityPicker>
+        ) : (
+          task.priority && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 text-[10px] font-semibold text-muted-foreground",
+                getPriorityColors(task.priority).text,
+              )}
+              title={`Priority: ${task.priority}`}
+            >
+              <Flag className={cn(iconSize, "shrink-0")} />
+              <span>{PRIORITY_LABEL[task.priority]}</span>
+            </span>
+          )
+        )}
 
-      <BoardCommentPicker taskId={task.id} commentCount={task.comments} />
+        <BoardCommentPicker taskId={task.id} commentCount={task.comments} />
+      </div>
     </div>
   );
 }

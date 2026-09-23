@@ -188,6 +188,27 @@ async function main() {
   });
   console.log(`PM user (${pmEmail}) seeded successfully.`);
 
+  console.log('Seeding SDM user...');
+  const sdmEmail = 'sdm@bminilik12gmail.onmicrosoft.com';
+  await prisma.user.upsert({
+    where: { email: sdmEmail },
+    update: {
+      displayName: 'Sam Delivery',
+      roleId: ROLE_ID_BY_CODE.sdm,
+      isActive: true,
+      isExternal: false,
+    },
+    create: {
+      email: sdmEmail,
+      displayName: 'Sam Delivery',
+      roleId: ROLE_ID_BY_CODE.sdm,
+      isActive: true,
+      isExternal: false,
+      entraObjectId: 'pending-first-login-sdm',
+    },
+  });
+  console.log(`SDM user (${sdmEmail}) seeded successfully.`);
+
   console.log('Seeding departments...');
   const departments = [
     ...KEKA_MOCK_DEPARTMENTS.map((department) => ({

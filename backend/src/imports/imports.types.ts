@@ -34,6 +34,7 @@ export type MppImportJobData = {
   projectId: string;
   fileName: string;
   filePath: string;
+  timeZone?: string;
 };
 
 export type MppPortfolioImportJobData = {
@@ -42,6 +43,7 @@ export type MppPortfolioImportJobData = {
   fileName: string;
   filePath: string;
   portfolioDto: CreateMppPortfolioImportDto;
+  timeZone?: string;
 };
 
 export type ExcelTaskImportRow = {
@@ -61,6 +63,8 @@ export type ExcelTaskImportRow = {
   progressApproved?: number;
   resolvedAssigneeId?: string | null;
   resolvedPhaseId?: string | null;
+  /** Excel "Phase" name. Used when resolvedPhaseId is missing (new project import). */
+  phaseName?: string;
   importMode: 'create' | 'update';
   resolvedTaskId?: string;
   predecessors?: Array<{
@@ -68,6 +72,8 @@ export type ExcelTaskImportRow = {
     depType?: string;
     lagDays?: number;
   }>;
+  /** Excel "Parent Task" title. Undefined when the column is absent. */
+  parentTaskTitle?: string;
 };
 
 export type ExcelTasksImportJobData = {
@@ -82,12 +88,20 @@ export type ExcelProjectImportRow = {
   objective: string;
   engagementType: string;
   billingModel: string;
+  methodology?: string;
   priority: string;
   startDate: string;
   endDate: string;
   value: number;
   currency: string;
   status?: string;
+  durationDays?: number;
+  baselineStartDate?: string;
+  baselineEndDate?: string;
+  baselineDurationDays?: number;
+  actualStartDate?: string;
+  actualEndDate?: string;
+  percentComplete?: number;
   importMode: 'create' | 'update';
   resolvedProjectId?: string;
   resolvedDepartmentId: string;

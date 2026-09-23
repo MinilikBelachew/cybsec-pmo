@@ -20,6 +20,11 @@ import {
   assertPhaseGateReadyToComplete,
 } from './phase-gate.util';
 import { ProjectStatus, TaskStatus, PhaseStatus, PartyType, Prisma } from '@prisma/client';
+import {
+  freezeUnbaselinedTasksForProject,
+  inclusiveCalendarDays,
+  projectScheduleOnStatusChange,
+} from './utils/schedule-dates.util';
 import { ClientSyncService } from '../integrations/keka/sync/client-sync.service';
 import { ProjectLinkService } from '../integrations/keka/sync/project-link.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -53,6 +58,8 @@ import {
 } from './project-status.transitions';
 import { RoleEnum } from '../roles/roles.enum';
 import { deleteProjectWithDependents } from './project-delete.cascade';
+import { FxService } from '../fx/fx.service';
+import type { UsdConversion } from '../fx/fx.types';
 
 const PROJECT_INCLUDE = {
   department: true,
@@ -96,6 +103,7 @@ export class ProjectsService {
     private readonly permissionsCache: PermissionsCacheService,
     private readonly clientSyncService: ClientSyncService,
     private readonly projectLinkService: ProjectLinkService,
+    private readonly fx: FxService,
   ) {}
 
   private permissionsFor(user: CaslUserContext) {
@@ -134,6 +142,21 @@ export class ProjectsService {
       );
     }
 
+    const currency = toPrismaCurrency(dto.currency ?? 'USD');
+    const usd = await this.fx.convertToUsd(dto.value, currency);
+    const prismaStatus = toPrismaStatus(createStatus);
+    const schedulePatch = projectScheduleOnStatusChange({
+      from: ProjectStatus.Draft,
+      to: prismaStatus,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+      durationDays: inclusiveCalendarDays(dto.startDate, dto.endDate),
+      baselineStartDate: null,
+      baselineEndDate: null,
+      actualStartDate: null,
+      actualEndDate: null,
+    });
+
     const project = await this.prisma.$transaction(async (tx) => {
       const created = await tx.project.create({
         data: {
@@ -151,11 +174,27 @@ export class ProjectsService {
           startDate: dto.startDate,
           endDate: dto.endDate,
           value: dto.value,
-          currency: toPrismaCurrency(dto.currency ?? 'USD'),
+          currency,
+          ...this.usdFields(usd),
           primaryPmId: dto.primaryPmId,
           secondaryPmId: dto.secondaryPmId ?? null,
           brandingProfileId: dto.brandingProfileId ?? null,
-          status: toPrismaStatus(dto.status ?? ApiProjectStatus.Draft),
+          status: prismaStatus,
+          ...(schedulePatch.baselineStartDate !== undefined && {
+            baselineStartDate: schedulePatch.baselineStartDate,
+          }),
+          ...(schedulePatch.baselineEndDate !== undefined && {
+            baselineEndDate: schedulePatch.baselineEndDate,
+          }),
+          ...(schedulePatch.baselineDurationDays !== undefined && {
+            baselineDurationDays: schedulePatch.baselineDurationDays,
+          }),
+          ...(schedulePatch.actualStartDate !== undefined && {
+            actualStartDate: schedulePatch.actualStartDate,
+          }),
+          ...(schedulePatch.actualEndDate !== undefined && {
+            actualEndDate: schedulePatch.actualEndDate,
+          }),
           createdBy: actorId,
         },
         include: PROJECT_INCLUDE,
@@ -174,6 +213,10 @@ export class ProjectsService {
             },
           });
         }
+      }
+
+      if (prismaStatus !== ProjectStatus.Draft) {
+        await freezeUnbaselinedTasksForProject(tx, created.id);
       }
 
       return created;
@@ -418,10 +461,12 @@ export class ProjectsService {
         _count: { _all: true },
       }),
       showFinancials
-        ? this.prisma.project.aggregate({
-            where: scopeWhere,
-            _sum: { value: true },
-          })
+        ? this.fx.backfillMissingProjectValueUsd().then(() =>
+            this.prisma.project.aggregate({
+              where: scopeWhere,
+              _sum: { valueUsd: true },
+            }),
+          )
         : Promise.resolve(null),
     ]);
 
@@ -445,7 +490,7 @@ export class ProjectsService {
 
     return {
       ...base,
-      totalValue: Number(valueAgg?._sum.value ?? 0),
+      totalValue: Number(valueAgg?._sum?.valueUsd ?? 0),
     };
   }
 
@@ -647,39 +692,99 @@ export class ProjectsService {
       await this.validateReferences(merged);
     }
 
-    const project = await this.prisma.project.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.objective !== undefined && { objective: dto.objective }),
-        ...(dto.departmentId !== undefined && { departmentId: dto.departmentId }),
-        ...(dto.customerId !== undefined && { customerId: dto.customerId }),
-        ...(dto.engagementType !== undefined && {
-          engagementType: toPrismaEngagementType(dto.engagementType),
-        }),
-        ...(dto.billingModel !== undefined && {
-          billingModel: toPrismaBillingModel(dto.billingModel),
-        }),
-        ...(dto.methodology !== undefined && {
-          methodology: toPrismaMethodology(dto.methodology),
-        }),
-        ...(dto.priority !== undefined && { priority: dto.priority }),
-        ...(dto.startDate !== undefined && { startDate: dto.startDate }),
-        ...(dto.endDate !== undefined && { endDate: dto.endDate }),
-        ...(dto.value !== undefined && { value: dto.value }),
-        ...(dto.currency !== undefined && {
-          currency: toPrismaCurrency(dto.currency),
-        }),
+    const nextStatus =
+      dto.status !== undefined ? toPrismaStatus(dto.status) : existing.status;
+    const schedulePatch =
+      dto.status !== undefined
+        ? projectScheduleOnStatusChange({
+            from: existing.status,
+            to: nextStatus,
+            startDate: dto.startDate ?? existing.startDate,
+            endDate: dto.endDate ?? existing.endDate,
+            durationDays: existing.durationDays,
+            baselineStartDate: existing.baselineStartDate,
+            baselineEndDate: existing.baselineEndDate,
+            actualStartDate: existing.actualStartDate,
+            actualEndDate: existing.actualEndDate,
+          })
+        : {};
+
+    const valueOrCurrencyChanged =
+      dto.value !== undefined || dto.currency !== undefined;
+    const nextValue = dto.value ?? Number(existing.value ?? 0);
+    const nextCurrency = toPrismaCurrency(dto.currency ?? existing.currency);
+    const currencyUnchanged =
+      dto.currency === undefined || nextCurrency === existing.currency;
+    const usd = valueOrCurrencyChanged
+      ? await this.fx.convertToUsd(nextValue, nextCurrency, {
+          fallbackRateToUsd:
+            currencyUnchanged && existing.fxRateToUsd != null
+              ? Number(existing.fxRateToUsd)
+              : null,
+        })
+      : null;
+
+    const project = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.project.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.objective !== undefined && { objective: dto.objective }),
+          ...(dto.departmentId !== undefined && { departmentId: dto.departmentId }),
+          ...(dto.customerId !== undefined && { customerId: dto.customerId }),
+          ...(dto.engagementType !== undefined && {
+            engagementType: toPrismaEngagementType(dto.engagementType),
+          }),
+          ...(dto.billingModel !== undefined && {
+            billingModel: toPrismaBillingModel(dto.billingModel),
+          }),
+          ...(dto.methodology !== undefined && {
+            methodology: toPrismaMethodology(dto.methodology),
+          }),
+          ...(dto.priority !== undefined && { priority: dto.priority }),
+          ...(dto.startDate !== undefined && { startDate: dto.startDate }),
+          ...(dto.endDate !== undefined && { endDate: dto.endDate }),
+          ...(dto.value !== undefined && { value: dto.value }),
+          ...(dto.currency !== undefined && {
+            currency: toPrismaCurrency(dto.currency),
+          }),
+          ...(valueOrCurrencyChanged ? this.usdFields(usd) : {}),
         ...(dto.primaryPmId !== undefined && { primaryPmId: dto.primaryPmId }),
-        ...(dto.secondaryPmId !== undefined && {
-          secondaryPmId: dto.secondaryPmId,
-        }),
-        ...(dto.brandingProfileId !== undefined && {
-          brandingProfileId: dto.brandingProfileId,
-        }),
-        ...(dto.status !== undefined && { status: toPrismaStatus(dto.status) }),
-      },
-      include: PROJECT_INCLUDE,
+          ...(dto.secondaryPmId !== undefined && {
+            secondaryPmId: dto.secondaryPmId,
+          }),
+          ...(dto.brandingProfileId !== undefined && {
+            brandingProfileId: dto.brandingProfileId,
+          }),
+          ...(dto.status !== undefined && { status: nextStatus }),
+          ...(schedulePatch.baselineStartDate !== undefined && {
+            baselineStartDate: schedulePatch.baselineStartDate,
+          }),
+          ...(schedulePatch.baselineEndDate !== undefined && {
+            baselineEndDate: schedulePatch.baselineEndDate,
+          }),
+          ...(schedulePatch.baselineDurationDays !== undefined && {
+            baselineDurationDays: schedulePatch.baselineDurationDays,
+          }),
+          ...(schedulePatch.actualStartDate !== undefined && {
+            actualStartDate: schedulePatch.actualStartDate,
+          }),
+          ...(schedulePatch.actualEndDate !== undefined && {
+            actualEndDate: schedulePatch.actualEndDate,
+          }),
+        } as Prisma.ProjectUncheckedUpdateInput,
+        include: PROJECT_INCLUDE,
+      });
+
+      if (
+        (existing.status === ProjectStatus.Draft &&
+          nextStatus !== ProjectStatus.Draft) ||
+        nextStatus === ProjectStatus.Closed
+      ) {
+        await freezeUnbaselinedTasksForProject(tx, id);
+      }
+
+      return updated;
     });
 
     return toApiProject(project as ProjectWithRelations, { ability, permissions });
@@ -745,7 +850,7 @@ export class ProjectsService {
     const name = dto.name.trim();
     const code =
       dto.code?.trim() || this.clientSyncService.buildClientCode(name);
-    const email = dto.email?.trim() || null;
+    const email = dto.email.trim();
     const phone = dto.phone?.trim() || null;
     const website = dto.website?.trim() || null;
     const notes = dto.description?.trim() || null;
@@ -761,17 +866,35 @@ export class ProjectsService {
         }
       : null;
 
-    if (email) {
-      const existingEmail = await this.prisma.customer.findFirst({
-        where: { primaryEmail: email },
-        select: { id: true },
+    const existingEmail = await this.prisma.customer.findFirst({
+      where: { primaryEmail: email },
+      select: { id: true },
+    });
+    if (existingEmail) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { email: 'customerEmailAlreadyExists' },
       });
-      if (existingEmail) {
-        throw new UnprocessableEntityException({
-          status: HttpStatus.UNPROCESSABLE_ENTITY,
-          errors: { email: 'customerEmailAlreadyExists' },
-        });
-      }
+    }
+
+    const existingName = await this.prisma.customer.findFirst({
+      where: {
+        OR: [
+          { displayName: { equals: name, mode: 'insensitive' } },
+          { companyName: { equals: name, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (existingName) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        message:
+          'A customer with this name already exists. Select the existing customer instead.',
+        errors: {
+          name: 'A customer with this name already exists. Select the existing customer instead.',
+        },
+      });
     }
 
     const outboundPayload: OutboundClientCreatePayload = {
@@ -1278,6 +1401,22 @@ export class ProjectsService {
         ...(dto.phaseId !== undefined && { phaseId: dto.phaseId }),
       },
     });
+
+    if (milestone.taskId) {
+      const complete = this.isMilestoneComplete(milestone.status);
+      await this.prisma.task.update({
+        where: { id: milestone.taskId },
+        data: {
+          title: milestone.title,
+          phaseId: milestone.phaseId,
+          startDate: milestone.targetDate,
+          endDate: milestone.targetDate,
+          status: complete ? TaskStatus.Done : TaskStatus.To_Do,
+          progressApproved: complete ? 100 : 0,
+        },
+      });
+    }
+
     return {
       ...milestone,
       weight: milestone.weight != null ? Number(milestone.weight) : null,
@@ -1302,5 +1441,26 @@ export class ProjectsService {
       }),
       this.prisma.projectMilestone.delete({ where: { id: milestoneId } }),
     ]);
+  }
+
+  private isMilestoneComplete(status: string | null | undefined): boolean {
+    const normalized = (status ?? '').trim().toLowerCase();
+    return normalized === 'completed' || normalized === 'done';
+  }
+
+  private usdFields(conversion: UsdConversion | null) {
+    if (!conversion) {
+      return {
+        valueUsd: null,
+        fxRateToUsd: null,
+        fxRateAt: null,
+      };
+    }
+
+    return {
+      valueUsd: conversion.valueUsd,
+      fxRateToUsd: conversion.fxRateToUsd,
+      fxRateAt: conversion.fxRateAt,
+    };
   }
 }

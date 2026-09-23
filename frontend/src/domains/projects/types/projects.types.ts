@@ -185,6 +185,7 @@ export interface ProjectMilestone {
   id: string;
   projectId: string;
   phaseId?: string | null;
+  taskId?: string | null;
   title: string;
   targetDate: string;
   weight?: number | null;

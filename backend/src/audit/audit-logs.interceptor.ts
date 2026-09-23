@@ -12,6 +12,7 @@ import { PrismaService } from '../database/prisma.service';
 import { resolveStatusChangeAction } from './status-change-audit.util';
 import { generateAuditDescription } from './audit-description.helper';
 import { formatIpWithUserAgent } from '../auth/utils/request-context.util';
+import { LOGOUT_REASON_IDLE } from '../auth/dto/logout.dto';
 
 const SENSITIVE_KEYS = [
   'password',
@@ -51,6 +52,11 @@ export class AuditLogsInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    // Heartbeat is not a user action — it was filling Audit Log with "POST / Auth".
+    if (url.includes('/auth/session/heartbeat')) {
+      return next.handle();
+    }
+
     if (
       url.includes('/auth/break-glass') ||
       url.includes('/auth/emergency-login')
@@ -58,8 +64,20 @@ export class AuditLogsInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    // Permission grant/revoke on an existing role is audited in RolesService as
+    // UPDATE_ROLE. Numeric :roleId is not a UUID, so the generic interceptor
+    // would log CREATE_ROLES (DEF-P1-076).
+    if (/\/roles\/\d+\/permissions(?:\/|$)/i.test(url.split('?')[0])) {
+      return next.handle();
+    }
+
     const urlParts = this.parseUrlParts(url);
-    const auditTarget = this.resolveRouteAudit(urlParts, method, url);
+    const auditTarget = this.resolveRouteAudit(
+      urlParts,
+      method,
+      url,
+      request.body,
+    );
 
     const actorId = request.user?.id || null;
     const rawIp =
@@ -266,6 +284,7 @@ export class AuditLogsInterceptor implements NestInterceptor {
     urlParts: string[],
     method: string,
     url: string,
+    body?: unknown,
   ): AuditRouteTarget {
     const root = (urlParts[0] ?? 'system').toLowerCase();
 
@@ -274,16 +293,48 @@ export class AuditLogsInterceptor implements NestInterceptor {
         return { objectType: 'Auth', action: 'LOGIN', resourceId: null };
       }
       if (url.includes('/logout')) {
+        // DEF-P1-072 — idle timeout must not look like a user-clicked logout.
+        const reason =
+          body &&
+          typeof body === 'object' &&
+          'reason' in body &&
+          typeof (body as { reason?: unknown }).reason === 'string'
+            ? (body as { reason: string }).reason
+            : '';
+        if (reason === LOGOUT_REASON_IDLE) {
+          return {
+            objectType: 'Session',
+            action: 'SESSION_TIMEOUT',
+            resourceId: null,
+          };
+        }
         return { objectType: 'Auth', action: 'LOGOUT', resourceId: null };
       }
       if (url.includes('/refresh')) {
         return { objectType: 'Session', action: 'REFRESH', resourceId: null };
       }
-      return { objectType: 'Auth', action: method, resourceId: null };
+      return {
+        objectType: 'Auth',
+        action: method === 'POST' ? 'LOGIN' : 'UPDATE_AUTH',
+        resourceId: null,
+      };
     }
 
     if (root === 'files' && urlParts.includes('upload')) {
       return { objectType: 'File', action: 'CREATE_UPLOAD', resourceId: null };
+    }
+
+    // DEF-P1-071 — Settings → Security session timeout is a business action,
+    // not a generic UPDATE_SETTINGS / PATCH.
+    if (root === 'settings' && url.includes('session-security')) {
+      return {
+        objectType: 'Settings',
+        action:
+          method === 'PATCH' || method === 'PUT'
+            ? 'UPDATE_SESSION_TIMEOUT'
+            : this.mapRootAction(method, root),
+        resourceId: null,
+      };
     }
 
     if (root === 'tasks' && urlParts[1] === 'dependencies') {

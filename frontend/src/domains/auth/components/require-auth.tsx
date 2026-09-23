@@ -11,6 +11,7 @@ import { apiUserToUser } from "@/domains/auth/transformers/auth.transformer";
 import { setPermissions, setUser } from "@/domains/auth/store/auth.slice";
 import {
   clearClientSession,
+  clearSessionEndedMark,
   redirectToLogin,
 } from "@/domains/auth/utils/clear-session";
 
@@ -28,6 +29,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const verifySession = useCallback(async () => {
     try {
       const apiUser = await getMe(undefined, false).unwrap();
+      clearSessionEndedMark();
       dispatch(setUser(apiUserToUser(apiUser)));
       try {
         const rows = await getPermissions(undefined, false).unwrap();

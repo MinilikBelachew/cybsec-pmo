@@ -57,7 +57,7 @@ export class ImportsProcessor {
         job.data.projectId,
         job.data.fileName,
         job.data.filePath,
-        { deleteFile: true },
+        { deleteFile: true, timeZone: job.data.timeZone },
       );
       await reportProgress(job, 100, 'Done');
       return {
@@ -86,7 +86,10 @@ export class ImportsProcessor {
         job.data.portfolioDto,
         job.data.fileName,
         job.data.filePath,
-        { deleteFile: true },
+        {
+          deleteFile: true,
+          timeZone: job.data.timeZone ?? job.data.portfolioDto.timeZone,
+        },
       );
       await reportProgress(job, 100, 'Done');
       return {

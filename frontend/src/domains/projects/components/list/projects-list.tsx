@@ -551,6 +551,7 @@ export function ProjectsList() {
         const proj = projectsToExport[index];
         return tasks.map((t) => ({
           ...t,
+          projectId: proj.id,
           projectName: proj.name,
         }));
       });

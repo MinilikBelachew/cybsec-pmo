@@ -132,19 +132,56 @@ export function worksheetToStringGrid(
   return normalized;
 }
 
+const NON_CYBSEC_TASK_SHEETS = new Set(['MS Project', 'Projects']);
+
+/**
+ * Prefer Cybsec task sheets: `Tasks`, then `{project} Tasks`.
+ * Never returns the MS Project / Project Viewer sheet.
+ */
+export function resolveExcelTasksSheetName(
+  sheetNames: string[],
+  projectName?: string | null,
+): string | null {
+  if (sheetNames.includes('Tasks')) return 'Tasks';
+  if (projectName) {
+    const nested = findProjectNestedSheetName(sheetNames, projectName, ' Tasks');
+    if (nested) return nested;
+  }
+  const bySuffix = sheetNames.find(
+    (name) => name.endsWith(' Tasks') && !NON_CYBSEC_TASK_SHEETS.has(name),
+  );
+  if (bySuffix) return bySuffix;
+  return (
+    sheetNames.find((name) => !NON_CYBSEC_TASK_SHEETS.has(name)) ?? null
+  );
+}
+
 /**
  * Read an XLSX workbook into a 2-D string grid (header + data rows).
- * Prefers the named sheet, otherwise falls back to the first sheet.
+ * Prefers the named Cybsec Tasks sheet; never falls back to "MS Project".
  */
 export async function readExcelSheetAsStringGrid(
   source: Buffer | string,
   preferredSheetName = 'Tasks',
+  options?: { projectName?: string | null },
 ): Promise<string[][]> {
   const workbook = await loadExcelWorkbook(source);
-  const preferred = workbook.getWorksheet(preferredSheetName);
-  const sheetName = preferred?.name ?? workbook.worksheets[0]?.name;
-  if (!sheetName) {
+  const names = listExcelSheetNames(workbook);
+  if (names.length === 0) {
     throw new BadRequestException('The XLSX file has no worksheets.');
+  }
+
+  const preferred =
+    preferredSheetName && names.includes(preferredSheetName)
+      ? preferredSheetName
+      : null;
+  const sheetName =
+    preferred ?? resolveExcelTasksSheetName(names, options?.projectName);
+
+  if (!sheetName || NON_CYBSEC_TASK_SHEETS.has(sheetName)) {
+    throw new BadRequestException(
+      'This file has no Tasks sheet. Use a Tasks export, or Import Projects for a full project workbook.',
+    );
   }
   return worksheetToStringGrid(workbook, sheetName);
 }
@@ -158,7 +195,7 @@ function cellToString(value: ExcelJS.CellValue | undefined): string {
   }
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
   if (value instanceof Date) {
-    return formatDateYmd(value);
+    return formatDateCell(value);
   }
 
   if (typeof value === 'object') {
@@ -177,10 +214,17 @@ function cellToString(value: ExcelJS.CellValue | undefined): string {
   return String(value).trim();
 }
 
-function formatDateYmd(date: Date): string {
+/** Preserve time for datetime Excel cells; date-only stays YYYY-MM-DD. */
+function formatDateCell(date: Date): string {
   if (Number.isNaN(date.getTime())) return '';
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const h = date.getHours();
+  const min = date.getMinutes();
+  const s = date.getSeconds();
+  if (h === 0 && min === 0 && s === 0) {
+    return `${y}-${m}-${d}`;
+  }
+  return `${y}-${m}-${d} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }

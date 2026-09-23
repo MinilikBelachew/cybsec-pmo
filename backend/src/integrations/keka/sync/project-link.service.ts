@@ -9,6 +9,10 @@ import {
 } from '../keka.constants';
 import { upsertFailedSyncRecord, resolveFailedSyncRecord } from '../utils/failed-sync-record.util';
 import { KekaPsaProject, KekaPsaTask } from '../keka.types';
+import {
+  PROJECT_NAME_MAX_LENGTH,
+  clipForKeka,
+} from '../../../projects/constants/project-limits';
 
 export type ProjectLinkResult = {
   synced: number;
@@ -192,7 +196,7 @@ export class ProjectLinkService {
 
     const response = await this.kekaClient.post<StringResponse>('/psa/projects', {
       clientId,
-      name: project.name,
+      name: clipForKeka(project.name, PROJECT_NAME_MAX_LENGTH),
       description: project.objective,
       code,
       startDate: project.startDate.toISOString(),

@@ -10,5 +10,12 @@ export enum RoleEnum {
   sales = 'sales',
   client = 'client',
   vendor = 'vendor',
+  sdm = 'sdm',
 }
+
+/** Org delivery roles that can own a task without a project team allocation. */
+export const TASK_ASSIGNEE_ORG_ROLE_CODES: RoleEnum[] = [
+  RoleEnum.pmo_lead,
+  RoleEnum.sdm,
+];
 

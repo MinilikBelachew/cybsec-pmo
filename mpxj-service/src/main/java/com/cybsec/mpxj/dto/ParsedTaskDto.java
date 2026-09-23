@@ -19,10 +19,14 @@ public class ParsedTaskDto {
   private String baselineFinishDate;
   /** Working days; may be fractional (e.g. 66.1). */
   private Double durationDays;
+  /** Planned effort hours from MSP Work. */
+  private Double workHours;
   private Double baselineDurationDays;
   private String actualStartDate;
   private String actualFinishDate;
   private Integer percentComplete;
+  /** MS Project Cost on this row. Used only for project/L1 budget; not persisted as task cost. */
+  private Double cost;
   private List<ParsedPredecessorDto> predecessors = new ArrayList<>();
 
   public Integer getUid() {
@@ -129,6 +133,14 @@ public class ParsedTaskDto {
     this.durationDays = durationDays;
   }
 
+  public Double getWorkHours() {
+    return workHours;
+  }
+
+  public void setWorkHours(Double workHours) {
+    this.workHours = workHours;
+  }
+
   public Double getBaselineDurationDays() {
     return baselineDurationDays;
   }
@@ -159,6 +171,14 @@ public class ParsedTaskDto {
 
   public void setPercentComplete(Integer percentComplete) {
     this.percentComplete = percentComplete;
+  }
+
+  public Double getCost() {
+    return cost;
+  }
+
+  public void setCost(Double cost) {
+    this.cost = cost;
   }
 
   public List<ParsedPredecessorDto> getPredecessors() {

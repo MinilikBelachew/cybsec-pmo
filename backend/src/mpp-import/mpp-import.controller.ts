@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Request,
   StreamableFile,
   UnprocessableEntityException,
@@ -22,6 +23,7 @@ import {
   ApiOkResponse,
   ApiParam,
   ApiProduces,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -146,6 +148,7 @@ export class MppImportController {
       projectId: dto.projectId,
       fileName: file.originalname,
       filePath: file.path,
+      timeZone: dto.timeZone,
     });
   }
 
@@ -170,6 +173,7 @@ export class MppImportController {
       fileName: file.originalname,
       filePath: file.path,
       portfolioDto: dto,
+      timeZone: dto.timeZone,
     });
   }
 
@@ -178,6 +182,12 @@ export class MppImportController {
   @Get('mspdi/export/:projectId')
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: 'projectId', type: String })
+  @ApiQuery({
+    name: 'timeZone',
+    required: false,
+    description:
+      'IANA time zone for Start/Finish wall-clock (defaults to Africa/Nairobi).',
+  })
   @ApiProduces('application/xml')
   @ApiOkResponse({
     description:
@@ -187,9 +197,14 @@ export class MppImportController {
   async exportMspdi(
     @Request() request: RequestWithAbility,
     @Param('projectId') projectId: string,
+    @Query('timeZone') timeZone?: string,
   ): Promise<StreamableFile> {
     const user = await resolveCaslUser(this.prisma, request);
-    const file = await this.mppImportService.exportMspdi(user, projectId);
+    const file = await this.mppImportService.exportMspdi(
+      user,
+      projectId,
+      timeZone,
+    );
 
     return new StreamableFile(file.buffer, {
       type: file.contentType,

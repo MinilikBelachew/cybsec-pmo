@@ -4,12 +4,14 @@ type MspdiTaskSchedule = {
   startDate?: string;
   finishDate?: string;
   durationDays?: number;
+  workHours?: number;
   baselineStartDate?: string;
   baselineFinishDate?: string;
   baselineDurationDays?: number;
   actualStartDate?: string;
   actualFinishDate?: string;
   percentComplete?: number;
+  cost?: number;
 };
 
 /**
@@ -21,7 +23,7 @@ export function enrichParsedFromMspdiXml(
   xmlBuffer: Buffer,
 ): ParsedMppProject {
   const xml = stripBom(xmlBuffer.toString('utf8'));
-  if (!/<Baseline[\s>]|<ActualStart[\s>]/i.test(xml)) {
+  if (!/<Baseline[\s>]|<ActualStart[\s>]|<Cost[\s>]|<Work[\s>]/i.test(xml)) {
     return {
       ...parsed,
       tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
@@ -49,6 +51,7 @@ export function enrichParsedFromMspdiXml(
       startDate: pick(extra.startDate, task.startDate),
       finishDate: pick(extra.finishDate, task.finishDate),
       durationDays: pickNum(extra.durationDays, task.durationDays),
+      workHours: pickNum(extra.workHours, task.workHours),
       baselineStartDate: pick(extra.baselineStartDate, task.baselineStartDate),
       baselineFinishDate: pick(
         extra.baselineFinishDate,
@@ -61,6 +64,7 @@ export function enrichParsedFromMspdiXml(
       actualStartDate: pick(extra.actualStartDate, task.actualStartDate),
       actualFinishDate: pick(extra.actualFinishDate, task.actualFinishDate),
       percentComplete: pickNum(extra.percentComplete, task.percentComplete),
+      cost: pickNum(extra.cost, task.cost),
     };
   });
 
@@ -98,6 +102,10 @@ export function enrichParsedFromMspdiXml(
     const rootPct = clampPercent(root.percentComplete);
     if (rootPct != null) {
       project.percentComplete = rootPct;
+    }
+    const rootCost = pickNum(root.cost, project.cost);
+    if (rootCost != null) {
+      project.cost = rootCost;
     }
     const durationDays = project.durationDays;
     const baselineDurationDays = project.baselineDurationDays;
@@ -171,20 +179,22 @@ function extractMspdiTaskSchedules(
     if (!Number.isFinite(uid)) continue;
 
     const schedule: MspdiTaskSchedule = {
-      startDate: toIsoDay(firstTag(body, 'Start')),
-      finishDate: toIsoDay(firstTag(body, 'Finish')),
+      startDate: toIsoDateTime(firstTag(body, 'Start')),
+      finishDate: toIsoDateTime(firstTag(body, 'Finish')),
       durationDays: isoDurationToWorkingDays(firstTag(body, 'Duration')),
-      actualStartDate: toIsoDay(firstTag(body, 'ActualStart')),
-      actualFinishDate: toIsoDay(firstTag(body, 'ActualFinish')),
+      workHours: isoDurationToHours(firstTag(body, 'Work')),
+      actualStartDate: toIsoDateTime(firstTag(body, 'ActualStart')),
+      actualFinishDate: toIsoDateTime(firstTag(body, 'ActualFinish')),
       percentComplete: toPercent(firstTag(body, 'PercentComplete')),
+      cost: toCost(firstTag(body, 'Cost')),
     };
 
     const baseline = pickBaselineBlock(body);
     if (baseline) {
-      schedule.baselineStartDate = toIsoDay(
+      schedule.baselineStartDate = toIsoDateTime(
         firstTag(baseline, 'Start') ?? firstTag(baseline, 'BaselineStart'),
       );
-      schedule.baselineFinishDate = toIsoDay(
+      schedule.baselineFinishDate = toIsoDateTime(
         firstTag(baseline, 'Finish') ?? firstTag(baseline, 'BaselineFinish'),
       );
       schedule.baselineDurationDays = isoDurationToWorkingDays(
@@ -199,7 +209,9 @@ function extractMspdiTaskSchedules(
       schedule.baselineDurationDays != null ||
       schedule.actualStartDate ||
       schedule.actualFinishDate ||
-      schedule.durationDays != null
+      schedule.durationDays != null ||
+      schedule.workHours != null ||
+      schedule.cost != null
     ) {
       map.set(uid, schedule);
     }
@@ -231,10 +243,15 @@ function firstTag(body: string, tag: string): string | undefined {
   return m?.[1]?.trim() || undefined;
 }
 
-function toIsoDay(value?: string): string | undefined {
+function toIsoDateTime(value?: string): string | undefined {
   if (!value) return undefined;
-  const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
-  return m ? m[1] : undefined;
+  const m =
+    /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(?::(\d{2}))?)?/.exec(
+      value.trim(),
+    );
+  if (!m) return undefined;
+  if (!m[2]) return m[1];
+  return `${m[1]}T${m[2]}:${m[3] ?? '00'}`;
 }
 
 function toPercent(value?: string): number | undefined {
@@ -244,8 +261,22 @@ function toPercent(value?: string): number | undefined {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+function toCost(value?: string): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
+}
+
 /** MSPDI duration is usually PT{hours}H…; Cybsec stores working days (8h). */
 export function isoDurationToWorkingDays(iso?: string): number | undefined {
+  const hours = isoDurationToHours(iso);
+  if (hours == null) return undefined;
+  return Math.round((hours / 8) * 10) / 10;
+}
+
+/** MSPDI Work is effort hours (`PT8H0M0S` → 8). */
+export function isoDurationToHours(iso?: string): number | undefined {
   if (!iso) return undefined;
   const m =
     /^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/i.exec(
@@ -255,5 +286,5 @@ export function isoDurationToWorkingDays(iso?: string): number | undefined {
   const hours =
     Number(m[1] || 0) + Number(m[2] || 0) / 60 + Number(m[3] || 0) / 3600;
   if (!Number.isFinite(hours) || hours <= 0) return undefined;
-  return Math.round((hours / 8) * 10) / 10;
+  return Math.round(hours * 10) / 10;
 }

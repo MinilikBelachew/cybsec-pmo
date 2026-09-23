@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { toDateString } from "@/shared/utils/date";
+import { toDateTimeString } from "@/shared/utils/date";
 import {
   requiredTaskDate,
   taskEndDateAfterStartDate,
@@ -37,7 +37,7 @@ export const createTaskSchema = z
     ]),
   })
   .refine(taskEndDateAfterStartDate, {
-    message: "End date must be on or after start date",
+    message: "Due date/time must be on or after start date/time",
     path: ["endDate"],
   });
 
@@ -53,9 +53,8 @@ export function toCreateTaskPayload(values: CreateTaskFormValues) {
     priority: values.priority,
     ownerId: values.ownerId || null,
     backupOwnerId: values.backupOwnerId || null,
-    // Local calendar day — toISOString() shifts the day in UTC+ timezones.
-    startDate: toDateString(values.startDate),
-    endDate: toDateString(values.endDate),
+    startDate: toDateTimeString(values.startDate),
+    endDate: toDateTimeString(values.endDate),
     effortHours: values.effortHours,
     status: values.status,
   };

@@ -11,6 +11,7 @@ import {
   isTaskStatusValid,
   EnumSelect,
 } from "./import-types-helpers";
+import { formatShortDateTime, toExportDateTime } from "@/shared/utils/date";
 
 interface TasksPreviewTableProps {
   tasksList: ParsedTaskRow[];
@@ -35,8 +36,8 @@ export function TasksPreviewTable({ tasksList, projName, handleSubRowChange }: T
           <th className="p-3 w-40">Status</th>
           <th className="p-3 w-44">Assignee</th>
           <th className="p-3 w-44">Phase</th>
-          <th className="p-3 w-36">Start Date</th>
-          <th className="p-3 w-36">End Date</th>
+          <th className="p-3 w-40">Start Date</th>
+          <th className="p-3 w-40">End Date</th>
           <th className="p-3 w-28">Effort</th>
         </tr>
       </thead>
@@ -72,6 +73,11 @@ export function TasksPreviewTable({ tasksList, projName, handleSubRowChange }: T
                 )}
                 <span className="truncate">{tRow.title}</span>
               </div>
+              {tRow.parentTaskTitle?.trim() ? (
+                <div className="text-[10px] text-muted-foreground truncate">
+                  Parent: {tRow.parentTaskTitle.trim()}
+                </div>
+              ) : null}
               <div className="text-[10px] text-muted-foreground line-clamp-1">
                 {tRow.description || "No description"}
               </div>
@@ -145,8 +151,16 @@ export function TasksPreviewTable({ tasksList, projName, handleSubRowChange }: T
               )}
             </td>
 
-            <td className="p-3">{tRow.startDate || "—"}</td>
-            <td className="p-3">{tRow.endDate || "—"}</td>
+            <td className="p-3">
+              {tRow.startDate
+                ? formatShortDateTime(tRow.startDate) ?? toExportDateTime(tRow.startDate)
+                : "—"}
+            </td>
+            <td className="p-3">
+              {tRow.endDate
+                ? formatShortDateTime(tRow.endDate) ?? toExportDateTime(tRow.endDate)
+                : "—"}
+            </td>
             <td className="p-3">{tRow.effortHours ? `${tRow.effortHours} hrs` : "—"}</td>
           </tr>
         ))}

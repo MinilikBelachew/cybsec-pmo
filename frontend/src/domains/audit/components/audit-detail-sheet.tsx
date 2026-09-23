@@ -29,6 +29,10 @@ import {
 } from "../api/audit.api";
 import { AUDIT_EXPORT_OPTIONS } from "./audit-export-options";
 import { parseAuditClientDisplay } from "../utils/format-audit-client";
+import {
+  formatAuditActionLabel,
+  formatAuditDescriptionText,
+} from "../utils/format-audit-action";
 import { flattenAuditPayload } from "../utils/flatten-audit-payload";
 
 type PayloadViewMode = "json" | "table";
@@ -140,10 +144,17 @@ export function AuditDetailSheet({ entry, open, onOpenChange }: AuditDetailSheet
               <dl className="space-y-5">
                 <DetailRow label="Event ID" value={entry.id} mono />
                 <DetailRow label="Time" value={new Date(entry.createdAt).toLocaleString()} />
-                <DetailRow label="Action" value={entry.action} mono />
+                <DetailRow
+                  label="Action"
+                  value={formatAuditActionLabel(entry.action, entry.objectType)}
+                />
                 <DetailRow
                   label="Description"
-                  value={entry.description?.trim() || "—"}
+                  value={formatAuditDescriptionText(
+                    entry.description,
+                    entry.action,
+                    entry.objectType,
+                  )}
                 />
                 <DetailRow label="Object type" value={entry.objectType} />
                 <DetailRow label="Object ID" value={entry.objectId ?? "—"} mono />

@@ -150,19 +150,27 @@ export class RolesService {
 
   private async auditPermissionChange(params: {
     actorId: string;
-    action: string;
+    roleId: number;
+    roleLabel: string;
     grantId: string;
+    change: 'grant' | 'update' | 'revoke';
     oldValue: Record<string, unknown> | null;
     newValue: Record<string, unknown> | null;
     ipAddress?: string | null;
     isExternal?: boolean;
   }) {
     await this.auditLogsService.create({
-      action: params.action,
-      objectType: 'RolePermission',
+      action: 'UPDATE_ROLE',
+      objectType: 'Role',
+      // Role.id is an integer; audit_logs.object_id is UUID. Use the grant row.
       objectId: params.grantId,
       oldValue: params.oldValue as Prisma.InputJsonValue,
-      newValue: params.newValue as Prisma.InputJsonValue,
+      newValue: {
+        ...(params.newValue ?? {}),
+        roleId: params.roleId,
+        roleLabel: params.roleLabel,
+        change: params.change,
+      } as Prisma.InputJsonValue,
       ipAddress: params.ipAddress ?? null,
       isExternal: params.isExternal === true,
       source: 'WebAPI',
@@ -480,8 +488,10 @@ export class RolesService {
 
     await this.auditPermissionChange({
       actorId,
-      action: 'GRANT_PERMISSION',
+      roleId: role.id,
+      roleLabel: role.label,
       grantId: grant.id,
+      change: 'grant',
       oldValue: null,
       newValue,
       ipAddress,
@@ -529,8 +539,10 @@ export class RolesService {
 
     await this.auditPermissionChange({
       actorId,
-      action: 'UPDATE_PERMISSION',
+      roleId,
+      roleLabel: grant.role.label,
       grantId: grant.id,
+      change: 'update',
       oldValue,
       newValue: this.mapGrantResponse(grant),
       ipAddress,
@@ -556,8 +568,10 @@ export class RolesService {
 
     await this.auditPermissionChange({
       actorId,
-      action: 'REVOKE_PERMISSION',
+      roleId,
+      roleLabel: existing.role.label,
       grantId,
+      change: 'revoke',
       oldValue,
       newValue: null,
       ipAddress,

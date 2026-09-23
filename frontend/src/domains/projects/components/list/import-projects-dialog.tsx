@@ -28,6 +28,7 @@ import {
   resolvePhaseImportMatch,
   resolveMilestoneImportMatch,
   revalidateParsedTaskRow,
+  markExtraSameParentTitleRows,
 } from "../../utils/import-export";
 import { Button } from "@/shared/ui/button";
 import { Upload, FileSpreadsheet, X, PlayCircle, Download, AlertTriangle, Minimize2 } from "lucide-react";
@@ -62,7 +63,7 @@ function revalidateProjectRow(
   const projectMatchCatalog: { id: string; name: string }[] = [];
   const duplicateNames = new Set(
     allRows
-      .map((r) => r.name.trim().toLowerCase())
+      .map((r) => r.name.trim())
       .filter((name, nameIndex, all) => name && all.indexOf(name) !== nameIndex),
   );
 
@@ -114,8 +115,8 @@ function revalidateProjectRow(
     rowErrors.push(`Currency "${updated.currency}" is invalid.`);
   }
 
-  const lowerName = (updated.name || "").trim().toLowerCase();
-  if (lowerName && duplicateNames.has(lowerName)) {
+  const nameKey = (updated.name || "").trim();
+  if (nameKey && duplicateNames.has(nameKey)) {
     rowErrors.push(`Duplicate project name "${updated.name}" found in this file.`);
   }
 
@@ -187,6 +188,9 @@ export function ImportProjectsDialog({
     () => parsedRows.filter((r) => r.errors.length === 0),
     [parsedRows],
   );
+  /** Live count after inline edits — do not use the first preview snapshot. */
+  const projectsReadyCount = validRows.length;
+  const projectsTotalCount = counts?.projectsTotal ?? parsedRows.length;
 
   const nestedErrorCount = useMemo(() => {
     let count = 0;
@@ -671,22 +675,15 @@ export function ImportProjectsDialog({
       setParsedTasks((prev) => {
         const rows = [...(prev[projName] || [])];
         const updated = { ...rows[rowIndex], [field]: value };
-        const duplicateTitles = new Set(
-          rows
-            .map((row, idx) =>
-              idx === rowIndex
-                ? updated.title.trim().toLowerCase()
-                : row.title.trim().toLowerCase(),
-            )
-            .filter((title, titleIndex, all) => title && all.indexOf(title) !== titleIndex),
-        );
         rows[rowIndex] = revalidateParsedTaskRow(
           updated,
           [],
           [],
-          duplicateTitles,
+          undefined,
           undefined,
         );
+        const marked = markExtraSameParentTitleRows(rows);
+        rows.splice(0, rows.length, ...marked);
 
         if (previewId) {
           void patchExcelProjectsPreviewRow({
@@ -738,7 +735,7 @@ export function ImportProjectsDialog({
       toast.error("No preview available to import.");
       return;
     }
-    if (!counts || counts.projectsValid <= 0) {
+    if (projectsReadyCount <= 0) {
       toast.error("No valid projects to import.");
       return;
     }
@@ -751,7 +748,7 @@ export function ImportProjectsDialog({
       const enqueue = await confirmExcelProjectsImport({ previewId }).unwrap();
 
       const trackArgs = {
-        label: `Importing ${counts.projectsValid} project${counts.projectsValid === 1 ? "" : "s"}`,
+        label: `Importing ${projectsReadyCount} project${projectsReadyCount === 1 ? "" : "s"}`,
         kind: "excel-projects" as const,
         onComplete: (status: { result: Record<string, unknown> | null }) => {
           const result = status.result ?? {};
@@ -880,7 +877,7 @@ export function ImportProjectsDialog({
                   <p className="font-bold text-foreground mb-1 uppercase tracking-wider">XLSX Sheet Guidelines:</p>
                   <p>• <strong>Projects:</strong> Contains core project metadata (Name, Objective, Department, Customer, Primary PM, timeline, etc.)</p>
                   <p>• <strong>[Project Name] Phases:</strong> Optional — Name, Description, Order, Status, Start Date, End Date</p>
-                  <p>• <strong>[Project Name] Tasks:</strong> Optional — Title, Description, Priority, Status, Phase, Start Date, End Date, Effort Hours</p>
+                  <p>• <strong>[Project Name] Tasks:</strong> Optional — Title, Description, Priority, Status, Phase, Start Date, End Date, Effort Hours (dates accept YYYY-MM-DD or YYYY-MM-DD HH:mm)</p>
                   <p>• <strong>[Project Name] Milestones:</strong> Optional — Title, Target Date, Weight (%), Status, Phase</p>
                 </div>
               </div>
@@ -1052,7 +1049,7 @@ export function ImportProjectsDialog({
               )}
               {file && !validationError && !isImporting && !isParsing && counts && (
                 <span>
-                  {counts.projectsValid} of {counts.projectsTotal} projects ready to import.
+                  {projectsReadyCount} of {projectsTotalCount} projects ready to import.
                   {hasActiveErrors && (
                     <span className="text-amber-600 dark:text-amber-400 ml-1 font-medium">
                       ({nestedErrorCount} nested row{nestedErrorCount === 1 ? "" : "s"} with errors will be skipped)
@@ -1074,7 +1071,7 @@ export function ImportProjectsDialog({
               {file && !isImporting && !isParsing && (
                 <Button
                   onClick={handleImport}
-                  disabled={!counts || counts.projectsValid <= 0 || !!validationError}
+                  disabled={projectsReadyCount <= 0 || !!validationError}
                   size="sm"
                   className="font-bold h-9 text-xs rounded-xl gap-1.5"
                 >

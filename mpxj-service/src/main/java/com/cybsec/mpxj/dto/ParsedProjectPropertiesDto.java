@@ -8,6 +8,8 @@ public class ParsedProjectPropertiesDto {
   private String baselineFinishDate;
   private Double durationDays;
   private Double baselineDurationDays;
+  /** Project-level Cost (outline-0 summary). 0/missing is omitted so Cybsec can fall back to 1. */
+  private Double cost;
 
   public String getName() {
     return name;
@@ -63,5 +65,13 @@ public class ParsedProjectPropertiesDto {
 
   public void setBaselineDurationDays(Double baselineDurationDays) {
     this.baselineDurationDays = baselineDurationDays;
+  }
+
+  public Double getCost() {
+    return cost;
+  }
+
+  public void setCost(Double cost) {
+    this.cost = cost;
   }
 }

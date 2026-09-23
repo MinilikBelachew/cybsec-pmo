@@ -250,6 +250,7 @@ model Session {
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz
   isBreakGlass     Boolean   @default(false) @map("is_break_glass")
   breakGlassReason String?   @map("break_glass_reason") @db.VarChar(500)
+  breakGlassSource String?   @map("break_glass_source") @db.VarChar(32)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id])
@@ -427,6 +428,11 @@ model Project {
   actualEndDate     DateTime?      @map("actual_end_date") @db.Date
   value             Decimal?       @db.Decimal(15, 2)
   currency          String         @default("USD") @db.VarChar(10)
+  /// value converted to USD when the project is created or value/currency changes.
+  valueUsd          Decimal?       @map("value_usd") @db.Decimal(15, 2)
+  /// USD per 1 unit of `currency` at snapshot time.
+  fxRateToUsd       Decimal?       @map("fx_rate_to_usd") @db.Decimal(18, 8)
+  fxRateAt          DateTime?      @map("fx_rate_at") @db.Timestamptz
   primaryPmId       String         @map("primary_pm_id") @db.Uuid
   secondaryPmId     String?        @map("secondary_pm_id") @db.Uuid
   status            ProjectStatus  @default(Draft)
@@ -527,6 +533,8 @@ model ProjectMilestone {
   id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId  String        @map("project_id") @db.Uuid
   phaseId    String?       @map("phase_id") @db.Uuid
+  /// Linked MPP schedule row. Null = native UI "+ Add milestone" (no Gantt task).
+  taskId     String?       @unique @map("task_id") @db.Uuid
   title      String        @db.VarChar(255)
   targetDate DateTime      @map("target_date") @db.Date
   weight     Decimal?      @db.Decimal(5, 2)
@@ -535,6 +543,7 @@ model ProjectMilestone {
 
   project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  task      Task?         @relation("MilestoneScheduleTask", fields: [taskId], references: [id], onDelete: SetNull)
   invoices  Invoice[]
   workspaceDocuments WorkspaceDocument[]
 
@@ -554,8 +563,8 @@ model Task {
   resourceNames    String?       @map("resource_names") @db.VarChar(1000)
   priority         PriorityLevel @default(Medium)
   ownerId          String?       @map("owner_id") @db.Uuid
-  startDate        DateTime?     @map("start_date") @db.Date
-  endDate          DateTime?     @map("end_date") @db.Date
+  startDate        DateTime?     @map("start_date") @db.Timestamptz
+  endDate          DateTime?     @map("end_date") @db.Timestamptz
   baselineStart    DateTime?     @map("baseline_start") @db.Date
   baselineEnd      DateTime?     @map("baseline_end") @db.Date
   /// MSP working-day duration (supports fractional days e.g. 66.1).
@@ -591,6 +600,8 @@ model Task {
   dependenciesAsSuc TaskDependency[] @relation("DependencySuccessor")
   progressUpdates   TaskProgressUpdate[]
   timesheets        Timesheet[]
+  /// Present when this task is the MPP schedule row for a ProjectMilestone.
+  scheduleMilestone ProjectMilestone? @relation("MilestoneScheduleTask")
 
   @@index([projectId], map: "idx_tasks_project")
   @@index([ownerId], map: "idx_tasks_owner")

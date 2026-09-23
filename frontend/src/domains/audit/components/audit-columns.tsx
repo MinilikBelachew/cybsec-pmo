@@ -10,6 +10,10 @@ import {
 } from "@/shared/ui/tooltip";
 import { type AuditLogEntry } from "../api/audit.api";
 import { parseAuditClientDisplay } from "../utils/format-audit-client";
+import {
+  formatAuditActionLabel,
+  formatAuditDescriptionText,
+} from "../utils/format-audit-action";
 
 function AuditClientCell({ ipAddress }: { ipAddress: string | null }) {
   const { ipLabel, ip, client } = parseAuditClientDisplay(ipAddress);
@@ -104,20 +108,30 @@ export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
     accessorKey: "action",
     id: "action",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Action" />,
-    cell: ({ row }) => (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <code className="block max-w-full truncate rounded-md bg-muted/70 px-2 py-1 text-[11px] font-medium" />
-          }
-        >
-          {row.original.action}
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="start" className="max-w-xs break-all">
-          {row.original.action}
-        </TooltipContent>
-      </Tooltip>
-    ),
+    cell: ({ row }) => {
+      const label = formatAuditActionLabel(
+        row.original.action,
+        row.original.objectType,
+      );
+      return (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <p className="min-w-0 max-w-full cursor-default truncate text-sm font-medium leading-snug text-foreground" />
+            }
+          >
+            {label}
+          </TooltipTrigger>
+          <TooltipContent
+            side="bottom"
+            align="start"
+            className="max-w-sm whitespace-pre-wrap break-words"
+          >
+            {label}
+          </TooltipContent>
+        </Tooltip>
+      );
+    },
     meta: { className: "w-[160px] max-w-[160px] overflow-hidden" },
   },
   {
@@ -128,7 +142,13 @@ export const auditDataColumns: ColumnDef<AuditLogEntry>[] = [
       <DataTableColumnHeader column={column} title="Description" />
     ),
     cell: ({ row }) => (
-      <AuditDescriptionCell description={row.original.description} />
+      <AuditDescriptionCell
+        description={formatAuditDescriptionText(
+          row.original.description,
+          row.original.action,
+          row.original.objectType,
+        )}
+      />
     ),
     meta: { className: "w-[28%] max-w-0 overflow-hidden" },
   },

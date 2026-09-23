@@ -15,6 +15,10 @@ import type {
   AuditExportFormat,
   AuditLogsQuery,
 } from "../types/audit.types";
+import {
+  formatAuditActionLabel,
+  formatAuditDescriptionText,
+} from "../utils/format-audit-action";
 
 function buildAuditFilterParams(
   params: AuditLogsQuery,
@@ -172,8 +176,8 @@ export function convertAuditToCsv(entries: AuditLogEntry[]): string {
     new Date(e.createdAt).toLocaleString(),
     e.user?.displayName ?? "System",
     e.user?.email ?? "",
-    e.action,
-    e.description ?? "",
+    formatAuditActionLabel(e.action, e.objectType),
+    formatAuditDescriptionText(e.description, e.action, e.objectType),
     e.objectType,
     e.objectId ?? "",
     e.source ?? "",

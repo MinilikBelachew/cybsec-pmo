@@ -19,9 +19,10 @@ export function taskEndDateAfterStartDate(data: {
 
 export function defaultTaskDateRange() {
   const startDate = new Date();
-  startDate.setHours(0, 0, 0, 0);
+  startDate.setHours(8, 0, 0, 0);
   const endDate = new Date(startDate);
   endDate.setDate(endDate.getDate() + 7);
+  endDate.setHours(17, 0, 0, 0);
   return { startDate, endDate };
 }
 

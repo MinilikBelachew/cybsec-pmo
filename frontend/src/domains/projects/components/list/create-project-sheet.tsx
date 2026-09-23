@@ -24,6 +24,8 @@ import {
   createProjectFormSchema,
   editProjectFormSchema,
   toCreateProjectPayload,
+  PROJECT_NAME_MAX,
+  PROJECT_OBJECTIVE_MAX,
   ProjectTeamSection,
   ProjectLeaveImpactSection,
   type CreateProjectFormValues,
@@ -36,11 +38,13 @@ import { SurfacedLessonsPanel } from "@/domains/risk-compliance";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { useAuth } from "@/domains/auth/hooks/use-auth";
 import {
-  getProjectStatusLabel,
+  getProjectStatusConfig,
   getSelectableProjectStatuses,
 } from "@/domains/projects/utils/project-status";
+import { cn } from "@/shared/utils/cn";
 import type { ProjectStatus, AllocationDateIssuesResponse } from "@/domains/projects/types/projects.types";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
+import { OVERRIDE_REASON_MAX } from "./project-team-section";
 import { RegisterClientDialog } from "@/domains/projects/components/list/register-client-dialog";
 import { formatDateValue } from "@/domains/projects/utils/allocation-date.utils";
 import {
@@ -50,7 +54,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import { ProjectDatePicker, startOfToday } from "../shared/project-date-picker";
+import { EARLIEST_PROJECT_DATE, ProjectDatePicker } from "../shared/project-date-picker";
 import { FolderKanban, Briefcase, Users2, DollarSign, GitBranch, AlertTriangle } from "lucide-react";
 import {
   Sheet,
@@ -77,6 +81,10 @@ import {
   getMilestoneWeightTotalError,
   sumMilestoneWeights,
 } from "../../utils/milestone-weight";
+import {
+  flattenFieldErrorMessages,
+  getApiErrorMessage,
+} from "@/core/errors/api-error";
 
 interface CreateProjectSheetProps {
   open: boolean;
@@ -154,8 +162,57 @@ function toMilestoneApiPayload(draft: {
   };
 }
 
-const PROJECT_NAME_MAX = 255;
-const PROJECT_OBJECTIVE_MAX = 2000;
+const OVERRIDE_REASON_MIN = 10;
+
+const PROJECT_FORM_FIELDS = new Set([
+  "name",
+  "objective",
+  "departmentId",
+  "customerId",
+  "engagementType",
+  "billingModel",
+  "methodology",
+  "priority",
+  "startDate",
+  "endDate",
+  "value",
+  "currency",
+  "primaryPmId",
+  "secondaryPmId",
+  "brandingProfileId",
+  "status",
+]);
+
+const API_ERROR_MESSAGES: Record<string, string> = {
+  invalidStatusTransition: "That status change is not allowed for this project.",
+  statusTransitionRequiresAdminApproval:
+    "Only PM, PMO Lead, or Super Admin can close a project from Pending Closure.",
+  invalidStatusOnCreate: "Status must be a valid project status.",
+  exchangeRateUnavailable: "Could not fetch the live exchange rate. Please try again.",
+  unsupportedCurrency: "No live exchange rate is available for this currency.",
+  primaryPmCannotBeRemoved: "The primary project manager cannot be removed.",
+};
+
+function resolveApiFieldMessage(message: string): string {
+  return API_ERROR_MESSAGES[message] ?? message;
+}
+
+function ProjectStatusChip({ status }: { status: ProjectStatus }) {
+  const cfg = getProjectStatusConfig(status);
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold",
+        cfg.bg,
+        cfg.text,
+        cfg.border,
+      )}
+    >
+      <span className={cn("size-1.5 shrink-0 rounded-full", cfg.dot)} />
+      {cfg.label}
+    </span>
+  );
+}
 
 function validateMilestoneDraftDates(
   drafts: DraftProjectMilestone[],
@@ -203,6 +260,7 @@ export function CreateProjectSheet({
   const milestoneSectionRef = useRef<ProjectFormMilestonesSectionHandle>(null);
   const milestonesSeededForProjectRef = useRef<string | null>(null);
   const [pendingTeamMembers, setPendingTeamMembers] = useState<PendingTeamMember[]>([]);
+  const [teamValidationError, setTeamValidationError] = useState<string | null>(null);
   const [milestoneDrafts, setMilestoneDrafts] = useState<DraftProjectMilestone[]>([]);
   const [milestoneError, setMilestoneError] = useState<string | null>(null);
   const [allocationSaveDialog, setAllocationSaveDialog] = useState<{
@@ -258,6 +316,7 @@ export function CreateProjectSheet({
     reset,
     setValue,
     trigger,
+    setError,
     formState: { errors },
   } = useForm<CreateProjectFormValues>({
     resolver: zodResolver(
@@ -290,10 +349,12 @@ export function CreateProjectSheet({
       setPendingTeamMembers([]);
       setMilestoneDrafts([]);
       setMilestoneError(null);
+      setTeamValidationError(null);
       milestonesSeededForProjectRef.current = null;
       return;
     }
     setMilestoneError(null);
+    setTeamValidationError(null);
     if (project) {
       reset(projectToFormValues(project));
     } else {
@@ -459,15 +520,35 @@ export function CreateProjectSheet({
       const payload = toCreateProjectPayload(values);
       const draftMembers = teamSectionRef.current?.collectMembersToSave() ?? [];
       const membersToSave = mergeTeamMembers(pendingTeamMembers, draftMembers);
+      setTeamValidationError(null);
       const missingOverride = membersToSave.find(
         (member) =>
           member.isOverAllocated &&
-          (member.overrideReason?.trim().length ?? 0) < 10,
+          (member.overrideReason?.trim().length ?? 0) < OVERRIDE_REASON_MIN,
       );
       if (missingOverride) {
-        toast.error(
-          `Over-allocation for ${missingOverride.name} needs an override reason (at least 10 characters).`,
-        );
+        const message = `Over-allocation comments for ${missingOverride.name} must be at least ${OVERRIDE_REASON_MIN} characters.`;
+        setTeamValidationError(message);
+        toast.error(message);
+        document.getElementById("project-team-section")?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        return;
+      }
+      const tooLongOverride = membersToSave.find(
+        (member) =>
+          member.isOverAllocated &&
+          (member.overrideReason?.trim().length ?? 0) > OVERRIDE_REASON_MAX,
+      );
+      if (tooLongOverride) {
+        const message = `Over-allocation comments for ${tooLongOverride.name} must be ${OVERRIDE_REASON_MAX} characters or fewer.`;
+        setTeamValidationError(message);
+        toast.error(message);
+        document.getElementById("project-team-section")?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
         return;
       }
       const newMilestones = toDraftMilestonePayload(currentMilestoneDrafts);
@@ -568,25 +649,41 @@ export function CreateProjectSheet({
       setMilestoneDrafts([]);
       refetch?.();
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Project save failed:", err);
-      const apiError = err as { data?: { errors?: Record<string, string>; message?: string } };
-      const fieldErrors = apiError?.data?.errors;
-      if (fieldErrors) {
-        const statusError = fieldErrors.status;
-        if (statusError === "invalidStatusTransition") {
-          toast.error("That status change is not allowed for this project.");
-        } else if (statusError === "statusTransitionRequiresAdminApproval") {
-          toast.error("Only PM, PMO Lead, or Super Admin can close a project from Pending Closure.");
-        } else if (statusError === "invalidStatusOnCreate") {
-          toast.error("New projects must start in Draft status.");
-        } else {
-          const firstError = Object.values(fieldErrors)[0];
-          toast.error(typeof firstError === "string" ? firstError : "Failed to save project.");
+      const apiError = err as { data?: { errors?: unknown; message?: unknown } };
+      const leaves = flattenFieldErrorMessages(apiError?.data?.errors);
+
+      for (const leaf of leaves) {
+        const message = resolveApiFieldMessage(leaf.message);
+        if (PROJECT_FORM_FIELDS.has(leaf.field)) {
+          setError(leaf.field as keyof CreateProjectFormValues, {
+            type: "server",
+            message,
+          });
         }
-      } else {
-        toast.error(apiError?.data?.message ?? "Failed to save project. Please try again.");
       }
+
+      const overrideLeaf = leaves.find((leaf) => leaf.field === "overrideReason");
+      if (overrideLeaf) {
+        const message = resolveApiFieldMessage(overrideLeaf.message);
+        setTeamValidationError(message);
+        document.getElementById("project-team-section")?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        toast.error(message);
+        return;
+      }
+
+      if (leaves.length > 0) {
+        toast.error(resolveApiFieldMessage(leaves[0].message));
+        return;
+      }
+
+      toast.error(
+        getApiErrorMessage(err, "Failed to save project. Please try again."),
+      );
     }
   };
 
@@ -667,10 +764,10 @@ export function CreateProjectSheet({
   const defaultBranding = brandingOptions.find((profile) => profile.isDefault);
 
   const endDateMin = (() => {
-    const today = startOfToday();
-    if (!watchedStartDate) return today;
+    if (!watchedStartDate) return EARLIEST_PROJECT_DATE;
     const start = watchedStartDate instanceof Date ? watchedStartDate : new Date(watchedStartDate);
-    return start > today ? start : today;
+    start.setHours(0, 0, 0, 0);
+    return Number.isNaN(start.getTime()) ? EARLIEST_PROJECT_DATE : start;
   })();
 
   const readOnlyFieldClass =
@@ -867,14 +964,16 @@ export function CreateProjectSheet({
                   render={({ field }) => (
                     <Select value={field.value || "Draft"} onValueChange={field.onChange} disabled={isViewOnly}>
                       <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
-                        <SelectValue placeholder="Select status...">
-                          {watchedStatus ? getProjectStatusLabel(watchedStatus as ProjectStatus) : undefined}
-                        </SelectValue>
+                        {watchedStatus ? (
+                          <ProjectStatusChip status={watchedStatus as ProjectStatus} />
+                        ) : (
+                          <SelectValue placeholder="Select status..." />
+                        )}
                       </SelectTrigger>
                       <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.07] rounded-lg">
                         {selectableStatuses.map((status) => (
                           <SelectItem key={status} value={status}>
-                            {getProjectStatusLabel(status)}
+                            <ProjectStatusChip status={status} />
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1037,7 +1136,7 @@ export function CreateProjectSheet({
                         field.onChange(date);
                         void trigger("endDate");
                       }}
-                      minDate={isEditMode ? startOfToday() : startOfToday()}
+                      minDate={EARLIEST_PROJECT_DATE}
                       invalid={Boolean(errors.startDate)}
                       disabled={isViewOnly}
                     />
@@ -1088,6 +1187,7 @@ export function CreateProjectSheet({
               pendingMembers={pendingTeamMembers}
               onPendingMembersChange={setPendingTeamMembers}
               canEdit={canEditTeam}
+              validationError={teamValidationError}
             />
 
             {project?.id && <ProjectLeaveImpactSection projectId={project.id} />}

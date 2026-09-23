@@ -28,7 +28,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class MppParseService {
-  private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
+  private static final DateTimeFormatter ISO_DATE_TIME =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
   public ParsedProjectDto parse(MultipartFile file) throws Exception {
     if (file == null || file.isEmpty()) {
@@ -84,6 +85,15 @@ public class MppParseService {
         continue;
       }
 
+      Double rowCost = toPositiveCost(task.getCost());
+      if (
+          Boolean.TRUE.equals(task.getSummary())
+              && task.getOutlineLevel() != null
+              && task.getOutlineLevel() == 0
+              && rowCost != null) {
+        properties.setCost(rowCost);
+      }
+
       String name = task.getName();
       if (name == null || name.isBlank()) {
         continue;
@@ -110,11 +120,13 @@ public class MppParseService {
       parsedTask.setBaselineStartDate(formatDate(task.getBaselineStart()));
       parsedTask.setBaselineFinishDate(formatDate(task.getBaselineFinish()));
       parsedTask.setDurationDays(toDurationDays(task.getDuration(), projectProperties));
+      parsedTask.setWorkHours(toWorkHours(task.getWork(), projectProperties));
       parsedTask.setBaselineDurationDays(
           toDurationDays(task.getBaselineDuration(), projectProperties));
       parsedTask.setActualStartDate(formatDate(task.getActualStart()));
       parsedTask.setActualFinishDate(formatDate(task.getActualFinish()));
       parsedTask.setPercentComplete(toPercent(task.getPercentageComplete()));
+      parsedTask.setCost(rowCost);
 
       Task parent = task.getParentTask();
       if (parent != null && parent.getUniqueID() != null) {
@@ -160,6 +172,9 @@ public class MppParseService {
       properties.setBaselineFinishDate(projectSummary.getBaselineFinishDate());
       properties.setDurationDays(projectSummary.getDurationDays());
       properties.setBaselineDurationDays(projectSummary.getBaselineDurationDays());
+      if (projectSummary.getCost() != null) {
+        properties.setCost(projectSummary.getCost());
+      }
     }
 
     for (Resource resource : project.getResources()) {
@@ -224,7 +239,7 @@ public class MppParseService {
     if (value == null) {
       return null;
     }
-    return value.toLocalDate().format(ISO_DATE);
+    return value.format(ISO_DATE_TIME);
   }
 
   private Double toDurationDays(Duration duration, ProjectProperties properties) {
@@ -240,6 +255,31 @@ public class MppParseService {
     }
     // One decimal place matches MSP display (e.g. 66.1 / 115.1).
     return Math.round(days * 10.0) / 10.0;
+  }
+
+  private Double toWorkHours(Duration work, ProjectProperties properties) {
+    if (work == null) {
+      return null;
+    }
+
+    double hours = Duration.convertUnits(
+            work.getDuration(), work.getUnits(), TimeUnit.HOURS, properties)
+        .getDuration();
+    if (hours <= 0) {
+      return null;
+    }
+    return Math.round(hours * 10.0) / 10.0;
+  }
+
+  private Double toPositiveCost(Number value) {
+    if (value == null) {
+      return null;
+    }
+    double amount = value.doubleValue();
+    if (!Double.isFinite(amount) || amount <= 0) {
+      return null;
+    }
+    return amount;
   }
 
   private Integer toPercent(Number value) {
