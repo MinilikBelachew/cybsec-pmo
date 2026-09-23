@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
+  Post,
   Request,
   UseGuards,
   UseInterceptors,
@@ -13,7 +14,9 @@ import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
 import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
+import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { AuditArchiveService } from '../audit/archive/audit-archive.service';
 import {
   AppSettingsService,
@@ -25,6 +28,7 @@ import {
 import { AllocationPolicyService } from './allocation-policy.service';
 import { SessionSecurityPolicyService } from './session-security-policy.service';
 import { TimesheetEscalationPolicyService } from './timesheet-escalation-policy.service';
+import { CostFormulaService } from './cost-formula.service';
 import {
   AuditSettingsDto,
   UpdateAuditSettingsDto,
@@ -41,9 +45,14 @@ import {
   TimesheetEscalationSettingsDto,
   UpdateTimesheetEscalationSettingsDto,
 } from './dto/timesheet-escalation.dto';
+import {
+  CostFormulaSettingsDto,
+  UpdateCostFormulaSettingsDto,
+  mapCostFormulaSettingsDto,
+} from './dto/cost-formula.dto';
 
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
 @UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('Settings')
 @Controller({
@@ -56,6 +65,7 @@ export class SettingsController {
     private readonly allocationPolicyService: AllocationPolicyService,
     private readonly sessionSecurityPolicyService: SessionSecurityPolicyService,
     private readonly timesheetEscalationPolicyService: TimesheetEscalationPolicyService,
+    private readonly costFormulaService: CostFormulaService,
     private readonly auditArchiveService: AuditArchiveService,
   ) {}
 
@@ -170,5 +180,54 @@ export class SettingsController {
       );
     this.timesheetEscalationPolicyService.invalidateCache();
     return mapTimesheetEscalationSettingsDto(settings);
+  }
+
+  @CheckAbility('read', 'Financial')
+  @CheckModulePermission('financials', 'view')
+  @Get('cost-formula')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: CostFormulaSettingsDto })
+  async getCostFormulaSettings() {
+    const { formula, updatedAt } =
+      await this.appSettingsService.getCostFormula();
+    return mapCostFormulaSettingsDto(formula, updatedAt);
+  }
+
+  @CheckAbility('update', 'Financial')
+  @CheckModulePermission('financials', 'edit')
+  @Patch('cost-formula')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: CostFormulaSettingsDto })
+  async updateCostFormulaSettings(
+    @Body() dto: UpdateCostFormulaSettingsDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    const { formula, updatedAt } =
+      await this.appSettingsService.updateCostFormula(
+        dto,
+        request.user?.id,
+        false,
+      );
+    this.costFormulaService.invalidateCache();
+    return mapCostFormulaSettingsDto(formula, updatedAt);
+  }
+
+  @CheckAbility('update', 'Financial')
+  @CheckModulePermission('financials', 'edit')
+  @Post('cost-formula/approve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: CostFormulaSettingsDto })
+  async approveCostFormulaSettings(
+    @Body() dto: UpdateCostFormulaSettingsDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    const { formula, updatedAt } =
+      await this.appSettingsService.updateCostFormula(
+        dto,
+        request.user?.id,
+        true,
+      );
+    this.costFormulaService.invalidateCache();
+    return mapCostFormulaSettingsDto(formula, updatedAt);
   }
 }

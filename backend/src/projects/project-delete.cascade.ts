@@ -52,6 +52,21 @@ export async function deleteProjectWithDependents(
   await tx.projectPhase.deleteMany({ where: { projectId } });
   await tx.allocation.deleteMany({ where: { projectId } });
   await tx.projectDomain.deleteMany({ where: { projectId } });
+  // Budget children are ON DELETE RESTRICT — clear before ProjectBudget.
+  const budgetIds = (
+    await tx.projectBudget.findMany({
+      where: { projectId },
+      select: { id: true },
+    })
+  ).map((row) => row.id);
+  if (budgetIds.length > 0) {
+    await tx.budgetLineItem.deleteMany({
+      where: { budgetId: { in: budgetIds } },
+    });
+    await tx.budgetRevision.deleteMany({
+      where: { budgetId: { in: budgetIds } },
+    });
+  }
   await tx.projectBudget.deleteMany({ where: { projectId } });
   await tx.employeeCost.deleteMany({ where: { projectId } });
   await tx.risk.deleteMany({ where: { projectId } });

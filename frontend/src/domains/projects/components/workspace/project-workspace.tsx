@@ -72,6 +72,7 @@ import {
   MessageSquareText,
   AlertTriangle,
   CircleAlert,
+  Wallet,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -104,6 +105,7 @@ import {
   ProjectIssuesPanel,
   ProjectRisksPanel,
 } from "@/domains/risk-compliance";
+import { ProjectBudgetPanel } from "@/domains/budget/components/project-budget-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
 import {
   getMethodologyDefaultGroupByPhase,
@@ -132,6 +134,7 @@ type View =
   | "meetings"
   | "risks"
   | "issues"
+  | "financials"
   | "audit";
 
 interface Task {
@@ -188,6 +191,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "meetings", label: "Meetings & MoM", icon: MessageSquareText },
   { id: "risks", label: "Risks", icon: AlertTriangle },
   { id: "issues", label: "Issues", icon: CircleAlert },
+  { id: "financials", label: "Financials", icon: Wallet },
   { id: "audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -290,7 +294,7 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam } =
+  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam, canViewFinancials, canEditFinancials } =
     useModulePermissions();
   const canManageProjectTeam = canEditProjects && canEditTeam;
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
@@ -581,9 +585,12 @@ export function ProjectWorkspace() {
   const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
 
   const visibleViews = useMemo(() => {
-    const base = canViewProjectAudit
+    let base = canViewProjectAudit
       ? VIEWS
       : VIEWS.filter((view) => view.id !== "audit");
+    if (!canViewFinancials) {
+      base = base.filter((view) => view.id !== "financials");
+    }
     const ordered = orderViewsForMethodology(base, project?.methodology);
     if (user?.backendRoleCode !== "engineer") return ordered;
     return ordered.map((view) =>
@@ -591,7 +598,7 @@ export function ProjectWorkspace() {
         ? { ...view, label: "Minutes of Meeting" }
         : view,
     );
-  }, [canViewProjectAudit, project?.methodology, user?.backendRoleCode]);
+  }, [canViewProjectAudit, canViewFinancials, project?.methodology, user?.backendRoleCode]);
 
   const methodology = resolveMethodology(project?.methodology);
   const methodologyDefaultView = getMethodologyDefaultView(methodology);
@@ -607,7 +614,8 @@ export function ProjectWorkspace() {
     const canOpenView =
       !!viewParam &&
       VIEWS.some((v) => v.id === viewParam) &&
-      (viewParam !== "audit" || canViewProjectAudit);
+      (viewParam !== "audit" || canViewProjectAudit) &&
+      (viewParam !== "financials" || canViewFinancials);
     setActiveView(canOpenView ? (viewParam as View) : methodologyDefaultView);
   }, [
     project?.id,
@@ -615,6 +623,7 @@ export function ProjectWorkspace() {
     methodologyDefaultView,
     searchParams,
     canViewProjectAudit,
+    canViewFinancials,
   ]);
 
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
@@ -632,7 +641,10 @@ export function ProjectWorkspace() {
     if (activeView === "audit" && !canViewProjectAudit) {
       setActiveView(methodologyDefaultView);
     }
-  }, [activeView, canViewProjectAudit, methodologyDefaultView]);
+    if (activeView === "financials" && !canViewFinancials) {
+      setActiveView(methodologyDefaultView);
+    }
+  }, [activeView, canViewProjectAudit, canViewFinancials, methodologyDefaultView]);
 
   const openTaskDetail = (
     taskId: string,
@@ -658,7 +670,8 @@ export function ProjectWorkspace() {
       const isValidView = VIEWS.some((v) => v.id === viewParam);
       const canOpen =
         isValidView &&
-        (viewParam !== "audit" || canViewProjectAudit);
+        (viewParam !== "audit" || canViewProjectAudit) &&
+        (viewParam !== "financials" || canViewFinancials);
       if (canOpen) {
         if (project?.id) {
           methodologyAppliedFor.current = `${project.id}:${methodology}`;
@@ -705,6 +718,7 @@ export function ProjectWorkspace() {
     router,
     applyLeaveBackup,
     canViewProjectAudit,
+    canViewFinancials,
     project?.id,
     methodology,
   ]);
@@ -1225,7 +1239,7 @@ export function ProjectWorkspace() {
           )}
         </button>
       </div>
-      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && activeView !== "meetings" && activeView !== "risks" && activeView !== "issues" && (
+      {activeView !== "audit" && activeView !== "team" && activeView !== "docs" && activeView !== "meetings" && activeView !== "risks" && activeView !== "issues" && activeView !== "financials" && (
       <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-slate-200/60 dark:border-white/[0.08] shrink-0 bg-transparent">
         {/* Search & Filters */}
         <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1587,6 +1601,12 @@ export function ProjectWorkspace() {
         {activeView === "issues" && (
           <div className="h-full min-h-0">
             <ProjectIssuesPanel projectId={id} />
+          </div>
+        )}
+
+        {activeView === "financials" && canViewFinancials && (
+          <div className="h-full min-h-0">
+            <ProjectBudgetPanel projectId={id} canEdit={canEditFinancials} />
           </div>
         )}
 

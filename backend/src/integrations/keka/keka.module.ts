@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bull';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../database/prisma.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
+import { SettingsModule } from '../../settings/settings.module';
 import kekaConfig from './config/keka.config';
 import { KekaHttpClient } from './client/keka-http.client';
 import { KekaMockController } from './mock/keka-mock.controller';
@@ -52,6 +53,7 @@ export class KekaModule {
         ConfigModule.forFeature(kekaConfig),
         PrismaModule,
         NotificationsModule,
+        SettingsModule,
         BullModule.registerQueue({ name: KEKA_SYNC_QUEUE }),
         BullModule.registerQueue({ name: LEAVE_BACKUP_QUEUE }),
       ],

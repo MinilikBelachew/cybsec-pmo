@@ -37,6 +37,7 @@ import {
   parseDateOnly,
 } from './utils/week.util';
 import { TimesheetEscalationPolicyService } from '../settings/timesheet-escalation-policy.service';
+import { TimesheetPayrollService } from './timesheet-payroll.service';
 
 const TIMESHEET_APPROVAL_INCLUDE = {
   employee: {
@@ -68,6 +69,7 @@ export class TimesheetApprovalService {
     private readonly timesheetPushService: TimesheetPushService,
     private readonly notificationsService: NotificationsService,
     private readonly escalationPolicy: TimesheetEscalationPolicyService,
+    private readonly timesheetPayrollService: TimesheetPayrollService,
   ) {}
 
   async findSubmissions(
@@ -170,6 +172,17 @@ export class TimesheetApprovalService {
         });
       }
     });
+
+    await this.timesheetPayrollService.recordApprovedEntries(
+      entries.map((entry) => ({
+        id: entry.id,
+        employeeId: entry.employeeId,
+        projectId: entry.projectId,
+        workDate: entry.workDate,
+        regularHours: entry.regularHours,
+        overtimeHours: entry.overtimeHours,
+      })),
+    );
 
     for (const item of approvalsToPush) {
       const ref = await this.timesheetPushService.pushTimesheetEntry(

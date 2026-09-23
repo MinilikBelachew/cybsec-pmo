@@ -37,6 +37,28 @@ export type UpdateTimesheetEscalationPayload = {
   escalationDays?: number;
 };
 
+export type CostFormulaSettings = {
+  basis: "ctc" | "gross";
+  hoursPerWeek: number;
+  weeksPerYear: number;
+  otMultiplier: number;
+  leaveMode: "ignore" | "exclude_unpaid" | "prorate";
+  monthlyRemunerationType: number;
+  version: number;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  updatedAt: string;
+};
+
+export type UpdateCostFormulaPayload = {
+  basis?: "ctc" | "gross";
+  hoursPerWeek?: number;
+  weeksPerYear?: number;
+  otMultiplier?: number;
+  leaveMode?: "ignore" | "exclude_unpaid" | "prorate";
+  monthlyRemunerationType?: number;
+};
+
 export type {
   AllocationPolicies,
   UpdateAllocationPoliciesPayload,

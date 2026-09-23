@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { CostFormulaService } from '../../../settings/cost-formula.service';
 import { KekaHttpClient } from '../client/keka-http.client';
 import {
   KEKA_ENTITY_TYPE,
@@ -22,6 +23,7 @@ export class SalarySyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kekaClient: KekaHttpClient,
+    private readonly costFormula: CostFormulaService,
   ) {}
 
   async syncSalariesAndPayCycles(): Promise<SalarySyncResult> {
@@ -226,10 +228,20 @@ export class SalarySyncService {
           throw new Error('Salary record is missing effectiveFrom');
         }
 
-        const ratePerHour = this.deriveRatePerHour(
-          salary.ctc,
+        const formula = await this.costFormula.getFormula();
+        const amount =
+          formula.basis === 'gross' ? salary.gross : salary.ctc;
+        const ratePerHour = this.costFormula.deriveRatePerHour(
+          amount,
           salary.remunerationType,
-          Number(employee.weeklyHours),
+          {
+            ...formula,
+            // Prefer employee weekly hours when available.
+            hoursPerWeek:
+              Number(employee.weeklyHours) > 0
+                ? Number(employee.weeklyHours)
+                : formula.hoursPerWeek,
+          },
         );
 
         await this.prisma.employeeSalary.updateMany({
@@ -302,7 +314,11 @@ export class SalarySyncService {
           },
         });
 
-        await this.logSuccess(KEKA_ENTITY_TYPE.SALARY, kekaSalaryId, salary);
+        await this.logSuccess(
+          KEKA_ENTITY_TYPE.SALARY,
+          kekaSalaryId,
+          this.redactSalaryPayload(salary),
+        );
         synced += 1;
       } catch (error) {
         failed += 1;
@@ -312,7 +328,7 @@ export class SalarySyncService {
         await this.logFailure(
           KEKA_ENTITY_TYPE.SALARY,
           kekaSalaryId,
-          salary,
+          this.redactSalaryPayload(salary),
           message,
         );
       }
@@ -378,27 +394,15 @@ export class SalarySyncService {
       .filter((id): id is string => Boolean(id));
   }
 
-  /**
-   * Derive hourly rate from CTC.
-   * RemunerationType is tenant-specific; treat 1 as monthly, everything else as annual.
-   */
-  private deriveRatePerHour(
-    ctc: number,
-    remunerationType: number | null | undefined,
-    weeklyHours: number,
-  ): Prisma.Decimal | null {
-    if (!ctc || !weeklyHours || weeklyHours <= 0) {
-      return null;
-    }
-
-    const annual =
-      remunerationType === 1 ? ctc * 12 : ctc;
-    const hoursPerYear = weeklyHours * 52;
-    if (hoursPerYear <= 0) {
-      return null;
-    }
-
-    return new Prisma.Decimal((annual / hoursPerYear).toFixed(4));
+  /** Strip compensation amounts from sync logs (M5.2-02). */
+  private redactSalaryPayload(salary: KekaEmployeeSalary): Record<string, unknown> {
+    return {
+      id: salary.id,
+      employeeId: salary.employee?.id ?? null,
+      effectiveFrom: salary.effectiveFrom ?? null,
+      remunerationType: salary.remunerationType ?? null,
+      redacted: true,
+    };
   }
 
   private parsePeriod(monthLabel?: string | null): {

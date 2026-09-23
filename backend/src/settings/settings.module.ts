@@ -5,6 +5,7 @@ import { AppSettingsService } from './app-settings.service';
 import { AllocationPolicyService } from './allocation-policy.service';
 import { SessionSecurityPolicyService } from './session-security-policy.service';
 import { TimesheetEscalationPolicyService } from './timesheet-escalation-policy.service';
+import { CostFormulaService } from './cost-formula.service';
 import { SettingsController } from './settings.controller';
 
 @Module({
@@ -15,12 +16,14 @@ import { SettingsController } from './settings.controller';
     AllocationPolicyService,
     SessionSecurityPolicyService,
     TimesheetEscalationPolicyService,
+    CostFormulaService,
   ],
   exports: [
     AppSettingsService,
     AllocationPolicyService,
     SessionSecurityPolicyService,
     TimesheetEscalationPolicyService,
+    CostFormulaService,
   ],
 })
 export class SettingsModule {}

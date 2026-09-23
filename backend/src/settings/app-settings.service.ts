@@ -10,6 +10,12 @@ import {
   SESSION_SECURITY_LIMITS,
   TIMESHEET_ESCALATION_LIMITS,
 } from './app-settings.constants';
+import {
+  CostFormulaConfig,
+  COST_FORMULA_LIMITS,
+  DEFAULT_COST_FORMULA,
+} from './cost-formula.constants';
+import { UpdateCostFormulaSettingsDto } from './dto/cost-formula.dto';
 import { UpdateAuditSettingsDto } from './dto/audit-settings.dto';
 import { UpdateAllocationPoliciesDto } from './dto/allocation-policies.dto';
 import { UpdateSessionSecuritySettingsDto } from './dto/session-security.dto';
@@ -217,6 +223,128 @@ export class AppSettingsService {
     });
 
     return this.toTimesheetEscalationSettings(row);
+  }
+
+  async getCostFormula(): Promise<{
+    formula: CostFormulaConfig;
+    updatedAt: Date;
+  }> {
+    const row = await this.ensureSettingsRow();
+    return {
+      formula: this.parseCostFormula(row.costFormula),
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async updateCostFormula(
+    dto: UpdateCostFormulaSettingsDto,
+    updatedById?: string,
+    approve = false,
+  ): Promise<{ formula: CostFormulaConfig; updatedAt: Date }> {
+    const existing = await this.ensureSettingsRow();
+    const current = this.parseCostFormula(existing.costFormula);
+    const next: CostFormulaConfig = {
+      ...current,
+      ...(dto.basis != null ? { basis: dto.basis } : {}),
+      ...(dto.hoursPerWeek != null ? { hoursPerWeek: dto.hoursPerWeek } : {}),
+      ...(dto.weeksPerYear != null ? { weeksPerYear: dto.weeksPerYear } : {}),
+      ...(dto.otMultiplier != null ? { otMultiplier: dto.otMultiplier } : {}),
+      ...(dto.leaveMode != null ? { leaveMode: dto.leaveMode } : {}),
+      ...(dto.monthlyRemunerationType != null
+        ? { monthlyRemunerationType: dto.monthlyRemunerationType }
+        : {}),
+    };
+
+    if (
+      next.hoursPerWeek < COST_FORMULA_LIMITS.hoursPerWeek.min ||
+      next.hoursPerWeek > COST_FORMULA_LIMITS.hoursPerWeek.max
+    ) {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: { hoursPerWeek: 'hoursPerWeekOutOfRange' },
+      });
+    }
+    if (
+      next.weeksPerYear < COST_FORMULA_LIMITS.weeksPerYear.min ||
+      next.weeksPerYear > COST_FORMULA_LIMITS.weeksPerYear.max
+    ) {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: { weeksPerYear: 'weeksPerYearOutOfRange' },
+      });
+    }
+    if (
+      next.otMultiplier < COST_FORMULA_LIMITS.otMultiplier.min ||
+      next.otMultiplier > COST_FORMULA_LIMITS.otMultiplier.max
+    ) {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: { otMultiplier: 'otMultiplierOutOfRange' },
+      });
+    }
+    if (next.basis !== 'ctc' && next.basis !== 'gross') {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: { basis: 'invalidBasis' },
+      });
+    }
+
+    if (approve && updatedById) {
+      next.version = current.version + 1;
+      next.approvedBy = updatedById;
+      next.approvedAt = new Date().toISOString();
+    }
+
+    const row = await this.prisma.appSetting.update({
+      where: { id: APP_SETTINGS_ID },
+      data: {
+        costFormula: next as unknown as Prisma.InputJsonValue,
+        ...(updatedById ? { updatedById } : {}),
+      },
+    });
+
+    return {
+      formula: this.parseCostFormula(row.costFormula),
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private parseCostFormula(raw: Prisma.JsonValue): CostFormulaConfig {
+    const obj =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    return {
+      basis: obj.basis === 'gross' ? 'gross' : DEFAULT_COST_FORMULA.basis,
+      hoursPerWeek:
+        typeof obj.hoursPerWeek === 'number'
+          ? obj.hoursPerWeek
+          : DEFAULT_COST_FORMULA.hoursPerWeek,
+      weeksPerYear:
+        typeof obj.weeksPerYear === 'number'
+          ? obj.weeksPerYear
+          : DEFAULT_COST_FORMULA.weeksPerYear,
+      otMultiplier:
+        typeof obj.otMultiplier === 'number'
+          ? obj.otMultiplier
+          : DEFAULT_COST_FORMULA.otMultiplier,
+      leaveMode:
+        obj.leaveMode === 'exclude_unpaid' || obj.leaveMode === 'prorate'
+          ? obj.leaveMode
+          : DEFAULT_COST_FORMULA.leaveMode,
+      monthlyRemunerationType:
+        typeof obj.monthlyRemunerationType === 'number'
+          ? obj.monthlyRemunerationType
+          : DEFAULT_COST_FORMULA.monthlyRemunerationType,
+      version:
+        typeof obj.version === 'number'
+          ? obj.version
+          : DEFAULT_COST_FORMULA.version,
+      approvedBy:
+        typeof obj.approvedBy === 'string' ? obj.approvedBy : null,
+      approvedAt:
+        typeof obj.approvedAt === 'string' ? obj.approvedAt : null,
+    };
   }
 
   private async ensureSettingsRow(): Promise<AppSetting> {

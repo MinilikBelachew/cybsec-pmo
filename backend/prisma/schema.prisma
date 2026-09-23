@@ -147,6 +147,8 @@ model User {
   timesheetApprovals        TimesheetApproval[]
   approvedBudgets           ProjectBudget[]
   approvedRevisions         BudgetRevision[]
+  requestedBudgetAdjustments BudgetAdjustment[] @relation("BudgetAdjustmentRequester")
+  approvedBudgetAdjustments  BudgetAdjustment[] @relation("BudgetAdjustmentApprover")
   resolvedSyncs             FailedSyncRecord[]
   updatedKekaConnections    KekaConnectionSettings[] @relation("KekaConnectionUpdatedBy")
   ownedRisks                Risk[]
@@ -327,6 +329,8 @@ model AppSetting {
   sessionWarningBeforeSec       Int       @default(300) @map("session_warning_before_sec")
   dataQualityRules              Json      @default("{}") @map("data_quality_rules")
   timesheetEscalationDays       Int       @default(3) @map("timesheet_escalation_days")
+  /// Approved employee cost formula (M5.2 / UC-15).
+  costFormula                   Json      @default("{}") @map("cost_formula")
   updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 
@@ -958,6 +962,7 @@ model Timesheet {
   task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   approvals TimesheetApproval[]
+  costLedger EmployeeCostTimesheet?
 
   @@unique([employeeId, workDate, taskId], map: "uq_timesheet_entry")
   @@index([employeeId], map: "idx_timesheets_employee")
@@ -1021,6 +1026,7 @@ model ProjectBudget {
 
   revisions BudgetRevision[]
   lineItems BudgetLineItem[]
+  adjustments BudgetAdjustment[]
 
   @@map("project_budgets")
 }
@@ -1035,7 +1041,7 @@ model BudgetRevision {
   status        String    @default("Pending") @db.VarChar(20)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  budget   ProjectBudget @relation(fields: [budgetId], references: [id])
+  budget   ProjectBudget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   approver User?         @relation(fields: [approvedBy], references: [id])
 
   @@index([budgetId], map: "idx_budget_revisions_budget")
@@ -1051,10 +1057,35 @@ model BudgetLineItem {
   actual    Decimal  @default(0) @db.Decimal(12, 2)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  budget ProjectBudget @relation(fields: [budgetId], references: [id])
+  budget      ProjectBudget      @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  adjustments BudgetAdjustment[]
 
   @@index([budgetId], map: "idx_line_items_budget")
   @@map("budget_line_items")
+}
+
+model BudgetAdjustment {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  budgetId     String    @map("budget_id") @db.Uuid
+  lineItemId   String?   @map("line_item_id") @db.Uuid
+  targetField  String    @map("target_field") @db.VarChar(30)
+  oldAmount    Decimal   @map("old_amount") @db.Decimal(15, 2)
+  newAmount    Decimal   @map("new_amount") @db.Decimal(15, 2)
+  reason       String
+  status       String    @default("Pending") @db.VarChar(20)
+  requestedBy  String    @map("requested_by") @db.Uuid
+  approvedBy   String?   @map("approved_by") @db.Uuid
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  budget    ProjectBudget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  lineItem  BudgetLineItem? @relation(fields: [lineItemId], references: [id], onDelete: SetNull)
+  requester User           @relation("BudgetAdjustmentRequester", fields: [requestedBy], references: [id])
+  approver  User?          @relation("BudgetAdjustmentApprover", fields: [approvedBy], references: [id])
+
+  @@index([budgetId], map: "idx_budget_adjustments_budget")
+  @@index([status], map: "idx_budget_adjustments_status")
+  @@map("budget_adjustments")
 }
 
 model EmployeeCost {
@@ -1069,13 +1100,33 @@ model EmployeeCost {
   totalCost     Decimal  @map("total_cost") @db.Decimal(12, 2)
   computedAt    DateTime @map("computed_at") @db.Timestamptz
 
-  employee Employee @relation(fields: [employeeId], references: [id])
-  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  employee  Employee              @relation(fields: [employeeId], references: [id])
+  project   Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entries   EmployeeCostTimesheet[]
 
   @@unique([employeeId, projectId, periodYear, periodMonth], map: "uq_emp_cost_period")
   @@index([employeeId], map: "idx_emp_costs_employee")
   @@index([projectId], map: "idx_emp_costs_project")
   @@map("employee_costs")
+}
+
+/// Idempotent ledger: one row per approved timesheet feeding EmployeeCost (M5.2).
+model EmployeeCostTimesheet {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeCostId String   @map("employee_cost_id") @db.Uuid
+  timesheetId    String   @unique @map("timesheet_id") @db.Uuid
+  regularHours   Decimal  @map("regular_hours") @db.Decimal(7, 2)
+  overtimeHours  Decimal  @map("overtime_hours") @db.Decimal(7, 2)
+  ratePerHour    Decimal  @map("rate_per_hour") @db.Decimal(10, 4)
+  otMultiplier   Decimal  @map("ot_multiplier") @db.Decimal(5, 2)
+  lineCost       Decimal  @map("line_cost") @db.Decimal(12, 2)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  employeeCost EmployeeCost @relation(fields: [employeeCostId], references: [id], onDelete: Cascade)
+  timesheet    Timesheet    @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+
+  @@index([employeeCostId], map: "idx_emp_cost_ts_cost")
+  @@map("employee_cost_timesheets")
 }
 
 model Invoice {

@@ -55,6 +55,7 @@ import kekaConfig from './integrations/keka/config/keka.config';
 import fxConfig from './fx/config/fx.config';
 import { FxModule } from './fx/fx.module';
 import { MeetingsModule } from './meetings/meetings.module';
+import { BudgetModule } from './budget/budget.module';
 
 @Module({
   imports: [
@@ -153,6 +154,7 @@ import { MeetingsModule } from './meetings/meetings.module';
     TimesheetsModule,
     ReportsModule,
     MeetingsModule,
+    BudgetModule,
     BrandingModule,
     ScheduleModule.forRoot(),
   ],

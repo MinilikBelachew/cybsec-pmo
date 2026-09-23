@@ -202,9 +202,9 @@ export class HealthRulesService implements OnModuleInit {
     );
     const costScore = this.computeCostScore(
       Number(project.value ?? 0),
-      Number(employeeCosts._sum.totalCost ?? 0) / 1000,
-      Number(budgetActual._sum.actual ?? 0) / 1000,
-      Number(budgetActual._sum.planned ?? 0) / 1000,
+      Number(employeeCosts._sum.totalCost ?? 0),
+      Number(budgetActual._sum.actual ?? 0),
+      Number(budgetActual._sum.planned ?? 0),
     );
     const riskScore = this.computeRiskScore(tasks);
     const resourcesScore = this.computeResourcesScore(allocations);
