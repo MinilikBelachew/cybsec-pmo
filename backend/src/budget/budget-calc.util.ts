@@ -14,7 +14,7 @@ export type BudgetAmountInputs = {
   otherActualTotal: number;
   /** Contract / commercial value fallback when no ProjectBudget exists */
   projectValue: number | null;
-  /** Sum of Invoice.amount when available (optional revenue) */
+  /** Sum of Invoice.amount — revenue is invoice-based only (0 when none). */
   invoiceTotal: number;
 };
 
@@ -84,12 +84,7 @@ export function computeBudgetAmounts(input: BudgetAmountInputs): BudgetAmounts {
   const variancePct =
     expectedCost > 0 ? Math.round((variance / expectedCost) * 10000) / 100 : null;
 
-  const revenue =
-    input.invoiceTotal > 0
-      ? input.invoiceTotal
-      : input.projectValue != null && input.projectValue > 0
-        ? input.projectValue
-        : 0;
+  const revenue = input.invoiceTotal > 0 ? input.invoiceTotal : 0;
   const margin = revenue - actualCost;
   const marginPct =
     revenue > 0 ? Math.round((margin / revenue) * 10000) / 100 : null;

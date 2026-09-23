@@ -3,12 +3,10 @@
 import { useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import {
-  Check,
   Loader2,
   Plus,
   Trash2,
   Wallet,
-  X,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
@@ -86,12 +84,22 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
     useRejectBudgetAdjustmentMutation();
 
   const [baselineAmount, setBaselineAmount] = useState("");
+  const [baselineError, setBaselineError] = useState<string | undefined>();
   const [revisionAmount, setRevisionAmount] = useState("");
   const [revisionReason, setRevisionReason] = useState("");
+  const [revisionErrors, setRevisionErrors] = useState<{
+    amount?: string;
+    reason?: string;
+  }>({});
   const [lineCategory, setLineCategory] = useState<string>("Other");
   const [lineName, setLineName] = useState("");
   const [linePlanned, setLinePlanned] = useState("");
-  const [lineActual, setLineActual] = useState("0");
+  const [lineActual, setLineActual] = useState("");
+  const [lineErrors, setLineErrors] = useState<{
+    name?: string;
+    planned?: string;
+    actual?: string;
+  }>({});
   const [showRevisionForm, setShowRevisionForm] = useState(false);
   const [showLineForm, setShowLineForm] = useState(false);
   const [showAdjForm, setShowAdjForm] = useState(false);
@@ -99,10 +107,20 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
   const [adjLineId, setAdjLineId] = useState("");
   const [adjAmount, setAdjAmount] = useState("");
   const [adjReason, setAdjReason] = useState("");
+  const [adjErrors, setAdjErrors] = useState<{
+    line?: string;
+    amount?: string;
+    reason?: string;
+  }>({});
 
   const pendingRevision = useMemo(
     () => data?.revisions.find((r) => r.status === "Pending") ?? null,
     [data?.revisions],
+  );
+
+  const selectedAdjLine = useMemo(
+    () => data?.lineItems.find((line) => line.id === adjLineId) ?? null,
+    [data?.lineItems, adjLineId],
   );
 
   const busy =
@@ -139,9 +157,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
   const onCreateBaseline = async () => {
     const amount = Number(baselineAmount.replace(/,/g, ""));
     if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error("Enter a valid baseline amount greater than zero");
+      setBaselineError("Enter a valid amount greater than zero.");
       return;
     }
+    setBaselineError(undefined);
     try {
       await createBaseline({
         projectId,
@@ -159,14 +178,16 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
 
   const onProposeRevision = async () => {
     const revisedAmount = Number(revisionAmount.replace(/,/g, ""));
+    const nextErrors: { amount?: string; reason?: string } = {};
     if (!Number.isFinite(revisedAmount) || revisedAmount <= 0) {
-      toast.error("Enter a valid revised amount");
-      return;
+      nextErrors.amount = "Enter a valid amount greater than zero.";
     }
     if (!revisionReason.trim()) {
-      toast.error("Revision reason is required");
-      return;
+      nextErrors.reason = "Reason is required.";
     }
+    setRevisionErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+
     try {
       await proposeRevision({
         projectId,
@@ -175,6 +196,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
       toast.success("Revision submitted for approval");
       setRevisionAmount("");
       setRevisionReason("");
+      setRevisionErrors({});
       setShowRevisionForm(false);
     } catch (err) {
       const message =
@@ -185,16 +207,27 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
   };
 
   const onCreateLine = async () => {
-    const planned = Number(linePlanned.replace(/,/g, ""));
-    const actual = Number(lineActual.replace(/,/g, "") || "0");
+    const plannedRaw = linePlanned.replace(/,/g, "").trim();
+    const actualRaw = lineActual.replace(/,/g, "").trim();
+    const planned = Number(plannedRaw);
+    const actual = Number(actualRaw);
+    const nextErrors: { name?: string; planned?: string; actual?: string } = {};
     if (!lineName.trim()) {
-      toast.error("Line item name is required");
-      return;
+      nextErrors.name = "Name is required.";
     }
-    if (!Number.isFinite(planned) || planned < 0) {
-      toast.error("Enter a valid planned amount");
-      return;
+    if (!plannedRaw) {
+      nextErrors.planned = "Planned is required.";
+    } else if (!Number.isFinite(planned) || planned < 0) {
+      nextErrors.planned = "Enter a valid planned amount (0 or greater).";
     }
+    if (!actualRaw) {
+      nextErrors.actual = "Actual is required.";
+    } else if (!Number.isFinite(actual) || actual < 0) {
+      nextErrors.actual = "Enter a valid actual amount (0 or greater).";
+    }
+    setLineErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+
     try {
       await createLineItem({
         projectId,
@@ -202,19 +235,61 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
           category: lineCategory,
           itemName: lineName.trim(),
           planned,
-          actual: Number.isFinite(actual) ? actual : 0,
+          actual,
         },
       }).unwrap();
       toast.success("Cost line added");
       setLineName("");
       setLinePlanned("");
-      setLineActual("0");
+      setLineActual("");
+      setLineErrors({});
       setShowLineForm(false);
     } catch (err) {
       const message =
         (err as { data?: { message?: string } })?.data?.message ??
         "Failed to add line item";
       toast.error(message);
+    }
+  };
+
+  const onProposeAdjustment = async () => {
+    const amountRaw = adjAmount.replace(/,/g, "").trim();
+    const newAmount = Number(amountRaw);
+    const nextErrors: { line?: string; amount?: string; reason?: string } = {};
+    if (!amountRaw) {
+      nextErrors.amount = "New amount is required.";
+    } else if (!Number.isFinite(newAmount) || newAmount < 0) {
+      nextErrors.amount = "Enter a valid amount (0 or greater).";
+    }
+    if (!adjReason.trim()) {
+      nextErrors.reason = "Reason is required.";
+    }
+    if (adjTarget !== "Baseline" && !adjLineId) {
+      nextErrors.line = "Select a line item.";
+    }
+    setAdjErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+
+    try {
+      await proposeAdjustment({
+        projectId,
+        body: {
+          targetField: adjTarget,
+          lineItemId: adjTarget === "Baseline" ? undefined : adjLineId,
+          newAmount,
+          reason: adjReason.trim(),
+        },
+      }).unwrap();
+      toast.success("Adjustment submitted");
+      setAdjAmount("");
+      setAdjReason("");
+      setAdjErrors({});
+      setShowAdjForm(false);
+    } catch (err) {
+      toast.error(
+        (err as { data?: { message?: string } })?.data?.message ??
+          "Failed to submit adjustment",
+      );
     }
   };
 
@@ -395,12 +470,23 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                 <Label htmlFor="baseline-amount">Amount ({currency})</Label>
                 <Input
                   id="baseline-amount"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
                   value={baselineAmount}
-                  onChange={(e) => setBaselineAmount(e.target.value)}
+                  onChange={(e) => {
+                    setBaselineAmount(e.target.value);
+                    setBaselineError(undefined);
+                  }}
                   placeholder="250000"
-                  className="w-40"
+                  className={cn("w-40", baselineError && "border-destructive")}
+                  aria-invalid={Boolean(baselineError)}
                   disabled={busy}
                 />
+                {baselineError ? (
+                  <p className="text-xs text-destructive">{baselineError}</p>
+                ) : null}
               </div>
               <Button onClick={onCreateBaseline} disabled={busy}>
                 {creatingBaseline ? (
@@ -432,7 +518,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setShowRevisionForm((v) => !v)}
+                onClick={() => {
+                  setShowRevisionForm((v) => !v);
+                  setRevisionErrors({});
+                }}
               >
                 <Plus className="size-3.5" /> Propose revision
               </Button>
@@ -446,21 +535,43 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                   <Label htmlFor="rev-amount">Revised amount ({currency})</Label>
                   <Input
                     id="rev-amount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    inputMode="decimal"
                     value={revisionAmount}
-                    onChange={(e) => setRevisionAmount(e.target.value)}
+                    onChange={(e) => {
+                      setRevisionAmount(e.target.value);
+                      setRevisionErrors((prev) => ({ ...prev, amount: undefined }));
+                    }}
+                    className={cn(revisionErrors.amount && "border-destructive")}
+                    aria-invalid={Boolean(revisionErrors.amount)}
                     disabled={busy}
                   />
+                  {revisionErrors.amount ? (
+                    <p className="text-xs text-destructive">{revisionErrors.amount}</p>
+                  ) : null}
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <Label htmlFor="rev-reason">Reason</Label>
                   <textarea
                     id="rev-reason"
                     value={revisionReason}
-                    onChange={(e) => setRevisionReason(e.target.value)}
+                    onChange={(e) => {
+                      setRevisionReason(e.target.value);
+                      setRevisionErrors((prev) => ({ ...prev, reason: undefined }));
+                    }}
                     rows={2}
                     disabled={busy}
-                    className="w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
+                    aria-invalid={Boolean(revisionErrors.reason)}
+                    className={cn(
+                      "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30",
+                      revisionErrors.reason && "border-destructive",
+                    )}
                   />
+                  {revisionErrors.reason ? (
+                    <p className="text-xs text-destructive">{revisionErrors.reason}</p>
+                  ) : null}
                 </div>
               </div>
               <div className="flex gap-2">
@@ -470,7 +581,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setShowRevisionForm(false)}
+                  onClick={() => {
+                    setShowRevisionForm(false);
+                    setRevisionErrors({});
+                  }}
                   disabled={busy}
                 >
                   Cancel
@@ -539,7 +653,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                                 }
                               }}
                             >
-                              <Check className="size-3.5" />
+                              Approve
                             </Button>
                             <Button
                               size="sm"
@@ -561,7 +675,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                                 }
                               }}
                             >
-                              <X className="size-3.5" />
+                              Reject
                             </Button>
                           </div>
                         ) : (
@@ -590,7 +704,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setShowLineForm((v) => !v)}
+                onClick={() => {
+                  setShowLineForm((v) => !v);
+                  setLineErrors({});
+                }}
               >
                 <Plus className="size-3.5" /> Add line
               </Button>
@@ -623,25 +740,57 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                 <Label>Name</Label>
                 <Input
                   value={lineName}
-                  onChange={(e) => setLineName(e.target.value)}
+                  onChange={(e) => {
+                    setLineName(e.target.value);
+                    setLineErrors((prev) => ({ ...prev, name: undefined }));
+                  }}
+                  className={cn(lineErrors.name && "border-destructive")}
+                  aria-invalid={Boolean(lineErrors.name)}
                   disabled={busy}
                 />
+                {lineErrors.name ? (
+                  <p className="text-xs text-destructive">{lineErrors.name}</p>
+                ) : null}
               </div>
               <div className="space-y-1">
-                <Label>Planned</Label>
+                <Label>Planned *</Label>
                 <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
                   value={linePlanned}
-                  onChange={(e) => setLinePlanned(e.target.value)}
+                  onChange={(e) => {
+                    setLinePlanned(e.target.value);
+                    setLineErrors((prev) => ({ ...prev, planned: undefined }));
+                  }}
+                  className={cn(lineErrors.planned && "border-destructive")}
+                  aria-invalid={Boolean(lineErrors.planned)}
                   disabled={busy}
                 />
+                {lineErrors.planned ? (
+                  <p className="text-xs text-destructive">{lineErrors.planned}</p>
+                ) : null}
               </div>
               <div className="space-y-1">
-                <Label>Actual</Label>
+                <Label>Actual *</Label>
                 <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
                   value={lineActual}
-                  onChange={(e) => setLineActual(e.target.value)}
+                  onChange={(e) => {
+                    setLineActual(e.target.value);
+                    setLineErrors((prev) => ({ ...prev, actual: undefined }));
+                  }}
+                  className={cn(lineErrors.actual && "border-destructive")}
+                  aria-invalid={Boolean(lineErrors.actual)}
                   disabled={busy}
                 />
+                {lineErrors.actual ? (
+                  <p className="text-xs text-destructive">{lineErrors.actual}</p>
+                ) : null}
               </div>
               <div className="sm:col-span-4 flex gap-2">
                 <Button size="sm" onClick={onCreateLine} disabled={busy}>
@@ -650,7 +799,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setShowLineForm(false)}
+                  onClick={() => {
+                    setShowLineForm(false);
+                    setLineErrors({});
+                  }}
                   disabled={busy}
                 >
                   Cancel
@@ -735,7 +887,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setShowAdjForm((v) => !v)}
+                onClick={() => {
+                  setShowAdjForm((v) => !v);
+                  setAdjErrors({});
+                }}
               >
                 <Plus className="size-3.5" /> Request adjustment
               </Button>
@@ -751,7 +906,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                   onValueChange={(v) => {
                     if (!v) return;
                     setAdjTarget(v);
-                    if (v === "Baseline") setAdjLineId("");
+                    if (v === "Baseline") {
+                      setAdjLineId("");
+                      setAdjErrors((prev) => ({ ...prev, line: undefined }));
+                    }
                   }}
                 >
                   <SelectTrigger>
@@ -768,82 +926,97 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                 <div className="space-y-1">
                   <Label>Line item</Label>
                   <Select
-                    value={adjLineId}
+                    value={adjLineId || undefined}
                     onValueChange={(v) => {
-                      if (v) setAdjLineId(v);
+                      if (v) {
+                        setAdjLineId(v);
+                        setAdjErrors((prev) => ({ ...prev, line: undefined }));
+                      }
                     }}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select line" />
+                    <SelectTrigger
+                      className={cn(adjErrors.line && "border-destructive")}
+                      aria-invalid={Boolean(adjErrors.line)}
+                    >
+                      <SelectValue placeholder="Select line">
+                        {selectedAdjLine
+                          ? `${selectedAdjLine.category}: ${selectedAdjLine.itemName}`
+                          : "Select line"}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {data.lineItems.map((line) => (
-                        <SelectItem key={line.id} value={line.id}>
-                          {line.category}: {line.itemName}
-                        </SelectItem>
-                      ))}
+                      {data.lineItems.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          No cost line items yet.
+                        </div>
+                      ) : (
+                        data.lineItems.map((line) => (
+                          <SelectItem key={line.id} value={line.id}>
+                            {line.category}: {line.itemName}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
+                  {adjErrors.line ? (
+                    <p className="text-xs text-destructive">{adjErrors.line}</p>
+                  ) : selectedAdjLine ? (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      Planned {money(selectedAdjLine.planned, currency)} · Actual{" "}
+                      {money(selectedAdjLine.actual, currency)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Select a line to see its planned and actual amounts.
+                    </p>
+                  )}
                 </div>
               )}
               <div className="space-y-1">
-                <Label>New amount ({currency})</Label>
+                <Label>New amount ({currency}) *</Label>
                 <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
                   value={adjAmount}
-                  onChange={(e) => setAdjAmount(e.target.value)}
+                  onChange={(e) => {
+                    setAdjAmount(e.target.value);
+                    setAdjErrors((prev) => ({ ...prev, amount: undefined }));
+                  }}
+                  className={cn(adjErrors.amount && "border-destructive")}
+                  aria-invalid={Boolean(adjErrors.amount)}
                   disabled={busy}
                 />
+                {adjErrors.amount ? (
+                  <p className="text-xs text-destructive">{adjErrors.amount}</p>
+                ) : null}
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <Label>Reason</Label>
                 <textarea
                   value={adjReason}
-                  onChange={(e) => setAdjReason(e.target.value)}
+                  onChange={(e) => {
+                    setAdjReason(e.target.value);
+                    setAdjErrors((prev) => ({ ...prev, reason: undefined }));
+                  }}
                   rows={2}
                   disabled={busy}
-                  className="w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
+                  aria-invalid={Boolean(adjErrors.reason)}
+                  className={cn(
+                    "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30",
+                    adjErrors.reason && "border-destructive",
+                  )}
                 />
+                {adjErrors.reason ? (
+                  <p className="text-xs text-destructive">{adjErrors.reason}</p>
+                ) : null}
               </div>
               <div className="sm:col-span-2 flex gap-2">
                 <Button
                   size="sm"
                   disabled={busy}
-                  onClick={async () => {
-                    const newAmount = Number(adjAmount.replace(/,/g, ""));
-                    if (!Number.isFinite(newAmount) || newAmount < 0) {
-                      toast.error("Enter a valid amount");
-                      return;
-                    }
-                    if (!adjReason.trim()) {
-                      toast.error("Reason is required");
-                      return;
-                    }
-                    if (adjTarget !== "Baseline" && !adjLineId) {
-                      toast.error("Select a line item");
-                      return;
-                    }
-                    try {
-                      await proposeAdjustment({
-                        projectId,
-                        body: {
-                          targetField: adjTarget,
-                          lineItemId:
-                            adjTarget === "Baseline" ? undefined : adjLineId,
-                          newAmount,
-                          reason: adjReason.trim(),
-                        },
-                      }).unwrap();
-                      toast.success("Adjustment submitted");
-                      setAdjAmount("");
-                      setAdjReason("");
-                      setShowAdjForm(false);
-                    } catch (err) {
-                      toast.error(
-                        (err as { data?: { message?: string } })?.data
-                          ?.message ?? "Failed to submit adjustment",
-                      );
-                    }
-                  }}
+                  onClick={() => void onProposeAdjustment()}
                 >
                   {proposingAdj ? (
                     <Loader2 className="size-4 animate-spin" />
@@ -854,7 +1027,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setShowAdjForm(false)}
+                  onClick={() => {
+                    setShowAdjForm(false);
+                    setAdjErrors({});
+                  }}
                   disabled={busy}
                 >
                   Cancel
@@ -925,7 +1101,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                                 }
                               }}
                             >
-                              <Check className="size-3.5" />
+                              Approve
                             </Button>
                             <Button
                               size="sm"
@@ -947,7 +1123,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                                 }
                               }}
                             >
-                              <X className="size-3.5" />
+                              Reject
                             </Button>
                           </div>
                         ) : (
