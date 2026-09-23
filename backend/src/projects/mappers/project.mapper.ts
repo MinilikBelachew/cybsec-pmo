@@ -175,6 +175,7 @@ export function toApiProject(
     secondaryPmId: project.secondaryPmId,
     brandingProfileId: project.brandingProfileId,
     status: STATUS_FROM_PRISMA[project.status],
+    crmOpportunityId: project.crmOpportunityId ?? null,
     createdBy: project.createdBy,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,

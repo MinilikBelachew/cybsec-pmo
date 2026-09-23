@@ -73,6 +73,7 @@ import {
   AlertTriangle,
   CircleAlert,
   Wallet,
+  FileSignature,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -99,6 +100,7 @@ import { ImportTasksDialog } from "../tasks/import-tasks-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
+import { ProjectCharterPanel } from "./project-charter-panel";
 import { ActionPointsPanel } from "./action-points-panel";
 import { MeetingsPanel } from "./meetings-panel";
 import {
@@ -130,6 +132,7 @@ type View =
   | "milestones"
   | "team"
   | "docs"
+  | "charter"
   | "actions"
   | "meetings"
   | "risks"
@@ -187,6 +190,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "milestones", label: "Milestones", icon: Milestone },
   { id: "team", label: "Team", icon: Users2 },
   { id: "docs", label: "Documents", icon: FolderOpen },
+  { id: "charter", label: "Charter", icon: FileSignature },
   { id: "actions", label: "Action points", icon: CheckSquare },
   { id: "meetings", label: "Meetings & MoM", icon: MessageSquareText },
   { id: "risks", label: "Risks", icon: AlertTriangle },
@@ -294,7 +298,7 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam, canViewFinancials, canEditFinancials } =
+  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam, canViewFinancials, canEditFinancials, canViewCharter, canEditCharter, canApproveCharter } =
     useModulePermissions();
   const canManageProjectTeam = canEditProjects && canEditTeam;
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
@@ -591,6 +595,9 @@ export function ProjectWorkspace() {
     if (!canViewFinancials) {
       base = base.filter((view) => view.id !== "financials");
     }
+    if (!canViewCharter) {
+      base = base.filter((view) => view.id !== "charter");
+    }
     const ordered = orderViewsForMethodology(base, project?.methodology);
     if (user?.backendRoleCode !== "engineer") return ordered;
     return ordered.map((view) =>
@@ -598,7 +605,7 @@ export function ProjectWorkspace() {
         ? { ...view, label: "Minutes of Meeting" }
         : view,
     );
-  }, [canViewProjectAudit, canViewFinancials, project?.methodology, user?.backendRoleCode]);
+  }, [canViewProjectAudit, canViewFinancials, canViewCharter, project?.methodology, user?.backendRoleCode]);
 
   const methodology = resolveMethodology(project?.methodology);
   const methodologyDefaultView = getMethodologyDefaultView(methodology);
@@ -615,7 +622,8 @@ export function ProjectWorkspace() {
       !!viewParam &&
       VIEWS.some((v) => v.id === viewParam) &&
       (viewParam !== "audit" || canViewProjectAudit) &&
-      (viewParam !== "financials" || canViewFinancials);
+      (viewParam !== "financials" || canViewFinancials) &&
+      (viewParam !== "charter" || canViewCharter);
     setActiveView(canOpenView ? (viewParam as View) : methodologyDefaultView);
   }, [
     project?.id,
@@ -624,6 +632,7 @@ export function ProjectWorkspace() {
     searchParams,
     canViewProjectAudit,
     canViewFinancials,
+    canViewCharter,
   ]);
 
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
@@ -1573,6 +1582,16 @@ export function ProjectWorkspace() {
             projectId={id}
             canUpload={canEditProjects}
           />
+        )}
+
+        {activeView === "charter" && canViewCharter && (
+          <div className="h-full min-h-0">
+            <ProjectCharterPanel
+              projectId={id}
+              canEdit={canEditCharter}
+              canApprove={canApproveCharter}
+            />
+          </div>
         )}
 
         {activeView === "actions" && (

@@ -1016,6 +1016,16 @@ function ProjectGridCard({
               <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", PROJECT_DEPT_COLOR[p.department?.name ?? ""] || DEFAULT_PROJECT_DEPT_COLOR)}>
                 {p.department?.name || "Direct"}
               </span>
+              {p.crmOpportunityId ? (
+                <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-800 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200">
+                  From Zoho
+                </span>
+              ) : null}
+              {p.hasPendingCharter || p.charterStatus === "Draft" ? (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                  Charter pending
+                </span>
+              ) : null}
             </div>
 
             <h3 className="truncate text-base font-bold leading-tight text-foreground">{p.name}</h3>

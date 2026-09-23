@@ -70,6 +70,9 @@ export interface Project {
   secondaryPmId: string | null;
   brandingProfileId?: string | null;
   status: ProjectStatus;
+  crmOpportunityId?: string | null;
+  charterStatus?: string | null;
+  hasPendingCharter?: boolean;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

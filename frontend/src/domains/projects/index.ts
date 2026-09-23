@@ -17,6 +17,12 @@ export * from "./api/mpp-import.api";
 export * from "./api/imports.api";
 export * from "./api/project-documents.api";
 export * from "./api/meetings.api";
+export * from "./api/charters.api";
+export type {
+  ProjectCharter,
+  UpdateProjectCharterPayload,
+  ApproveProjectCharterPayload,
+} from "./types/charter.types";
 export type {
   WorkspaceDocument,
   WorkspaceDocumentCategory,

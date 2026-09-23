@@ -16,6 +16,9 @@ import type {
   ZohoOpportunitySyncResult,
   ZohoStatusResponse,
   ZohoTestResult,
+  ZohoBooksStatusResponse,
+  ZohoInvoiceSyncResult,
+  ZohoInvoiceRow,
 } from "../types/integrations.types";
 
 
@@ -258,7 +261,7 @@ export const integrationsApi = api.injectEndpoints({
         url: "/integrations/zoho/sync/opportunities",
         method: "POST",
       }),
-      invalidatesTags: ["ZohoStatus", "ZohoOpportunities", "FailedSyncRecords"],
+      invalidatesTags: ["ZohoStatus", "ZohoOpportunities", "FailedSyncRecords", "Projects"],
     }),
 
     getZohoOpportunities: builder.query<ZohoOpportunityRow[], { limit?: number } | void>({
@@ -267,6 +270,41 @@ export const integrationsApi = api.injectEndpoints({
         params: { limit: params?.limit ?? 50 },
       }),
       providesTags: ["ZohoOpportunities"],
+    }),
+
+    getZohoBooksStatus: builder.query<ZohoBooksStatusResponse, void>({
+      query: () => ({
+        url: "/integrations/zoho/books/status",
+      }),
+      providesTags: ["ZohoBooksStatus"],
+    }),
+
+    testZohoBooksConnection: builder.mutation<ZohoTestResult, void>({
+      query: () => ({
+        url: "/integrations/zoho/books/test",
+        method: "POST",
+      }),
+      invalidatesTags: ["ZohoBooksStatus"],
+    }),
+
+    syncZohoInvoices: builder.mutation<ZohoInvoiceSyncResult, void>({
+      query: () => ({
+        url: "/integrations/zoho/books/sync/invoices",
+        method: "POST",
+      }),
+      invalidatesTags: [
+        "ZohoBooksStatus",
+        "ZohoInvoices",
+        "FailedSyncRecords",
+      ],
+    }),
+
+    getZohoInvoices: builder.query<ZohoInvoiceRow[], { limit?: number } | void>({
+      query: (params) => ({
+        url: "/integrations/zoho/books/invoices",
+        params: { limit: params?.limit ?? 50 },
+      }),
+      providesTags: ["ZohoInvoices"],
     }),
   }),
   overrideExisting: process.env.NODE_ENV === "development",
@@ -296,4 +334,8 @@ export const {
   useTestZohoConnectionMutation,
   useSyncZohoOpportunitiesMutation,
   useGetZohoOpportunitiesQuery,
+  useGetZohoBooksStatusQuery,
+  useTestZohoBooksConnectionMutation,
+  useSyncZohoInvoicesMutation,
+  useGetZohoInvoicesQuery,
 } = integrationsApi;

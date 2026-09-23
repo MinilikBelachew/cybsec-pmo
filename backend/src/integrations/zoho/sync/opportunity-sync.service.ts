@@ -11,15 +11,19 @@ import {
   mapZohoDealToOpportunity,
   ZohoDealRecord,
 } from '../zoho.mapper';
+import { ClosedWonProvisioningService } from './closed-won-provisioning.service';
 
 export type ZohoOpportunitySyncResult = {
   fetched: number;
   upserted: number;
   failed: number;
+  provisioned: number;
+  provisionSkipped: number;
+  provisionFailed: number;
 };
 
 const DEAL_FIELDS =
-  'id,Deal_Name,Stage,Amount,Account_Name';
+  'id,Deal_Name,Stage,Amount,Account_Name,Description,Closing_Date';
 
 @Injectable()
 export class OpportunitySyncService {
@@ -28,6 +32,7 @@ export class OpportunitySyncService {
   constructor(
     private readonly zohoHttp: ZohoHttpClient,
     private readonly prisma: PrismaService,
+    private readonly closedWonProvisioning: ClosedWonProvisioningService,
   ) {}
 
   async syncOpportunities(): Promise<ZohoOpportunitySyncResult> {
@@ -38,12 +43,15 @@ export class OpportunitySyncService {
 
     let upserted = 0;
     let failed = 0;
+    let provisioned = 0;
+    let provisionSkipped = 0;
+    let provisionFailed = 0;
     const now = new Date();
 
     for (const deal of deals) {
       const mapped = mapZohoDealToOpportunity(deal);
       try {
-        await this.prisma.crmOpportunity.upsert({
+        const row = await this.prisma.crmOpportunity.upsert({
           where: { zohoOpportunityId: mapped.zohoOpportunityId },
           create: {
             zohoOpportunityId: mapped.zohoOpportunityId,
@@ -69,6 +77,18 @@ export class OpportunitySyncService {
         });
         upserted += 1;
         await this.resolveFailedSync(mapped.zohoOpportunityId);
+
+        const provision = await this.closedWonProvisioning.provisionIfNeeded(
+          row.id,
+          mapped,
+        );
+        if (provision.status === 'created') {
+          provisioned += 1;
+        } else if (provision.status === 'failed') {
+          provisionFailed += 1;
+        } else {
+          provisionSkipped += 1;
+        }
       } catch (err) {
         failed += 1;
         const message =
@@ -80,7 +100,14 @@ export class OpportunitySyncService {
       }
     }
 
-    return { fetched: deals.length, upserted, failed };
+    return {
+      fetched: deals.length,
+      upserted,
+      failed,
+      provisioned,
+      provisionSkipped,
+      provisionFailed,
+    };
   }
 
   private async recordFailedSync(

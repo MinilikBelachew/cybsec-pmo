@@ -56,6 +56,7 @@ import fxConfig from './fx/config/fx.config';
 import { FxModule } from './fx/fx.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { BudgetModule } from './budget/budget.module';
+import { ChartersModule } from './charters/charters.module';
 
 @Module({
   imports: [
@@ -156,6 +157,7 @@ import { BudgetModule } from './budget/budget.module';
     MeetingsModule,
     BudgetModule,
     BrandingModule,
+    ChartersModule,
     ScheduleModule.forRoot(),
   ],
 })

@@ -1758,21 +1758,31 @@ model PushSubscription {
 // ─────────────────────────────────────────
 
 model ProjectCharter {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId        String    @map("project_id") @db.Uuid
-  customerId       String?   @map("customer_id") @db.Uuid
-  sourceOrderId    String?   @unique @map("source_order_id") @db.VarChar(100)
-  status           String    @default("Draft") @db.VarChar(20)
-  scopeSummary     String?   @map("scope_summary")
-  valueSnapshot    Decimal?  @map("value_snapshot") @db.Decimal(15, 2)
-  startDate        DateTime? @map("start_date") @db.Date
-  endDate          DateTime? @map("end_date") @db.Date
-  version          Int       @default(1)
-  incompleteFields Json?     @map("incomplete_fields")
-  approvedBy       String?   @map("approved_by") @db.Uuid
-  approvedAt       DateTime? @map("approved_at") @db.Timestamptz
-  s3PdfKey         String?   @map("s3_pdf_key") @db.VarChar(512)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId              String    @map("project_id") @db.Uuid
+  customerId             String?   @map("customer_id") @db.Uuid
+  sourceOrderId          String?   @unique @map("source_order_id") @db.VarChar(100)
+  status                 String    @default("Draft") @db.VarChar(20)
+  purpose                String?
+  successCriteria        String?   @map("success_criteria")
+  scopeSummary           String?   @map("scope_summary")
+  scopeExclusions        String?   @map("scope_exclusions")
+  keyDeliverables        String?   @map("key_deliverables")
+  highLevelRisks         String?   @map("high_level_risks")
+  milestoneSchedule      String?   @map("milestone_schedule")
+  valueSnapshot          Decimal?  @map("value_snapshot") @db.Decimal(15, 2)
+  resourceEstimates      String?   @map("resource_estimates")
+  stakeholders           String?
+  pmAuthority            String?   @map("pm_authority")
+  startDate              DateTime? @map("start_date") @db.Date
+  endDate                DateTime? @map("end_date") @db.Date
+  version                Int       @default(1)
+  incompleteFields       Json?     @map("incomplete_fields")
+  approvedBy             String?   @map("approved_by") @db.Uuid
+  approvedAt             DateTime? @map("approved_at") @db.Timestamptz
+  approverSignatureName  String?   @map("approver_signature_name") @db.VarChar(255)
+  s3PdfKey               String?   @map("s3_pdf_key") @db.VarChar(512)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   customer Customer? @relation(fields: [customerId], references: [id])

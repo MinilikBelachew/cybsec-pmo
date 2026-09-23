@@ -25,6 +25,9 @@ import {
   ZohoOpportunitySyncResultDto,
   ZohoStatusDto,
   ZohoTestResultDto,
+  ZohoBooksStatusDto,
+  ZohoInvoiceSyncResultDto,
+  ZohoInvoiceDto,
 } from './dto/zoho.dto';
 
 @ApiBearerAuth()
@@ -73,5 +76,40 @@ export class ZohoController {
     return this.zohoConnection.listOpportunities(
       limit ? Number(limit) : 50,
     );
+  }
+
+  @CheckModulePermission('integrations', 'view')
+  @Get('books/status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoBooksStatusDto })
+  async booksStatus(): Promise<ZohoBooksStatusDto> {
+    return this.zohoConnection.getBooksStatus();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('books/test')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoTestResultDto })
+  async booksTest(): Promise<ZohoTestResultDto> {
+    return this.zohoConnection.testBooksConnection();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('books/sync/invoices')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoInvoiceSyncResultDto })
+  async syncInvoices(): Promise<ZohoInvoiceSyncResultDto> {
+    return this.zohoConnection.syncInvoices();
+  }
+
+  @CheckModulePermission('integrations', 'view')
+  @Get('books/invoices')
+  @HttpCode(HttpStatus.OK)
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiOkResponse({ type: [ZohoInvoiceDto] })
+  async listInvoices(
+    @Query('limit') limit?: string,
+  ): Promise<ZohoInvoiceDto[]> {
+    return this.zohoConnection.listInvoices(limit ? Number(limit) : 50);
   }
 }

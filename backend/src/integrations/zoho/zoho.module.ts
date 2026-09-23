@@ -4,6 +4,8 @@ import { PrismaModule } from '../../database/prisma.module';
 import zohoConfig from './config/zoho.config';
 import { ZohoHttpClient } from './client/zoho-http.client';
 import { OpportunitySyncService } from './sync/opportunity-sync.service';
+import { ClosedWonProvisioningService } from './sync/closed-won-provisioning.service';
+import { InvoiceSyncService } from './sync/invoice-sync.service';
 import { ZohoConnectionService } from './zoho-connection.service';
 import { ZohoController } from './zoho.controller';
 
@@ -17,6 +19,8 @@ export class ZohoModule {
       providers: [
         ZohoHttpClient,
         OpportunitySyncService,
+        ClosedWonProvisioningService,
+        InvoiceSyncService,
         ZohoConnectionService,
       ],
       exports: [ZohoConnectionService, ZohoHttpClient],

@@ -48,7 +48,7 @@ export const METHODOLOGY_PLAN: Record<ProjectMethodology, MethodologyPlanProfile
   },
 };
 
-const SHARED_VIEWS = ["team", "docs", "actions", "meetings", "risks", "issues", "financials", "audit"] as const;
+const SHARED_VIEWS = ["team", "docs", "charter", "actions", "meetings", "risks", "issues", "financials", "audit"] as const;
 
 export function resolveMethodology(
   value: string | null | undefined,
