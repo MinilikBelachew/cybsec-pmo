@@ -115,8 +115,8 @@ export class DashboardService {
             }),
           ]);
 
-          const empSum = Number(employeeCosts._sum.totalCost ?? 0) / 1000;
-          const itemSum = Number(lineItems._sum.actual ?? 0) / 1000;
+          const empSum = Number(employeeCosts._sum.totalCost ?? 0);
+          const itemSum = Number(lineItems._sum.actual ?? 0);
           totalSpent = empSum > 0 ? empSum : itemSum;
         }
       }
@@ -317,14 +317,14 @@ export class DashboardService {
       doneMilestones.map((m) => [m.projectId, m._count._all]),
     );
     const employeeSpentMap = new Map(
-      employeeCosts.map((c) => [c.projectId, Number(c._sum.totalCost ?? 0) / 1000]),
+      employeeCosts.map((c) => [c.projectId, Number(c._sum.totalCost ?? 0)]),
     );
 
     const lineItemSpentMap = new Map<string, number>();
     for (const item of lineItems) {
       const projId = budgetIdToProjectId.get(item.budgetId);
       if (projId) {
-        lineItemSpentMap.set(projId, Number(item._sum.actual ?? 0) / 1000);
+        lineItemSpentMap.set(projId, Number(item._sum.actual ?? 0));
       }
     }
 

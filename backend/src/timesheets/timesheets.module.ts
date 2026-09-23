@@ -8,6 +8,7 @@ import { TimesheetApprovalService } from './timesheet-approval.service';
 import { TimesheetEscalationService } from './timesheet-escalation.service';
 import { TimesheetEscalationScheduler } from './timesheet-escalation.scheduler';
 import { TimesheetsService } from './timesheets.service';
+import { TimesheetPayrollService } from './timesheet-payroll.service';
 
 @Module({
   imports: [PrismaModule, CaslModule, NotificationsModule, SettingsModule],
@@ -17,7 +18,8 @@ import { TimesheetsService } from './timesheets.service';
     TimesheetApprovalService,
     TimesheetEscalationService,
     TimesheetEscalationScheduler,
+    TimesheetPayrollService,
   ],
-  exports: [TimesheetsService, TimesheetApprovalService],
+  exports: [TimesheetsService, TimesheetApprovalService, TimesheetPayrollService],
 })
 export class TimesheetsModule {}

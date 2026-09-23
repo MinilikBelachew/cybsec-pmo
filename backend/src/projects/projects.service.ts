@@ -392,14 +392,14 @@ export class ProjectsService {
     const employeeSpentMap = new Map(
       employeeCostGroups.map((row) => [
         row.projectId,
-        Number(row._sum.totalCost ?? 0) / 1000,
+        Number(row._sum.totalCost ?? 0),
       ]),
     );
     const lineItemSpentMap = new Map<string, number>();
     for (const lineItem of budgetLineItems) {
       const projectId = lineItem.budget.projectId;
       const current = lineItemSpentMap.get(projectId) ?? 0;
-      lineItemSpentMap.set(projectId, current + Number(lineItem.actual) / 1000);
+      lineItemSpentMap.set(projectId, current + Number(lineItem.actual));
     }
 
     const resolveBudgetSpent = (projectId: string) => {

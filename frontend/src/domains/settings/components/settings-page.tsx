@@ -6,17 +6,19 @@ import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAuth } from "@/domains/auth";
-import { Users, Settings, ShieldAlert, Archive, Briefcase, Activity, Palette } from "lucide-react";
+import { Users, Settings, ShieldAlert, Archive, Briefcase, Activity, Palette, Calculator } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
 import { BreakGlassSection } from "./break-glass-section";
 import { SessionTimeoutSection } from "./session-timeout-section";
 import { TimesheetEscalationSection } from "./timesheet-escalation-section";
+import { CostFormulaSection } from "./cost-formula-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
 import { AllocationPoliciesSection } from "./allocation-policies-section";
 import { HealthRulesSection } from "./health-rules-section";
 import { BrandingProfilesSection } from "./branding-profiles-section";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
 type SettingsTab =
   | "profile"
@@ -25,11 +27,13 @@ type SettingsTab =
   | "audit"
   | "allocation"
   | "health"
-  | "branding";
+  | "branding"
+  | "cost";
 
 export function SettingsPage() {
   const ability = useAppAbility();
   const { user } = useAuth();
+  const { canViewFinancials, canEditFinancials } = useModulePermissions();
   const canManageUsers = ability?.can("read", "User") ?? false;
   const canManageSecurity =
     user?.backendRoleCode === "super_admin" ||
@@ -40,6 +44,7 @@ export function SettingsPage() {
   // Branding = report letterhead: Settings admins or report managers (PMO lead).
   const canManageBranding =
     canManageSecurity || (ability?.can("manage", "Report") ?? false);
+  const canViewCostFormula = canViewFinancials;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     canManageUsers ? "users" : "profile",
@@ -109,6 +114,21 @@ export function SettingsPage() {
           >
             <Briefcase className="size-4" />
             Resource policies
+          </button>
+        )}
+        {canViewCostFormula && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("cost")}
+            className={cn(
+              "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
+              activeTab === "cost"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Calculator className="size-4" />
+            Cost formula
           </button>
         )}
         {canManageHealthRules && (
@@ -187,6 +207,14 @@ export function SettingsPage() {
         <AllocationPoliciesSection
           onSuccess={notifySuccess}
           onError={notifyError}
+        />
+      )}
+
+      {activeTab === "cost" && canViewCostFormula && (
+        <CostFormulaSection
+          onSuccess={notifySuccess}
+          onError={notifyError}
+          canEdit={canEditFinancials}
         />
       )}
 

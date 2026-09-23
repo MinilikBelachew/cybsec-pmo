@@ -8,6 +8,8 @@ import type {
   UpdateSessionSecurityPayload,
   TimesheetEscalationSettings,
   UpdateTimesheetEscalationPayload,
+  CostFormulaSettings,
+  UpdateCostFormulaPayload,
 } from "../types/settings.types";
 
 export const settingsApi = api.injectEndpoints({
@@ -87,6 +89,35 @@ export const settingsApi = api.injectEndpoints({
       }),
       invalidatesTags: ["Settings", "Timesheets", "TimesheetApprovals"],
     }),
+
+    getCostFormulaSettings: builder.query<CostFormulaSettings, void>({
+      query: () => ({ url: "/settings/cost-formula" }),
+      providesTags: ["Settings"],
+    }),
+
+    updateCostFormulaSettings: builder.mutation<
+      CostFormulaSettings,
+      UpdateCostFormulaPayload
+    >({
+      query: (body) => ({
+        url: "/settings/cost-formula",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
+
+    approveCostFormulaSettings: builder.mutation<
+      CostFormulaSettings,
+      UpdateCostFormulaPayload
+    >({
+      query: (body) => ({
+        url: "/settings/cost-formula/approve",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
   }),
 });
 
@@ -100,4 +131,7 @@ export const {
   useUpdateSessionSecuritySettingsMutation,
   useGetTimesheetEscalationSettingsQuery,
   useUpdateTimesheetEscalationSettingsMutation,
+  useGetCostFormulaSettingsQuery,
+  useUpdateCostFormulaSettingsMutation,
+  useApproveCostFormulaSettingsMutation,
 } = settingsApi;

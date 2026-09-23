@@ -76,7 +76,9 @@ const TEMPLATES: ReportTemplate[] = [
     name: "Budget Adherence Report",
     description: "Planned vs actual costs, burn rate, and variance alerts.",
     icon: Wallet,
-    tags: ["Finance", "Coming soon"],
+    href: "/dashboard/budget",
+    tags: ["Finance"],
+    live: true,
   },
   {
     id: "portfolio",

@@ -23,6 +23,8 @@ export function useModulePermissions() {
       canEditProjects: hasModulePermission(permissions, "projects", "edit"),
       canApproveProjects: hasModulePermission(permissions, "projects", "approve"),
       canViewFinancials: hasModulePermission(permissions, "financials", "view"),
+      canEditFinancials: hasModulePermission(permissions, "financials", "edit"),
+      canViewRates: hasModulePermission(permissions, "financials", "view_rates"),
       canImportProjects: hasModulePermission(permissions, "project_import", "import"),
       canExportProjects: hasModulePermission(permissions, "project_export", "export"),
       canViewProjectTemplates: hasModulePermission(permissions, "project_templates", "view"),
