@@ -177,7 +177,7 @@ export class ProjectBudgetDto {
   adjustments: BudgetAdjustmentDto[];
 
   @ApiPropertyOptional({
-    description: 'Project commercial value (fallback revenue / expected)',
+    description: 'Project commercial value (budget fallback when no baseline)',
     nullable: true,
   })
   projectValue: number | null;

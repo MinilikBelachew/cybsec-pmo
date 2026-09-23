@@ -16,8 +16,8 @@ describe('computeBudgetAmounts', () => {
     expect(result.currentBudgetAmount).toBe(120_000);
     expect(result.expectedCost).toBe(120_000);
     expect(result.actualCost).toBe(45_000);
-    expect(result.revenue).toBe(200_000);
-    expect(result.margin).toBe(155_000);
+    expect(result.revenue).toBe(0);
+    expect(result.margin).toBe(-45_000);
     expect(result.currencyBasis).toBe('budget');
   });
 
@@ -39,8 +39,8 @@ describe('computeBudgetAmounts', () => {
     expect(result.currencyBasis).toBe('project_value');
   });
 
-  it('prefers invoice total for revenue when present', () => {
-    const result = computeBudgetAmounts({
+  it('uses invoice total for revenue and zero when no invoices', () => {
+    const withInvoices = computeBudgetAmounts({
       baselineAmount: 80_000,
       approvedRevisionAmount: null,
       plannedLineTotal: 0,
@@ -51,7 +51,21 @@ describe('computeBudgetAmounts', () => {
       invoiceTotal: 90_000,
     });
 
-    expect(result.revenue).toBe(90_000);
-    expect(result.margin).toBe(70_000);
+    expect(withInvoices.revenue).toBe(90_000);
+    expect(withInvoices.margin).toBe(70_000);
+
+    const withoutInvoices = computeBudgetAmounts({
+      baselineAmount: 80_000,
+      approvedRevisionAmount: null,
+      plannedLineTotal: 0,
+      employeeCostTotal: 0,
+      lineItemActualTotal: 20_000,
+      otherActualTotal: 20_000,
+      projectValue: 100_000,
+      invoiceTotal: 0,
+    });
+
+    expect(withoutInvoices.revenue).toBe(0);
+    expect(withoutInvoices.margin).toBe(-20_000);
   });
 });
