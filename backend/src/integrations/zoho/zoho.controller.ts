@@ -1,0 +1,77 @@
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import { AuthGuard } from '@nestjs/passport';
+import { CaslAbilityInterceptor } from '../../casl/casl-ability.interceptor';
+import { CheckModulePermission } from '../../casl/decorators/check-module-permission.decorator';
+import { CaslGuard } from '../../casl/casl.guard';
+import { ModulePermissionGuard } from '../../casl/module-permission.guard';
+import { ZohoConnectionService } from './zoho-connection.service';
+import {
+  ZohoOpportunityDto,
+  ZohoOpportunitySyncResultDto,
+  ZohoStatusDto,
+  ZohoTestResultDto,
+} from './dto/zoho.dto';
+
+@ApiBearerAuth()
+@UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
+@UseInterceptors(CaslAbilityInterceptor)
+@ApiTags('Integrations')
+@Controller({
+  path: 'integrations/zoho',
+  version: '1',
+})
+export class ZohoController {
+  constructor(private readonly zohoConnection: ZohoConnectionService) {}
+
+  @CheckModulePermission('integrations', 'view')
+  @Get('status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoStatusDto })
+  async status(): Promise<ZohoStatusDto> {
+    return this.zohoConnection.getStatus();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('test')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoTestResultDto })
+  async test(): Promise<ZohoTestResultDto> {
+    return this.zohoConnection.testConnection();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('sync/opportunities')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoOpportunitySyncResultDto })
+  async syncOpportunities(): Promise<ZohoOpportunitySyncResultDto> {
+    return this.zohoConnection.syncOpportunities();
+  }
+
+  @CheckModulePermission('integrations', 'view')
+  @Get('opportunities')
+  @HttpCode(HttpStatus.OK)
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiOkResponse({ type: [ZohoOpportunityDto] })
+  async listOpportunities(
+    @Query('limit') limit?: string,
+  ): Promise<ZohoOpportunityDto[]> {
+    return this.zohoConnection.listOpportunities(
+      limit ? Number(limit) : 50,
+    );
+  }
+}

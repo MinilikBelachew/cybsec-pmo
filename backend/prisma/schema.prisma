@@ -1106,6 +1106,8 @@ model Invoice {
 model CrmOpportunity {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   zohoOpportunityId String    @unique @map("zoho_opportunity_id") @db.VarChar(100)
+  name              String?   @db.VarChar(255)
+  accountName       String?   @map("account_name") @db.VarChar(255)
   expectedRevenue   Decimal?  @map("expected_revenue") @db.Decimal(15, 2)
   stage             String?   @db.VarChar(100)
   lastWritebackAt   DateTime? @map("last_writeback_at") @db.Timestamptz

@@ -10,6 +10,7 @@ import { SecurityAlertsConfig } from '../auth/config/security-alerts.config';
 import { BreakGlassConfig } from '../auth/config/break-glass.config';
 import { MppImportConfig } from '../mpp-import/config/mpp-import-config.type';
 import { KekaConfig } from '../integrations/keka/config/keka-config.type';
+import { ZohoConfig } from '../integrations/zoho/config/zoho-config.type';
 import { FxConfig } from '../fx/config/fx-config.type';
 
 export type AllConfigType = {
@@ -25,6 +26,7 @@ export type AllConfigType = {
   breakGlass: BreakGlassConfig;
   mppImport: MppImportConfig;
   keka: KekaConfig;
+  zoho: ZohoConfig;
   fx: FxConfig;
 };
 

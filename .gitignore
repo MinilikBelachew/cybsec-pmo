@@ -32,3 +32,4 @@
 /scripts/.uploaded-links.json
 /scripts/.uploaded-drive-links-phase*.json
 /scripts/.google-sheet-id
+**/node_modules/

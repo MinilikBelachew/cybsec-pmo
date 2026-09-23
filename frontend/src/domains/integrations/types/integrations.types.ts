@@ -181,3 +181,34 @@ export type KekaConnectionTestResult = {
   message: string;
   testedAt: string;
 };
+
+export type ZohoStatusResponse = {
+  configured: boolean;
+  dc: string;
+  accountsBaseUrl: string | null;
+  apiBaseUrl: string | null;
+  opportunityCount: number;
+  lastSyncedAt: string | null;
+  openFailureCount: number;
+};
+
+export type ZohoTestResult = {
+  ok: boolean;
+  message: string;
+};
+
+export type ZohoOpportunitySyncResult = {
+  fetched: number;
+  upserted: number;
+  failed: number;
+};
+
+export type ZohoOpportunityRow = {
+  id: string;
+  zohoOpportunityId: string;
+  name: string | null;
+  accountName: string | null;
+  expectedRevenue: string | null;
+  stage: string | null;
+  syncedAt: string;
+};
