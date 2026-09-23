@@ -12,6 +12,10 @@ import type {
   RetryKekaSyncResult,
   TimesheetReconcileResponse,
   UpdateKekaConnectionBody,
+  ZohoOpportunityRow,
+  ZohoOpportunitySyncResult,
+  ZohoStatusResponse,
+  ZohoTestResult,
 } from "../types/integrations.types";
 
 
@@ -233,6 +237,37 @@ export const integrationsApi = api.injectEndpoints({
         }
       },
     }),
+
+    getZohoStatus: builder.query<ZohoStatusResponse, void>({
+      query: () => ({
+        url: "/integrations/zoho/status",
+      }),
+      providesTags: ["ZohoStatus"],
+    }),
+
+    testZohoConnection: builder.mutation<ZohoTestResult, void>({
+      query: () => ({
+        url: "/integrations/zoho/test",
+        method: "POST",
+      }),
+      invalidatesTags: ["ZohoStatus"],
+    }),
+
+    syncZohoOpportunities: builder.mutation<ZohoOpportunitySyncResult, void>({
+      query: () => ({
+        url: "/integrations/zoho/sync/opportunities",
+        method: "POST",
+      }),
+      invalidatesTags: ["ZohoStatus", "ZohoOpportunities", "FailedSyncRecords"],
+    }),
+
+    getZohoOpportunities: builder.query<ZohoOpportunityRow[], { limit?: number } | void>({
+      query: (params) => ({
+        url: "/integrations/zoho/opportunities",
+        params: { limit: params?.limit ?? 50 },
+      }),
+      providesTags: ["ZohoOpportunities"],
+    }),
   }),
   overrideExisting: process.env.NODE_ENV === "development",
 });
@@ -257,4 +292,8 @@ export const {
   useTriggerKekaProjectsSyncMutation,
   useTriggerKekaFullSyncMutation,
   useReconcileKekaTimesheetsMutation,
+  useGetZohoStatusQuery,
+  useTestZohoConnectionMutation,
+  useSyncZohoOpportunitiesMutation,
+  useGetZohoOpportunitiesQuery,
 } = integrationsApi;

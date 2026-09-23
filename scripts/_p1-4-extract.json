@@ -1,0 +1,1198 @@
+{
+  "covOut": [
+    {
+      "phase": "1 - Foundation",
+      "uc": "UC-01",
+      "name": "Project Creation & Setup",
+      "assessment": "Partially Covered",
+      "missing": "Objectives, departments, primary/secondary PM assignment, mandatory-field validation, project status workflow, milestone configuration and exception handling are not individually committed.",
+      "priority": "Critical"
+    },
+    {
+      "phase": "1 - Foundation",
+      "uc": "UC-02",
+      "name": "Task Assignment & Management",
+      "assessment": "Partially Covered",
+      "missing": "Task fields, notifications, resource availability validation, sub-tasks, attachments, comments, priorities, workflow states and PM validation are not detailed.",
+      "priority": "Critical"
+    },
+    {
+      "phase": "1 - Foundation",
+      "uc": "UC-03",
+      "name": "Task Dependency Management",
+      "assessment": "Partially Covered",
+      "missing": "Cyclic-dependency prevention, automatic schedule impact, affected-owner notification and dependency types are not specified.",
+      "priority": "High"
+    },
+    {
+      "phase": "1 - Foundation",
+      "uc": "UC-04",
+      "name": "Security & Authentication (Entra ID)",
+      "assessment": "Partially Covered",
+      "missing": "MFA for privileged actions, failed-login controls, session timeout, conditional access, security alerts and break-glass access are not specified.",
+      "priority": "Critical"
+    },
+    {
+      "phase": "1 - Foundation",
+      "uc": "UC-05",
+      "name": "Role-Based Access Control",
+      "assessment": "Partially Covered",
+      "missing": "Detailed role-permission matrix, field/document-level permissions, separation of duties, external-user restrictions and audit of permission changes are missing.",
+      "priority": "Critical"
+    },
+    {
+      "phase": "2 - Resource & Time",
+      "uc": "UC-06",
+      "name": "Employee Role Mapping & Workload Tracking",
+      "assessment": "Partially Covered",
+      "missing": "Bi-directional sync, threshold rules, designation matching, allocation pushback to Keka, conflict handling and approval of over-allocation are not defined.",
+      "priority": "Critical"
+    },
+    {
+      "phase": "2 - Resource & Time",
+      "uc": "UC-07",
+      "name": "Timesheet Logging & Approval Workflow",
+      "assessment": "Partially Covered",
+      "missing": "Entry fields, rejection/resubmission, delayed approval escalation, payroll availability, retry logic and duplicate prevention are not defined.",
+      "priority": "Critical"
+    },
+    {
+      "phase": "3 - Reporting",
+      "uc": "UC-08",
+      "name": "KPI Tracking & Executive Dashboards",
+      "assessment": "Partially Covered",
+      "missing": "Required KPIs, role-based views, filters, drill-down, real-time/cached behaviour, PDF/Excel/CSV export and threshold alerting are not committed.",
+      "priority": "High"
+    },
+    {
+      "phase": "3 - Reporting",
+      "uc": "UC-09",
+      "name": "Automated Project Health Reports",
+      "assessment": "Partially Covered",
+      "missing": "CyberSec templates, daily/weekly/monthly schedules, recipient rules, incomplete-data flags, approval before distribution and report versioning are missing.",
+      "priority": "Critical"
+    },
+    {
+      "phase": "3 - Reporting",
+      "uc": "UC-10",
+      "name": "Utilisation & Workload Reporting",
+      "assessment": "Partially Covered",
+      "missing": "Billable/non-billable definitions, missing-timesheet flags, team/employee filters and reconciliation to Keka are not detailed.",
+      "priority": "High"
+    },
+    {
+      "phase": "4 - Risk & Compliance",
+      "uc": "UC-11",
+      "name": "Risk Identification & Tracking",
+      "assessment": "Partially Covered",
+      "missing": "Risk categories, likelihood/impact matrix, calculated score, mitigation plan, ownership, thresholds and dashboard linkage are not specified.",
+      "priority": "High"
+    },
+    {
+      "phase": "4 - Risk & Compliance",
+      "uc": "UC-12",
+      "name": "Issue Tracking & Resolution",
+      "assessment": "Partially Covered",
+      "missing": "Issue workflow, priority, expected resolution date, escalation, closure notification and overdue logic are not defined.",
+      "priority": "High"
+    },
+    {
+      "phase": "4 - Risk & Compliance",
+      "uc": "UC-13",
+      "name": "Automated Risk Alerts & Notifications",
+      "assessment": "Partially Covered",
+      "missing": "Alert catalogue, channels, retry, escalation hierarchy, configurable thresholds, reminder frequency and alert acknowledgement are not defined.",
+      "priority": "High"
+    }
+  ],
+  "byPhase": {
+    "1": [
+      {
+        "mid": "M1.1",
+        "cid": "M1.1-01",
+        "uc": "UC-01",
+        "deliverable": "Create project with name, objective, department, customer, dates and value",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.1",
+        "cid": "M1.1-02",
+        "uc": "UC-01",
+        "deliverable": "Assign primary PM and secondary PM",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.1",
+        "cid": "M1.1-03",
+        "uc": "UC-01",
+        "deliverable": "Configure milestones on the project",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.1",
+        "cid": "M1.1-04",
+        "uc": "UC-01",
+        "deliverable": "Mandatory-field validation enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.1",
+        "cid": "M1.1-05",
+        "uc": "UC-01",
+        "deliverable": "Project status set on creation",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.1",
+        "cid": "M1.1-06",
+        "uc": "UC-01",
+        "deliverable": "Exception handling on invalid input",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.2",
+        "cid": "M1.2-01",
+        "uc": "UC-01",
+        "deliverable": "States supported: Draft, Active, On Hold, Pending Closure, Closed",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.2",
+        "cid": "M1.2-02",
+        "uc": "UC-01",
+        "deliverable": "Invalid dates rejected",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.2",
+        "cid": "M1.2-03",
+        "uc": "UC-01",
+        "deliverable": "Missing owners rejected",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.2",
+        "cid": "M1.2-04",
+        "uc": "UC-01",
+        "deliverable": "Status changes are audited",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.3",
+        "cid": "M1.3-01",
+        "uc": "UC-02",
+        "deliverable": "Task fields: title, description, priority, owner, start/end dates, effort, progress, status",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.3",
+        "cid": "M1.3-02",
+        "uc": "UC-02",
+        "deliverable": "Attachments supported",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.3",
+        "cid": "M1.3-03",
+        "uc": "UC-02",
+        "deliverable": "Comments supported",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.3",
+        "cid": "M1.3-04",
+        "uc": "UC-02",
+        "deliverable": "Sub-tasks supported",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.3",
+        "cid": "M1.3-05",
+        "uc": "UC-02",
+        "deliverable": "Notifications on assignment and change",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.3",
+        "cid": "M1.3-06",
+        "uc": "UC-02",
+        "deliverable": "Resource availability validated on assignment",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.3",
+        "cid": "M1.3-07",
+        "uc": "UC-02",
+        "deliverable": "Task workflow states defined",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.4",
+        "cid": "M1.4-01",
+        "uc": "UC-02",
+        "deliverable": "Engineer updates progress, hours, comments and evidence",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.4",
+        "cid": "M1.4-02",
+        "uc": "UC-02",
+        "deliverable": "PM can approve",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.4",
+        "cid": "M1.4-03",
+        "uc": "UC-02",
+        "deliverable": "PM can reject with reason",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.4",
+        "cid": "M1.4-04",
+        "uc": "UC-02",
+        "deliverable": "PM can request rework",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.4",
+        "cid": "M1.4-05",
+        "uc": "UC-02",
+        "deliverable": "Only approved progress affects project KPI",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.5",
+        "cid": "M1.5-01",
+        "uc": "UC-03",
+        "deliverable": "FS/SS/FF/SF dependency types supported (or documented alternatives)",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.5",
+        "cid": "M1.5-02",
+        "uc": "UC-03",
+        "deliverable": "Cyclic dependencies blocked",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.5",
+        "cid": "M1.5-03",
+        "uc": "UC-03",
+        "deliverable": "Automatic schedule-impact recalculation",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.5",
+        "cid": "M1.5-04",
+        "uc": "UC-03",
+        "deliverable": "Affected owners notified",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.6",
+        "cid": "M1.6-01",
+        "uc": "UC-04",
+        "deliverable": "Entra ID SSO login working",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.6",
+        "cid": "M1.6-02",
+        "uc": "UC-04",
+        "deliverable": "MFA / Conditional Access required for privileged actions",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.6",
+        "cid": "M1.6-03",
+        "uc": "UC-04",
+        "deliverable": "Failed-login controls enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.6",
+        "cid": "M1.6-04",
+        "uc": "UC-04",
+        "deliverable": "Session timeout enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.6",
+        "cid": "M1.6-05",
+        "uc": "UC-04",
+        "deliverable": "Security alerts generated",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.6",
+        "cid": "M1.6-06",
+        "uc": "UC-04",
+        "deliverable": "Break-glass access defined",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.7",
+        "cid": "M1.7-01",
+        "uc": "UC-05",
+        "deliverable": "Roles enforced: Super Admin, IT Admin, PMO Lead, PM, Team Lead, Engineer, Finance, HR, Sales, Client, Vendor",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.7",
+        "cid": "M1.7-02",
+        "uc": "UC-05",
+        "deliverable": "Module-level permissions enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.7",
+        "cid": "M1.7-03",
+        "uc": "UC-05",
+        "deliverable": "Record-level permissions enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.7",
+        "cid": "M1.7-04",
+        "uc": "UC-05",
+        "deliverable": "Field/document-level permissions enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.7",
+        "cid": "M1.7-05",
+        "uc": "UC-05",
+        "deliverable": "Separation of duties enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.7",
+        "cid": "M1.7-06",
+        "uc": "UC-05",
+        "deliverable": "External-user restrictions enforced",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.7",
+        "cid": "M1.7-07",
+        "uc": "UC-05",
+        "deliverable": "Permission changes are audited",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.8",
+        "cid": "M1.8-01",
+        "uc": "UC-01",
+        "deliverable": "MPP import with validation report",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.8",
+        "cid": "M1.8-02",
+        "uc": "UC-01",
+        "deliverable": "Excel import with validation report",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.8",
+        "cid": "M1.8-03",
+        "uc": "UC-01",
+        "deliverable": "Export preserves agreed fields",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.8",
+        "cid": "M1.8-04",
+        "uc": "UC-01",
+        "deliverable": "Re-import without duplication",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-01",
+        "uc": "ALL",
+        "deliverable": "Logs create/update/delete",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-02",
+        "uc": "ALL",
+        "deliverable": "Logs login events",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-03",
+        "uc": "ALL",
+        "deliverable": "Logs permission changes",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-04",
+        "uc": "ALL",
+        "deliverable": "Logs approvals",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-05",
+        "uc": "ALL",
+        "deliverable": "Logs integration events",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-06",
+        "uc": "ALL",
+        "deliverable": "Logs external-user activity",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-07",
+        "uc": "ALL",
+        "deliverable": "Captures user, timestamp, object, old/new value and source IP where available",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M1.9",
+        "cid": "M1.9-08",
+        "uc": "ALL",
+        "deliverable": "Retention configured",
+        "status": "Not Started",
+        "priority": "Critical"
+      }
+    ],
+    "2": [
+      {
+        "mid": "M2.1",
+        "cid": "M2.1-01",
+        "uc": "UC-06",
+        "deliverable": "Sync name, department, designation, manager, working hours, leave, active status",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.1",
+        "cid": "M2.1-02",
+        "uc": "UC-06",
+        "deliverable": "Sync runs at agreed frequency",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.1",
+        "cid": "M2.1-03",
+        "uc": "UC-06",
+        "deliverable": "Bi-directional sync where agreed",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.1",
+        "cid": "M2.1-04",
+        "uc": "UC-06",
+        "deliverable": "Failures retry automatically",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.1",
+        "cid": "M2.1-05",
+        "uc": "UC-06",
+        "deliverable": "Failed records visible to admin",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.2",
+        "cid": "M2.2-01",
+        "uc": "UC-06",
+        "deliverable": "PM sees current allocation and leave",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.2",
+        "cid": "M2.2-02",
+        "uc": "UC-06",
+        "deliverable": "Assign project role and hours/%",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.2",
+        "cid": "M2.2-03",
+        "uc": "UC-06",
+        "deliverable": "Threshold conflicts warn or block per policy",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.2",
+        "cid": "M2.2-04",
+        "uc": "UC-06",
+        "deliverable": "Designation conflicts warn or block per policy",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.2",
+        "cid": "M2.2-05",
+        "uc": "UC-06",
+        "deliverable": "Over-allocation approval workflow",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.2",
+        "cid": "M2.2-06",
+        "uc": "UC-06",
+        "deliverable": "Allocation pushback to Keka where agreed",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.3",
+        "cid": "M2.3-01",
+        "uc": "UC-06",
+        "deliverable": "Leave on critical assignment triggers alert",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M2.3",
+        "cid": "M2.3-02",
+        "uc": "UC-06",
+        "deliverable": "Named backup resource supported",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M2.3",
+        "cid": "M2.3-03",
+        "uc": "UC-06",
+        "deliverable": "Project schedule impact is visible",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M2.4",
+        "cid": "M2.4-01",
+        "uc": "UC-07",
+        "deliverable": "Log date, project, task, regular hours, overtime, notes",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.4",
+        "cid": "M2.4-02",
+        "uc": "UC-07",
+        "deliverable": "Duplicate entries prevented or flagged",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.4",
+        "cid": "M2.4-03",
+        "uc": "UC-07",
+        "deliverable": "Over-limit entries prevented or flagged",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.5",
+        "cid": "M2.5-01",
+        "uc": "UC-07",
+        "deliverable": "PM approves/rejects with comments",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.5",
+        "cid": "M2.5-02",
+        "uc": "UC-07",
+        "deliverable": "Approved records sync to Keka",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.5",
+        "cid": "M2.5-03",
+        "uc": "UC-07",
+        "deliverable": "Rejected records return for resubmission",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.5",
+        "cid": "M2.5-04",
+        "uc": "UC-07",
+        "deliverable": "Delayed approvals escalate",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.5",
+        "cid": "M2.5-05",
+        "uc": "UC-07",
+        "deliverable": "Retry logic on failed sync",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.5",
+        "cid": "M2.5-06",
+        "uc": "UC-07",
+        "deliverable": "Approved records available to payroll",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M2.6",
+        "cid": "M2.6-01",
+        "uc": "UC-10",
+        "deliverable": "Utilisation formula approved",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M2.6",
+        "cid": "M2.6-02",
+        "uc": "UC-10",
+        "deliverable": "Report shows planned, submitted, approved, billable, non-billable and available hours",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M2.6",
+        "cid": "M2.6-03",
+        "uc": "UC-10",
+        "deliverable": "Filter by employee / team / project",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M2.6",
+        "cid": "M2.6-04",
+        "uc": "UC-10",
+        "deliverable": "Reconciles to Keka",
+        "status": "Not Started",
+        "priority": "High"
+      }
+    ],
+    "3": [
+      {
+        "mid": "M3.1",
+        "cid": "M3.1-01",
+        "uc": "UC-08",
+        "deliverable": "KPIs: schedule, milestone, risk, budget, workload, utilisation, timesheet, collection",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.1",
+        "cid": "M3.1-02",
+        "uc": "UC-08",
+        "deliverable": "Role-based access enforced",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.1",
+        "cid": "M3.1-03",
+        "uc": "UC-08",
+        "deliverable": "Filters available",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.1",
+        "cid": "M3.1-04",
+        "uc": "UC-08",
+        "deliverable": "Drill-down available",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.1",
+        "cid": "M3.1-05",
+        "uc": "UC-08",
+        "deliverable": "Real-time vs cached behaviour defined",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.2",
+        "cid": "M3.2-01",
+        "uc": "UC-09",
+        "deliverable": "RAG rules for schedule, cost, risk, resources, collections",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.2",
+        "cid": "M3.2-02",
+        "uc": "UC-09",
+        "deliverable": "Rules configurable",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.2",
+        "cid": "M3.2-03",
+        "uc": "UC-09",
+        "deliverable": "Calculations reconcile to source records",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.3",
+        "cid": "M3.3-01",
+        "uc": "UC-21",
+        "deliverable": "Weekly report renders in approved CyberSec format",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.3",
+        "cid": "M3.3-02",
+        "uc": "UC-21",
+        "deliverable": "Monthly report renders in approved CyberSec format",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.3",
+        "cid": "M3.3-03",
+        "uc": "UC-21",
+        "deliverable": "Agreed sections included",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.3",
+        "cid": "M3.3-04",
+        "uc": "UC-21",
+        "deliverable": "Missing data flagged",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.3",
+        "cid": "M3.3-05",
+        "uc": "UC-21",
+        "deliverable": "PM approval before distribution",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.3",
+        "cid": "M3.3-06",
+        "uc": "UC-21",
+        "deliverable": "Export to PDF and DOCX",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.3",
+        "cid": "M3.3-07",
+        "uc": "UC-21",
+        "deliverable": "Report version control",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.4",
+        "cid": "M3.4-01",
+        "uc": "UC-21",
+        "deliverable": "Meeting captures agenda, attendees, decisions and action points",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.4",
+        "cid": "M3.4-02",
+        "uc": "UC-21",
+        "deliverable": "MoM produced in CyberSec format",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.4",
+        "cid": "M3.4-03",
+        "uc": "UC-21",
+        "deliverable": "MoM reviewed",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.4",
+        "cid": "M3.4-04",
+        "uc": "UC-21",
+        "deliverable": "MoM versioned",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.4",
+        "cid": "M3.4-05",
+        "uc": "UC-21",
+        "deliverable": "MoM shared with acknowledgement",
+        "status": "Not Started",
+        "priority": "Critical"
+      },
+      {
+        "mid": "M3.5",
+        "cid": "M3.5-01",
+        "uc": "UC-08",
+        "deliverable": "Export to PDF/Excel/CSV as applicable",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.5",
+        "cid": "M3.5-02",
+        "uc": "UC-08",
+        "deliverable": "Schedule to role-based recipients",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.5",
+        "cid": "M3.5-03",
+        "uc": "UC-08",
+        "deliverable": "Failed delivery retries and is logged",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.6",
+        "cid": "M3.6-01",
+        "uc": "UC-10",
+        "deliverable": "Missing or unapproved timesheets flagged",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.6",
+        "cid": "M3.6-02",
+        "uc": "UC-10",
+        "deliverable": "Stale integrations flagged",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.6",
+        "cid": "M3.6-03",
+        "uc": "UC-10",
+        "deliverable": "Incomplete project updates flagged",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M3.6",
+        "cid": "M3.6-04",
+        "uc": "UC-10",
+        "deliverable": "Include/exclude per approved rules",
+        "status": "Not Started",
+        "priority": "High"
+      }
+    ],
+    "4": [
+      {
+        "mid": "M4.1",
+        "cid": "M4.1-01",
+        "uc": "UC-11",
+        "deliverable": "Fields: category, impact, likelihood, score, owner, mitigation, target date, residual rating, status",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.1",
+        "cid": "M4.1-02",
+        "uc": "UC-11",
+        "deliverable": "Required fields enforced",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.1",
+        "cid": "M4.1-03",
+        "uc": "UC-11",
+        "deliverable": "Permissions enforced",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.1",
+        "cid": "M4.1-04",
+        "uc": "UC-11",
+        "deliverable": "Score auto-calculated",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.1",
+        "cid": "M4.1-05",
+        "uc": "UC-11",
+        "deliverable": "Threshold and dashboard linkage",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.2",
+        "cid": "M4.2-01",
+        "uc": "UC-12",
+        "deliverable": "Fields: priority, owner, due date, status, resolution, evidence",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.2",
+        "cid": "M4.2-02",
+        "uc": "UC-12",
+        "deliverable": "Expected resolution date captured",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.2",
+        "cid": "M4.2-03",
+        "uc": "UC-12",
+        "deliverable": "Overdue / high-priority issues escalate",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.2",
+        "cid": "M4.2-04",
+        "uc": "UC-12",
+        "deliverable": "Closure is notified",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-01",
+        "uc": "UC-13",
+        "deliverable": "Thresholds configurable",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-02",
+        "uc": "UC-13",
+        "deliverable": "Channels configurable",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-03",
+        "uc": "UC-13",
+        "deliverable": "Recipients configurable",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-04",
+        "uc": "UC-13",
+        "deliverable": "Reminder frequency configurable",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-05",
+        "uc": "UC-13",
+        "deliverable": "Acknowledgement supported",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-06",
+        "uc": "UC-13",
+        "deliverable": "Escalation hierarchy defined",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-07",
+        "uc": "UC-13",
+        "deliverable": "Retry behaviour defined",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.3",
+        "cid": "M4.3-08",
+        "uc": "UC-13",
+        "deliverable": "Catalogue documented",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.4",
+        "cid": "M4.4-01",
+        "uc": "UC-26",
+        "deliverable": "Fields: customer, severity, SLA, owner, communication, resolution, closure",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.4",
+        "cid": "M4.4-02",
+        "uc": "UC-26",
+        "deliverable": "Customer communication recorded",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.4",
+        "cid": "M4.4-03",
+        "uc": "UC-26",
+        "deliverable": "Overdue records escalate to management",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.4",
+        "cid": "M4.4-04",
+        "uc": "UC-26",
+        "deliverable": "Closure tracked",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.5",
+        "cid": "M4.5-01",
+        "uc": "UC-27",
+        "deliverable": "Action points link to project, task, risk, issue, meeting or MoM",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.5",
+        "cid": "M4.5-02",
+        "uc": "UC-27",
+        "deliverable": "Fields: owner, due date, priority, status",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.5",
+        "cid": "M4.5-03",
+        "uc": "UC-27",
+        "deliverable": "Reminders sent",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.5",
+        "cid": "M4.5-04",
+        "uc": "UC-27",
+        "deliverable": "Overdue escalation",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.5",
+        "cid": "M4.5-05",
+        "uc": "UC-27",
+        "deliverable": "Closure reporting",
+        "status": "Not Started",
+        "priority": "High"
+      },
+      {
+        "mid": "M4.6",
+        "cid": "M4.6-01",
+        "uc": "UC-31",
+        "deliverable": "Categorised capture with context and recommendation",
+        "status": "Not Started",
+        "priority": "Medium"
+      },
+      {
+        "mid": "M4.6",
+        "cid": "M4.6-02",
+        "uc": "UC-31",
+        "deliverable": "Searchable / filterable",
+        "status": "Not Started",
+        "priority": "Medium"
+      },
+      {
+        "mid": "M4.6",
+        "cid": "M4.6-03",
+        "uc": "UC-31",
+        "deliverable": "Relevant lessons surfaced during project setup/closure",
+        "status": "Not Started",
+        "priority": "Medium"
+      },
+      {
+        "mid": "M4.6",
+        "cid": "M4.6-04",
+        "uc": "UC-31",
+        "deliverable": "Permission controls enforced",
+        "status": "Not Started",
+        "priority": "Medium"
+      }
+    ]
+  }
+}

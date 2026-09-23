@@ -37,7 +37,9 @@ const INTEGRATIONS: IntegrationCard[] = [
     name: "Zoho CRM",
     description: "Revenue and opportunity sync for financial reporting.",
     icon: Building2,
-    tags: ["CRM", "Coming soon"],
+    href: "/dashboard/integrations/zoho",
+    live: true,
+    tags: ["CRM", "Live"],
   },
   {
     id: "zoho-books",
@@ -68,8 +70,9 @@ export function IntegrationsHubPage() {
       <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
         <p className="font-medium text-foreground">Admin integrations workspace</p>
         <p className="mt-1 text-muted-foreground">
-          Keka is available now. Additional connectors will appear here as later phases land —
-          without mixing them into the Audit Trail activity log.
+          Keka and Zoho CRM are available now. Zoho Books and other connectors
+          will appear here as later phases land — without mixing them into the
+          Audit Trail activity log.
         </p>
       </div>
 
