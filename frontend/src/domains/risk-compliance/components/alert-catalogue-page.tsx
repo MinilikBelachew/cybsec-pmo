@@ -11,7 +11,7 @@ import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { cn } from "@/shared/utils/cn";
 import { hasModulePermission } from "@/domains/auth/utils/module-permissions";
 import { useAppSelector } from "@/store/hooks";
-import { useGetRolesQuery } from "@/domains/roles/api/roles.api";
+import { ROLE_CATALOG } from "@/config/roles.config";
 import {
   useAcknowledgeAlertEventMutation,
   useDeleteAlertRuleMutation,
@@ -46,11 +46,17 @@ export function AlertCataloguePage() {
   const { data: instances = [] } = useGetAlertInstancesQuery(undefined, {
     skip: !canViewInstances,
   });
-  const { data: rolesData } = useGetRolesQuery(
-    { page: 1, limit: 100 },
-    { skip: !canManage },
+  // Role options for the create-rule form. Use the stable frontend catalog —
+  // `/roles` requires Rbac read, which PMO Lead (notifications:manage) does not have.
+  const roles = useMemo(
+    () =>
+      ROLE_CATALOG.map((r) => ({
+        id: r.id,
+        code: r.code,
+        label: r.label,
+      })),
+    [],
   );
-  const roles = rolesData?.data ?? [];
   const [updateRule, { isLoading: updatingRule }] = useUpdateAlertRuleMutation();
   const [deleteRule, { isLoading: deletingRule }] = useDeleteAlertRuleMutation();
   const [acknowledge] = useAcknowledgeAlertEventMutation();

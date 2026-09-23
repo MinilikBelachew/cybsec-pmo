@@ -7,13 +7,14 @@ import {
   ChevronDown,
   Download,
   FilePlus2,
-  Loader2,
   Send,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
+import { FilterSelect } from "@/shared/components/filter-select";
+import { Spinner } from "@/shared/components/spinner";
 import { Button } from "@/shared/ui/button";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import {
@@ -34,6 +35,20 @@ import {
   useGetStatusReportsQuery,
 } from "../api/reports.api";
 import type { ReportType, StatusReport } from "../types/reports.types";
+
+const FILTER_TRIGGER =
+  "h-10 w-[220px] max-w-[min(100%,280px)] shrink-0 rounded-lg border-border/60 bg-background px-3 shadow-none";
+
+const STATUS_FILTER_OPTIONS = [
+  { id: "Draft", label: "Draft" },
+  { id: "Approved", label: "Approved" },
+  { id: "Distributed", label: "Distributed" },
+];
+
+const TYPE_FILTER_OPTIONS = [
+  { id: "WSR", label: "Weekly (WSR)" },
+  { id: "MSR", label: "Monthly (MSR)" },
+];
 
 const EXPORT_FORMATS = [
   { value: "pdf" as const, label: "PDF" },
@@ -193,6 +208,12 @@ export function StatusReportsPage() {
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
 
+  const projectOptions =
+    projects?.data.map((project) => ({
+      id: project.id,
+      label: project.name,
+    })) ?? [];
+
   return (
     <div className="space-y-6 pb-10">
       <PageHeader
@@ -200,30 +221,27 @@ export function StatusReportsPage() {
         description="Generate, review, approve, and export WSR/MSR snapshots. Regenerating the same project and type creates a new version."
       />
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
-        <select
-          value={generateProjectId}
-          onChange={(e) => setGenerateProjectId(e.target.value)}
-          className="h-10 w-full max-w-md rounded-lg border bg-background px-3 text-sm"
-        >
-          <option value="">Select project to generate</option>
-          {projects?.data.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-        <select
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card p-4">
+        <FilterSelect
+          value={generateProjectId || null}
+          onValueChange={(next) => setGenerateProjectId(next ?? "")}
+          options={projectOptions}
+          noneLabel="Select project to generate"
+          searchable
+          searchPlaceholder="Search projects..."
+          triggerClassName={cn(FILTER_TRIGGER, "w-[280px] max-w-[min(100%,320px)]")}
+        />
+        <FilterSelect
           value={generateType}
-          onChange={(e) => setGenerateType(e.target.value as ReportType)}
-          className="h-10 w-40 rounded-lg border bg-background px-3 text-sm"
-        >
-          <option value="WSR">Weekly (WSR)</option>
-          <option value="MSR">Monthly (MSR)</option>
-        </select>
+          onValueChange={(next) => setGenerateType((next as ReportType) || "WSR")}
+          options={TYPE_FILTER_OPTIONS}
+          noneLabel="Weekly (WSR)"
+          allowNone={false}
+          triggerClassName={cn(FILTER_TRIGGER, "w-[180px]")}
+        />
         <Button onClick={onGenerate} disabled={generating} className="gap-2">
           {generating ? (
-            <Loader2 className="size-4 animate-spin" />
+            <Spinner size="sm" />
           ) : (
             <FilePlus2 className="size-4" />
           )}{" "}
@@ -231,38 +249,30 @@ export function StatusReportsPage() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
-        <select
-          value={filterProjectId}
-          onChange={(e) => setFilterProjectId(e.target.value)}
-          className="h-10 w-full max-w-xs rounded-lg border bg-background px-3 text-sm"
-        >
-          <option value="">All projects</option>
-          {projects?.data.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="h-10 w-40 rounded-lg border bg-background px-3 text-sm"
-        >
-          <option value="">All statuses</option>
-          <option value="Draft">Draft</option>
-          <option value="Approved">Approved</option>
-          <option value="Distributed">Distributed</option>
-        </select>
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as "" | ReportType)}
-          className="h-10 w-40 rounded-lg border bg-background px-3 text-sm"
-        >
-          <option value="">All types</option>
-          <option value="WSR">Weekly (WSR)</option>
-          <option value="MSR">Monthly (MSR)</option>
-        </select>
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+        <FilterSelect
+          value={filterProjectId || null}
+          onValueChange={(next) => setFilterProjectId(next ?? "")}
+          options={projectOptions}
+          noneLabel="All projects"
+          searchable
+          searchPlaceholder="Search projects..."
+          triggerClassName={FILTER_TRIGGER}
+        />
+        <FilterSelect
+          value={filterStatus || null}
+          onValueChange={(next) => setFilterStatus(next ?? "")}
+          options={STATUS_FILTER_OPTIONS}
+          noneLabel="All statuses"
+          triggerClassName={cn(FILTER_TRIGGER, "w-[160px]")}
+        />
+        <FilterSelect
+          value={filterType || null}
+          onValueChange={(next) => setFilterType((next as "" | ReportType) ?? "")}
+          options={TYPE_FILTER_OPTIONS}
+          noneLabel="All types"
+          triggerClassName={cn(FILTER_TRIGGER, "w-[180px]")}
+        />
         {(filterProjectId || filterStatus || filterType) && (
           <Button
             variant="ghost"
@@ -336,7 +346,7 @@ export function StatusReportsPage() {
                       onClick={() => void onFlowAction(report)}
                     >
                       {isFlowBusy ? (
-                        <Loader2 className="mr-1 size-4 animate-spin" />
+                        <Spinner size="sm" className="mr-1" />
                       ) : (
                         <ShieldCheck className="mr-1 size-4" />
                       )}
@@ -351,7 +361,7 @@ export function StatusReportsPage() {
                       onClick={() => void onFlowAction(report)}
                     >
                       {isFlowBusy ? (
-                        <Loader2 className="mr-1 size-4 animate-spin" />
+                        <Spinner size="sm" className="mr-1" />
                       ) : (
                         <Send className="mr-1 size-4" />
                       )}
@@ -371,7 +381,7 @@ export function StatusReportsPage() {
                       }
                     >
                       {exportingId === report.id ? (
-                        <Loader2 className="size-4 animate-spin" />
+                        <Spinner size="sm" />
                       ) : (
                         <Download className="size-4" />
                       )}

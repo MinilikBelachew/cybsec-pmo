@@ -53,9 +53,15 @@ export class CaslGuard implements CanActivate {
       request.ability = this.abilityFactory.createForUser(caslUser);
     }
 
-    const allowed = request.ability!.can(
-      meta.action,
-      subject(meta.subject, { __caslSubjectType__: meta.subject }),
+    const checks = [
+      { action: meta.action, subject: meta.subject },
+      ...(meta.anyOf ?? []),
+    ];
+    const allowed = checks.some((check) =>
+      request.ability!.can(
+        check.action,
+        subject(check.subject, { __caslSubjectType__: check.subject }),
+      ),
     );
 
     if (!allowed) {

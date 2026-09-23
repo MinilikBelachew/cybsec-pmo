@@ -1,14 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useMemo, useState } from "react";
-import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  PartyPopper,
-  RefreshCw,
-} from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, PartyPopper, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/ui/button";
 import {
@@ -144,7 +138,7 @@ export function ResourceCalendarPage() {
             onClick={() => void refetch()}
           >
             {isFetching ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}
@@ -247,7 +241,7 @@ export function ResourceCalendarPage() {
         <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
           {isLoading && !data ? (
             <div className="flex h-72 items-center justify-center text-muted-foreground">
-              <Loader2 className="size-5 animate-spin" />
+              <Spinner size="md" />
             </div>
           ) : (
             <>

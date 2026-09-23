@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { type SortingState } from "@tanstack/react-table";
@@ -7,12 +8,15 @@ import {
   useGetProjectsQuery,
   useGetPortfolioStatsQuery,
   useLazyExportProjectsQuery,
+  useLazyGetPhasesQuery,
+  useLazyGetMilestonesQuery,
   useDeleteProjectMutation,
   useGetDepartmentsQuery,
   useGetCustomersQuery,
   useGetProjectManagersQuery,
 } from "../../api/projects.api";
 import { useLazyExportTasksQuery, useLazyGetTaskDependenciesQuery } from "../../api/tasks.api";
+import type { ProjectMilestone, ProjectPhase } from "../../types/projects.types";
 import { CreateProjectSheet } from "./create-project-sheet";
 import { ImportProjectsDialog } from "./import-projects-dialog";
 import { ImportMppDialog } from "../mpp/import-mpp-dialog";
@@ -48,17 +52,7 @@ import {
   PROJECT_STATUS_FILTER_OPTIONS,
   getProjectStatusConfig,
 } from "../../utils/project-status";
-import {
-  Search, Plus, LayoutGrid, List, FolderKanban,
-  CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle,
-  ChevronDown, X, Calendar, Milestone,
-  Pencil, Eye, Trash2, Activity, CheckCircle2, PauseCircle,
-  Upload,
-  Download,
-  Loader2,
-  FileUp,
-  LayoutTemplate,
-} from "lucide-react";
+import { Search, Plus, LayoutGrid, List, FolderKanban, CheckSquare, TrendingUp, MoreHorizontal, AlertTriangle, ChevronDown, X, Calendar, Milestone, Pencil, Eye, Trash2, Activity, CheckCircle2, PauseCircle, Upload, Download, FileUp, LayoutTemplate } from "lucide-react";
 const STATUS_CONFIG = PROJECT_STATUS_CONFIG;
 
 const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; dot: string; bg: string; text: string }> = {
@@ -402,6 +396,8 @@ export function ProjectsList() {
   const [triggerExportProjects, { isFetching: isExporting }] = useLazyExportProjectsQuery();
   const [triggerExportTasks, { isFetching: isExportingTasks }] = useLazyExportTasksQuery();
   const [triggerExportDependencies] = useLazyGetTaskDependenciesQuery();
+  const [triggerGetPhases] = useLazyGetPhasesQuery();
+  const [triggerGetMilestones] = useLazyGetMilestonesQuery();
 
   const queryParams = useMemo((): GetProjectsParams => {
     const isListView = view === "list";
@@ -523,7 +519,9 @@ export function ProjectsList() {
       let blob: Blob;
       let filename: string;
 
-      toast.loading("Fetching tasks and dependencies...", { id: exportToast });
+      toast.loading("Fetching phases, milestones, tasks, and dependencies...", {
+        id: exportToast,
+      });
       const tasksPromises = projectsToExport.map((proj) =>
         triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
       );
@@ -532,10 +530,23 @@ export function ProjectsList() {
           .unwrap()
           .catch(() => [] as TaskExportDependency[]),
       );
-      const [tasksResults, depResults] = await Promise.all([
-        Promise.all(tasksPromises),
-        Promise.all(depPromises),
-      ]);
+      const phasePromises = projectsToExport.map((proj) =>
+        triggerGetPhases(proj.id)
+          .unwrap()
+          .catch(() => [] as ProjectPhase[]),
+      );
+      const milestonePromises = projectsToExport.map((proj) =>
+        triggerGetMilestones(proj.id)
+          .unwrap()
+          .catch(() => [] as ProjectMilestone[]),
+      );
+      const [tasksResults, depResults, phaseResults, milestoneResults] =
+        await Promise.all([
+          Promise.all(tasksPromises),
+          Promise.all(depPromises),
+          Promise.all(phasePromises),
+          Promise.all(milestonePromises),
+        ]);
       const allTasks = tasksResults.flatMap((tasks, index) => {
         const proj = projectsToExport[index];
         return tasks.map((t) => ({
@@ -544,6 +555,12 @@ export function ProjectsList() {
         }));
       });
       const allDependencies = depResults.flat() as TaskExportDependency[];
+      const phasesByProjectId: Record<string, ProjectPhase[]> = {};
+      const milestonesByProjectId: Record<string, ProjectMilestone[]> = {};
+      projectsToExport.forEach((proj, index) => {
+        phasesByProjectId[proj.id] = phaseResults[index] ?? [];
+        milestonesByProjectId[proj.id] = milestoneResults[index] ?? [];
+      });
 
       if (format === "xlsx") {
         const xlsxBuffer = exportProjectsToXLSX(
@@ -555,6 +572,8 @@ export function ProjectsList() {
           allTasks,
           selectedTaskFields,
           allDependencies,
+          phasesByProjectId,
+          milestonesByProjectId,
         );
         blob = new Blob([xlsxBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         filename = `projects_export_${new Date().toISOString().split("T")[0]}.xlsx`;
@@ -568,6 +587,8 @@ export function ProjectsList() {
           allTasks,
           selectedTaskFields,
           allDependencies,
+          phasesByProjectId,
+          milestonesByProjectId,
         );
         filename = `projects_export_${new Date().toISOString().split("T")[0]}.pdf`;
       } else if (format === "doc") {
@@ -580,6 +601,8 @@ export function ProjectsList() {
           allTasks,
           selectedTaskFields,
           allDependencies,
+          phasesByProjectId,
+          milestonesByProjectId,
         );
         filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
       } else if (format === "mspdi") {
@@ -590,6 +613,9 @@ export function ProjectsList() {
           managers,
           allTasks,
           allDependencies,
+          [],
+          phasesByProjectId,
+          milestonesByProjectId,
         );
         filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
       } else {
@@ -802,7 +828,7 @@ export function ProjectsList() {
                   className="h-9 flex-1 gap-1.5 rounded-xl border-border/60 bg-muted/45 px-2.5 text-xs font-semibold shadow-none cursor-pointer sm:flex-none sm:px-3"
                 >
                   {isExporting ? (
-                    <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                    <Spinner size="xs" />
                   ) : (
                     <Download className="size-3.5 shrink-0" />
                   )}

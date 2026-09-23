@@ -1,15 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  CalendarPlus,
-  Eye,
-  Loader2,
-  Pencil,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { CalendarPlus, Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   Controller,
   useFieldArray,
@@ -632,7 +626,7 @@ export function MeetingSheet({
                 disabled={saving}
               >
                 {saving ? (
-                  <Loader2 className="mr-1 size-4 animate-spin" />
+                  <Spinner size="sm" className="mr-1" />
                 ) : (
                   <CalendarPlus className="mr-1 size-4" />
                 )}

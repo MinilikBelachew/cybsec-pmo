@@ -1,9 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarClock, Loader2, X } from "lucide-react";
+import { CalendarClock, Clock, X } from "lucide-react";
 import {
   Controller,
   useForm,
@@ -15,6 +16,7 @@ import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { FilterSelect } from "@/shared/components/filter-select";
 import {
   Select,
   SelectContent,
@@ -22,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { cn } from "@/shared/utils/cn";
 import { useGetProjectsQuery } from "@/domains/projects";
 import { useGetRolesQuery } from "@/domains/roles/api/roles.api";
 import { useCreateReportScheduleMutation } from "../api/reports.api";
@@ -41,6 +44,41 @@ type CreateReportScheduleModalProps = {
 
 const fieldErrorClass = "text-[11px] font-medium text-rose-600";
 
+const WEEKDAY_OPTIONS = WEEKDAYS.map((day) => ({
+  id: String(day.value),
+  label: day.label,
+}));
+
+function RequiredLabel({
+  htmlFor,
+  children,
+}: {
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Label htmlFor={htmlFor}>
+      {children}
+      <span className="text-rose-600" aria-hidden>
+        *
+      </span>
+    </Label>
+  );
+}
+
+function openNativeTimePicker(input: HTMLInputElement | null) {
+  if (!input) return;
+  input.focus();
+  const withPicker = input as HTMLInputElement & {
+    showPicker?: () => void;
+  };
+  try {
+    withPicker.showPicker?.();
+  } catch {
+    // Browser may block showPicker outside a direct gesture; focus still helps.
+  }
+}
+
 export function CreateReportScheduleModal({
   open,
   onClose,
@@ -48,10 +86,20 @@ export function CreateReportScheduleModal({
   const { data: projects } = useGetProjectsQuery({ page: 1, limit: 100 });
   const { data: roles } = useGetRolesQuery({ page: 1, limit: 100 });
   const [create, { isLoading }] = useCreateReportScheduleMutation();
+  const timeInputRef = useRef<HTMLInputElement | null>(null);
 
   const internalRoles = useMemo(
     () => (roles?.data ?? []).filter((role) => !role.isExternal),
     [roles?.data],
+  );
+
+  const projectOptions = useMemo(
+    () =>
+      (projects?.data ?? []).map((project) => ({
+        id: project.id,
+        label: project.name,
+      })),
+    [projects?.data],
   );
 
   const {
@@ -59,13 +107,17 @@ export function CreateReportScheduleModal({
     register,
     handleSubmit,
     reset,
-    formState: { errors },
+    formState: { errors, isSubmitted },
   } = useForm<ReportScheduleFormValues>({
     resolver: zodResolver(
       reportScheduleFormSchema,
     ) as Resolver<ReportScheduleFormValues>,
     defaultValues: emptyReportScheduleFormValues(),
+    mode: "onSubmit",
+    reValidateMode: "onChange",
   });
+
+  const { ref: timeRegisterRef, ...timeRegister } = register("time");
 
   const reportType = useWatch({ control, name: "reportType" });
   const weekday = useWatch({ control, name: "weekday" });
@@ -142,9 +194,10 @@ export function CreateReportScheduleModal({
             id="create-report-schedule-form"
             onSubmit={handleSubmit(onSubmit)}
             className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4"
+            noValidate
           >
             <div className="space-y-2">
-              <Label>Report type</Label>
+              <RequiredLabel>Report type</RequiredLabel>
               <div className="grid grid-cols-2 gap-2">
                 {(["WSR", "MSR"] as const).map((type) => (
                   <label
@@ -169,20 +222,28 @@ export function CreateReportScheduleModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="schedule-project">Project</Label>
-              <select
-                id="schedule-project"
-                className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
-                aria-invalid={Boolean(errors.projectId)}
-                {...register("projectId")}
-              >
-                <option value="">Select project</option>
-                {projects?.data.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
+              <RequiredLabel htmlFor="schedule-project">Project</RequiredLabel>
+              <Controller
+                control={control}
+                name="projectId"
+                render={({ field }) => (
+                  <FilterSelect
+                    value={field.value || null}
+                    onValueChange={(next) => field.onChange(next ?? "")}
+                    options={projectOptions}
+                    noneLabel="Select project"
+                    searchable
+                    searchPlaceholder="Search projects..."
+                    allowNone={false}
+                    triggerClassName={cn(
+                      "h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none",
+                      errors.projectId &&
+                        "border-destructive ring-3 ring-destructive/20",
+                    )}
+                    className="w-full max-w-full"
+                  />
+                )}
+              />
               {errors.projectId && (
                 <p className={fieldErrorClass}>{errors.projectId.message}</p>
               )}
@@ -199,26 +260,39 @@ export function CreateReportScheduleModal({
               <div className="grid gap-3 sm:grid-cols-2">
                 {reportType === "WSR" ? (
                   <div className="space-y-1.5">
-                    <Label htmlFor="schedule-weekday">Day of week</Label>
-                    <select
-                      id="schedule-weekday"
-                      className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
-                      aria-invalid={Boolean(errors.weekday)}
-                      {...register("weekday", { valueAsNumber: true })}
-                    >
-                      {WEEKDAYS.map((day) => (
-                        <option key={day.value} value={day.value}>
-                          {day.label}
-                        </option>
-                      ))}
-                    </select>
+                    <RequiredLabel htmlFor="schedule-weekday">
+                      Day of week
+                    </RequiredLabel>
+                    <Controller
+                      control={control}
+                      name="weekday"
+                      render={({ field }) => (
+                        <FilterSelect
+                          value={
+                            field.value != null ? String(field.value) : null
+                          }
+                          onValueChange={(next) =>
+                            field.onChange(Number(next ?? field.value ?? 1))
+                          }
+                          options={WEEKDAY_OPTIONS}
+                          noneLabel="Select day"
+                          allowNone={false}
+                          triggerClassName={cn(
+                            "h-10 w-full max-w-full rounded-lg border-border/60 bg-background px-3 shadow-none",
+                            errors.weekday &&
+                              "border-destructive ring-3 ring-destructive/20",
+                          )}
+                          className="w-full max-w-full"
+                        />
+                      )}
+                    />
                     {errors.weekday && (
                       <p className={fieldErrorClass}>{errors.weekday.message}</p>
                     )}
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <Label>Day of month</Label>
+                    <RequiredLabel>Day of month</RequiredLabel>
                     <Controller
                       control={control}
                       name="dayOfMonth"
@@ -262,14 +336,39 @@ export function CreateReportScheduleModal({
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="schedule-time">Time</Label>
-                  <Input
-                    id="schedule-time"
-                    type="time"
-                    className="h-10"
-                    aria-invalid={Boolean(errors.time)}
-                    {...register("time")}
-                  />
+                  <RequiredLabel htmlFor="schedule-time">Time</RequiredLabel>
+                  <div
+                    className={cn(
+                      "relative flex h-10 cursor-pointer items-center rounded-lg border border-border/60 bg-background px-3 shadow-none transition-colors hover:border-border focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+                      errors.time &&
+                        "border-destructive ring-3 ring-destructive/20",
+                    )}
+                    onClick={() => openNativeTimePicker(timeInputRef.current)}
+                  >
+                    <Clock
+                      className="pointer-events-none mr-2 size-4 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <Input
+                      id="schedule-time"
+                      type="time"
+                      step={60}
+                      className="h-auto flex-1 cursor-pointer border-0 bg-transparent p-0 shadow-none focus-visible:border-0 focus-visible:ring-0"
+                      aria-invalid={Boolean(errors.time)}
+                      {...timeRegister}
+                      ref={(element) => {
+                        timeRegisterRef(element);
+                        timeInputRef.current = element;
+                      }}
+                      onFocus={(event) =>
+                        openNativeTimePicker(event.currentTarget)
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openNativeTimePicker(event.currentTarget);
+                      }}
+                    />
+                  </div>
                   {errors.time && (
                     <p className={fieldErrorClass}>{errors.time.message}</p>
                   )}
@@ -287,7 +386,7 @@ export function CreateReportScheduleModal({
             </div>
 
             <div className="space-y-2">
-              <Label>Recipient roles</Label>
+              <RequiredLabel>Recipient roles</RequiredLabel>
               <p className="text-xs text-muted-foreground">
                 Reports are emailed only to users with these roles who are on
                 the selected project team (active allocation or project PM).
@@ -296,7 +395,14 @@ export function CreateReportScheduleModal({
                 control={control}
                 name="roleIds"
                 render={({ field }) => (
-                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2">
+                  <div
+                    className={cn(
+                      "max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2",
+                      errors.roleIds &&
+                        isSubmitted &&
+                        "border-destructive ring-3 ring-destructive/20",
+                    )}
+                  >
                     {internalRoles.length === 0 ? (
                       <p className="px-2 py-4 text-center text-xs text-muted-foreground">
                         No internal roles available.
@@ -351,7 +457,7 @@ export function CreateReportScheduleModal({
               disabled={isLoading}
             >
               {isLoading ? (
-                <Loader2 className="mr-1 size-4 animate-spin" />
+                <Spinner size="sm" className="mr-1" />
               ) : (
                 <CalendarClock className="mr-1 size-4" />
               )}

@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { Loader2 } from "lucide-react";
+
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/utils/cn";
 import type { AlignAllocationPreviewRow } from "@/domains/projects/types/projects.types";
@@ -104,7 +105,7 @@ export function AllocationAlignDialog({
               onClick={onConfirmAlign}
               disabled={isAligning || preview.length === 0}
             >
-              {isAligning ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              {isAligning ? <Spinner size="sm" className="mr-2" /> : null}
               Align and continue
             </Button>
           </div>

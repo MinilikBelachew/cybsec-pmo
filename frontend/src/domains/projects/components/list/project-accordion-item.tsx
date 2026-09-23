@@ -1,15 +1,8 @@
+import { Spinner } from "@/shared/components/spinner";
 import React from "react";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import {
-  ChevronDown,
-  ChevronRight,
-  FolderOpen,
-  Layers,
-  CheckSquare,
-  Milestone,
-  Loader2,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, Layers, CheckSquare, Milestone } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import {
   ParsedProjectRow,
@@ -185,7 +178,7 @@ export function ProjectAccordionItem({
           <div className="border border-border/60 rounded-lg overflow-x-auto bg-card max-h-[30vh]">
             {showInitialLoading ? (
               <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
+                <Spinner size="sm" />
                 <span className="text-xs font-medium">Loading…</span>
               </div>
             ) : (
@@ -226,7 +219,7 @@ export function ProjectAccordionItem({
                 className="h-8 gap-1.5 rounded-lg text-[11px] font-bold cursor-pointer"
               >
                 {loadingMore ? (
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Spinner size="xs" />
                 ) : null}
                 Load more
               </Button>

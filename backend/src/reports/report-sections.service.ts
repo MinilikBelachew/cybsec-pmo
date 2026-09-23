@@ -84,8 +84,8 @@ export function resolveReportPeriod(
 
 /**
  * Derives the approved status report's data sections from the project record.
- * Fields with no source in the schema are returned null so the renderers can
- * print the agreed "Not recorded" line rather than omitting the field.
+ * Issue columns the schema does not store are omitted from the snapshot
+ * rather than printed as empty "Not recorded" fields.
  */
 @Injectable()
 export class ReportSectionsService {
@@ -247,13 +247,7 @@ export class ReportSectionsService {
       return {
         description: issue.title,
         reportedDate: iso(issue.createdAt),
-        // No blocking flag, action owner, or customer dependency is captured yet.
-        isBlocking: null,
-        blocks: null,
-        actionRequired: null,
         issueOwner: issue.owner.displayName,
-        actionOwner: null,
-        dependency: null,
         targetResolutionDate: iso(
           issue.expectedResolutionDate ?? issue.dueDate,
         ),

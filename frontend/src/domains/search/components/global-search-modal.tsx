@@ -1,23 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useRouter } from "@/i18n/routing";
-import {
-  Search,
-  X,
-  Blocks,
-  CheckSquare,
-  FolderKanban,
-  Users,
-  ClipboardList,
-  LayoutGrid,
-  ChevronRight,
-  CornerDownLeft,
-  ExternalLink,
-  Link2,
-  Loader2,
-} from "lucide-react";
+import { Search, X, Blocks, CheckSquare, FolderKanban, Users, ClipboardList, LayoutGrid, ChevronRight, CornerDownLeft, ExternalLink, Link2 } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { useGetGlobalSearchQuery } from "../api/search.api";
 import type { GlobalSearchItem, SearchCategory } from "../types/search.types";
@@ -243,7 +230,7 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
 
             {(isLoading || isFetching) && !data ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
+                <Spinner size="sm" />
                 Searching...
               </div>
             ) : groupedItems.length === 0 ? (

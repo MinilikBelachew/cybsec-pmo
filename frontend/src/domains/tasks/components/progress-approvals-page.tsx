@@ -1,18 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import type { ColumnDef } from "@tanstack/react-table";
-import {
-  CheckCircle2,
-  ExternalLink,
-  LayoutGrid,
-  Loader2,
-  MoreHorizontal,
-  RotateCcw,
-  Table2,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, ExternalLink, LayoutGrid, MoreHorizontal, RotateCcw, Table2, XCircle } from "lucide-react";
 import { useRouter } from "@/i18n/routing";
 import { useAuth } from "@/domains/auth";
 import {
@@ -516,7 +508,7 @@ export function ProgressApprovalsPage() {
         />
       ) : isLoading ? (
         <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
+          <Spinner size="sm" />
           Loading progress review queue…
         </div>
       ) : pending.length === 0 ? (
@@ -714,7 +706,7 @@ export function ProgressApprovalsPage() {
                 onClick={() => void handleDecisionConfirm()}
               >
                 {isReviewing ? (
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Spinner size="xs" />
                 ) : reviewTarget?.decision === "reject" ? (
                   "Reject"
                 ) : (

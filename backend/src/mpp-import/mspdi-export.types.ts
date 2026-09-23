@@ -12,6 +12,8 @@ export type MspdiExportTaskPayload = {
   durationDays?: number;
   /** Working days for the baseline span. */
   baselineDurationDays?: number;
+  /** MS Project milestone (0-day checkpoint). */
+  milestone?: boolean;
   /** Start − baseline start (calendar days). */
   startVarianceDays?: number;
   /** Finish − baseline finish (calendar days). */

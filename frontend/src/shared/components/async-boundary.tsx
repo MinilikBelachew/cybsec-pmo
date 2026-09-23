@@ -12,7 +12,7 @@ interface AsyncBoundaryProps {
 
 export function AsyncBoundary({
   children,
-  fallback = <Spinner />,
+  fallback = <Spinner size="md" centered className="py-12" />,
   errorFallback,
 }: AsyncBoundaryProps) {
   return (

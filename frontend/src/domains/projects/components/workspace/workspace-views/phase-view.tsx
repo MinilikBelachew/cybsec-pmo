@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useMemo, useState, useImperativeHandle, forwardRef } from "react";
 import { toast } from "react-hot-toast";
@@ -35,22 +36,7 @@ import { MilestoneForm } from "../../roadmap/milestone-form";
 import { DocumentAttachmentList } from "../../documents/document-attachment-list";
 import { PhaseFormValues } from "../../../schemas/phase/phase.schema";
 import { MilestoneFormValues } from "../../../schemas/milestone/milestone.schema";
-import {
-  Calendar,
-  CheckCircle2,
-  Circle,
-  Flag,
-  ListTodo,
-  Plus,
-  Loader2,
-  FolderOpen,
-  User,
-  AlertTriangle,
-  Trash2,
-  Edit2,
-  Paperclip,
-  ShieldCheck,
-} from "lucide-react";
+import { Calendar, CheckCircle2, Circle, Flag, ListTodo, Plus, FolderOpen, User, AlertTriangle, Trash2, Edit2, Paperclip, ShieldCheck } from "lucide-react";
 import { PhaseStatus } from "../../../types/projects.types";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
@@ -540,7 +526,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
   if (isPhasesLoading || isTasksLoading || isMilestonesLoading) {
     return (
       <div className="flex h-96 items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-primary" />
+        <Spinner size="lg" />
       </div>
     );
   }

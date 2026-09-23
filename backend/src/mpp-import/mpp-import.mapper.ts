@@ -8,6 +8,7 @@ import { PrismaService } from '../database/prisma.service';
 import {
   MppImportPreview,
   MppImportPreviewProject,
+  MppImportPreviewMilestone,
   MppImportResultSummary,
   MppPortfolioSegment,
   ParsedMppProject,
@@ -203,14 +204,17 @@ export class MppImportMapper {
     const projects: MppImportPreviewProject[] = [];
     let importableTasks = 0;
     let phasesFromSummaries = 0;
+    let milestonesFromFile = 0;
     let skippedSummaryTasks = 0;
     let dependencies = 0;
     const sampleTasks: MppImportPreview['tasks'] = [];
+    const sampleMilestones: MppImportPreviewMilestone[] = [];
 
     for (const segment of segments) {
       const single = await this.buildSinglePreview(segment.parsed);
       importableTasks += single.counts.importableTasks;
       phasesFromSummaries += single.counts.phasesFromSummaries;
+      milestonesFromFile += single.counts.milestonesFromFile;
       skippedSummaryTasks += single.counts.skippedSummaryTasks;
       dependencies += single.counts.dependencies;
 
@@ -229,15 +233,25 @@ export class MppImportMapper {
         durationVarianceDays: segment.parsed.project?.durationVarianceDays,
         taskCount: single.counts.importableTasks,
         phaseCount: single.counts.phasesFromSummaries,
+        milestoneCount: single.counts.milestonesFromFile,
         dependencyCount: single.counts.dependencies,
         importMode: existing ? 'update' : 'create',
         resolvedProjectId: existing?.id,
         tasks: single.tasks,
+        milestones: single.milestones,
       });
 
       if (sampleTasks.length < PREVIEW_TASK_LIMIT) {
         sampleTasks.push(
           ...single.tasks.slice(0, PREVIEW_TASK_LIMIT - sampleTasks.length),
+        );
+      }
+      if (sampleMilestones.length < PREVIEW_TASK_LIMIT) {
+        sampleMilestones.push(
+          ...single.milestones.slice(
+            0,
+            PREVIEW_TASK_LIMIT - sampleMilestones.length,
+          ),
         );
       }
     }
@@ -257,6 +271,7 @@ export class MppImportMapper {
       counts: {
         importableTasks,
         phasesFromSummaries,
+        milestonesFromFile,
         skippedSummaryTasks,
         dependencies,
         resourcesMatched: resourceMatch.matched,
@@ -265,6 +280,7 @@ export class MppImportMapper {
       },
       projects,
       tasks: sampleTasks,
+      milestones: sampleMilestones,
       warnings,
     };
   }
@@ -282,6 +298,7 @@ export class MppImportMapper {
     const importableTasks = allTasks.filter((task) =>
       this.isImportableScheduleRow(task, byUid),
     );
+    const milestoneTasks = this.getMppMilestoneTasks(allTasks);
     const nestedSummaryTasks = allTasks.filter(
       (task) =>
         task.summary &&
@@ -328,18 +345,30 @@ export class MppImportMapper {
       };
     });
 
+    const milestones = this.mapMilestonePreviewRows(
+      milestoneTasks,
+      byUid,
+      phaseNameByUid,
+      PREVIEW_TASK_LIMIT,
+    );
+
     const warnings = [...(parsed.warnings ?? []), ...resourceMatch.warnings];
     if (importableTasks.length > PREVIEW_TASK_LIMIT) {
       warnings.push(
         `Showing the first ${PREVIEW_TASK_LIMIT} of ${importableTasks.length} tasks. All tasks will be imported on save.`,
       );
     }
-    if (importableTasks.length === 0) {
+    if (importableTasks.length === 0 && milestoneTasks.length === 0) {
       warnings.push('No importable tasks were found in this file.');
     }
     if (phaseSummaries.length > 0) {
       warnings.push(
         `${phaseSummaries.length} top-level summary row(s) will be imported as phases.`,
+      );
+    }
+    if (milestoneTasks.length > PREVIEW_TASK_LIMIT) {
+      warnings.push(
+        `Showing the first ${PREVIEW_TASK_LIMIT} of ${milestoneTasks.length} milestones. All milestones will be imported on save.`,
       );
     }
     if (nestedSummaryTasks > 0) {
@@ -356,14 +385,37 @@ export class MppImportMapper {
       counts: {
         importableTasks: importableTasks.length,
         phasesFromSummaries: phaseSummaries.length,
+        milestonesFromFile: milestoneTasks.length,
         skippedSummaryTasks: 0,
         dependencies,
         resourcesMatched: resourceMatch.matched,
         resourcesUnmatched: resourceMatch.unmatched,
       },
       tasks,
+      milestones,
       warnings,
     };
+  }
+
+  private mapMilestonePreviewRows(
+    milestoneTasks: ParsedMppTask[],
+    byUid: Map<number, ParsedMppTask>,
+    phaseNameByUid: Map<number, string>,
+    limit: number,
+  ): MppImportPreviewMilestone[] {
+    return milestoneTasks.slice(0, limit).map((ms) => {
+      const phaseSummaryUid = this.resolvePhaseSummaryUid(ms, byUid);
+      return {
+        uid: ms.uid,
+        title: ms.name,
+        targetDate: ms.finishDate ?? ms.startDate,
+        phaseName: phaseSummaryUid
+          ? phaseNameByUid.get(phaseSummaryUid)
+          : undefined,
+        percentComplete: ms.percentComplete,
+        status: this.resolveMppMilestoneStatus(ms),
+      };
+    });
   }
 
   /** L1 summaries that have at least one nested summary child (= projects in a portfolio). */
@@ -469,9 +521,10 @@ export class MppImportMapper {
     const importableTasks = allTasks.filter((task) =>
       this.isImportableScheduleRow(task, byUid),
     );
+    const milestoneTasks = this.getMppMilestoneTasks(allTasks);
 
-    if (importableTasks.length === 0) {
-      throw new Error('No importable tasks found in the project file');
+    if (importableTasks.length === 0 && milestoneTasks.length === 0) {
+      throw new Error('No importable tasks or milestones found in the project file');
     }
 
     const project = await this.prisma.project.findUnique({
@@ -498,6 +551,8 @@ export class MppImportMapper {
     let dependenciesUpdated = 0;
     let phasesCreated = 0;
     let phasesUpdated = 0;
+    let milestonesCreated = 0;
+    let milestonesUpdated = 0;
     let assignmentsApplied = 0;
     let assignmentsSkipped = 0;
     let resourceMatchForResult:
@@ -607,6 +662,23 @@ export class MppImportMapper {
         if (defaultPhase.created) {
           phasesCreated += 1;
         }
+      }
+
+      const milestoneResult = await this.importMppMilestones(
+        tx,
+        projectId,
+        milestoneTasks,
+        summaryUidToPhaseId,
+        defaultPhaseId,
+        byUid,
+      );
+      milestonesCreated += milestoneResult.created;
+      milestonesUpdated += milestoneResult.updated;
+      warnings.push(...milestoneResult.warnings);
+      if (milestonesCreated > 0 || milestonesUpdated > 0) {
+        warnings.push(
+          `Milestones from MPP: ${milestonesCreated} created, ${milestonesUpdated} updated.`,
+        );
       }
 
       const existingTasks = await tx.task.findMany({
@@ -771,6 +843,8 @@ export class MppImportMapper {
       dependenciesUpdated,
       phasesCreated,
       phasesUpdated,
+      milestonesCreated,
+      milestonesUpdated,
       resourcesMatched: resourceMatch.matched,
       assignmentsSkipped,
       warnings: [
@@ -797,7 +871,7 @@ export class MppImportMapper {
     return allTasks.filter((task) => this.isTopLevelPhaseSummary(task, byUid));
   }
 
-  /** Leaves + nested summaries (not project root, not phase summaries). */
+  /** Leaves + nested summaries (not project root, not phase summaries, not milestones). */
   private isImportableScheduleRow(
     task: ParsedMppTask,
     byUid: Map<number, ParsedMppTask>,
@@ -811,7 +885,38 @@ export class MppImportMapper {
     if (this.isTopLevelPhaseSummary(task, byUid)) {
       return false;
     }
+    if (this.isMppMilestone(task)) {
+      return false;
+    }
     return true;
+  }
+
+  /**
+   * MS Project milestones: explicit Milestone flag, or zero-duration leaf rows
+   * (diamond on Gantt). Named "Milestone" with duration > 0 stays a task.
+   */
+  private isMppMilestone(task: ParsedMppTask): boolean {
+    if (!task.name?.trim() || task.summary || task.outlineLevel === 0) {
+      return false;
+    }
+    if (task.milestone) {
+      return true;
+    }
+    if (
+      task.durationDays != null &&
+      Number.isFinite(task.durationDays) &&
+      task.durationDays > 0
+    ) {
+      return false;
+    }
+    if (task.startDate && task.finishDate) {
+      return true;
+    }
+    return task.durationDays == null;
+  }
+
+  private getMppMilestoneTasks(allTasks: ParsedMppTask[]): ParsedMppTask[] {
+    return allTasks.filter((task) => this.isMppMilestone(task));
   }
 
   private isTopLevelPhaseSummary(
@@ -927,6 +1032,96 @@ export class MppImportMapper {
       `Created default phase "${DEFAULT_PHASE_NAME}" for tasks without a summary group.`,
     );
     return { id: phase.id, created: true };
+  }
+
+  private milestoneMatchKey(title: string, phaseId: string | null): string {
+    return `${phaseId ?? ''}|${title.trim().toLowerCase()}`;
+  }
+
+  private resolveMppMilestoneStatus(task: ParsedMppTask): string {
+    if ((task.percentComplete ?? 0) >= 100) {
+      return 'Completed';
+    }
+    if (task.actualFinishDate) {
+      return 'Completed';
+    }
+    return 'Pending';
+  }
+
+  private async importMppMilestones(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+    milestoneTasks: ParsedMppTask[],
+    summaryUidToPhaseId: Map<number, string>,
+    defaultPhaseId: string | undefined,
+    byUid: Map<number, ParsedMppTask>,
+  ): Promise<{ created: number; updated: number; warnings: string[] }> {
+    if (milestoneTasks.length === 0) {
+      return { created: 0, updated: 0, warnings: [] };
+    }
+
+    const existing = await tx.projectMilestone.findMany({
+      where: { projectId },
+      select: { id: true, title: true, phaseId: true },
+    });
+    const existingByKey = new Map<string, string>();
+    for (const row of existing) {
+      const key = this.milestoneMatchKey(row.title, row.phaseId);
+      if (!existingByKey.has(key)) {
+        existingByKey.set(key, row.id);
+      }
+    }
+
+    let created = 0;
+    let updated = 0;
+    const warnings: string[] = [];
+
+    for (const ms of milestoneTasks) {
+      const title = ms.name.trim().slice(0, 255);
+      if (!title) {
+        continue;
+      }
+
+      const phaseSummaryUid = this.resolvePhaseSummaryUid(ms, byUid);
+      const phaseId =
+        (phaseSummaryUid != null
+          ? summaryUidToPhaseId.get(phaseSummaryUid)
+          : undefined) ??
+        defaultPhaseId ??
+        null;
+
+      const targetDate =
+        this.parseDate(ms.finishDate) ??
+        this.parseDate(ms.startDate) ??
+        new Date();
+
+      const status = this.resolveMppMilestoneStatus(ms);
+      const key = this.milestoneMatchKey(title, phaseId);
+      const existingId = existingByKey.get(key);
+
+      if (existingId) {
+        await tx.projectMilestone.update({
+          where: { id: existingId },
+          data: { targetDate, phaseId, status },
+        });
+        updated += 1;
+      } else {
+        const row = await tx.projectMilestone.create({
+          data: {
+            projectId,
+            title,
+            targetDate,
+            phaseId,
+            status,
+            weight: null,
+          },
+        });
+        existingByKey.set(key, row.id);
+        created += 1;
+      }
+    }
+
+    return { created, updated, warnings };
   }
 
   private taskMatchKey(title: string, phaseId: string): string {

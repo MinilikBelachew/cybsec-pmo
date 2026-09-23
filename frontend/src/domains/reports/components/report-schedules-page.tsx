@@ -15,6 +15,15 @@ import {
 import { describeCronExpression } from "../schemas/report-schedule.schema";
 import { CreateReportScheduleModal } from "./create-report-schedule-modal";
 
+/** Keep schedule titles compact in the list (full name still on hover). */
+const PROJECT_TITLE_MAX = 28;
+
+function shortenProjectTitle(name: string, max = PROJECT_TITLE_MAX): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, Math.max(1, max - 1)).trimEnd()}…`;
+}
+
 export function ReportSchedulesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -65,19 +74,23 @@ export function ReportSchedulesPage() {
           </p>
         ) : (
           schedules.map((schedule) => {
-            const label = `${schedule.reportType} · ${
+            const projectName =
               schedule.project?.name ??
-              (schedule.projectId ? schedule.projectId : "All projects")
-            }`;
+              (schedule.projectId ? schedule.projectId : "All projects");
+            const shortProject = shortenProjectTitle(projectName);
+            const label = `${schedule.reportType} · ${shortProject}`;
+            const fullLabel = `${schedule.reportType} · ${projectName}`;
 
             return (
               <div
                 key={schedule.id}
-                className="flex flex-wrap items-center gap-4 p-4"
+                className="flex items-center justify-between gap-4 overflow-hidden p-4"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold">{label}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                <div className="min-w-0 flex-1 overflow-hidden pr-2">
+                  <p className="truncate font-semibold" title={fullLabel}>
+                    {label}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {describeCronExpression(
                       schedule.cronExpression,
                       schedule.reportType,
@@ -87,7 +100,7 @@ export function ReportSchedulesPage() {
                       ? new Date(schedule.nextRun).toLocaleString()
                       : "pending"}
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="truncate text-xs text-muted-foreground">
                     Recipients:{" "}
                     {schedule.recipients
                       ?.map((recipient) => recipient.role?.label)
@@ -96,10 +109,11 @@ export function ReportSchedulesPage() {
                   </p>
                 </div>
 
+                <div className="ml-auto flex shrink-0 items-center gap-2">
                 <div
                   role="radiogroup"
                   aria-label="Schedule status"
-                  className="inline-flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+                  className="inline-flex shrink-0 rounded-lg border border-border/70 bg-muted/40 p-0.5"
                 >
                   <button
                     type="button"
@@ -144,16 +158,17 @@ export function ReportSchedulesPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-rose-600 hover:text-rose-700"
+                  className="shrink-0 text-rose-600 hover:text-rose-700"
                   onClick={() =>
                     setDeleteConfirm({
                       id: schedule.id,
-                      label,
+                      label: fullLabel,
                     })
                   }
                 >
                   <Trash2 className="size-4" />
                 </Button>
+                </div>
               </div>
             );
           })

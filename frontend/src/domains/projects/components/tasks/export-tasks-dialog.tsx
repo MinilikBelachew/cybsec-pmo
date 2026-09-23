@@ -1,17 +1,11 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState, useMemo } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Button } from "@/shared/ui/button";
-import {
-  X,
-  Download,
-  Search,
-  FileSpreadsheet,
-  Loader2,
-  ChevronDown
-} from "lucide-react";
+import { X, Download, Search, FileSpreadsheet, ChevronDown } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 
 import {
@@ -266,7 +260,7 @@ export function ExportTasksDialog({
               >
                 {isExporting ? (
                   <>
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner size="xs" />
                     Exporting...
                   </>
                 ) : (

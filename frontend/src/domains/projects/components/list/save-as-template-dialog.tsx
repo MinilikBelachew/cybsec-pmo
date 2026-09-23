@@ -1,9 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useState } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { toast } from "react-hot-toast";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { useSaveProjectAsTemplateMutation } from "@/domains/projects/api/project-templates.api";
 import type { Project } from "@/domains/projects/types/projects.types";
@@ -125,7 +126,7 @@ export function SaveAsTemplateDialog({
               disabled={isLoading || !project}
               className="gap-1.5"
             >
-              {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+              {isLoading ? <Spinner size="sm" /> : null}
               Save template
             </Button>
           </div>

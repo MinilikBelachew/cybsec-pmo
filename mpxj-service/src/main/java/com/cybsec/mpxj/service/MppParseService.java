@@ -102,6 +102,7 @@ public class MppParseService {
       parsedTask.setWbs(task.getWBS());
       parsedTask.setOutlineLevel(task.getOutlineLevel());
       parsedTask.setSummary(task.getSummary());
+      parsedTask.setMilestone(Boolean.TRUE.equals(task.getMilestone()));
       parsedTask.setStartDate(formatDate(task.getStart()));
       parsedTask.setFinishDate(formatDate(task.getFinish()));
       // Primary baseline is getBaseline*(); indexed overloads are Baseline1–10 only (1..10).

@@ -6,6 +6,7 @@ public class MspdiExportTaskDto {
   private String name;
   private String parentId;
   private boolean summary;
+  private boolean milestone;
   private Integer outlineLevel;
   private String startDate;
   private String finishDate;
@@ -49,6 +50,14 @@ public class MspdiExportTaskDto {
 
   public void setSummary(boolean summary) {
     this.summary = summary;
+  }
+
+  public boolean isMilestone() {
+    return milestone;
+  }
+
+  public void setMilestone(boolean milestone) {
+    this.milestone = milestone;
   }
 
   public Integer getOutlineLevel() {

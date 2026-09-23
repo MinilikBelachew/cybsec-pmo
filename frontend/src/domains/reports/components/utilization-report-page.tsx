@@ -1,18 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { type SortingState } from "@tanstack/react-table";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  CheckCircle2,
-  Download,
-  Loader2,
-  RefreshCw,
-  Search,
-  TrendingUp,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Download, RefreshCw, Search, TrendingUp } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { KpiStatCard, KPI_CARD_THEMES } from "@/shared/components/kpi-stat-card";
@@ -497,7 +489,7 @@ export function UtilizationReportPage() {
               disabled={isFetching || isLiveReconciling}
             >
               {isFetching && !isLiveReconciling ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <RefreshCw className="size-3.5" />
               )}
@@ -510,7 +502,7 @@ export function UtilizationReportPage() {
               disabled={isFetching || isLiveReconciling}
             >
               {isLiveReconciling ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <CheckCircle2 className="size-3.5" />
               )}
@@ -670,7 +662,7 @@ export function UtilizationReportPage() {
           hasMore={hasMoreEmployees}
           isLoading={isEmployeesLoading && employeeOptions.length === 0}
           isFetchingMore={isFetchingMoreEmployees}
-          triggerClassName="min-w-[180px]"
+          triggerClassName="h-9 w-[180px] max-w-[200px] shrink-0"
         />
 
         <FilterSelect
@@ -680,7 +672,7 @@ export function UtilizationReportPage() {
           noneLabel="All teams"
           searchable
           searchPlaceholder="Search team (department)..."
-          triggerClassName="min-w-[160px]"
+          triggerClassName="h-9 w-[160px] max-w-[180px] shrink-0"
         />
 
         <FilterSelect
@@ -690,7 +682,7 @@ export function UtilizationReportPage() {
           noneLabel="All projects"
           searchable
           searchPlaceholder="Search project..."
-          triggerClassName="min-w-[160px]"
+          triggerClassName="h-9 w-[200px] max-w-[220px] shrink-0"
         />
 
         <Button
@@ -702,7 +694,7 @@ export function UtilizationReportPage() {
           data-testid="util-export-csv"
         >
           {isExporting ? (
-            <Loader2 className="size-3.5 animate-spin" />
+            <Spinner size="xs" />
           ) : (
             <Download className="size-3.5" />
           )}

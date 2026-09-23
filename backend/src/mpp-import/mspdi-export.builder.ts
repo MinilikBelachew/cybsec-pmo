@@ -133,6 +133,18 @@ export class MspdiExportBuilder {
       },
     });
 
+    const milestones = await this.prisma.projectMilestone.findMany({
+      where: { projectId },
+      orderBy: [{ phaseId: 'asc' }, { targetDate: 'asc' }, { title: 'asc' }],
+      select: {
+        id: true,
+        title: true,
+        targetDate: true,
+        phaseId: true,
+        status: true,
+      },
+    });
+
     const exportTasks: MspdiExportTaskPayload[] = [];
     const phaseIdByExportId = new Map<string, string>();
 
@@ -182,7 +194,9 @@ export class MspdiExportBuilder {
     }
 
     const unphasedParentId = 'phase:__unphased__';
-    const hasUnphased = topLevel.some((t) => !t.phaseId);
+    const hasUnphased =
+      topLevel.some((t) => !t.phaseId) ||
+      milestones.some((m) => !m.phaseId);
     if (hasUnphased) {
       const unphasedTasks = tasks.filter((t) => !t.phaseId);
       const rollup = this.rollupSchedule(unphasedTasks, {
@@ -260,11 +274,44 @@ export class MspdiExportBuilder {
       for (const task of phaseTasks) {
         pushTaskTree(task, phaseExportId, 2);
       }
+      const phaseMilestones = milestones.filter((m) => m.phaseId === phase.id);
+      for (const ms of phaseMilestones) {
+        const day = this.toDay(ms.targetDate);
+        exportTasks.push({
+          id: `milestone:${ms.id}`,
+          name: ms.title,
+          parentId: phaseExportId,
+          summary: false,
+          milestone: true,
+          outlineLevel: 2,
+          startDate: day,
+          finishDate: day,
+          percentComplete:
+            String(ms.status).toLowerCase() === 'completed' ? 100 : 0,
+          priority: 500,
+        });
+      }
     }
 
     if (hasUnphased) {
       for (const task of topLevel.filter((t) => !t.phaseId)) {
         pushTaskTree(task, unphasedParentId, 2);
+      }
+      for (const ms of milestones.filter((m) => !m.phaseId)) {
+        const day = this.toDay(ms.targetDate);
+        exportTasks.push({
+          id: `milestone:${ms.id}`,
+          name: ms.title,
+          parentId: unphasedParentId,
+          summary: false,
+          milestone: true,
+          outlineLevel: 2,
+          startDate: day,
+          finishDate: day,
+          percentComplete:
+            String(ms.status).toLowerCase() === 'completed' ? 100 : 0,
+          priority: 500,
+        });
       }
     }
 

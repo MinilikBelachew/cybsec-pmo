@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { Loader2, X, LayoutTemplate } from "lucide-react";
+import { X, LayoutTemplate } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { useGetProjectTemplatesQuery } from "@/domains/projects/api/project-templates.api";
 import type { ProjectTemplateSummary } from "@/domains/projects/types/project-templates.types";
@@ -49,7 +50,7 @@ export function TemplatePickerDialog({
           <div className="flex-1 overflow-y-auto p-3">
             {isLoading && (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
+                <Spinner size="sm" />
                 Loading templates…
               </div>
             )}

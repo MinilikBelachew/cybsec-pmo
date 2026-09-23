@@ -36,6 +36,9 @@ export function SettingsPage() {
   const canManageHealthRules =
     (ability?.can("manage", "Report") ?? false) ||
     (ability?.can("manage", "Settings") ?? false);
+  // Branding = report letterhead: Settings admins or report managers (PMO lead).
+  const canManageBranding =
+    canManageSecurity || (ability?.can("manage", "Report") ?? false);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     canManageUsers ? "users" : "profile",
@@ -115,7 +118,7 @@ export function SettingsPage() {
           </button>
         )}
         
-        {canManageSecurity && (
+        {canManageBranding && (
           <button
             type="button"
             onClick={() => setActiveTab("branding")}
@@ -178,7 +181,7 @@ export function SettingsPage() {
         />
       )}
 
-      {activeTab === "branding" && canManageSecurity && (
+      {activeTab === "branding" && canManageBranding && (
         <BrandingProfilesSection
           onSuccess={notifySuccess}
           onError={notifyError}

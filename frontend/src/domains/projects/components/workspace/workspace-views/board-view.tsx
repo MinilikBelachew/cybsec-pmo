@@ -1,20 +1,8 @@
+import { Spinner } from "@/shared/components/spinner";
 import { useState, useRef, useCallback, useMemo, type ReactNode, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import { cn } from "@/shared/utils/cn";
-import {
-  Plus,
-  Flag,
-  Calendar as CalendarIcon,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  User,
-  CornerDownLeft,
-  Pencil,
-  Search,
-  Layers,
-  Clock3,
-} from "lucide-react";
+import { Plus, Flag, Calendar as CalendarIcon, ChevronDown, ChevronRight, User, CornerDownLeft, Pencil, Search, Layers, Clock3 } from "lucide-react";
 import type { ProjectPhase, ProjectTaskAssignee } from "@/domains/projects/types/projects.types";
 import type { TaskDependency, TaskPriority } from "@/domains/projects/types/tasks.types";
 import {
@@ -382,7 +370,7 @@ function BoardStatusColumn({
         <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center min-h-[72px] text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner size="sm" />
             </div>
           ) : (
             enriched.map((task) => (
@@ -430,7 +418,7 @@ function BoardStatusColumn({
               className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border/60 py-2 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50"
             >
               {isFetching ? (
-                <Loader2 className="size-3 animate-spin" />
+                <Spinner size="xs" />
               ) : null}
               Load more
               {typeof statusCount === "number" && statusCount > enriched.length
@@ -803,7 +791,7 @@ function ColumnInlineAddTask({
           disabled={!canSave}
           className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {isSubmitting ? <Loader2 className="size-3 animate-spin" /> : <CornerDownLeft className="size-3" />}
+          {isSubmitting ? <Spinner size="xs" /> : <CornerDownLeft className="size-3" />}
           Save
         </button>
       </div>

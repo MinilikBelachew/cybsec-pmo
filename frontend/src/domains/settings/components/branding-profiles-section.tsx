@@ -1,17 +1,10 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Loader2,
-  Palette,
-  Plus,
-  Star,
-  Trash2,
-  Upload,
-  X,
-} from "lucide-react";
+import { Palette, Plus, Star, Trash2, Upload, X } from "lucide-react";
 import { getApiErrorMessage } from "@/core/errors/api-error";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import {
@@ -247,7 +240,7 @@ export function BrandingProfilesSection({ onSuccess, onError }: Props) {
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Loader2 className="size-4 animate-spin" />
+          <Spinner size="sm" />
           Loading branding profiles…
         </div>
       ) : profiles.length === 0 && !showForm ? (
@@ -491,7 +484,7 @@ export function BrandingProfilesSection({ onSuccess, onError }: Props) {
               disabled={busy}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
             >
-              {busy && <Loader2 className="size-4 animate-spin" />}
+              {busy && <Spinner size="sm" />}
               {editingId ? "Save changes" : "Create profile"}
             </button>
           </div>

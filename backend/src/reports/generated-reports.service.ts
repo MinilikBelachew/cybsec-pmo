@@ -419,12 +419,7 @@ export class GeneratedReportsService {
       [
         { header: 'Issue', width: 40 },
         { header: 'Date reported', width: 18 },
-        { header: 'Blocking', width: 12 },
-        { header: 'Blocks', width: 24 },
-        { header: 'Action required', width: 30 },
         { header: 'Issue owner', width: 20 },
-        { header: 'Action owner', width: 20 },
-        { header: 'Customer dependency', width: 22 },
         { header: 'Target resolution', width: 18 },
         { header: 'Actual resolution', width: 18 },
         { header: 'Status', width: 14 },
@@ -432,12 +427,7 @@ export class GeneratedReportsService {
       snapshot.issues.map((item) => [
         item.description,
         formatApprovedDate(item.reportedDate),
-        item.isBlocking == null ? null : item.isBlocking ? 'Yes' : 'No',
-        item.blocks,
-        item.actionRequired,
         item.issueOwner,
-        item.actionOwner,
-        item.dependency,
         formatApprovedDate(item.targetResolutionDate),
         item.actualResolutionDate
           ? formatApprovedDate(item.actualResolutionDate)

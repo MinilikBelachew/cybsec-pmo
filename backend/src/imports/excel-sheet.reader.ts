@@ -28,6 +28,52 @@ export function listExcelSheetNames(workbook: ExcelJS.Workbook): string[] {
   return workbook.worksheets.map((ws) => ws.name);
 }
 
+const EXCEL_SHEET_NAME_MAX = 31;
+
+/**
+ * Resolves `{projectName} Phases|Tasks|Milestones`, including Excel's 31-char
+ * truncation used by the frontend exporter.
+ */
+export function findProjectNestedSheetName(
+  sheetNames: string[],
+  projectName: string,
+  suffix: ' Phases' | ' Tasks' | ' Milestones',
+): string | null {
+  const exact = `${projectName}${suffix}`;
+  if (sheetNames.includes(exact)) return exact;
+
+  const clean = projectName.replace(/[\\/?*:[\]]/g, '').trim();
+  if (!clean) return null;
+
+  const maxPrefix = Math.max(1, EXCEL_SHEET_NAME_MAX - suffix.length);
+  const candidates = [
+    `${clean.slice(0, maxPrefix)}${suffix}`.slice(0, EXCEL_SHEET_NAME_MAX),
+    `${clean.slice(0, 25)}${suffix}`.slice(0, EXCEL_SHEET_NAME_MAX),
+  ];
+  for (const candidate of candidates) {
+    if (sheetNames.includes(candidate)) return candidate;
+  }
+
+  const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(
+    `^(.{1,${maxPrefix}})${escapedSuffix}(?: \\(\\d+\\))?$`,
+  );
+
+  let best: string | null = null;
+  let bestPrefixLen = -1;
+  for (const name of sheetNames) {
+    const match = name.match(re);
+    if (!match) continue;
+    const sheetPrefix = match[1] ?? '';
+    if (!sheetPrefix || !clean.startsWith(sheetPrefix)) continue;
+    if (sheetPrefix.length > bestPrefixLen) {
+      bestPrefixLen = sheetPrefix.length;
+      best = name;
+    }
+  }
+  return best;
+}
+
 /**
  * Convert a worksheet to a 2-D string grid.
  * When allowEmpty is true, returns [] for missing/empty sheets instead of throwing.

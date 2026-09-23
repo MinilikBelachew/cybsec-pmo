@@ -1,4 +1,4 @@
-import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectTaskAssignee } from "../types/projects.types";
+import { Department, Customer, ProjectManager, CreateProjectDto, ProjectPhase, ProjectMilestone, ProjectTaskAssignee } from "../types/projects.types";
 import { Task } from "../types/tasks.types";
 import { taskDatesOutsidePhaseErrors, toTaskDayKey } from "../schemas/task/task-date-fields";
 import * as XLSX from "xlsx";
@@ -23,6 +23,7 @@ import {
   drawPdfScheduleTable,
   resolveTaskPdfHeaders,
 } from "./pdf-export-layout";
+import { renderWordTaskScheduleSection } from "./word-export-layout";
 
 export {
   TASK_EXPORT_FIELD_OPTIONS,
@@ -358,6 +359,50 @@ export function convertToCSV(
   return sections.join("\n");
 }
 
+/** Excel worksheet names are capped at 31 characters. */
+const EXCEL_SHEET_NAME_MAX = 31;
+
+const ROUND_TRIP_TASK_FIELDS = ["Phase", "Predecessors"] as const;
+
+/**
+ * Builds a unique Excel sheet name for `{projectName}{suffix}` (e.g. " Phases"),
+ * matching the import convention while respecting the 31-char Excel limit.
+ */
+export function buildUniqueProjectSheetName(
+  existingSheetNames: string[],
+  projectName: string,
+  suffix: " Tasks" | " Phases" | " Milestones",
+): string {
+  const clean = projectName.replace(/[\\/?*:[\]]/g, "").trim();
+  const maxPrefix = Math.max(1, EXCEL_SHEET_NAME_MAX - suffix.length);
+  const base = `${(clean || "Project").slice(0, maxPrefix)}${suffix}`.slice(
+    0,
+    EXCEL_SHEET_NAME_MAX,
+  );
+
+  let unique = base;
+  let counter = 1;
+  while (existingSheetNames.includes(unique)) {
+    const disambig = ` (${counter})`;
+    unique =
+      `${(clean || "Project").slice(0, Math.max(1, maxPrefix - disambig.length))}${suffix}`
+        .slice(0, EXCEL_SHEET_NAME_MAX - disambig.length) + disambig;
+    counter++;
+  }
+  return unique;
+}
+
+/** Ensures Phase + Predecessors columns are present for XLSX re-import fidelity. */
+function mergeRoundTripTaskHeaders(selectedTaskFields?: string[]): string[] {
+  const headers = selectedTaskFields?.length
+    ? [...selectedTaskFields]
+    : [...DEFAULT_TASK_EXPORT_FIELDS];
+  for (const field of ROUND_TRIP_TASK_FIELDS) {
+    if (!headers.includes(field)) headers.push(field);
+  }
+  return headers;
+}
+
 export function exportProjectsToXLSX(
   projects: any[],
   departments: Department[],
@@ -367,6 +412,8 @@ export function exportProjectsToXLSX(
   tasks?: any[],
   selectedTaskFields?: string[],
   dependencies: TaskExportDependency[] = [],
+  phasesByProjectId: Record<string, ProjectPhase[]> = {},
+  milestonesByProjectId: Record<string, ProjectMilestone[]> = {},
 ): ArrayBuffer {
   const headers = resolveProjectExportHeaders(selectedFields);
 
@@ -383,6 +430,76 @@ export function exportProjectsToXLSX(
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Projects");
 
+  const phaseHeaders = [
+    "Name",
+    "Description",
+    "Order",
+    "Status",
+    "Start Date",
+    "End Date",
+  ];
+  const milestoneHeaders = [
+    "Title",
+    "Target Date",
+    "Weight (%)",
+    "Status",
+    "Phase",
+  ];
+
+  for (const project of projects) {
+    const projectId = String(project.id ?? "");
+    const projectName = String(project.name ?? "").trim();
+    if (!projectId || !projectName) continue;
+
+    const phases = phasesByProjectId[projectId] ?? [];
+    if (phases.length > 0) {
+      const phaseRows = phases
+        .slice()
+        .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+        .map((phase) => ({
+          Name: phase.name ?? "",
+          Description: phase.description ?? "",
+          Order: phase.orderIndex ?? "",
+          Status: phase.status ?? "Planned",
+          "Start Date": toExportDay(phase.startDate),
+          "End Date": toExportDay(phase.endDate),
+        }));
+      const phaseSheetName = buildUniqueProjectSheetName(
+        workbook.SheetNames,
+        projectName,
+        " Phases",
+      );
+      const phaseWs = XLSX.utils.json_to_sheet(phaseRows, { header: phaseHeaders });
+      XLSX.utils.book_append_sheet(workbook, phaseWs, phaseSheetName);
+    }
+
+    const milestones = milestonesByProjectId[projectId] ?? [];
+    if (milestones.length > 0) {
+      const phaseNameById = new Map(
+        (phasesByProjectId[projectId] ?? []).map((p) => [p.id, p.name]),
+      );
+      const milestoneRows = milestones.map((ms) => ({
+        Title: ms.title ?? "",
+        "Target Date": toExportDay(ms.targetDate),
+        "Weight (%)": ms.weight ?? "",
+        Status: ms.status ?? "Pending",
+        Phase:
+          ms.phase?.name ||
+          (ms.phaseId ? phaseNameById.get(ms.phaseId) ?? "" : "") ||
+          "",
+      }));
+      const msSheetName = buildUniqueProjectSheetName(
+        workbook.SheetNames,
+        projectName,
+        " Milestones",
+      );
+      const msWs = XLSX.utils.json_to_sheet(milestoneRows, {
+        header: milestoneHeaders,
+      });
+      XLSX.utils.book_append_sheet(workbook, msWs, msSheetName);
+    }
+  }
+
   if (tasks && tasks.length > 0) {
     const tasksByProject: Record<string, any[]> = {};
     tasks.forEach((t) => {
@@ -393,9 +510,7 @@ export function exportProjectsToXLSX(
       tasksByProject[projName].push(t);
     });
 
-    const taskHeaders = selectedTaskFields?.length
-      ? selectedTaskFields
-      : DEFAULT_TASK_EXPORT_FIELDS;
+    const taskHeaders = mergeRoundTripTaskHeaders(selectedTaskFields);
 
     Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
       const tasksData = mapTasksToExportRows(projTasks, {
@@ -408,17 +523,11 @@ export function exportProjectsToXLSX(
           null,
       }).map((row) => pickExportFields(row, taskHeaders));
 
-      const cleanProjName = projName.replace(/[\\/?*:[\]]/g, "").trim().slice(0, 25);
-      const sheetName = cleanProjName ? `${cleanProjName} Tasks` : "Tasks";
-      const finalSheetName = sheetName.slice(0, 31);
-
-      let uniqueSheetName = finalSheetName;
-      let counter = 1;
-      while (workbook.SheetNames.includes(uniqueSheetName)) {
-        const suffix = ` (${counter})`;
-        uniqueSheetName = finalSheetName.slice(0, 31 - suffix.length) + suffix;
-        counter++;
-      }
+      const uniqueSheetName = buildUniqueProjectSheetName(
+        workbook.SheetNames,
+        projName,
+        " Tasks",
+      );
 
       const tasksWorksheet = XLSX.utils.json_to_sheet(tasksData, { header: taskHeaders });
       XLSX.utils.book_append_sheet(workbook, tasksWorksheet, uniqueSheetName);
@@ -1803,6 +1912,8 @@ export function exportProjectsToPDF(
   tasks?: any[],
   selectedTaskFields?: string[],
   dependencies: TaskExportDependency[] = [],
+  phasesByProjectId: Record<string, ProjectPhase[]> = {},
+  milestonesByProjectId: Record<string, ProjectMilestone[]> = {},
 ): Blob {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const headers = resolveProjectExportHeaders(selectedFields);
@@ -1889,10 +2000,60 @@ export function exportProjectsToPDF(
     const extra = headers.filter((f) => !shown.has(f));
     if (extra.length > 0) {
       y = drawPdfSectionTitle(doc, "Additional fields", y + 4);
-      drawPdfKeyValueGrid(
+      y = drawPdfKeyValueGrid(
         doc,
         extra.map((f) => [f, String(row[f] ?? "—")]),
         y,
+      );
+    }
+
+    const projectId = String(project.id ?? "");
+    const phases = phasesByProjectId[projectId] ?? [];
+    if (phases.length > 0) {
+      doc.addPage("a4", "portrait");
+      drawPdfReportHeader(doc, `Phases — ${String(row.Name || project.name || "Project")}`);
+      drawPdfScheduleTable(
+        doc,
+        ["Name", "Description", "Order", "Status", "Start Date", "End Date"],
+        phases
+          .slice()
+          .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+          .map((phase) => ({
+            Name: phase.name ?? "",
+            Description: phase.description ?? "",
+            Order: phase.orderIndex ?? "",
+            Status: phase.status ?? "",
+            "Start Date": toExportDay(phase.startDate),
+            "End Date": toExportDay(phase.endDate),
+          })),
+        28,
+      );
+    }
+
+    const milestones = milestonesByProjectId[projectId] ?? [];
+    if (milestones.length > 0) {
+      const phaseNameById = new Map(
+        phases.map((ph) => [ph.id, ph.name]),
+      );
+      doc.addPage("a4", "portrait");
+      drawPdfReportHeader(
+        doc,
+        `Milestones — ${String(row.Name || project.name || "Project")}`,
+      );
+      drawPdfScheduleTable(
+        doc,
+        ["Title", "Target Date", "Weight (%)", "Status", "Phase"],
+        milestones.map((ms) => ({
+          Title: ms.title ?? "",
+          "Target Date": toExportDay(ms.targetDate),
+          "Weight (%)": ms.weight ?? "",
+          Status: ms.status ?? "",
+          Phase:
+            ms.phase?.name ||
+            (ms.phaseId ? phaseNameById.get(ms.phaseId) ?? "" : "") ||
+            "",
+        })),
+        28,
       );
     }
   });
@@ -1926,6 +2087,54 @@ export function exportProjectsToPDF(
   return doc.output("blob");
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Shared Word/HTML table CSS — avoids Google Docs one-letter-per-line header wrap. */
+const WORD_EXPORT_TABLE_CSS = `
+  table.data { border-collapse: collapse; width: auto; max-width: none; table-layout: auto; margin-top: 12px; margin-bottom: 16px; }
+  table.data th, table.data td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+    word-break: normal;
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+  table.data th {
+    background-color: #f8fafc;
+    font-weight: bold;
+    color: #0f172a;
+    font-size: 9pt;
+    white-space: nowrap;
+  }
+  table.data td { font-size: 9pt; }
+  table.kv { border-collapse: collapse; width: 100%; max-width: 7.5in; margin-top: 8px; margin-bottom: 16px; table-layout: fixed; }
+  table.kv th, table.kv td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+  table.kv th {
+    width: 2.2in;
+    background-color: #f8fafc;
+    font-weight: bold;
+    color: #0f172a;
+    font-size: 9pt;
+    white-space: nowrap;
+  }
+  table.kv td { font-size: 9pt; }
+`;
+
 export function exportProjectsToWord(
   projects: any[],
   departments: Department[],
@@ -1935,6 +2144,8 @@ export function exportProjectsToWord(
   tasks?: any[],
   selectedTaskFields?: string[],
   dependencies: TaskExportDependency[] = [],
+  phasesByProjectId: Record<string, ProjectPhase[]> = {},
+  milestonesByProjectId: Record<string, ProjectMilestone[]> = {},
 ): Blob {
   const headers = resolveProjectExportHeaders(selectedFields);
   const reportTitle =
@@ -1946,7 +2157,7 @@ export function exportProjectsToWord(
     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
     <head>
       <meta charset="utf-8">
-      <title>${reportTitle}</title>
+      <title>${escapeHtml(reportTitle)}</title>
       <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
       <style>
         @page Section1 {
@@ -1961,42 +2172,111 @@ export function exportProjectsToWord(
         h1 { font-size: 20pt; color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 5px; margin-bottom: 20px; }
         h2 { font-size: 14pt; color: #2563eb; margin-top: 30px; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 3px; }
         h3 { font-size: 11pt; color: #4b5563; margin-top: 20px; }
-        table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 15px; margin-bottom: 15px; }
-        th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; word-break: break-word; word-wrap: break-word; }
-        th { background-color: #f8fafc; font-weight: bold; color: #0f172a; font-size: 9pt; }
-        td { font-size: 9pt; }
+        h4 { font-size: 10pt; color: #64748b; margin-top: 14px; margin-bottom: 6px; font-weight: bold; }
         .meta { font-size: 9pt; color: #64748b; margin-bottom: 30px; }
+        ${WORD_EXPORT_TABLE_CSS}
       </style>
     </head>
     <body>
       <div class="Section1">
-        <h1>${reportTitle}</h1>
-        <p class="meta">Exported on: ${new Date().toLocaleDateString()}</p>
+        <h1>${escapeHtml(reportTitle)}</h1>
+        <p class="meta">Exported on: ${escapeHtml(new Date().toLocaleDateString())}</p>
         
         <h2>Projects Overview</h2>
-        <table>
-          <thead>
-            <tr>
-              ${headers.map(h => `<th>${h}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
   `;
 
+  // Key-value layout avoids ultra-wide tables that Google Docs squeezes into
+  // one-character-per-line headers.
   projects.forEach((p) => {
     const allData = mapProjectToExportRow(p, departments, customers, managers);
-
+    const title = String(allData.Name ?? p.name ?? "Project");
     html += `
-      <tr>
-        ${headers.map(field => `<td>${allData[field] !== undefined ? allData[field] : ""}</td>`).join("")}
-      </tr>
+      <h3>${escapeHtml(title)}</h3>
+      <table class="kv">
+        <tbody>
+          ${headers
+            .map(
+              (field) => `
+            <tr>
+              <th>${escapeHtml(field)}</th>
+              <td>${escapeHtml(allData[field] !== undefined ? allData[field] : "")}</td>
+            </tr>`,
+            )
+            .join("")}
+        </tbody>
+      </table>
     `;
   });
 
-  html += `
-        </tbody>
-      </table>
-  `;
+  for (const project of projects) {
+    const projectId = String(project.id ?? "");
+    const projectName = String(project.name ?? "Project");
+    const phases = phasesByProjectId[projectId] ?? [];
+    if (phases.length > 0) {
+      html += `
+        <h3>Phases — ${escapeHtml(projectName)}</h3>
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Name</th><th>Description</th><th>Order</th><th>Status</th><th>Start Date</th><th>End Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${phases
+              .slice()
+              .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+              .map(
+                (phase) => `
+              <tr>
+                <td>${escapeHtml(phase.name)}</td>
+                <td>${escapeHtml(phase.description ?? "")}</td>
+                <td>${escapeHtml(phase.orderIndex ?? "")}</td>
+                <td>${escapeHtml(phase.status ?? "")}</td>
+                <td>${escapeHtml(toExportDay(phase.startDate))}</td>
+                <td>${escapeHtml(toExportDay(phase.endDate))}</td>
+              </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    const milestones = milestonesByProjectId[projectId] ?? [];
+    if (milestones.length > 0) {
+      const phaseNameById = new Map(
+        (phasesByProjectId[projectId] ?? []).map((ph) => [ph.id, ph.name]),
+      );
+      html += `
+        <h3>Milestones — ${escapeHtml(projectName)}</h3>
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Title</th><th>Target Date</th><th>Weight (%)</th><th>Status</th><th>Phase</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${milestones
+              .map((ms) => {
+                const phaseLabel =
+                  ms.phase?.name ||
+                  (ms.phaseId ? phaseNameById.get(ms.phaseId) ?? "" : "") ||
+                  "";
+                return `
+              <tr>
+                <td>${escapeHtml(ms.title)}</td>
+                <td>${escapeHtml(toExportDay(ms.targetDate))}</td>
+                <td>${escapeHtml(ms.weight ?? "")}</td>
+                <td>${escapeHtml(ms.status ?? "")}</td>
+                <td>${escapeHtml(phaseLabel)}</td>
+              </tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      `;
+    }
+  }
 
   if (tasks && tasks.length > 0) {
     const tasksByProject: Record<string, any[]> = {};
@@ -2015,18 +2295,7 @@ export function exportProjectsToWord(
     html += `<h2>Task Schedule</h2>`;
 
     Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
-      html += `
-        <h3>Task Schedule — ${projName}</h3>
-        <table>
-          <thead>
-            <tr>
-              ${taskHeaders.map((h) => `<th>${h}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-      `;
-
-      mapTasksToExportRows(projTasks, {
+      const mapped = mapTasksToExportRows(projTasks, {
         dependencies,
         projectName: projName,
         projectOrganization: (t) =>
@@ -2034,18 +2303,14 @@ export function exportProjectsToWord(
           t.customerName ||
           t.projectOrganization ||
           null,
-      }).forEach((row) => {
-        html += `
-          <tr>
-            ${taskHeaders.map((field) => `<td>${row[field] !== undefined ? row[field] : ""}</td>`).join("")}
-          </tr>
-        `;
       });
 
-      html += `
-          </tbody>
-        </table>
-      `;
+      html += renderWordTaskScheduleSection(
+        projName,
+        mapped,
+        taskHeaders,
+        escapeHtml,
+      );
     });
   }
 
@@ -2067,6 +2332,13 @@ export function exportTasksToWord(
   projectOrganization?: string | null,
 ): Blob {
   const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
+  const projectName = tasks[0]?.project?.name || "Tasks";
+  const mapped = mapTasksToExportRows(tasks, {
+    dependencies,
+    phases,
+    assignees,
+    projectOrganization,
+  });
 
   let html = `
     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -2085,43 +2357,17 @@ export function exportTasksToWord(
         }
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #333333; line-height: 1.4; }
         h1 { font-size: 20pt; color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 5px; margin-bottom: 20px; }
-        table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 15px; margin-bottom: 15px; }
-        th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; word-break: break-word; word-wrap: break-word; }
-        th { background-color: #f8fafc; font-weight: bold; color: #0f172a; font-size: 9pt; }
-        td { font-size: 9pt; }
+        h3 { font-size: 11pt; color: #4b5563; margin-top: 20px; }
+        h4 { font-size: 10pt; color: #64748b; margin-top: 14px; margin-bottom: 6px; font-weight: bold; }
         .meta { font-size: 9pt; color: #64748b; margin-bottom: 30px; }
+        ${WORD_EXPORT_TABLE_CSS}
       </style>
     </head>
     <body>
       <div class="Section1">
         <h1>Project Tasks Report</h1>
         <p class="meta">Exported on: ${new Date().toLocaleDateString()}</p>
-        
-        <table>
-          <thead>
-            <tr>
-              ${headers.map((h) => `<th>${h}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-  `;
-
-  mapTasksToExportRows(tasks, {
-    dependencies,
-    phases,
-    assignees,
-    projectOrganization,
-  }).forEach((row) => {
-    html += `
-      <tr>
-        ${headers.map((field) => `<td>${row[field] !== undefined ? row[field] : ""}</td>`).join("")}
-      </tr>
-    `;
-  });
-
-  html += `
-          </tbody>
-        </table>
+        ${renderWordTaskScheduleSection(projectName, mapped, headers, escapeHtml)}
       </div>
     </body>
     </html>
@@ -2195,7 +2441,39 @@ function mapMppDepType(depType?: string): number {
   }
 }
 
+function isMspdiMilestone(task: any): boolean {
+  return Boolean(task?._milestoneExport || task?.milestone);
+}
+
+function toMilestoneExportTask(ms: {
+  id: string;
+  title: string;
+  targetDate: string;
+  status?: string;
+}): any {
+  const day = String(ms.targetDate).split("T")[0];
+  const completed = String(ms.status || "").toLowerCase() === "completed";
+  return {
+    id: `milestone:${ms.id}`,
+    title: ms.title,
+    startDate: day,
+    endDate: day,
+    _milestoneExport: true,
+    progressApproved: completed ? 100 : 0,
+    priority: "Medium",
+  };
+}
+
+function compareMilestoneOrder(a: any, b: any): number {
+  const dateCmp = String(a.targetDate || "").localeCompare(String(b.targetDate || ""));
+  if (dateCmp !== 0) return dateCmp;
+  return String(a.title || "").localeCompare(String(b.title || ""));
+}
+
 function mspdiDurationXml(task: any): string {
+  if (isMspdiMilestone(task)) {
+    return `<Duration>PT0H0M0S</Duration>`;
+  }
   if (task.effortHours != null && Number(task.effortHours) > 0) {
     const hours = Math.round(Number(task.effortHours));
     return `<Duration>PT${hours}H0M0S</Duration>`;
@@ -2361,8 +2639,11 @@ function renderMppTaskXml(opts: {
   predecessorXml?: string;
 }): string {
   const { uid, wbs, outlineLevel, name, summary, task, predecessorXml = "" } = opts;
+  const milestone = task ? isMspdiMilestone(task) : false;
   const start = task ? toMppDateTime(task.startDate) : "";
-  const finish = task ? toMppDateTime(task.endDate, true) : "";
+  const finish = task
+    ? toMppDateTime(milestone ? task.startDate || task.endDate : task.endDate, true)
+    : "";
   const baselineStart = task
     ? toMppDateTime(
         task.baselineStart || task.baselineStartDate || task.startDate,
@@ -2411,6 +2692,7 @@ ${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFin
       <Name>${escMppXml(name)}</Name>
       <Summary>${summary ? 1 : 0}</Summary>
       <Manual>0</Manual>
+      <Milestone>${milestone ? 1 : 0}</Milestone>
       ${start ? `<Start>${start}</Start>` : ""}
       ${finish ? `<Finish>${finish}</Finish>` : ""}
       ${durationXml}
@@ -2550,6 +2832,7 @@ export function exportTasksToMspdi(
   projectName = "Portfolio Export",
   dependencies: MspdiExportDependency[] = [],
   holidays: { date: string; name?: string }[] = [],
+  milestones: any[] = [],
 ): Blob {
   const idToUid = new Map<string, number>();
 
@@ -2584,6 +2867,20 @@ export function exportTasksToMspdi(
   tasksByPhaseId.forEach((list) => list.sort(comparePlanOrder));
   unphased.sort(comparePlanOrder);
 
+  const milestonesByPhaseId = new Map<string, any[]>();
+  const unphasedMilestones: any[] = [];
+  for (const ms of milestones || []) {
+    const phaseId = ms.phaseId || ms.phase?.id;
+    if (phaseId) {
+      if (!milestonesByPhaseId.has(phaseId)) milestonesByPhaseId.set(phaseId, []);
+      milestonesByPhaseId.get(phaseId)!.push(ms);
+    } else {
+      unphasedMilestones.push(ms);
+    }
+  }
+  milestonesByPhaseId.forEach((list) => list.sort(compareMilestoneOrder));
+  unphasedMilestones.sort(compareMilestoneOrder);
+
   const orderedPhases: { id: string; name: string; phase?: any }[] = phaseList.map(
     (p) => ({ id: p.id, name: p.name, phase: p }),
   );
@@ -2596,18 +2893,22 @@ export function exportTasksToMspdi(
       });
     }
   }
-  if (unphased.length > 0) {
+  if (unphased.length > 0 || unphasedMilestones.length > 0) {
     orderedPhases.push({ id: "__unphased__", name: "Imported Schedule" });
   }
 
   const projectStart =
-    tasks
-      .map((t) => t.startDate)
+    [
+      ...tasks.map((t) => t.startDate),
+      ...(milestones || []).map((m) => m.targetDate),
+    ]
       .filter(Boolean)
       .sort()[0] || phaseList[0]?.startDate;
   const projectFinish =
-    tasks
-      .map((t) => t.endDate)
+    [
+      ...tasks.map((t) => t.endDate),
+      ...(milestones || []).map((m) => m.targetDate),
+    ]
       .filter(Boolean)
       .sort()
       .reverse()[0] || phaseList[phaseList.length - 1]?.endDate;
@@ -2629,11 +2930,22 @@ export function exportTasksToMspdi(
       phaseEntry.id === "__unphased__"
         ? unphased
         : tasksByPhaseId.get(phaseEntry.id) || [];
+    const phaseMilestones =
+      phaseEntry.id === "__unphased__"
+        ? unphasedMilestones
+        : milestonesByPhaseId.get(phaseEntry.id) || [];
 
     // Keep empty phases from the project phase list; skip empty synthetic unphased.
-    if (phaseTasks.length === 0 && phaseEntry.id === "__unphased__") continue;
     if (
       phaseTasks.length === 0 &&
+      phaseMilestones.length === 0 &&
+      phaseEntry.id === "__unphased__"
+    ) {
+      continue;
+    }
+    if (
+      phaseTasks.length === 0 &&
+      phaseMilestones.length === 0 &&
       !phaseList.some((p) => p.id === phaseEntry.id)
     ) {
       continue;
@@ -2652,6 +2964,15 @@ export function exportTasksToMspdi(
         2,
         subTasksByParent,
       );
+    }
+    for (const ms of phaseMilestones) {
+      taskIndex += 1;
+      emitPlan.push({
+        kind: "task",
+        task: toMilestoneExportTask(ms),
+        wbs: `${phaseIndex}.${taskIndex}`,
+        outlineLevel: 2,
+      });
     }
   }
 
@@ -2766,6 +3087,8 @@ export function exportProjectsToMspdi(
   tasks?: any[],
   dependencies: MspdiExportDependency[] = [],
   holidays: { date: string; name?: string }[] = [],
+  phasesByProjectId: Record<string, any[]> = {},
+  milestonesByProjectId: Record<string, any[]> = {},
 ): Blob {
   // Multi-project portfolio: one MSPDI file with each project as an L1 summary.
   // Prefer per-project export from the workspace for full fidelity.
@@ -2847,34 +3170,153 @@ ${renderMppCalendarsXml(holidays)}
     const topLevel = projTasks
       .filter((t) => !t.parentTaskId)
       .sort(comparePlanOrder);
-    const byPhase = new Map<string, any[]>();
+
+    const projectPhases = [...(phasesByProjectId[proj.id] ?? [])].sort(
+      (a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0),
+    );
+    const projectMilestones = [...(milestonesByProjectId[proj.id] ?? [])].sort(
+      compareMilestoneOrder,
+    );
+
+    const tasksByPhaseId = new Map<string, any[]>();
+    const unphasedTasks: any[] = [];
     for (const t of topLevel) {
-      const key = t.phase?.name || t.phaseName || "No Phase";
-      if (!byPhase.has(key)) byPhase.set(key, []);
-      byPhase.get(key)!.push(t);
+      const phaseId = t.phaseId || t.phase?.id;
+      if (phaseId) {
+        if (!tasksByPhaseId.has(phaseId)) tasksByPhaseId.set(phaseId, []);
+        tasksByPhaseId.get(phaseId)!.push(t);
+      } else {
+        unphasedTasks.push(t);
+      }
     }
 
-    // Phase order from import orderIndex (not Map insertion / task encounter order).
-    const phaseGroups = [...byPhase.entries()].sort((a, b) => {
-      const aIdx = a[1][0]?.phase?.orderIndex;
-      const bIdx = b[1][0]?.phase?.orderIndex;
-      const aNum = typeof aIdx === "number" ? aIdx : Number.MAX_SAFE_INTEGER;
-      const bNum = typeof bIdx === "number" ? bIdx : Number.MAX_SAFE_INTEGER;
-      if (aNum !== bNum) return aNum - bNum;
-      return a[0].localeCompare(b[0]);
-    });
+    const milestonesByPhaseId = new Map<string, any[]>();
+    const unphasedMilestones: any[] = [];
+    for (const ms of projectMilestones) {
+      const phaseId = ms.phaseId || ms.phase?.id;
+      if (phaseId) {
+        if (!milestonesByPhaseId.has(phaseId)) milestonesByPhaseId.set(phaseId, []);
+        milestonesByPhaseId.get(phaseId)!.push(ms);
+      } else {
+        unphasedMilestones.push(ms);
+      }
+    }
+
+    type PhaseGroup = {
+      id: string;
+      name: string;
+      phase?: any;
+      phaseTasks: any[];
+      phaseMilestones: any[];
+    };
+
+    const phaseGroups: PhaseGroup[] = [];
+
+    if (projectPhases.length > 0) {
+      for (const phase of projectPhases) {
+        phaseGroups.push({
+          id: phase.id,
+          name: phase.name,
+          phase,
+          phaseTasks: tasksByPhaseId.get(phase.id) || [],
+          phaseMilestones: milestonesByPhaseId.get(phase.id) || [],
+        });
+      }
+      for (const phaseId of tasksByPhaseId.keys()) {
+        if (phaseGroups.some((g) => g.id === phaseId)) continue;
+        const sample = tasksByPhaseId.get(phaseId)?.[0];
+        phaseGroups.push({
+          id: phaseId,
+          name: sample?.phase?.name || sample?.phaseName || "Phase",
+          phase: sample?.phase,
+          phaseTasks: tasksByPhaseId.get(phaseId) || [],
+          phaseMilestones: milestonesByPhaseId.get(phaseId) || [],
+        });
+      }
+      for (const phaseId of milestonesByPhaseId.keys()) {
+        if (phaseGroups.some((g) => g.id === phaseId)) continue;
+        const sample = milestonesByPhaseId.get(phaseId)?.[0];
+        phaseGroups.push({
+          id: phaseId,
+          name: sample?.phase?.name || "Phase",
+          phase: sample?.phase,
+          phaseTasks: [],
+          phaseMilestones: milestonesByPhaseId.get(phaseId) || [],
+        });
+      }
+    } else {
+      const byPhaseName = new Map<string, any[]>();
+      for (const t of topLevel) {
+        const key = t.phase?.name || t.phaseName || "No Phase";
+        if (!byPhaseName.has(key)) byPhaseName.set(key, []);
+        byPhaseName.get(key)!.push(t);
+      }
+      const inferredGroups = [...byPhaseName.entries()].sort((a, b) => {
+        const aIdx = a[1][0]?.phase?.orderIndex;
+        const bIdx = b[1][0]?.phase?.orderIndex;
+        const aNum = typeof aIdx === "number" ? aIdx : Number.MAX_SAFE_INTEGER;
+        const bNum = typeof bIdx === "number" ? bIdx : Number.MAX_SAFE_INTEGER;
+        if (aNum !== bNum) return aNum - bNum;
+        return a[0].localeCompare(b[0]);
+      });
+      for (const [phaseName, phaseTasks] of inferredGroups) {
+        phaseGroups.push({
+          id: phaseTasks[0]?.phaseId || phaseTasks[0]?.phase?.id || phaseName,
+          name: phaseName,
+          phase: phaseTasks[0]?.phase,
+          phaseTasks,
+          phaseMilestones: [],
+        });
+      }
+      for (const ms of projectMilestones) {
+        const phaseId = ms.phaseId || ms.phase?.id;
+        if (!phaseId) {
+          continue;
+        }
+        const group = phaseGroups.find((g) => g.id === phaseId);
+        if (group) {
+          group.phaseMilestones.push(ms);
+        } else {
+          phaseGroups.push({
+            id: phaseId,
+            name: ms.phase?.name || "Phase",
+            phase: ms.phase,
+            phaseTasks: [],
+            phaseMilestones: [ms],
+          });
+        }
+      }
+    }
+
+    if (unphasedTasks.length > 0 || unphasedMilestones.length > 0) {
+      phaseGroups.push({
+        id: "__unphased__",
+        name: "Imported Schedule",
+        phaseTasks: unphasedTasks,
+        phaseMilestones: unphasedMilestones,
+      });
+    }
 
     let phaseIndex = 0;
-    for (const [phaseName, phaseTasks] of phaseGroups) {
-      phaseTasks.sort(comparePlanOrder);
+    for (const group of phaseGroups) {
+      // Keep real empty phases (completeness); skip empty synthetic unphased.
+      if (
+        group.phaseTasks.length === 0 &&
+        group.phaseMilestones.length === 0 &&
+        group.id === "__unphased__"
+      ) {
+        continue;
+      }
+
       phaseIndex += 1;
       emitPlan.push({
         kind: "phase",
-        name: phaseName,
+        name: group.name,
         wbs: `${projIndex}.${phaseIndex}`,
-        phase: phaseTasks[0]?.phase,
-        phaseTasks,
+        phase: group.phase,
+        phaseTasks: group.phaseTasks,
       });
+
       let taskIndex = 0;
       const childrenByParent: Record<string, any[]> = {};
       for (const t of projTasks) {
@@ -2886,7 +3328,7 @@ ${renderMppCalendarsXml(holidays)}
         list.sort(comparePlanOrder);
       }
 
-      for (const t of phaseTasks) {
+      for (const t of group.phaseTasks) {
         taskIndex += 1;
         pushTaskTreeToPlan(
           emitPlan,
@@ -2895,6 +3337,15 @@ ${renderMppCalendarsXml(holidays)}
           3,
           childrenByParent,
         );
+      }
+      for (const ms of group.phaseMilestones) {
+        taskIndex += 1;
+        emitPlan.push({
+          kind: "task",
+          task: toMilestoneExportTask(ms),
+          wbs: `${projIndex}.${phaseIndex}.${taskIndex}`,
+          outlineLevel: 3,
+        });
       }
     }
   }

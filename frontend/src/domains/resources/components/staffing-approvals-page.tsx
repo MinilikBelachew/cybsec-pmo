@@ -1,8 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useCallback, useMemo, useState } from "react";
 import { type SortingState } from "@tanstack/react-table";
-import { CheckCircle2, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { CheckCircle2, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { DataTable } from "@/shared/components/data-table";
@@ -210,7 +211,7 @@ export function StaffingApprovalsPage() {
             disabled={isRefreshing}
           >
             {isRefreshing ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Spinner size="xs" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}
@@ -312,7 +313,7 @@ function AllocationApprovalActions({
               }}
             >
               {isRejecting ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <X className="size-3.5" />
               )}
@@ -335,7 +336,7 @@ function AllocationApprovalActions({
         data-testid="staffing-approve"
       >
         {isApproving ? (
-          <Loader2 className="size-3.5 animate-spin" />
+          <Spinner size="xs" />
         ) : (
           <CheckCircle2 className="size-3.5" />
         )}

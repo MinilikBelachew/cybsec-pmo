@@ -1,18 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  CheckCheck,
-  ChevronDown,
-  Download,
-  FileText,
-  Loader2,
-  Pencil,
-  Plus,
-  Send,
-  ShieldCheck,
-  Trash2,
-} from "lucide-react";
+import { CheckCheck, ChevronDown, Download, FileText, Pencil, Plus, Send, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/domains/auth";
 import { Button } from "@/shared/ui/button";
@@ -511,7 +501,7 @@ export function MeetingsPanel({
                                           }
                                         >
                                           {isFlowBusy ? (
-                                            <Loader2 className="mr-1 size-4 animate-spin" />
+                                            <Spinner size="sm" className="mr-1" />
                                           ) : (
                                             <ShieldCheck className="mr-1 size-4" />
                                           )}
@@ -528,7 +518,7 @@ export function MeetingsPanel({
                                           }
                                         >
                                           {isFlowBusy ? (
-                                            <Loader2 className="mr-1 size-4 animate-spin" />
+                                            <Spinner size="sm" className="mr-1" />
                                           ) : (
                                             <Send className="mr-1 size-4" />
                                           )}
@@ -547,7 +537,7 @@ export function MeetingsPanel({
                                           }
                                         >
                                           {isFlowBusy ? (
-                                            <Loader2 className="mr-1 size-4 animate-spin" />
+                                            <Spinner size="sm" className="mr-1" />
                                           ) : (
                                             <CheckCheck className="mr-1 size-4" />
                                           )}
@@ -571,7 +561,7 @@ export function MeetingsPanel({
                                           }
                                         >
                                           {exportingId === mom.id ? (
-                                            <Loader2 className="size-4 animate-spin" />
+                                            <Spinner size="sm" />
                                           ) : (
                                             <Download className="size-4" />
                                           )}

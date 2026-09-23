@@ -97,12 +97,7 @@ function statusSnapshot(
       {
         description: 'Customer VPN access not yet provisioned',
         reportedDate: '2026-07-14T00:00:00.000Z',
-        isBlocking: null,
-        blocks: null,
-        actionRequired: null,
         issueOwner: 'Omar Fahmy',
-        actionOwner: null,
-        dependency: null,
         targetResolutionDate: '2026-07-20T00:00:00.000Z',
         actualResolutionDate: null,
         status: 'Open',

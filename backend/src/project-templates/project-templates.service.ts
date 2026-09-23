@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Prisma, PriorityLevel, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RecordScopeWhereService } from '../casl/record-scope-where.service';
@@ -24,6 +25,12 @@ const TEMPLATE_INCLUDE = {
     },
   },
 } satisfies Prisma.ProjectTemplateInclude;
+
+/** Large projects can insert thousands of template rows; default 5s is too low. */
+const LARGE_TX = {
+  maxWait: 60_000,
+  timeout: 300_000,
+} as const;
 
 function calendarDaysBetween(from: Date, to: Date): number {
   const a = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
@@ -105,51 +112,65 @@ export class ProjectTemplatesService {
       });
 
       const phaseIdMap = new Map<string, string>();
-      for (const phase of project.phases) {
-        const start = asDateOnly(phase.startDate);
-        const end = asDateOnly(phase.endDate);
-        const relativeStartDays = Math.max(0, calendarDaysBetween(projectStart, start));
-        const durationDays = Math.max(1, calendarDaysBetween(start, end) || 1);
-        const createdPhase = await tx.templatePhase.create({
-          data: {
-            templateId: template.id,
-            name: phase.name,
-            description: phase.description,
-            orderIndex: phase.orderIndex,
-            relativeStartDays,
-            durationDays,
+      if (project.phases.length > 0) {
+        const phaseRows: Prisma.TemplatePhaseCreateManyInput[] = project.phases.map(
+          (phase) => {
+            const newId = randomUUID();
+            phaseIdMap.set(phase.id, newId);
+            const start = asDateOnly(phase.startDate);
+            const end = asDateOnly(phase.endDate);
+            return {
+              id: newId,
+              templateId: template.id,
+              name: phase.name,
+              description: phase.description,
+              orderIndex: phase.orderIndex,
+              relativeStartDays: Math.max(0, calendarDaysBetween(projectStart, start)),
+              durationDays: Math.max(1, calendarDaysBetween(start, end) || 1),
+            };
           },
-        });
-        phaseIdMap.set(phase.id, createdPhase.id);
+        );
+        await tx.templatePhase.createMany({ data: phaseRows });
       }
 
-      for (const milestone of project.milestones) {
-        const target = asDateOnly(milestone.targetDate);
-        await tx.templateMilestone.create({
-          data: {
-            templateId: template.id,
-            templatePhaseId: milestone.phaseId
-              ? (phaseIdMap.get(milestone.phaseId) ?? null)
-              : null,
-            title: milestone.title,
-            relativeTargetDays: Math.max(0, calendarDaysBetween(projectStart, target)),
-            weight: milestone.weight,
-          },
-        });
+      if (project.milestones.length > 0) {
+        const milestoneRows: Prisma.TemplateMilestoneCreateManyInput[] =
+          project.milestones.map((milestone) => {
+            const target = asDateOnly(milestone.targetDate);
+            return {
+              id: randomUUID(),
+              templateId: template.id,
+              templatePhaseId: milestone.phaseId
+                ? (phaseIdMap.get(milestone.phaseId) ?? null)
+                : null,
+              title: milestone.title,
+              relativeTargetDays: Math.max(
+                0,
+                calendarDaysBetween(projectStart, target),
+              ),
+              weight: milestone.weight,
+            };
+          });
+        await tx.templateMilestone.createMany({ data: milestoneRows });
       }
 
-      // Parents first, then children
-      const roots = project.tasks.filter((t) => !t.parentTaskId);
-      const children = project.tasks.filter((t) => t.parentTaskId);
       const taskIdMap = new Map<string, string>();
+      let pending = [...project.tasks];
+      while (pending.length > 0) {
+        const ready = pending.filter(
+          (task) => !task.parentTaskId || taskIdMap.has(task.parentTaskId),
+        );
+        const wave = ready.length > 0 ? ready : pending;
+        const waveIds = new Set(wave.map((task) => task.id));
+        pending = pending.filter((task) => !waveIds.has(task.id));
 
-      for (const task of [...roots, ...children]) {
-        const start = task.startDate ? asDateOnly(task.startDate) : projectStart;
-        const end = task.endDate ? asDateOnly(task.endDate) : start;
-        const relativeStartDays = Math.max(0, calendarDaysBetween(projectStart, start));
-        const durationDays = Math.max(1, calendarDaysBetween(start, end) || 1);
-        const createdTask = await tx.templateTask.create({
-          data: {
+        const taskRows: Prisma.TemplateTaskCreateManyInput[] = wave.map((task) => {
+          const newId = randomUUID();
+          taskIdMap.set(task.id, newId);
+          const start = task.startDate ? asDateOnly(task.startDate) : projectStart;
+          const end = task.endDate ? asDateOnly(task.endDate) : start;
+          return {
+            id: newId,
             templateId: template.id,
             templatePhaseId: task.phaseId
               ? (phaseIdMap.get(task.phaseId) ?? null)
@@ -159,20 +180,20 @@ export class ProjectTemplatesService {
               : null,
             title: task.title,
             description: task.description,
-            relativeStartDays,
-            durationDays,
+            relativeStartDays: Math.max(0, calendarDaysBetween(projectStart, start)),
+            durationDays: Math.max(1, calendarDaysBetween(start, end) || 1),
             priority: task.priority,
             effortHours: task.effortHours,
-          },
+          };
         });
-        taskIdMap.set(task.id, createdTask.id);
+        await tx.templateTask.createMany({ data: taskRows });
       }
 
       return tx.projectTemplate.findUniqueOrThrow({
         where: { id: template.id },
         include: TEMPLATE_INCLUDE,
       });
-    });
+    }, LARGE_TX);
 
     return this.toDto(created, true);
   }
@@ -213,55 +234,72 @@ export class ProjectTemplatesService {
         });
 
         const phaseIdMap = new Map<string, string>();
-        for (const phase of template.templatePhases) {
-          const start = addCalendarDays(projectStart, phase.relativeStartDays);
-          let end = addCalendarDays(start, Math.max(1, phase.durationDays));
-          if (end > projectEnd) end = projectEnd;
-          if (end < start) end = start;
-          const createdPhase = await tx.projectPhase.create({
-            data: {
-              projectId: created.id,
-              name: phase.name,
-              description: phase.description,
-              orderIndex: phase.orderIndex,
-              startDate: start,
-              endDate: end,
-            },
-          });
-          phaseIdMap.set(phase.id, createdPhase.id);
+        if (template.templatePhases.length > 0) {
+          const phaseRows: Prisma.ProjectPhaseCreateManyInput[] =
+            template.templatePhases.map((phase) => {
+              const newId = randomUUID();
+              phaseIdMap.set(phase.id, newId);
+              const start = addCalendarDays(projectStart, phase.relativeStartDays);
+              let end = addCalendarDays(start, Math.max(1, phase.durationDays));
+              if (end > projectEnd) end = projectEnd;
+              if (end < start) end = start;
+              return {
+                id: newId,
+                projectId: created.id,
+                name: phase.name,
+                description: phase.description,
+                orderIndex: phase.orderIndex,
+                startDate: start,
+                endDate: end,
+              };
+            });
+          await tx.projectPhase.createMany({ data: phaseRows });
         }
 
-        for (const milestone of template.templateMilestones) {
-          let target = addCalendarDays(projectStart, milestone.relativeTargetDays);
-          if (target > projectEnd) target = projectEnd;
-          if (target < projectStart) target = projectStart;
-          await tx.projectMilestone.create({
-            data: {
-              projectId: created.id,
-              phaseId: milestone.templatePhaseId
-                ? (phaseIdMap.get(milestone.templatePhaseId) ?? null)
-                : null,
-              title: milestone.title,
-              targetDate: target,
-              weight: milestone.weight,
-              status: 'Pending',
-            },
-          });
+        if (template.templateMilestones.length > 0) {
+          const milestoneRows: Prisma.ProjectMilestoneCreateManyInput[] =
+            template.templateMilestones.map((milestone) => {
+              let target = addCalendarDays(
+                projectStart,
+                milestone.relativeTargetDays,
+              );
+              if (target > projectEnd) target = projectEnd;
+              if (target < projectStart) target = projectStart;
+              return {
+                id: randomUUID(),
+                projectId: created.id,
+                phaseId: milestone.templatePhaseId
+                  ? (phaseIdMap.get(milestone.templatePhaseId) ?? null)
+                  : null,
+                title: milestone.title,
+                targetDate: target,
+                weight: milestone.weight,
+                status: 'Pending',
+              };
+            });
+          await tx.projectMilestone.createMany({ data: milestoneRows });
         }
 
-        const roots = template.templateTasks.filter((t) => !t.parentId);
-        const children = template.templateTasks.filter((t) => t.parentId);
         const taskIdMap = new Map<string, string>();
+        let pending = [...template.templateTasks];
+        while (pending.length > 0) {
+          const ready = pending.filter(
+            (task) => !task.parentId || taskIdMap.has(task.parentId),
+          );
+          const wave = ready.length > 0 ? ready : pending;
+          const waveIds = new Set(wave.map((task) => task.id));
+          pending = pending.filter((task) => !waveIds.has(task.id));
 
-        for (const task of [...roots, ...children]) {
-          let start = addCalendarDays(projectStart, task.relativeStartDays);
-          let end = addCalendarDays(start, Math.max(1, task.durationDays));
-          if (start > projectEnd) start = projectEnd;
-          if (end > projectEnd) end = projectEnd;
-          if (end < start) end = start;
-
-          const createdTask = await tx.task.create({
-            data: {
+          const taskRows: Prisma.TaskCreateManyInput[] = wave.map((task) => {
+            const newId = randomUUID();
+            taskIdMap.set(task.id, newId);
+            let start = addCalendarDays(projectStart, task.relativeStartDays);
+            let end = addCalendarDays(start, Math.max(1, task.durationDays));
+            if (start > projectEnd) start = projectEnd;
+            if (end > projectEnd) end = projectEnd;
+            if (end < start) end = start;
+            return {
+              id: newId,
               projectId: created.id,
               phaseId: task.templatePhaseId
                 ? (phaseIdMap.get(task.templatePhaseId) ?? null)
@@ -276,11 +314,11 @@ export class ProjectTemplatesService {
               endDate: end,
               effortHours: task.effortHours,
               status: TaskStatus.To_Do,
-            },
+            };
           });
-          taskIdMap.set(task.id, createdTask.id);
+          await tx.task.createMany({ data: taskRows });
         }
-      });
+      }, LARGE_TX);
     } catch (err) {
       await this.projectsService.deleteProjectByIdForRollback(created.id);
       throw err;

@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Trash2, Upload } from "lucide-react";
+import { Download, Trash2, Upload } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRouter } from "@/i18n/routing";
 import { useDebounce } from "@/shared/hooks/use-debounce";
@@ -304,7 +305,7 @@ export function DocumentVaultPage() {
                   onClick={() => void downloadDocuments(selectedRows)}
                 >
                   {isBulkDownloading ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner size="xs" />
                   ) : (
                     <Download className="size-3.5" />
                   )}

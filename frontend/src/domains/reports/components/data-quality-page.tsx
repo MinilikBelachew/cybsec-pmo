@@ -1,9 +1,11 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Save, ScanSearch } from "lucide-react";
+import { CheckCircle2, Save, ScanSearch } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
+import { FilterSelect } from "@/shared/components/filter-select";
 import { Button } from "@/shared/ui/button";
 import { useGetProjectsQuery } from "@/domains/projects";
 import { cn } from "@/shared/utils/cn";
@@ -45,9 +47,25 @@ const FLAG_META: Record<
   },
 };
 
-type RuleMode = "include" | "exclude";
+const FILTER_TRIGGER =
+  "h-10 w-[220px] max-w-[min(100%,280px)] shrink-0 rounded-lg border-border/60 bg-background px-3 shadow-none";
 
-const PAGE_SIZES = [5, 10, 20];
+const FLAG_TYPE_OPTIONS = FLAG_TYPES.map((type) => ({
+  id: type,
+  label: type.replaceAll("_", " "),
+}));
+
+const STATUS_FILTER_OPTIONS = [
+  { id: "open", label: "Open" },
+  { id: "resolved", label: "Resolved" },
+];
+
+const PAGE_SIZE_OPTIONS = [5, 10, 20].map((size) => ({
+  id: String(size),
+  label: `${size} per page`,
+}));
+
+type RuleMode = "include" | "exclude";
 
 export function DataQualityPage() {
   const [filterProjectId, setFilterProjectId] = useState("");
@@ -91,6 +109,12 @@ export function DataQualityPage() {
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
+
+  const projectOptions =
+    projects?.data.map((project) => ({
+      id: project.id,
+      label: project.name,
+    })) ?? [];
 
   useEffect(() => {
     setPage(1);
@@ -151,7 +175,7 @@ export function DataQualityPage() {
             }}
           >
             {saving ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
+              <Spinner size="sm" className="mr-2" />
             ) : (
               <Save className="mr-2 size-4" />
             )}
@@ -209,42 +233,32 @@ export function DataQualityPage() {
           })}
         </ul>
       </section>
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
-        <select
-          value={filterProjectId}
-          onChange={(e) => setFilterProjectId(e.target.value)}
-          className="h-10 w-full max-w-xs rounded-lg border bg-background px-3 text-sm sm:w-auto"
-        >
-          <option value="">All projects</option>
-          {projects?.data.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterFlagType}
-          onChange={(e) => setFilterFlagType(e.target.value)}
-          className="h-10 min-w-[180px] rounded-lg border bg-background px-3 text-sm"
-        >
-          <option value="">All flag types</option>
-          {FLAG_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {type.replaceAll("_", " ")}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterStatus}
-          onChange={(e) =>
-            setFilterStatus(e.target.value as "" | "open" | "resolved")
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+        <FilterSelect
+          value={filterProjectId || null}
+          onValueChange={(next) => setFilterProjectId(next ?? "")}
+          options={projectOptions}
+          noneLabel="All projects"
+          searchable
+          searchPlaceholder="Search projects..."
+          triggerClassName={FILTER_TRIGGER}
+        />
+        <FilterSelect
+          value={filterFlagType || null}
+          onValueChange={(next) => setFilterFlagType(next ?? "")}
+          options={FLAG_TYPE_OPTIONS}
+          noneLabel="All flag types"
+          triggerClassName={cn(FILTER_TRIGGER, "w-[200px]")}
+        />
+        <FilterSelect
+          value={filterStatus || null}
+          onValueChange={(next) =>
+            setFilterStatus((next as "" | "open" | "resolved") ?? "")
           }
-          className="h-10 w-40 rounded-lg border bg-background px-3 text-sm"
-        >
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="resolved">Resolved</option>
-        </select>
+          options={STATUS_FILTER_OPTIONS}
+          noneLabel="All statuses"
+          triggerClassName={cn(FILTER_TRIGGER, "w-[160px]")}
+        />
         {(filterProjectId || filterFlagType || filterStatus) && (
           <Button
             variant="ghost"
@@ -271,7 +285,7 @@ export function DataQualityPage() {
             }}
           >
             {scanning ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
+              <Spinner size="sm" className="mr-2" />
             ) : (
               <ScanSearch className="mr-2 size-4" />
             )}
@@ -357,17 +371,16 @@ export function DataQualityPage() {
               Showing {from}–{to} of {total}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="h-8 rounded-lg border bg-background px-2 text-sm"
-              >
-                {PAGE_SIZES.map((size) => (
-                  <option key={size} value={size}>
-                    {size} per page
-                  </option>
-                ))}
-              </select>
+              <FilterSelect
+                value={String(pageSize)}
+                onValueChange={(next) =>
+                  setPageSize(Number(next ?? pageSize) || pageSize)
+                }
+                options={PAGE_SIZE_OPTIONS}
+                noneLabel={`${pageSize} per page`}
+                allowNone={false}
+                triggerClassName="h-8 w-[130px] rounded-lg border-border/60 bg-background px-2 shadow-none"
+              />
               <Button
                 variant="outline"
                 size="sm"

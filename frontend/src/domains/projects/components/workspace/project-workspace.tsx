@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -992,7 +993,7 @@ export function ProjectWorkspace() {
   if (isLoading) {
     return (
       <div className="flex h-96 items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 size-6 animate-spin text-primary" />
+        <Spinner size="md" className="mr-2" />
         Loading workspace details...
       </div>
     );
@@ -1267,7 +1268,7 @@ export function ProjectWorkspace() {
                 className="h-9 flex-1 gap-1.5 rounded-xl border-slate-200/60 px-2.5 text-xs font-semibold hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5 sm:flex-none sm:px-3"
               >
                 {isExporting ? (
-                  <Loader2 className="size-4 shrink-0 animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <Download className="size-4 shrink-0" />
                 )}

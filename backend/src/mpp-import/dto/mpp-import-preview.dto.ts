@@ -44,6 +44,26 @@ export class MppImportPreviewTaskDto {
   predecessorCount: number;
 }
 
+export class MppImportPreviewMilestoneDto {
+  @ApiProperty()
+  uid: number;
+
+  @ApiProperty()
+  title: string;
+
+  @ApiPropertyOptional()
+  targetDate?: string;
+
+  @ApiPropertyOptional()
+  phaseName?: string;
+
+  @ApiPropertyOptional()
+  percentComplete?: number;
+
+  @ApiProperty()
+  status: string;
+}
+
 export class MppImportPreviewProjectDto {
   @ApiProperty()
   name: string;
@@ -79,6 +99,9 @@ export class MppImportPreviewProjectDto {
   phaseCount: number;
 
   @ApiProperty()
+  milestoneCount: number;
+
+  @ApiProperty()
   dependencyCount: number;
 
   @ApiProperty({ enum: ['create', 'update'] })
@@ -89,6 +112,9 @@ export class MppImportPreviewProjectDto {
 
   @ApiProperty({ type: [MppImportPreviewTaskDto] })
   tasks: MppImportPreviewTaskDto[];
+
+  @ApiProperty({ type: [MppImportPreviewMilestoneDto] })
+  milestones: MppImportPreviewMilestoneDto[];
 }
 
 export class MppImportPreviewCountsDto {
@@ -99,6 +125,11 @@ export class MppImportPreviewCountsDto {
     description: 'Top-level MS Project summary rows that will become phases',
   })
   phasesFromSummaries: number;
+
+  @ApiProperty({
+    description: 'MS Project milestone rows that will become project milestones',
+  })
+  milestonesFromFile: number;
 
   @ApiProperty({
     description: 'Nested summary rows (now imported as parent tasks; kept for API compatibility)',
@@ -142,6 +173,9 @@ export class MppImportPreviewDto {
 
   @ApiProperty({ type: [MppImportPreviewTaskDto] })
   tasks: MppImportPreviewTaskDto[];
+
+  @ApiProperty({ type: [MppImportPreviewMilestoneDto] })
+  milestones: MppImportPreviewMilestoneDto[];
 
   @ApiProperty({ type: [String] })
   warnings: string[];

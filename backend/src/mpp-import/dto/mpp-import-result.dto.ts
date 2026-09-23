@@ -20,6 +20,12 @@ export class MppImportResultDto {
   phasesUpdated: number;
 
   @ApiProperty()
+  milestonesCreated: number;
+
+  @ApiProperty({ description: 'Existing milestones matched by title+phase and updated' })
+  milestonesUpdated: number;
+
+  @ApiProperty()
   resourcesMatched: number;
 
   @ApiProperty()

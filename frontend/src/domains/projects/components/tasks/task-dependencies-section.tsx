@@ -1,8 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
-import { GitBranch, Loader2, Trash2 } from "lucide-react";
+import { GitBranch, Trash2 } from "lucide-react";
 import {
   useCreateTaskDependencyMutation,
   useDeleteTaskDependencyMutation,
@@ -316,7 +317,7 @@ export function TaskDependenciesSection({
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" />
+          <Spinner size="xs" />
           Loading dependencies…
         </div>
       ) : (
@@ -403,7 +404,7 @@ export function TaskDependenciesSection({
                 onClick={() => void handleAddPredecessor()}
               >
                 {mode === "immediate" && isCreating && (
-                  <Loader2 className="mr-1 size-3.5 animate-spin" />
+                  <Spinner size="xs" className="mr-1" />
                 )}
                 {mode === "draft" ? "Add to list" : "Link predecessor"}
               </Button>
@@ -441,7 +442,7 @@ export function TaskDependenciesSection({
                 onClick={() => void handleAddSuccessor()}
               >
                 {mode === "immediate" && isCreating && (
-                  <Loader2 className="mr-1 size-3.5 animate-spin" />
+                  <Spinner size="xs" className="mr-1" />
                 )}
                 {mode === "draft" ? "Add to list" : "Link successor"}
               </Button>

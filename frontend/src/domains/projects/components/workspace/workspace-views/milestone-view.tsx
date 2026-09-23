@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useMemo, useState, useImperativeHandle, forwardRef } from "react";
 import { toast } from "react-hot-toast";
@@ -26,18 +27,7 @@ import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { MilestoneForm } from "../../roadmap/milestone-form";
 import { DocumentAttachmentList } from "../../documents/document-attachment-list";
 import { MilestoneFormValues } from "../../../schemas/milestone/milestone.schema";
-import {
-  Calendar,
-  CheckCircle2,
-  Circle,
-  Flag,
-  Plus,
-  Loader2,
-  Milestone,
-  Trash2,
-  Edit2,
-  Paperclip,
-} from "lucide-react";
+import { Calendar, CheckCircle2, Circle, Flag, Plus, Milestone, Trash2, Edit2, Paperclip } from "lucide-react";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
 export interface MilestoneViewRef {
@@ -383,7 +373,7 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
     if (isPhasesLoading || isMilestonesLoading) {
       return (
         <div className="flex h-96 items-center justify-center">
-          <Loader2 className="size-8 animate-spin text-primary" />
+          <Spinner size="lg" />
         </div>
       );
     }

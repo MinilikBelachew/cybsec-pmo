@@ -13,8 +13,18 @@ export function resolveUserRoleCode(user: User) {
   return user.roleCode || user.role?.code || ROLE_CODE_BY_ID[user.roleId] || "";
 }
 
+/** Placeholder OIDs used before real Entra SSO (manual create, seed, Keka sync). */
+export function isPlaceholderEntraObjectId(entraObjectId: string | null | undefined) {
+  if (!entraObjectId) return true;
+  return (
+    entraObjectId === "pending-first-login" ||
+    entraObjectId.startsWith("pending-first-login") ||
+    entraObjectId.startsWith("keka-pending:")
+  );
+}
+
 export function isUserSsoLinked(user: User) {
-  return Boolean(user.entraObjectId && user.entraObjectId !== "pending-first-login");
+  return Boolean(user.entraObjectId && !isPlaceholderEntraObjectId(user.entraObjectId));
 }
 
 type UserDirectoryColumnHandlers = {

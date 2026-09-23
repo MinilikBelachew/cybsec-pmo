@@ -1,28 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Search,
-  Plus,
-  ChevronDown,
-  X,
-  Circle,
-  CircleCheck,
-  Calendar,
-  MessageSquare,
-  ChevronRight,
-  MoreHorizontal,
-  AlertCircle,
-  Clock,
-  CheckSquare,
-  ArrowUpRight,
-  Loader2,
-  ListTodo,
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  FolderKanban,
-} from "lucide-react";
+import { Search, Plus, ChevronDown, X, Circle, CircleCheck, Calendar, MessageSquare, ChevronRight, MoreHorizontal, AlertCircle, Clock, CheckSquare, ArrowUpRight, ListTodo, Activity, AlertTriangle, CheckCircle2, FolderKanban } from "lucide-react";
 import { useRouter } from "@/i18n/routing";
 import { useAuth } from "@/domains/auth";
 import { useDebounce } from "@/shared/hooks/use-debounce";
@@ -551,7 +531,7 @@ export function ActiveTasksPage() {
         <span className="ms-auto text-xs text-muted-foreground">
           {isFetching && !isLoading ? (
             <span className="inline-flex items-center gap-1">
-              <Loader2 className="size-3 animate-spin" />
+              <Spinner size="xs" />
               Updating…
             </span>
           ) : (
@@ -573,7 +553,7 @@ export function ActiveTasksPage() {
         </div>
       ) : isLoading && tasks.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
+          <Spinner size="sm" />
           Loading tasks…
         </div>
       ) : tasks.length === 0 ? (
@@ -637,7 +617,7 @@ export function ActiveTasksPage() {
           >
             {isFetching ? (
               <>
-                <Loader2 className="me-2 size-4 animate-spin" />
+                <Spinner size="sm" className="me-2" />
                 Loading…
               </>
             ) : (

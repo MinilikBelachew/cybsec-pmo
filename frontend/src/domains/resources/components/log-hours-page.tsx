@@ -1,19 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import {
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Send,
-  Trash2,
-} from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, Clock, Pencil, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/ui/button";
@@ -186,7 +176,7 @@ export function LogHoursPage() {
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 size-5 animate-spin" />
+        <Spinner size="md" className="mr-2" />
         Loading timesheet...
       </div>
     );
@@ -698,7 +688,7 @@ function EntryRow({
             Cancel
           </Button>
           <Button type="submit" size="sm" disabled={!canSave || saving}>
-            {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save changes"}
+            {saving ? <Spinner size="xs" /> : "Save changes"}
           </Button>
         </div>
       </form>
@@ -1028,7 +1018,7 @@ function AddEntryForm({
           Cancel
         </Button>
         <Button type="submit" size="sm" className="gap-1.5" disabled={saving} data-testid="log-hours-submit">
-          {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+          {saving ? <Spinner size="xs" /> : <Plus className="size-3.5" />}
           Add Entry
         </Button>
       </div>

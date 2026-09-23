@@ -1,7 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useEffect, useState } from "react";
-import { X, Download, Loader2, FileText } from "lucide-react";
+import { X, Download, FileText } from "lucide-react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/utils/cn";
@@ -174,7 +175,7 @@ export function FilePreviewModal({
           <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center min-h-[300px] bg-muted/5 dark:bg-card/5">
             {isFetchingSecureUrl ? (
               <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
-                <Loader2 className="size-6 animate-spin text-primary" />
+                <Spinner size="md" />
                 <span className="text-xs">Generating secure preview...</span>
               </div>
             ) : isImage && activeUrl ? (
@@ -216,7 +217,7 @@ export function FilePreviewModal({
               <div className="w-full h-full flex flex-col">
                 {isLoadingText ? (
                   <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
-                    <Loader2 className="size-6 animate-spin text-primary" />
+                    <Spinner size="md" />
                     <span className="text-xs">Loading contents...</span>
                   </div>
                 ) : (

@@ -1,23 +1,9 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
-import {
-  AlertCircle,
-  CheckCircle2,
-  ChevronDown,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  Users,
-  Calendar,
-  Clock3,
-  PartyPopper,
-  Wallet,
-  FolderKanban,
-  Layers,
-  Scale,
-} from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, Eye, RefreshCw, RotateCcw, Users, Calendar, Clock3, PartyPopper, Wallet, FolderKanban, Layers, Scale } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { DataTable } from "@/shared/components/data-table";
 import { Button } from "@/shared/ui/button";
@@ -492,7 +478,7 @@ export function KekaIntegrationPanel() {
           onClick={() => void refetchAll()}
         >
           {isRefreshing ? (
-            <Loader2 className="size-3.5 animate-spin" />
+            <Spinner size="xs" />
           ) : (
             <RefreshCw className="size-3.5" />
           )}
@@ -646,28 +632,45 @@ export function KekaIntegrationPanel() {
         id: "actions",
         header: () => <span className="block text-right">Actions</span>,
         cell: ({ row }) => {
-          if (row.original.status !== "failed") {
-            return <span className="block text-right text-xs text-muted-foreground">—</span>;
+          if (row.original.status === "failed") {
+            return (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  disabled={retryingId === row.original.id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleRetryLog(row.original);
+                  }}
+                  data-testid="keka-retry"
+                >
+                  {retryingId === row.original.id ? (
+                    <Spinner size="xs" />
+                  ) : (
+                    <RotateCcw className="size-3" />
+                  )}
+                  Retry
+                </Button>
+              </div>
+            );
           }
+
           return (
             <div className="flex justify-end">
               <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                disabled={retryingId === row.original.id}
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:text-foreground"
                 onClick={(event) => {
                   event.stopPropagation();
-                  void handleRetryLog(row.original);
+                  setSelectedLog(row.original);
                 }}
-                data-testid="keka-retry"
+                aria-label="View sync log details"
+                data-testid="keka-view-log"
               >
-                {retryingId === row.original.id ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <RotateCcw className="size-3" />
-                )}
-                Retry
+                <Eye className="size-3.5" />
               </Button>
             </div>
           );
@@ -820,7 +823,7 @@ export function KekaIntegrationPanel() {
                 data-testid="keka-retry"
               >
                 {retryingId === row.original.id ? (
-                  <Loader2 className="size-3 animate-spin" />
+                  <Spinner size="xs" />
                 ) : (
                   <RotateCcw className="size-3" />
                 )}
@@ -879,7 +882,7 @@ export function KekaIntegrationPanel() {
           </div>
           {(reconcileQuery.isLoading && !reconcileResult) ||
           reconcilingTimesheets ? (
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            <Spinner size="sm" />
           ) : null}
         </div>
 
@@ -978,7 +981,7 @@ export function KekaIntegrationPanel() {
             </p>
           </div>
           {syncStatusQuery.isLoading && !syncStatus ? (
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            <Spinner size="sm" />
           ) : null}
         </div>
 
@@ -1051,7 +1054,7 @@ export function KekaIntegrationPanel() {
           className="flex items-center gap-3 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3"
           data-testid="keka-sync-progress"
         >
-          <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+          <Spinner size="sm" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground">
               {jobProgressLabel ?? `${activeSyncJob.label}: syncing…`}
@@ -1115,7 +1118,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingAll || activeSyncJob?.label === "Full Keka sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Layers className="size-3.5" />
               )}
@@ -1149,7 +1152,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {reconcilingTimesheets ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Scale className="size-3.5" />
               )}
@@ -1172,7 +1175,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingEmployees || activeSyncJob?.label === "Employee sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Users className="size-3.5" />
               )}
@@ -1195,7 +1198,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingLeave || activeSyncJob?.label === "Leave sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Calendar className="size-3.5" />
               )}
@@ -1217,7 +1220,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingAttendance || activeSyncJob?.label === "Attendance sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Clock3 className="size-3.5" />
               )}
@@ -1239,7 +1242,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingHolidays || activeSyncJob?.label === "Holiday sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <PartyPopper className="size-3.5" />
               )}
@@ -1261,7 +1264,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingSalary || activeSyncJob?.label === "Salary sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Wallet className="size-3.5" />
               )}
@@ -1283,7 +1286,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingClients || activeSyncJob?.label === "Client sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Users className="size-3.5" />
               )}
@@ -1305,7 +1308,7 @@ export function KekaIntegrationPanel() {
               }}
             >
               {syncingProjects || activeSyncJob?.label === "Project sync" ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <FolderKanban className="size-3.5" />
               )}
@@ -1319,7 +1322,7 @@ export function KekaIntegrationPanel() {
               onClick={() => void refetchAll()}
             >
               {isRefreshing ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <RefreshCw className="size-3.5" />
               )}

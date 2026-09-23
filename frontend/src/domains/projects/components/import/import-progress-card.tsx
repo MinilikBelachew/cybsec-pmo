@@ -1,12 +1,7 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
-import {
-  CheckCircle2,
-  Loader2,
-  Minimize2,
-  X,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Minimize2, X, XCircle } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import type { ImportJobStatus } from "@/domains/projects/api/imports.api";
 import type { TrackedImportKind } from "./import-progress-provider";
@@ -68,7 +63,7 @@ export function ImportProgressCard({
         aria-label="Show import progress"
         title="Show import progress"
       >
-        <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+        <Spinner size="sm" />
         <span className="min-w-0 truncate text-xs font-semibold text-foreground">
           {label}
         </span>
@@ -104,7 +99,7 @@ export function ImportProgressCard({
           ) : done ? (
             <CheckCircle2 className="size-4.5" />
           ) : (
-            <Loader2 className="size-4.5 animate-spin" />
+            <Spinner size="sm" />
           )}
         </div>
 

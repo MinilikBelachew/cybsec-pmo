@@ -1,16 +1,8 @@
 "use client";
+import { Spinner } from "@/shared/components/spinner";
 
 import React, { useRef, useState } from "react";
-import {
-  Eye,
-  FileSpreadsheet,
-  FileText,
-  Image as ImageIcon,
-  Loader2,
-  Paperclip,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { Eye, FileSpreadsheet, FileText, Image as ImageIcon, Paperclip, Trash2, Upload } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { SecureFileLink } from "@/shared/components/secure-file-link";
 import { FilePreviewModal } from "../tasks/file-preview-modal";
@@ -124,7 +116,7 @@ export function EntityAttachmentsSection({
               onClick={() => fileInputRef.current?.click()}
             >
               {isUploading ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Spinner size="xs" />
               ) : (
                 <Upload className="size-3.5" />
               )}
@@ -147,7 +139,7 @@ export function EntityAttachmentsSection({
 
       {isLoading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" />
+          <Spinner size="xs" />
           Loading attachments...
         </div>
       )}
