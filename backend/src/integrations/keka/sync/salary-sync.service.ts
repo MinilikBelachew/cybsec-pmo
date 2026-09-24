@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { CostFormulaService } from '../../../settings/cost-formula.service';
+import { TimesheetPayrollService } from '../../../timesheets/timesheet-payroll.service';
 import { KekaHttpClient } from '../client/keka-http.client';
 import {
   KEKA_ENTITY_TYPE,
@@ -24,6 +25,7 @@ export class SalarySyncService {
     private readonly prisma: PrismaService,
     private readonly kekaClient: KekaHttpClient,
     private readonly costFormula: CostFormulaService,
+    @Optional() private readonly timesheetPayroll?: TimesheetPayrollService,
   ) {}
 
   async syncSalariesAndPayCycles(): Promise<SalarySyncResult> {
@@ -202,6 +204,7 @@ export class SalarySyncService {
     const syncedAt = new Date();
     let synced = 0;
     let failed = 0;
+    const syncedEmployeeIds = new Set<string>();
 
     for (const salary of salaries) {
       const kekaSalaryId = salary.id?.trim() ?? 'unknown';
@@ -319,6 +322,7 @@ export class SalarySyncService {
           kekaSalaryId,
           this.redactSalaryPayload(salary),
         );
+        syncedEmployeeIds.add(employee.id);
         synced += 1;
       } catch (error) {
         failed += 1;
@@ -330,6 +334,21 @@ export class SalarySyncService {
           kekaSalaryId,
           this.redactSalaryPayload(salary),
           message,
+        );
+      }
+    }
+
+    // Refresh EmployeeCost from Approved timesheets using the new Keka rates.
+    if (this.timesheetPayroll && syncedEmployeeIds.size > 0) {
+      try {
+        await this.timesheetPayroll.rebuildCostsForEmployees([
+          ...syncedEmployeeIds,
+        ]);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown rebuild error';
+        this.logger.warn(
+          `Resource cost rebuild after salary sync failed: ${message}`,
         );
       }
     }

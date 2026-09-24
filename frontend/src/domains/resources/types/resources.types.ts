@@ -199,6 +199,24 @@ export interface EmployeeAttendanceListResponse {
   lastSuccessfulSyncAt: string | null;
 }
 
+export interface EmployeeSalaryRow {
+  id: string;
+  effectiveFrom: string;
+  ctc: number;
+  gross: number;
+  netPay: number;
+  ratePerHour: number | null;
+  currency: string;
+  remunerationType: number | null;
+  remunerationLabel: string | null;
+  isCurrent: boolean;
+  syncedAt: string;
+}
+
+export interface EmployeeSalaryListResponse {
+  rows: EmployeeSalaryRow[];
+}
+
 export interface TeamDirectoryMember {
   id: string;
   name: string;

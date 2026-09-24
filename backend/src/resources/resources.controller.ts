@@ -17,6 +17,8 @@ import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { CaslAbilityInterceptor } from '../casl/casl-ability.interceptor';
 import { CaslGuard, RequestWithAbility } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import { CheckModulePermission } from '../casl/decorators/check-module-permission.decorator';
+import { ModulePermissionGuard } from '../casl/module-permission.guard';
 import { AllocationApprovalService } from './allocation-approval.service';
 import {
   AllocationApprovalDecisionDto,
@@ -31,6 +33,7 @@ import {
   AllocationPolicyDto,
   DesignationOptionsDto,
   EmployeeAttendanceListResponseDto,
+  EmployeeSalaryListResponseDto,
   TeamDirectoryResponseDto,
   TeamLeaveListResponseDto,
 } from './dto/team-directory.dto';
@@ -49,7 +52,7 @@ import {
 } from './dto/admin-departments.dto';
 
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), CaslGuard)
+@UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
 @UseInterceptors(CaslAbilityInterceptor)
 @ApiTags('Resources')
 @Controller({
@@ -128,6 +131,21 @@ export class ResourcesController {
     return this.teamDirectoryService.findEmployeeAttendance(
       employeeId,
       query,
+      request.caslUser!,
+    );
+  }
+
+  @CheckAbility('read', 'Team')
+  @CheckModulePermission('financials', 'view_rates')
+  @Get('team/:employeeId/salaries')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: EmployeeSalaryListResponseDto })
+  findEmployeeSalaries(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<EmployeeSalaryListResponseDto> {
+    return this.teamDirectoryService.findEmployeeSalaries(
+      employeeId,
       request.caslUser!,
     );
   }

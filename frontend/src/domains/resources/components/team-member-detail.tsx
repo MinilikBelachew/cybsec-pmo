@@ -10,7 +10,9 @@ import {
   Clock3,
   Mail,
   User,
+  Wallet,
 } from "lucide-react";
+import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 import { EmployeeAvatar } from "@/shared/components/employee-avatar";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/utils/cn";
@@ -19,8 +21,9 @@ import { formatAllocationDateRange } from "@/domains/projects/utils/allocation-d
 import { KEKA_SYNC_CONFIG, UTILIZATION_CONFIG } from "../utils/resource-ui.config";
 import { formatLeaveLabel } from "../utils/team-directory.mapper";
 import { TeamMemberAttendanceTab } from "./team-member-attendance-tab";
+import { TeamMemberSalariesTab } from "./team-member-salaries-tab";
 
-type DetailTab = "profile" | "assignments" | "leave" | "attendance";
+type DetailTab = "profile" | "assignments" | "leave" | "attendance" | "salaries";
 
 const LEAVE_STATUS_STYLES: Record<TeamLeaveRecord["status"], string> = {
   approved:
@@ -38,11 +41,42 @@ export function TeamMemberDetail({
   member: TeamDirectoryMember;
   onBack: () => void;
 }) {
+  const { canViewRates } = useModulePermissions();
   const [tab, setTab] = useState<DetailTab>("profile");
   const util = UTILIZATION_CONFIG[member.utilStatus];
   const keka = KEKA_SYNC_CONFIG[member.kekaSyncStatus];
   const KekaIcon = keka.icon;
   const activeAssignments = member.assignments.filter((a) => a.status === "active");
+  const activeTab = tab === "salaries" && !canViewRates ? "profile" : tab;
+
+  const tabs: Array<{
+    id: DetailTab;
+    label: string;
+    icon: typeof User;
+    count?: number;
+  }> = [
+    { id: "profile", label: "Profile", icon: User },
+    {
+      id: "assignments",
+      label: "Assignments",
+      icon: Briefcase,
+      count: activeAssignments.length,
+    },
+    {
+      id: "leave",
+      label: "Leave",
+      icon: Calendar,
+      count: member.leaveHistory.length,
+    },
+    {
+      id: "attendance",
+      label: "Attendance",
+      icon: Clock3,
+    },
+    ...(canViewRates
+      ? [{ id: "salaries" as const, label: "Salaries", icon: Wallet }]
+      : []),
+  ];
 
   return (
     <div className="space-y-6 pb-10">
@@ -128,35 +162,14 @@ export function TeamMemberDetail({
       </div>
 
       <div className="flex border-b border-border/50">
-        {(
-          [
-            { id: "profile" as const, label: "Profile", icon: User },
-            {
-              id: "assignments" as const,
-              label: "Assignments",
-              icon: Briefcase,
-              count: activeAssignments.length,
-            },
-            {
-              id: "leave" as const,
-              label: "Leave",
-              icon: Calendar,
-              count: member.leaveHistory.length,
-            },
-            {
-              id: "attendance" as const,
-              label: "Attendance",
-              icon: Clock3,
-            },
-          ]
-        ).map(({ id, label, icon: Icon, count }) => (
+        {tabs.map(({ id, label, icon: Icon, count }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
             className={cn(
               "-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
-              tab === id
+              activeTab === id
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground",
             )}
@@ -167,7 +180,7 @@ export function TeamMemberDetail({
               <span
                 className={cn(
                   "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                  tab === id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                  activeTab === id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
                 )}
               >
                 {count}
@@ -177,10 +190,13 @@ export function TeamMemberDetail({
         ))}
       </div>
 
-      {tab === "profile" && <ProfileTab member={member} util={util} />}
-      {tab === "assignments" && <AssignmentsTab member={member} />}
-      {tab === "leave" && <LeaveTab member={member} />}
-      {tab === "attendance" && <TeamMemberAttendanceTab employeeId={member.id} />}
+      {activeTab === "profile" && <ProfileTab member={member} util={util} />}
+      {activeTab === "assignments" && <AssignmentsTab member={member} />}
+      {activeTab === "leave" && <LeaveTab member={member} />}
+      {activeTab === "attendance" && <TeamMemberAttendanceTab employeeId={member.id} />}
+      {activeTab === "salaries" && canViewRates && (
+        <TeamMemberSalariesTab employeeId={member.id} />
+      )}
     </div>
   );
 }

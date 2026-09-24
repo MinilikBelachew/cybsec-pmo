@@ -125,7 +125,10 @@ export type CreateBudgetAdjustmentPayload = {
 export type ResourceCostRow = {
   employeeId: string | null;
   employeeName: string | null;
+  employeeNumber: string | null;
   designation: string | null;
+  departmentName: string | null;
+  hasSalaryRate: boolean;
   periodYear: number | null;
   periodMonth: number | null;
   regularHours: number;
