@@ -1298,12 +1298,23 @@ export class ProjectsService {
     const milestones = await this.prisma.projectMilestone.findMany({
       where: { projectId },
       orderBy: { targetDate: 'asc' },
-      include: { phase: true },
+      include: {
+        phase: true,
+        invoices: {
+          select: { invoiceNumber: true },
+          orderBy: { invoiceNumber: 'asc' },
+        },
+      },
     });
-    return milestones.map((m) => ({
-      ...m,
-      weight: m.weight != null ? Number(m.weight) : null,
-    }));
+    return milestones.map((m) => {
+      const { invoices, ...rest } = m;
+      return {
+        ...rest,
+        weight: m.weight != null ? Number(m.weight) : null,
+        invoiceCount: invoices.length,
+        invoiceNumbers: invoices.map((inv) => inv.invoiceNumber),
+      };
+    });
   }
 
   async createMilestone(

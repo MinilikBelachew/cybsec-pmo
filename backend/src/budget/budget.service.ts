@@ -284,7 +284,10 @@ export class BudgetService {
 
     const projectIds = projects.map((p) => p.id);
     type CostGroup = { projectId: string; _sum: { totalCost: Prisma.Decimal | null } };
-    type InvoiceGroup = { projectId: string; _sum: { amount: Prisma.Decimal | null } };
+    type InvoiceGroup = {
+      projectId: string | null;
+      _sum: { amount: Prisma.Decimal | null };
+    };
 
     const [employeeGroups, invoiceGroups] = await Promise.all([
       projectIds.length
@@ -310,10 +313,12 @@ export class BudgetService {
       ]),
     );
     const invMap = new Map<string, number>(
-      invoiceGroups.map((g) => [
-        g.projectId,
-        decimalToNumber(g._sum.amount) ?? 0,
-      ]),
+      invoiceGroups
+        .filter((g): g is InvoiceGroup & { projectId: string } => g.projectId != null)
+        .map((g) => [
+          g.projectId,
+          decimalToNumber(g._sum.amount) ?? 0,
+        ]),
     );
 
     return projects.map((project) => {

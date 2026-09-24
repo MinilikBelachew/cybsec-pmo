@@ -312,6 +312,15 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
               <Badge variant="secondary" className="text-[9px] font-bold px-1.5 py-0">
                 {m.status.replace("_", " ")}
               </Badge>
+              {(m.invoiceCount ?? 0) > 0 && (
+                <Badge
+                  variant="outline"
+                  className="text-[9px] font-bold px-1.5 py-0"
+                  title={(m.invoiceNumbers ?? []).join(", ")}
+                >
+                  {m.invoiceCount} invoice{m.invoiceCount === 1 ? "" : "s"}
+                </Badge>
+              )}
               {attachmentCount > 0 && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
                   <Paperclip className="size-3" />

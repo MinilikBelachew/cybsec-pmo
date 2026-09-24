@@ -30,9 +30,6 @@ export type ZohoInvoiceSyncResult = {
   failed: number;
 };
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 @Injectable()
 export class InvoiceSyncService {
   private readonly logger = new Logger(InvoiceSyncService.name);
@@ -59,19 +56,12 @@ export class InvoiceSyncService {
       }
 
       try {
-        const projectId = await this.resolveProjectId(inv);
-        if (!projectId) {
-          unmatched += 1;
-          await this.recordFailedSync(
-            zohoInvoiceId,
-            `Unmatched invoice ${inv.invoice_number ?? zohoInvoiceId}: no project from reference_number or unique customer`,
-            inv,
-          );
-          continue;
-        }
-
-        const amount = this.parseAmount(inv.total ?? inv.balance) ?? 0;
-        const dueDate = this.parseDate(inv.due_date) ?? this.parseDate(inv.date) ?? now;
+        const amount = this.parseAmount(inv.total) ?? this.parseAmount(inv.balance) ?? 0;
+        const balance = this.parseAmount(inv.balance);
+        const paymentMade = this.parseAmount(inv.payment_made);
+        const dueDate =
+          this.parseDate(inv.due_date) ?? this.parseDate(inv.date) ?? now;
+        const invoiceDate = this.parseDate(inv.date);
         const collectionDate = this.parseDate(inv.last_payment_date);
         const status = this.normalizeStatus(inv.status);
         const invoiceNumber = (inv.invoice_number?.trim() || zohoInvoiceId).slice(
@@ -79,6 +69,19 @@ export class InvoiceSyncService {
           100,
         );
         const currency = (inv.currency_code?.trim() || 'USD').slice(0, 10);
+        const customerName = inv.customer_name?.trim()?.slice(0, 255) || null;
+        const referenceNumber =
+          inv.reference_number?.trim()?.slice(0, 255) || null;
+
+        const existing = await this.prisma.invoice.findUnique({
+          where: { zohoInvoiceId },
+          select: { projectId: true },
+        });
+
+        let projectId: string | null = existing?.projectId ?? null;
+        if (!projectId) {
+          projectId = await this.resolveProjectIdByUniqueCustomer(customerName);
+        }
 
         await this.prisma.invoice.upsert({
           where: { zohoInvoiceId },
@@ -86,18 +89,34 @@ export class InvoiceSyncService {
             zohoInvoiceId,
             projectId,
             invoiceNumber,
+            customerName,
+            referenceNumber,
             amount: new Prisma.Decimal(amount),
+            balance:
+              balance === null ? null : new Prisma.Decimal(balance),
+            paymentMade:
+              paymentMade === null ? null : new Prisma.Decimal(paymentMade),
             currency,
+            invoiceDate,
             dueDate,
             collectionDate,
             status,
             syncedAt: now,
           },
           update: {
-            projectId,
+            ...(existing?.projectId
+              ? {}
+              : { projectId }),
             invoiceNumber,
+            customerName,
+            referenceNumber,
             amount: new Prisma.Decimal(amount),
+            balance:
+              balance === null ? null : new Prisma.Decimal(balance),
+            paymentMade:
+              paymentMade === null ? null : new Prisma.Decimal(paymentMade),
             currency,
+            invoiceDate,
             dueDate,
             collectionDate,
             status,
@@ -106,6 +125,9 @@ export class InvoiceSyncService {
         });
 
         upserted += 1;
+        if (!projectId) {
+          unmatched += 1;
+        }
         await this.resolveFailedSync(zohoInvoiceId);
       } catch (err) {
         failed += 1;
@@ -126,25 +148,10 @@ export class InvoiceSyncService {
     };
   }
 
-  /**
-   * 1) reference_number = UUID or pmo:{uuid}
-   * 2) customer_name → Customer with exactly one project
-   */
-  private async resolveProjectId(
-    inv: ZohoBooksInvoiceRecord,
+  /** Customer display name → Active customer with exactly one project. */
+  private async resolveProjectIdByUniqueCustomer(
+    customerName: string | null,
   ): Promise<string | null> {
-    const fromRef = this.projectIdFromReference(inv.reference_number);
-    if (fromRef) {
-      const exists = await this.prisma.project.findUnique({
-        where: { id: fromRef },
-        select: { id: true },
-      });
-      if (exists) {
-        return exists.id;
-      }
-    }
-
-    const customerName = inv.customer_name?.trim();
     if (!customerName) {
       return null;
     }
@@ -169,19 +176,6 @@ export class InvoiceSyncService {
       return projects[0].id;
     }
     return null;
-  }
-
-  private projectIdFromReference(
-    reference: string | null | undefined,
-  ): string | null {
-    const raw = reference?.trim();
-    if (!raw) {
-      return null;
-    }
-    const withoutPrefix = raw.toLowerCase().startsWith('pmo:')
-      ? raw.slice(4).trim()
-      : raw;
-    return UUID_RE.test(withoutPrefix) ? withoutPrefix : null;
   }
 
   private normalizeStatus(status: string | null | undefined): string {
