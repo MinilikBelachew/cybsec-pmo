@@ -182,6 +182,13 @@ export type KekaConnectionTestResult = {
   testedAt: string;
 };
 
+export type ZohoProvisionError = {
+  entityId: string;
+  errorMsg: string;
+  lastAttempted: string;
+  retryCount: number;
+};
+
 export type ZohoStatusResponse = {
   configured: boolean;
   dc: string;
@@ -190,6 +197,9 @@ export type ZohoStatusResponse = {
   opportunityCount: number;
   lastSyncedAt: string | null;
   openFailureCount: number;
+  provisionedProjectCount: number;
+  openProvisionFailureCount: number;
+  recentProvisionErrors: ZohoProvisionError[];
 };
 
 export type ZohoTestResult = {
@@ -201,6 +211,9 @@ export type ZohoOpportunitySyncResult = {
   fetched: number;
   upserted: number;
   failed: number;
+  provisioned: number;
+  provisionSkipped: number;
+  provisionFailed: number;
 };
 
 export type ZohoOpportunityRow = {
@@ -210,5 +223,37 @@ export type ZohoOpportunityRow = {
   accountName: string | null;
   expectedRevenue: string | null;
   stage: string | null;
+  syncedAt: string;
+};
+
+export type ZohoBooksStatusResponse = {
+  configured: boolean;
+  booksConfigured: boolean;
+  organizationId: string | null;
+  invoiceCount: number;
+  lastSyncedAt: string | null;
+  openFailureCount: number;
+  unmatchedOpenCount: number;
+  recentErrors: ZohoProvisionError[];
+};
+
+export type ZohoInvoiceSyncResult = {
+  fetched: number;
+  upserted: number;
+  unmatched: number;
+  failed: number;
+};
+
+export type ZohoInvoiceRow = {
+  id: string;
+  zohoInvoiceId: string;
+  invoiceNumber: string;
+  projectId: string;
+  projectName: string | null;
+  amount: string;
+  currency: string;
+  dueDate: string;
+  collectionDate: string | null;
+  status: string;
   syncedAt: string;
 };

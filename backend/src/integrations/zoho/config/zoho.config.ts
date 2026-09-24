@@ -23,6 +23,10 @@ class EnvironmentVariablesValidator {
   @IsString()
   @IsOptional()
   ZOHO_DC: string;
+
+  @IsString()
+  @IsOptional()
+  ZOHO_BOOKS_ORGANIZATION_ID: string;
 }
 
 /** Map Zoho data-center code → accounts + API hosts. */
@@ -80,5 +84,7 @@ export default registerAs<ZohoConfig>('zoho', () => {
     dc,
     accountsBaseUrl,
     apiBaseUrl,
+    booksOrganizationId:
+      process.env.ZOHO_BOOKS_ORGANIZATION_ID?.trim() || '',
   };
 });

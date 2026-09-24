@@ -1,5 +1,19 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+export class ZohoProvisionErrorDto {
+  @ApiProperty()
+  entityId: string;
+
+  @ApiProperty()
+  errorMsg: string;
+
+  @ApiProperty()
+  lastAttempted: string;
+
+  @ApiProperty()
+  retryCount: number;
+}
+
 export class ZohoStatusDto {
   @ApiProperty()
   configured: boolean;
@@ -21,6 +35,19 @@ export class ZohoStatusDto {
 
   @ApiProperty()
   openFailureCount: number;
+
+  @ApiProperty({
+    description: 'Draft projects created from Closed Won deals',
+  })
+  provisionedProjectCount: number;
+
+  @ApiProperty({
+    description: 'Unresolved Closed Won charter provisioning failures',
+  })
+  openProvisionFailureCount: number;
+
+  @ApiProperty({ type: [ZohoProvisionErrorDto] })
+  recentProvisionErrors: ZohoProvisionErrorDto[];
 }
 
 export class ZohoTestResultDto {
@@ -40,6 +67,15 @@ export class ZohoOpportunitySyncResultDto {
 
   @ApiProperty()
   failed: number;
+
+  @ApiProperty()
+  provisioned: number;
+
+  @ApiProperty()
+  provisionSkipped: number;
+
+  @ApiProperty()
+  provisionFailed: number;
 }
 
 export class ZohoOpportunityDto {
@@ -60,6 +96,81 @@ export class ZohoOpportunityDto {
 
   @ApiPropertyOptional({ nullable: true })
   stage: string | null;
+
+  @ApiProperty()
+  syncedAt: string;
+}
+
+export class ZohoBooksStatusDto {
+  @ApiProperty()
+  configured: boolean;
+
+  @ApiProperty()
+  booksConfigured: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  organizationId: string | null;
+
+  @ApiProperty()
+  invoiceCount: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  lastSyncedAt: string | null;
+
+  @ApiProperty()
+  openFailureCount: number;
+
+  @ApiProperty()
+  unmatchedOpenCount: number;
+
+  @ApiProperty({ type: [ZohoProvisionErrorDto] })
+  recentErrors: ZohoProvisionErrorDto[];
+}
+
+export class ZohoInvoiceSyncResultDto {
+  @ApiProperty()
+  fetched: number;
+
+  @ApiProperty()
+  upserted: number;
+
+  @ApiProperty()
+  unmatched: number;
+
+  @ApiProperty()
+  failed: number;
+}
+
+export class ZohoInvoiceDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  zohoInvoiceId: string;
+
+  @ApiProperty()
+  invoiceNumber: string;
+
+  @ApiProperty()
+  projectId: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectName: string | null;
+
+  @ApiProperty()
+  amount: string;
+
+  @ApiProperty()
+  currency: string;
+
+  @ApiProperty()
+  dueDate: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  collectionDate: string | null;
+
+  @ApiProperty()
+  status: string;
 
   @ApiProperty()
   syncedAt: string;

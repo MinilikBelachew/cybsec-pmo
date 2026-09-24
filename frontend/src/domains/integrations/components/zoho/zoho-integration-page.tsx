@@ -41,7 +41,7 @@ export function ZohoIntegrationPage() {
     try {
       const result = await syncOpportunities().unwrap();
       toast.success(
-        `Synced opportunities: ${result.upserted} saved (${result.fetched} fetched, ${result.failed} failed)`,
+        `Synced: ${result.upserted} opportunities (${result.fetched} fetched, ${result.failed} failed). Closed Won provisioned: ${result.provisioned}, skipped: ${result.provisionSkipped}, failed: ${result.provisionFailed}`,
       );
       await Promise.all([refetchStatus(), refetchList()]);
     } catch (err) {
@@ -146,6 +146,74 @@ export function ZohoIntegrationPage() {
               </div>
             ) : null}
           </dl>
+        ) : null}
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-sm font-bold">Closed Won provisioning</h2>
+          <p className="text-xs text-muted-foreground">
+            When a Deal stage is Closed Won, sync creates one Draft project and
+            Draft charter (idempotent). PMs complete gaps; PMO Lead approves.
+          </p>
+        </div>
+        {statusLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : status ? (
+          <>
+            <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  CRM-linked projects
+                </dt>
+                <dd className="font-semibold">
+                  {status.provisionedProjectCount ?? 0}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Open provision failures
+                </dt>
+                <dd
+                  className={
+                    (status.openProvisionFailureCount ?? 0) > 0
+                      ? "font-semibold text-destructive"
+                      : "font-semibold"
+                  }
+                >
+                  {status.openProvisionFailureCount ?? 0}
+                </dd>
+              </div>
+            </dl>
+            {(status.recentProvisionErrors?.length ?? 0) > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Recent provision errors
+                </p>
+                <ul className="space-y-2 text-xs">
+                  {status.recentProvisionErrors.map((err) => (
+                    <li
+                      key={`${err.entityId}-${err.lastAttempted}`}
+                      className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2"
+                    >
+                      <p className="font-medium text-foreground">
+                        Deal {err.entityId}
+                      </p>
+                      <p className="text-muted-foreground">{err.errorMsg}</p>
+                      <p className="mt-1 text-muted-foreground/80">
+                        {new Date(err.lastAttempted).toLocaleString()} · retries{" "}
+                        {err.retryCount}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No open Closed Won provisioning errors.
+              </p>
+            )}
+          </>
         ) : null}
       </div>
 

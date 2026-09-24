@@ -124,6 +124,23 @@ export class ProjectDto {
   @ApiProperty({ enum: ApiProjectStatus })
   status: ApiProjectStatus;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Linked CRM opportunity id when provisioned from Zoho Closed Won',
+  })
+  crmOpportunityId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Latest project charter status (Draft, Approved, …)',
+  })
+  charterStatus?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'True when the latest charter is still Draft',
+  })
+  hasPendingCharter?: boolean;
+
   @ApiProperty()
   createdBy: string;
 

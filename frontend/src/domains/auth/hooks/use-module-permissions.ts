@@ -50,6 +50,9 @@ export function useModulePermissions() {
       canViewIssues:
         hasModulePermission(permissions, "issues", "edit") ||
         hasModulePermission(permissions, "projects", "view"),
+      canViewCharter: hasModulePermission(permissions, "charter", "view"),
+      canEditCharter: hasModulePermission(permissions, "charter", "edit"),
+      canApproveCharter: hasModulePermission(permissions, "charter", "approve"),
     }),
     [permissions],
   );

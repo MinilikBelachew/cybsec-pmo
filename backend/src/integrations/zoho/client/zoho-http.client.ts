@@ -28,6 +28,17 @@ type ZohoListResponse<T> = {
   };
 };
 
+type ZohoBooksListResponse<T> = {
+  code?: number;
+  message?: string;
+  invoices?: T[];
+  page_context?: {
+    page?: number;
+    per_page?: number;
+    has_more_page?: boolean;
+  };
+};
+
 @Injectable()
 export class ZohoHttpClient {
   private readonly logger = new Logger(ZohoHttpClient.name);
@@ -50,6 +61,11 @@ export class ZohoHttpClient {
     return Boolean(
       cfg.clientId && cfg.clientSecret && cfg.refreshToken,
     );
+  }
+
+  isBooksConfigured(): boolean {
+    const cfg = this.getConfig();
+    return this.isConfigured() && Boolean(cfg.booksOrganizationId);
   }
 
   clearTokenCache(): void {
@@ -176,6 +192,84 @@ export class ZohoHttpClient {
       page += 1;
       if (page > 50) {
         this.logger.warn(`Zoho pagination stopped at page cap for ${modulePath}`);
+        break;
+      }
+    }
+
+    return items;
+  }
+
+  async booksGet<T>(
+    path: string,
+    params?: Record<string, string | number | undefined>,
+  ): Promise<T> {
+    const cfg = this.getConfig();
+    if (!cfg.booksOrganizationId) {
+      throw new ServiceUnavailableException(
+        'Zoho Books is not configured. Set ZOHO_BOOKS_ORGANIZATION_ID.',
+      );
+    }
+
+    const token = await this.getAccessToken();
+    const url = new URL(
+      `${this.apiBase()}${path.startsWith('/') ? path : `/${path}`}`,
+    );
+    url.searchParams.set('organization_id', cfg.booksOrganizationId);
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== '') {
+          url.searchParams.set(key, String(value));
+        }
+      }
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ZOHO_HTTP_TIMEOUT_MS);
+    try {
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Zoho-oauthtoken ${token}`,
+        },
+        signal: controller.signal,
+      });
+
+      const body = (await response.json()) as T & {
+        code?: number;
+        message?: string;
+      };
+      if (!response.ok || (typeof body.code === 'number' && body.code !== 0)) {
+        throw new Error(
+          `Zoho Books ${path} failed (${response.status}): ${
+            body.message ?? response.statusText
+          }`,
+        );
+      }
+      return body;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Paginate Books invoices (and similar list resources). */
+  async booksGetAllInvoices<T>(): Promise<T[]> {
+    const items: T[] = [];
+    let page = 1;
+    let more = true;
+
+    while (more) {
+      const pageResult = await this.booksGet<ZohoBooksListResponse<T>>(
+        '/books/v3/invoices',
+        {
+          page,
+          per_page: 200,
+        },
+      );
+      items.push(...(pageResult.invoices ?? []));
+      more = Boolean(pageResult.page_context?.has_more_page);
+      page += 1;
+      if (page > 50) {
+        this.logger.warn('Zoho Books invoice pagination stopped at page cap');
         break;
       }
     }

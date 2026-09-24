@@ -66,6 +66,11 @@ const PROJECT_INCLUDE = {
   customer: true,
   primaryPm: { select: { id: true, displayName: true, email: true } },
   secondaryPm: { select: { id: true, displayName: true, email: true } },
+  projectCharters: {
+    orderBy: { version: 'desc' as const },
+    take: 1,
+    select: { id: true, status: true },
+  },
 } as const;
 
 const PM_ROLE_CODES = [RoleEnum.pm, RoleEnum.pmo_lead];
@@ -429,9 +434,16 @@ export class ProjectsService {
       const budgetTotal = apiProject.value ?? 0;
       const budgetSpent =
         apiProject.value !== undefined ? resolveBudgetSpent(project.id) : undefined;
+      const latestCharter = (
+        project as typeof project & {
+          projectCharters?: { id: string; status: string }[];
+        }
+      ).projectCharters?.[0];
 
       return {
         ...apiProject,
+        charterStatus: latestCharter?.status ?? null,
+        hasPendingCharter: latestCharter?.status === 'Draft',
         tasksTotal: project._count.tasks,
         tasksDone: doneTaskMap.get(project.id) ?? 0,
         phasesTotal: project._count.phases,

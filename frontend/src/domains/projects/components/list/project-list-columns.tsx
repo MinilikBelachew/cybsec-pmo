@@ -94,17 +94,29 @@ export function createProjectListColumns({
         const project = row.original;
         const status = STATUS_CONFIG[project.status] || STATUS_CONFIG.Draft;
         return (
-          <span
-            className={cn(
-              "inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold",
-              status.bg,
-              status.text,
-              status.border,
-            )}
-          >
-            <span className={cn("size-1.5 rounded-full", status.dot)} />
-            {status.label}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span
+              className={cn(
+                "inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold",
+                status.bg,
+                status.text,
+                status.border,
+              )}
+            >
+              <span className={cn("size-1.5 rounded-full", status.dot)} />
+              {status.label}
+            </span>
+            {project.crmOpportunityId ? (
+              <span className="inline-flex w-fit rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-800">
+                From Zoho
+              </span>
+            ) : null}
+            {project.hasPendingCharter || project.charterStatus === "Draft" ? (
+              <span className="inline-flex w-fit rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                Charter pending
+              </span>
+            ) : null}
+          </div>
         );
       },
       meta: { className: "w-[128px] shrink-0 whitespace-nowrap", label: "Status" },

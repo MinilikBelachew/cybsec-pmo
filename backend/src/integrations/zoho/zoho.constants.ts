@@ -1,6 +1,9 @@
 export const ZOHO_INTEGRATION = 'zoho_crm';
+export const ZOHO_BOOKS_INTEGRATION = 'zoho_books';
 export const ZOHO_ENTITY_TYPE = {
   OPPORTUNITY: 'opportunity',
+  CHARTER_PROVISION: 'charter_provision',
+  INVOICE: 'invoice',
 } as const;
 
 export const ZOHO_SYNC_DIRECTION = {
