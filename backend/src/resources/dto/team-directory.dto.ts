@@ -256,3 +256,52 @@ export class DesignationOptionsDto {
   @ApiProperty({ type: [String] })
   options: string[];
 }
+
+export class EmployeeSalaryRowDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty({ example: '2026-01-01' })
+  effectiveFrom: string;
+
+  @ApiProperty()
+  ctc: number;
+
+  @ApiProperty()
+  gross: number;
+
+  @ApiProperty()
+  netPay: number;
+
+  @ApiPropertyOptional({
+    description: 'Derived PMO cost rate (currency units per hour)',
+    nullable: true,
+  })
+  ratePerHour: number | null;
+
+  @ApiProperty({ example: 'USD' })
+  currency: string;
+
+  @ApiPropertyOptional({
+    description: 'Keka RemunerationType: 0–4 (Annual / Monthly / …)',
+    nullable: true,
+  })
+  remunerationType: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Human-readable remuneration period label',
+    nullable: true,
+  })
+  remunerationLabel: string | null;
+
+  @ApiProperty()
+  isCurrent: boolean;
+
+  @ApiProperty()
+  syncedAt: string;
+}
+
+export class EmployeeSalaryListResponseDto {
+  @ApiProperty({ type: [EmployeeSalaryRowDto] })
+  rows: EmployeeSalaryRowDto[];
+}

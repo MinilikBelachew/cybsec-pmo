@@ -196,8 +196,25 @@ export class ResourceCostRowDto {
   @ApiPropertyOptional({ nullable: true })
   employeeName: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Keka employee number when synced',
+  })
+  employeeNumber: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   designation: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Keka-synced department name',
+  })
+  departmentName: string | null;
+
+  @ApiPropertyOptional({
+    description: 'True when a current Keka EmployeeSalary with rate exists',
+  })
+  hasSalaryRate: boolean;
 
   @ApiPropertyOptional({ nullable: true })
   periodYear: number | null;

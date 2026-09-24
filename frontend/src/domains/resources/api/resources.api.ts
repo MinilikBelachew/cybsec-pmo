@@ -5,6 +5,7 @@ import type {
   DesignationOptionsResponse,
   EmployeeAttendanceListResponse,
   EmployeeAttendanceSortField,
+  EmployeeSalaryListResponse,
   TeamDirectoryResponse,
   TeamDirectorySortField,
   TeamLeaveListResponse,
@@ -177,6 +178,13 @@ export const resourcesApi = api.injectEndpoints({
       },
       providesTags: (_result, _error, arg) => [
         { type: "TeamDirectory", id: `ATTENDANCE-${arg.employeeId}` },
+      ],
+    }),
+
+    getEmployeeSalaries: builder.query<EmployeeSalaryListResponse, string>({
+      query: (employeeId) => `/resources/team/${employeeId}/salaries`,
+      providesTags: (_result, _error, employeeId) => [
+        { type: "TeamDirectory", id: `SALARIES-${employeeId}` },
       ],
     }),
 
@@ -366,7 +374,7 @@ export const resourcesApi = api.injectEndpoints({
         method: "PATCH",
         body,
       }),
-      invalidatesTags: ["TimesheetApprovals", "Timesheets"],
+      invalidatesTags: ["TimesheetApprovals", "Timesheets", "Budget"],
     }),
 
     rejectTimesheetSubmission: builder.mutation<
@@ -378,7 +386,7 @@ export const resourcesApi = api.injectEndpoints({
         method: "PATCH",
         body,
       }),
-      invalidatesTags: ["TimesheetApprovals", "Timesheets"],
+      invalidatesTags: ["TimesheetApprovals", "Timesheets", "Budget"],
     }),
 
     getTimesheetSyncFailures: builder.query<TimesheetSyncFailure[], void>({
@@ -423,6 +431,7 @@ export const {
   useGetTeamDirectoryQuery,
   useGetTeamLeaveQuery,
   useGetEmployeeAttendanceQuery,
+  useGetEmployeeSalariesQuery,
   useGetAllocationPolicyQuery,
   useGetDesignationOptionsQuery,
   useGetAllocationApprovalsQuery,

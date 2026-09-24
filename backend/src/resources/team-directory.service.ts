@@ -18,6 +18,8 @@ import {
   DesignationOptionsDto,
   EmployeeAttendanceListResponseDto,
   EmployeeAttendanceRowDto,
+  EmployeeSalaryListResponseDto,
+  EmployeeSalaryRowDto,
   TeamDirectoryMemberDto,
   TeamDirectoryResponseDto,
   TeamDirectoryStatsDto,
@@ -478,6 +480,74 @@ export class TeamDirectoryService {
       total,
       lastSuccessfulSyncAt: latestSync?.syncedAt.toISOString() ?? null,
     };
+  }
+
+  async findEmployeeSalaries(
+    employeeId: string,
+    caslUser: CaslUserContext,
+  ): Promise<EmployeeSalaryListResponseDto> {
+    const employeeScope = this.recordScopeWhere.teamDirectoryEmployeeWhere(caslUser);
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        AND: [{ id: employeeId }, { isActive: true }, employeeScope],
+      },
+      select: { id: true },
+    });
+
+    if (!employee) {
+      throw new NotFoundException({
+        status: 404,
+        errors: { employee: 'employeeNotFound' },
+      });
+    }
+
+    const rows = await this.prisma.employeeSalary.findMany({
+      where: { employeeId },
+      orderBy: [{ isCurrent: 'desc' }, { effectiveFrom: 'desc' }],
+    });
+
+    return {
+      rows: rows.map((row) => this.toSalaryRow(row)),
+    };
+  }
+
+  private toSalaryRow(row: {
+    id: string;
+    effectiveFrom: Date;
+    ctc: Prisma.Decimal;
+    gross: Prisma.Decimal;
+    netPay: Prisma.Decimal;
+    ratePerHour: Prisma.Decimal | null;
+    currency: string;
+    remunerationType: number | null;
+    isCurrent: boolean;
+    syncedAt: Date;
+  }): EmployeeSalaryRowDto {
+    return {
+      id: row.id,
+      effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
+      ctc: Number(row.ctc),
+      gross: Number(row.gross),
+      netPay: Number(row.netPay),
+      ratePerHour: row.ratePerHour != null ? Number(row.ratePerHour) : null,
+      currency: row.currency,
+      remunerationType: row.remunerationType,
+      remunerationLabel: this.remunerationLabel(row.remunerationType),
+      isCurrent: row.isCurrent,
+      syncedAt: row.syncedAt.toISOString(),
+    };
+  }
+
+  private remunerationLabel(type: number | null): string | null {
+    if (type == null) return null;
+    const labels: Record<number, string> = {
+      0: 'Annual',
+      1: 'Monthly',
+      2: 'Daily',
+      3: 'Hourly',
+      4: 'Weekly',
+    };
+    return labels[type] ?? `Type ${type}`;
   }
 
   private buildAttendanceSearchFilters(

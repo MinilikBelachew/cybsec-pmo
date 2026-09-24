@@ -352,7 +352,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
           <div>
             <h3 className="text-sm font-semibold">Resource cost breakdown</h3>
             <p className="text-xs text-muted-foreground">
-              From approved timesheets
+              Keka employees × approved timesheet hours × Keka salary rates
               {resourceCosts?.includeRates || canViewRates
                 ? " (rates visible for finance)."
                 : " (hourly rates hidden)."}
@@ -382,9 +382,16 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
             <Loader2 className="size-3.5 animate-spin" /> Loading resource costs…
           </p>
         ) : !resourceCosts?.rows.length ? (
-          <p className="text-xs text-muted-foreground italic">
-            No employee cost rows yet. Approve timesheets to populate.
-          </p>
+          <div className="rounded-lg border border-dashed border-slate-300 dark:border-white/15 p-3 space-y-1">
+            <p className="text-xs text-muted-foreground">
+              No resource costs yet for this project.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Costs appear after: (1) Keka employee + salary sync, (2) timesheet
+              hours are submitted, and (3) a PM/approver Approves the week.
+              Then reopen Financials or refresh.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-slate-200/70 dark:border-white/[0.08]">
             <table className="w-full text-xs">
@@ -415,12 +422,22 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                       <td className="px-3 py-2">
                         <div className="font-medium">
                           {row.employeeName ?? "—"}
+                          {row.employeeNumber ? (
+                            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                              #{row.employeeNumber}
+                            </span>
+                          ) : null}
                         </div>
-                        {row.designation ? (
-                          <div className="text-[10px] text-muted-foreground">
-                            {row.designation}
-                          </div>
-                        ) : null}
+                        <div className="text-[10px] text-muted-foreground">
+                          {[row.designation, row.departmentName]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                          {!row.hasSalaryRate ? (
+                            <span className="ml-1 text-amber-700 dark:text-amber-400">
+                              · no Keka salary rate
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                     ) : null}
                     {resourceGroupBy !== "employee" ? (

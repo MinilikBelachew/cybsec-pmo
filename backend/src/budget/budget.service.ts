@@ -12,6 +12,7 @@ import { PermissionsCacheService } from '../casl/permissions-cache.service';
 import { CaslUserContext } from '../casl/casl.types';
 import { hasModulePermission } from '../casl/module-permission.util';
 import { AuditLogsService } from '../audit/audit-logs.service';
+import { TimesheetPayrollService } from '../timesheets/timesheet-payroll.service';
 import {
   BUDGET_ADJUSTMENT_STATUS,
   BUDGET_ADJUSTMENT_TARGET,
@@ -74,6 +75,7 @@ export class BudgetService {
     private readonly permissionsCache: PermissionsCacheService,
     private readonly auditLogs: AuditLogsService,
     private readonly overrun: BudgetOverrunService,
+    private readonly timesheetPayroll: TimesheetPayrollService,
   ) {}
 
   async getForProject(
@@ -81,6 +83,7 @@ export class BudgetService {
     caslUser: CaslUserContext,
   ): Promise<ProjectBudgetDto> {
     const project = await this.assertProjectAccess(projectId, caslUser);
+    await this.timesheetPayroll.ensureProjectResourceCosts(projectId);
     const budget = await this.loadBudget(projectId);
     return this.toDto(projectId, project, budget);
   }
@@ -97,6 +100,9 @@ export class BudgetService {
       'view_rates',
     );
 
+    // Materialize costs from Approved timesheets + Keka EmployeeSalary rates.
+    await this.timesheetPayroll.ensureProjectResourceCosts(projectId);
+
     const costs = await this.prisma.employeeCost.findMany({
       where: { projectId },
       include: {
@@ -106,6 +112,9 @@ export class BudgetService {
             name: true,
             displayName: true,
             designation: true,
+            employeeNumber: true,
+            email: true,
+            department: { select: { name: true } },
           },
         },
       },
@@ -116,13 +125,42 @@ export class BudgetService {
       ],
     });
 
+    const employeeIds = [...new Set(costs.map((c) => c.employeeId))];
+    const salaryFlags = employeeIds.length
+      ? await this.prisma.employeeSalary.findMany({
+          where: { employeeId: { in: employeeIds }, isCurrent: true },
+          select: { employeeId: true, ratePerHour: true },
+        })
+      : [];
+    const hasSalaryRate = new Set(
+      salaryFlags
+        .filter((s) => Number(s.ratePerHour ?? 0) > 0)
+        .map((s) => s.employeeId),
+    );
+
     const mapRow = (
-      partial: Omit<ResourceCostRowDto, 'ratePerHour'> & {
+      partial: Omit<ResourceCostRowDto, 'ratePerHour' | 'hasSalaryRate'> & {
         ratePerHour?: number | null;
+        hasSalaryRate?: boolean;
       },
     ): ResourceCostRowDto => ({
       ...partial,
+      employeeNumber: partial.employeeNumber ?? null,
+      departmentName: partial.departmentName ?? null,
+      hasSalaryRate: partial.hasSalaryRate ?? false,
       ratePerHour: includeRates ? (partial.ratePerHour ?? null) : null,
+    });
+
+    const employeeMeta = (row: (typeof costs)[number]) => ({
+      employeeId: row.employeeId,
+      employeeName:
+        row.employee.displayName?.trim() ||
+        row.employee.name ||
+        row.employeeId,
+      employeeNumber: row.employee.employeeNumber ?? null,
+      designation: row.employee.designation ?? null,
+      departmentName: row.employee.department?.name ?? null,
+      hasSalaryRate: hasSalaryRate.has(row.employeeId),
     });
 
     if (groupBy === 'employee') {
@@ -131,7 +169,10 @@ export class BudgetService {
         {
           employeeId: string;
           employeeName: string;
+          employeeNumber: string | null;
           designation: string | null;
+          departmentName: string | null;
+          hasSalaryRate: boolean;
           regularHours: number;
           overtimeHours: number;
           totalCost: number;
@@ -146,15 +187,10 @@ export class BudgetService {
         const overtime = decimalToNumber(row.overtimeHours) ?? 0;
         const total = decimalToNumber(row.totalCost) ?? 0;
         const rate = decimalToNumber(row.ratePerHour) ?? 0;
-        const name =
-          row.employee.displayName?.trim() ||
-          row.employee.name ||
-          row.employeeId;
+        const meta = employeeMeta(row);
         if (!existing) {
           byEmployee.set(key, {
-            employeeId: row.employeeId,
-            employeeName: name,
-            designation: row.employee.designation ?? null,
+            ...meta,
             regularHours: regular,
             overtimeHours: overtime,
             totalCost: total,
@@ -175,7 +211,10 @@ export class BudgetService {
         mapRow({
           employeeId: r.employeeId,
           employeeName: r.employeeName,
+          employeeNumber: r.employeeNumber,
           designation: r.designation,
+          departmentName: r.departmentName,
+          hasSalaryRate: r.hasSalaryRate,
           periodYear: null,
           periodMonth: null,
           regularHours: Number(r.regularHours.toFixed(2)),
@@ -225,7 +264,10 @@ export class BudgetService {
         mapRow({
           employeeId: null,
           employeeName: null,
+          employeeNumber: null,
           designation: null,
+          departmentName: null,
+          hasSalaryRate: false,
           periodYear: r.periodYear,
           periodMonth: r.periodMonth,
           regularHours: Number(r.regularHours.toFixed(2)),
@@ -237,22 +279,18 @@ export class BudgetService {
       return { groupBy, includeRates, rows };
     }
 
-    const rows = costs.map((row) =>
-      mapRow({
-        employeeId: row.employeeId,
-        employeeName:
-          row.employee.displayName?.trim() ||
-          row.employee.name ||
-          row.employeeId,
-        designation: row.employee.designation ?? null,
+    const rows = costs.map((row) => {
+      const meta = employeeMeta(row);
+      return mapRow({
+        ...meta,
         periodYear: row.periodYear,
         periodMonth: row.periodMonth,
         regularHours: decimalToNumber(row.regularHours) ?? 0,
         overtimeHours: decimalToNumber(row.overtimeHours) ?? 0,
         totalCost: decimalToNumber(row.totalCost) ?? 0,
         ratePerHour: decimalToNumber(row.ratePerHour),
-      }),
-    );
+      });
+    });
 
     return { groupBy: 'detail', includeRates, rows };
   }
