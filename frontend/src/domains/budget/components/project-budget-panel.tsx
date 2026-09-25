@@ -21,6 +21,7 @@ import {
 } from "@/shared/ui/select";
 import { cn } from "@/shared/utils/cn";
 import { formatProjectBudget } from "@/domains/projects/utils/format-budget";
+import { DataTable } from "@/shared/components/data-table";
 import {
   BUDGET_LINE_CATEGORIES,
   useApproveBudgetRevisionMutation,
@@ -35,6 +36,7 @@ import {
   useApproveBudgetAdjustmentMutation,
   useRejectBudgetAdjustmentMutation,
 } from "@/domains/budget";
+import { createResourceCostColumns } from "@/domains/budget/components/resource-cost-columns";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
 type ProjectBudgetPanelProps = {
@@ -121,6 +123,22 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
   const selectedAdjLine = useMemo(
     () => data?.lineItems.find((line) => line.id === adjLineId) ?? null,
     [data?.lineItems, adjLineId],
+  );
+
+  const resourceRows = resourceCosts?.rows ?? [];
+  const resourceCostColumns = useMemo(
+    () =>
+      createResourceCostColumns({
+        currency: data?.currency ?? "USD",
+        groupBy: resourceGroupBy,
+        includeRates: Boolean(resourceCosts?.includeRates || canViewRates),
+      }),
+    [
+      data?.currency,
+      resourceGroupBy,
+      resourceCosts?.includeRates,
+      canViewRates,
+    ],
   );
 
   const busy =
@@ -345,131 +363,6 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
             <p className="text-sm font-semibold tabular-nums">{card.value}</p>
           </div>
         ))}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-semibold">Resource cost breakdown</h3>
-            <p className="text-xs text-muted-foreground">
-              Keka employees × approved timesheet hours × Keka salary rates
-              {resourceCosts?.includeRates || canViewRates
-                ? " (rates visible for finance)."
-                : " (hourly rates hidden)."}
-            </p>
-          </div>
-          <Select
-            value={resourceGroupBy}
-            onValueChange={(v) => {
-              if (v === "employee" || v === "month" || v === "detail") {
-                setResourceGroupBy(v);
-              }
-            }}
-          >
-            <SelectTrigger className="w-[160px] h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="detail">By employee / month</SelectItem>
-              <SelectItem value="employee">By employee</SelectItem>
-              <SelectItem value="month">By month</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {loadingResourceCosts ? (
-          <p className="text-xs text-muted-foreground flex items-center gap-2">
-            <Loader2 className="size-3.5 animate-spin" /> Loading resource costs…
-          </p>
-        ) : !resourceCosts?.rows.length ? (
-          <div className="rounded-lg border border-dashed border-slate-300 dark:border-white/15 p-3 space-y-1">
-            <p className="text-xs text-muted-foreground">
-              No resource costs yet for this project.
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              Costs appear after: (1) Keka employee + salary sync, (2) timesheet
-              hours are submitted, and (3) a PM/approver Approves the week.
-              Then reopen Financials or refresh.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-slate-200/70 dark:border-white/[0.08]">
-            <table className="w-full text-xs">
-              <thead className="bg-muted/40 text-muted-foreground">
-                <tr>
-                  {resourceGroupBy !== "month" ? (
-                    <th className="text-left font-semibold px-3 py-2">Employee</th>
-                  ) : null}
-                  {resourceGroupBy !== "employee" ? (
-                    <th className="text-left font-semibold px-3 py-2">Period</th>
-                  ) : null}
-                  <th className="text-right font-semibold px-3 py-2">Regular</th>
-                  <th className="text-right font-semibold px-3 py-2">OT</th>
-                  {(resourceCosts.includeRates || canViewRates) &&
-                  resourceGroupBy !== "month" ? (
-                    <th className="text-right font-semibold px-3 py-2">Rate</th>
-                  ) : null}
-                  <th className="text-right font-semibold px-3 py-2">Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resourceCosts.rows.map((row, idx) => (
-                  <tr
-                    key={`${row.employeeId ?? "all"}-${row.periodYear ?? 0}-${row.periodMonth ?? 0}-${idx}`}
-                    className="border-t border-slate-200/60 dark:border-white/[0.06]"
-                  >
-                    {resourceGroupBy !== "month" ? (
-                      <td className="px-3 py-2">
-                        <div className="font-medium">
-                          {row.employeeName ?? "—"}
-                          {row.employeeNumber ? (
-                            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
-                              #{row.employeeNumber}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {[row.designation, row.departmentName]
-                            .filter(Boolean)
-                            .join(" · ") || "—"}
-                          {!row.hasSalaryRate ? (
-                            <span className="ml-1 text-amber-700 dark:text-amber-400">
-                              · no Keka salary rate
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                    ) : null}
-                    {resourceGroupBy !== "employee" ? (
-                      <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                        {row.periodYear != null && row.periodMonth != null
-                          ? `${row.periodYear}-${String(row.periodMonth).padStart(2, "0")}`
-                          : "—"}
-                      </td>
-                    ) : null}
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.regularHours}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.overtimeHours}
-                    </td>
-                    {(resourceCosts.includeRates || canViewRates) &&
-                    resourceGroupBy !== "month" ? (
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {row.ratePerHour != null
-                          ? money(row.ratePerHour, currency)
-                          : "—"}
-                      </td>
-                    ) : null}
-                    <td className="px-3 py-2 text-right tabular-nums font-medium">
-                      {money(row.totalCost, currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
       {!hasBaseline ? (
@@ -1155,6 +1048,66 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
           )}
         </div>
       )}
+
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold">Resource cost breakdown</h3>
+          <p className="text-xs text-muted-foreground">
+            Keka employees × approved timesheet hours × billing/salary rates
+            {resourceCosts?.includeRates || canViewRates
+              ? " (rates visible for finance)."
+              : " (hourly rates hidden)."}
+          </p>
+        </div>
+
+        {!loadingResourceCosts && resourceRows.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-300 dark:border-white/15 p-3 space-y-1">
+            <p className="text-xs text-muted-foreground">
+              No resource costs yet for this project.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Costs appear after: (1) Keka employee + salary sync, (2) timesheet
+              hours are submitted, and (3) a PM/approver Approves the week.
+              Then reopen Financials or refresh.
+            </p>
+          </div>
+        ) : (
+          <DataTable
+            columns={resourceCostColumns}
+            data={resourceRows}
+            getRowId={(row) =>
+              `${row.employeeId ?? "all"}-${row.periodYear ?? 0}-${row.periodMonth ?? 0}`
+            }
+            hideSearch
+            isLoading={loadingResourceCosts}
+            emptyMessage="No resource costs yet for this project."
+            minTableWidth="min-w-[720px]"
+            enableColumnReorder
+            columnOrderStorageKey={`cybsec-resource-costs-${resourceGroupBy}-column-order`}
+            pageSize={10}
+            pageSizeOptions={[5, 10, 20, 50]}
+            filters={
+              <Select
+                value={resourceGroupBy}
+                onValueChange={(v) => {
+                  if (v === "employee" || v === "month" || v === "detail") {
+                    setResourceGroupBy(v);
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="detail">By employee / month</SelectItem>
+                  <SelectItem value="employee">By employee</SelectItem>
+                  <SelectItem value="month">By month</SelectItem>
+                </SelectContent>
+              </Select>
+            }
+          />
+        )}
+      </div>
     </div>
   );
 }

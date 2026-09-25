@@ -90,6 +90,10 @@ type AllocationCreatePlan = {
   employee: EmployeeWithAllocations;
   dto: CreateAllocationDto;
   thresholdOutcome: ThresholdOutcome;
+  kekaBillingRoleId: string | null;
+  kekaBillingRoleName: string | null;
+  billingRate: number | null;
+  effectiveRole: string;
 };
 
 @Injectable()
@@ -741,8 +745,25 @@ export class ProjectTeamService {
         actorId,
         policies,
         warnings,
+        billingRoles: [],
+        billingRolesRequired: false,
       });
     }
+  }
+
+  async listBillingRoles(
+    projectId: string,
+    caslUser: CaslUserContext,
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      billingRate: number | null;
+      rateUnit: number | null;
+    }>
+  > {
+    await this.assertProjectInScope(projectId, caslUser, 'read');
+    return this.allocationPushService.listBillingRolesForProject(projectId);
   }
 
   async addMembers(
@@ -771,6 +792,10 @@ export class ProjectTeamService {
       });
     }
 
+    const billingRoles =
+      await this.allocationPushService.listBillingRolesForProject(projectId);
+    const billingRolesRequired = billingRoles.length > 0;
+
     const warnings: string[] = [];
     const policies = await this.allocationPolicyService.getPolicies();
     const plans: AllocationCreatePlan[] = [];
@@ -795,6 +820,8 @@ export class ProjectTeamService {
           actorId,
           policies,
           warnings,
+          billingRoles,
+          billingRolesRequired,
         }),
       );
     }
@@ -820,7 +847,7 @@ export class ProjectTeamService {
           data: {
             projectId,
             employeeId: plan.dto.employeeId,
-            role: plan.dto.role,
+            role: plan.effectiveRole,
             hours: plan.dto.hours ?? null,
             percent: plan.dto.percent ?? null,
             startDate: new Date(plan.dto.startDate),
@@ -830,6 +857,9 @@ export class ProjectTeamService {
             requestedBy: plan.thresholdOutcome.requestedBy,
             requestedAt: plan.thresholdOutcome.requestedAt,
             overrideReason: plan.thresholdOutcome.overrideReason,
+            kekaBillingRoleId: plan.kekaBillingRoleId,
+            kekaBillingRoleName: plan.kekaBillingRoleName,
+            billingRate: plan.billingRate,
           },
           include: {
             requester: { select: { id: true, displayName: true } },
@@ -885,6 +915,13 @@ export class ProjectTeamService {
     actorId: string;
     policies: AllocationRuntimePolicies;
     warnings: string[];
+    billingRoles: Array<{
+      id: string;
+      name: string;
+      billingRate: number | null;
+      rateUnit: number | null;
+    }>;
+    billingRolesRequired: boolean;
   }): Promise<AllocationCreatePlan> {
     const {
       dto,
@@ -895,9 +932,17 @@ export class ProjectTeamService {
       actorId,
       policies,
       warnings,
+      billingRoles,
+      billingRolesRequired,
     } = params;
 
     this.validateAllocationInput(dto);
+
+    const billingSelection = this.resolveBillingRoleSelection(
+      dto,
+      billingRoles,
+      billingRolesRequired,
+    );
 
     const employee = await this.prisma.employee.findFirst({
       where: { id: dto.employeeId, isActive: true },
@@ -953,7 +998,7 @@ export class ProjectTeamService {
 
     evaluateStaffingPolicies({
       policies,
-      projectRole: dto.role,
+      projectRole: billingSelection.effectiveRole,
       employeeName: employee.name,
       employeeDesignation: employee.designation,
       employeeDepartmentCode: employee.department.code,
@@ -971,7 +1016,69 @@ export class ProjectTeamService {
     );
     warnings.push(...thresholdOutcome.warnings);
 
-    return { employee, dto, thresholdOutcome };
+    return {
+      employee,
+      dto,
+      thresholdOutcome,
+      kekaBillingRoleId: billingSelection.kekaBillingRoleId,
+      kekaBillingRoleName: billingSelection.kekaBillingRoleName,
+      billingRate: billingSelection.billingRate,
+      effectiveRole: billingSelection.effectiveRole,
+    };
+  }
+
+  private resolveBillingRoleSelection(
+    dto: Pick<CreateAllocationDto, 'role' | 'kekaBillingRoleId'>,
+    billingRoles: Array<{
+      id: string;
+      name: string;
+      billingRate: number | null;
+    }>,
+    billingRolesRequired: boolean,
+  ): {
+    kekaBillingRoleId: string | null;
+    kekaBillingRoleName: string | null;
+    billingRate: number | null;
+    effectiveRole: string;
+  } {
+    const requestedId = dto.kekaBillingRoleId?.trim() || null;
+
+    if (billingRolesRequired && !requestedId) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          kekaBillingRoleId:
+            'billingRoleRequired — select a Keka client billing role for this project',
+        },
+      });
+    }
+
+    if (!requestedId) {
+      return {
+        kekaBillingRoleId: null,
+        kekaBillingRoleName: null,
+        billingRate: null,
+        effectiveRole: dto.role.trim(),
+      };
+    }
+
+    const match = billingRoles.find((role) => role.id === requestedId);
+    if (!match) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          kekaBillingRoleId: 'billingRoleNotFoundForProjectClient',
+        },
+      });
+    }
+
+    return {
+      kekaBillingRoleId: match.id,
+      kekaBillingRoleName: match.name,
+      billingRate: match.billingRate,
+      // Keep PMO project role separate from Keka billing role name.
+      effectiveRole: dto.role.trim(),
+    };
   }
 
   private toPolicySummary(
@@ -1015,6 +1122,7 @@ export class ProjectTeamService {
 
     if (
       dto.role == null &&
+      dto.kekaBillingRoleId === undefined &&
       dto.hours === undefined &&
       dto.percent === undefined &&
       dto.backupEmployeeId === undefined &&
@@ -1080,7 +1188,32 @@ export class ProjectTeamService {
 
     const warnings: string[] = [];
     const policies = await this.allocationPolicyService.getPolicies();
-    const effectiveRole = dto.role ?? allocation.role;
+    const billingRoles =
+      await this.allocationPushService.listBillingRolesForProject(projectId);
+    const billingRolesRequired = billingRoles.length > 0;
+    const billingSelection =
+      dto.kekaBillingRoleId !== undefined
+        ? this.resolveBillingRoleSelection(
+            {
+              role: dto.role ?? allocation.role,
+              kekaBillingRoleId:
+                dto.kekaBillingRoleId === null
+                  ? undefined
+                  : dto.kekaBillingRoleId,
+            },
+            billingRoles,
+            billingRolesRequired && dto.kekaBillingRoleId !== null,
+          )
+        : {
+            kekaBillingRoleId: allocation.kekaBillingRoleId,
+            kekaBillingRoleName: allocation.kekaBillingRoleName,
+            billingRate:
+              allocation.billingRate != null
+                ? Number(allocation.billingRate)
+                : null,
+            effectiveRole: dto.role ?? allocation.role,
+          };
+    const effectiveRole = billingSelection.effectiveRole;
     const projectDepartmentCode = project.department.code;
     let thresholdOutcome: ThresholdOutcome | null = null;
 
@@ -1193,7 +1326,12 @@ export class ProjectTeamService {
       });
     }
 
-    if (dto.role != null || dto.hours !== undefined || dto.percent !== undefined) {
+    if (
+      dto.role != null ||
+      dto.kekaBillingRoleId !== undefined ||
+      dto.hours !== undefined ||
+      dto.percent !== undefined
+    ) {
       evaluateStaffingPolicies({
         policies,
         projectRole: effectiveRole,
@@ -1208,7 +1346,16 @@ export class ProjectTeamService {
     const updated = await this.prisma.allocation.update({
       where: { id: allocationId },
       data: {
-        ...(dto.role != null ? { role: dto.role } : {}),
+        ...(dto.role != null || dto.kekaBillingRoleId !== undefined
+          ? { role: effectiveRole }
+          : {}),
+        ...(dto.kekaBillingRoleId !== undefined
+          ? {
+              kekaBillingRoleId: billingSelection.kekaBillingRoleId,
+              kekaBillingRoleName: billingSelection.kekaBillingRoleName,
+              billingRate: billingSelection.billingRate,
+            }
+          : {}),
         ...(dto.hours !== undefined ? { hours: dto.hours, percent: null } : {}),
         ...(dto.percent !== undefined ? { percent: dto.percent, hours: null } : {}),
         ...(dto.backupEmployeeId !== undefined
@@ -1442,6 +1589,10 @@ export class ProjectTeamService {
       projectId: allocation.projectId,
       employeeId: allocation.employeeId,
       role: allocation.role,
+      kekaBillingRoleId: allocation.kekaBillingRoleId ?? null,
+      kekaBillingRoleName: allocation.kekaBillingRoleName ?? null,
+      billingRate:
+        allocation.billingRate != null ? Number(allocation.billingRate) : null,
       hours: allocation.hours != null ? Number(allocation.hours) : null,
       percent: allocation.percent != null ? Number(allocation.percent) : null,
       startDate: allocation.startDate.toISOString().slice(0, 10),

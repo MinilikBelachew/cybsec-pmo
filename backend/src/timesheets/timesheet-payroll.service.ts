@@ -27,7 +27,8 @@ export class TimesheetPayrollService {
 
   /**
    * Record approved timesheets into EmployeeCost idempotently (one ledger row
-   * per timesheetId). Rate comes from Keka-synced EmployeeSalary + cost formula.
+   * per timesheetId). Rate prefers allocation billing role rate, else
+   * Keka-synced EmployeeSalary + cost formula.
    */
   async recordApprovedEntries(entries: ApprovedEntry[]): Promise<number> {
     if (!entries.length) return 0;
@@ -61,6 +62,7 @@ export class TimesheetPayrollService {
 
       const rate = await this.resolveRatePerHour(
         entry.employeeId,
+        entry.projectId,
         entry.workDate,
         weeklyHoursByEmployee.get(entry.employeeId) ?? 0,
         formula,
@@ -263,10 +265,29 @@ export class TimesheetPayrollService {
 
   private async resolveRatePerHour(
     employeeId: string,
+    projectId: string,
     workDate: Date,
     weeklyHours: number,
     formula: Awaited<ReturnType<CostFormulaService['getFormula']>>,
   ): Promise<number> {
+    // Prefer Keka client billing role rate stored on the overlapping allocation.
+    const allocation = await this.prisma.allocation.findFirst({
+      where: {
+        employeeId,
+        projectId,
+        status: { in: ['Active', 'Pending'] },
+        billingRate: { not: null, gt: 0 },
+        startDate: { lte: workDate },
+        OR: [{ endDate: null }, { endDate: { gte: workDate } }],
+      },
+      orderBy: { startDate: 'desc' },
+      select: { billingRate: true },
+    });
+    if (allocation?.billingRate != null) {
+      const billingRate = Number(allocation.billingRate);
+      if (billingRate > 0) return billingRate;
+    }
+
     // Prefer salary effective on the work date (Keka history), else current.
     let salary = await this.prisma.employeeSalary.findFirst({
       where: {

@@ -51,6 +51,7 @@ import { QueryTaskAssigneeAvailabilityDto } from './dto/query-task-assignee-avai
 import {
   CreateProjectTeamResultDto,
   ProjectAllocationDto,
+  ProjectBillingRoleListDto,
   ProjectTaskAssigneeDto,
   TaskAssigneeAvailabilityDto,
   TeamCandidateDto,
@@ -359,6 +360,20 @@ export class ProjectsController {
     @Request() request: RequestWithAbility,
   ): Promise<ProjectAllocationDto[]> {
     return this.projectTeamService.findProjectTeam(id, request.caslUser!);
+  }
+
+  @CheckAbility('read', 'Project')
+  @Get(':id/billing-roles')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiOkResponse({ type: ProjectBillingRoleListDto })
+  listProjectBillingRoles(
+    @Param('id') id: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<ProjectBillingRoleListDto> {
+    return this.projectTeamService
+      .listBillingRoles(id, request.caslUser!)
+      .then((rows) => ({ rows }));
   }
 
   @CheckAbility('read', 'Project')

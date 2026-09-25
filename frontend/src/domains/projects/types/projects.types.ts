@@ -230,6 +230,9 @@ export interface ProjectAllocation {
   projectId: string;
   employeeId: string;
   role: string;
+  kekaBillingRoleId?: string | null;
+  kekaBillingRoleName?: string | null;
+  billingRate?: number | null;
   hours: number | null;
   percent: number | null;
   startDate: string;
@@ -275,6 +278,7 @@ export interface PendingTeamMember {
   departmentName: string;
   designation: string;
   role: string;
+  kekaBillingRoleId?: string;
   allocationMode: AllocationMode;
   hoursPerWeek: number;
   percentPerWeek: number;
@@ -297,12 +301,24 @@ export interface CreateProjectTeamPayload {
   allocations: Array<{
     employeeId: string;
     role: string;
+    kekaBillingRoleId?: string;
     hours?: number;
     percent?: number;
     startDate: string;
     endDate?: string;
     overrideReason?: string;
   }>;
+}
+
+export interface ProjectBillingRole {
+  id: string;
+  name: string;
+  billingRate: number | null;
+  rateUnit: number | null;
+}
+
+export interface ProjectBillingRoleListResponse {
+  rows: ProjectBillingRole[];
 }
 
 export interface AllocationPolicySummary {
@@ -327,6 +343,7 @@ export interface CreateProjectTeamResult {
 
 export interface UpdateProjectTeamPayload {
   role?: string;
+  kekaBillingRoleId?: string | null;
   hours?: number;
   percent?: number;
   backupEmployeeId?: string | null;

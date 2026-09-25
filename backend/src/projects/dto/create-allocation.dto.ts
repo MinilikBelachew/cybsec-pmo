@@ -26,6 +26,16 @@ export class CreateAllocationDto {
   @MaxLength(100)
   role: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Keka client billing role id from GET /psa/clients/{id}/billingroles. ' +
+      'Required for Keka push when the project client has billing roles.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  kekaBillingRoleId?: string;
+
   @ApiPropertyOptional({ example: 20, description: 'Weekly hours on this project' })
   @IsOptional()
   @Type(() => Number)

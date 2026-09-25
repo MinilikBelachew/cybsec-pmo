@@ -23,6 +23,7 @@ import {
   type CreateProjectTeamResult,
   type UpdateProjectTeamPayload,
   type UpdateProjectTeamMemberResult,
+  type ProjectBillingRoleListResponse,
   type AllocationDateIssuesResponse,
   type AlignProjectAllocationsResult,
   type QueryAllocationDateIssuesParams,
@@ -324,6 +325,13 @@ export const projectsApi = api.injectEndpoints({
           : [{ type: "ProjectTeam", id: projectId }],
     }),
 
+    getProjectBillingRoles: builder.query<ProjectBillingRoleListResponse, string>({
+      query: (projectId) => `/projects/${projectId}/billing-roles`,
+      providesTags: (_result, _error, projectId) => [
+        { type: "ProjectTeam", id: `billing-roles-${projectId}` },
+      ],
+    }),
+
     getAllocationDateIssues: builder.query<
       AllocationDateIssuesResponse,
       { projectId: string; params?: QueryAllocationDateIssuesParams }
@@ -531,6 +539,7 @@ export const {
   useDeleteMilestoneMutation,
   useGetTeamCandidatesQuery,
   useGetProjectTeamQuery,
+  useGetProjectBillingRolesQuery,
   useGetProjectTaskAssigneesQuery,
   useLazyGetProjectTaskAssigneesQuery,
   useAddProjectTeamMembersMutation,

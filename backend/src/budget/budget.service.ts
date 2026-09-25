@@ -445,8 +445,9 @@ export class BudgetService {
           ].join(','),
         ),
       ];
+      // BOM so Excel opens UTF-8 CSV correctly.
       return {
-        buffer: Buffer.from(lines.join('\n'), 'utf8'),
+        buffer: Buffer.from(`\uFEFF${lines.join('\n')}`, 'utf8'),
         filename: `budget_tracker_${date}.csv`,
         contentType: 'text/csv; charset=utf-8',
       };
