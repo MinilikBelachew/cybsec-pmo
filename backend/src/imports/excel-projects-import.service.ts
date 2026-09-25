@@ -873,6 +873,30 @@ export class ExcelProjectsImportService {
 
     await onStep(`Importing ${rows.length} milestones…`);
 
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { value: true },
+    });
+    const projectValue =
+      project?.value != null ? Number(project.value) : null;
+    const amountSum = rows.reduce(
+      (sum, row) => sum + (row.amount != null ? Number(row.amount) : 0),
+      0,
+    );
+    if (
+      projectValue != null &&
+      Number.isFinite(projectValue) &&
+      amountSum > projectValue + 1e-9
+    ) {
+      warnings.push(
+        `Milestone amounts sum (${amountSum}) exceeds project value (${projectValue}). Amounts were not applied; fix values and re-import or edit in UI.`,
+      );
+    }
+    const applyAmounts =
+      projectValue == null ||
+      !Number.isFinite(projectValue) ||
+      amountSum <= projectValue + 1e-9;
+
     type PreparedMs = {
       row: ExcelMilestoneImportRow;
       mode: 'create' | 'update';
@@ -909,6 +933,7 @@ export class ExcelProjectsImportService {
             title: p.row.title,
             targetDate: p.targetDate,
             weight: p.row.weight ?? null,
+            amount: applyAmounts ? (p.row.amount ?? null) : null,
             status: p.row.status || 'Pending',
             phaseId: p.phaseId,
           })),
@@ -923,6 +948,7 @@ export class ExcelProjectsImportService {
                 title: p.row.title,
                 targetDate: p.targetDate,
                 weight: p.row.weight ?? null,
+                amount: applyAmounts ? (p.row.amount ?? null) : null,
                 status: p.row.status || 'Pending',
                 phaseId: p.phaseId,
               },
@@ -949,6 +975,7 @@ export class ExcelProjectsImportService {
                 title: p.row.title,
                 targetDate: p.targetDate,
                 weight: p.row.weight ?? null,
+                amount: applyAmounts ? (p.row.amount ?? null) : null,
                 status: p.row.status || 'Pending',
                 phaseId: p.phaseId,
               },
@@ -965,6 +992,7 @@ export class ExcelProjectsImportService {
                 title: p.row.title,
                 targetDate: p.targetDate,
                 weight: p.row.weight ?? null,
+                amount: applyAmounts ? (p.row.amount ?? null) : null,
                 status: p.row.status || 'Pending',
                 phaseId: p.phaseId,
               },

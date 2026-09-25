@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Query,
+  Request,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -24,6 +25,8 @@ import { CheckModulePermission } from '../../casl/decorators/check-module-permis
 import { CaslGuard } from '../../casl/casl.guard';
 import { ModulePermissionGuard } from '../../casl/module-permission.guard';
 import { ZohoConnectionService } from './zoho-connection.service';
+import { PaymentDelayAlertService } from './payment-delay-alert.service';
+import { DiscrepancyAlertService } from './discrepancy-alert.service';
 import {
   ZohoOpportunityDto,
   ZohoOpportunitySyncResultDto,
@@ -34,7 +37,16 @@ import {
   ZohoInvoiceDto,
   LinkZohoInvoiceDto,
   LinkZohoInvoiceMilestoneDto,
+  PaymentDelayAlertResultDto,
+  DiscrepancyAlertResultDto,
+  ZohoFailedSyncRecordListDto,
+  RetryZohoSyncDto,
+  RetryZohoSyncResultDto,
 } from './dto/zoho.dto';
+
+type RequestWithUser = {
+  user?: { id: string };
+};
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
@@ -45,7 +57,11 @@ import {
   version: '1',
 })
 export class ZohoController {
-  constructor(private readonly zohoConnection: ZohoConnectionService) {}
+  constructor(
+    private readonly zohoConnection: ZohoConnectionService,
+    private readonly paymentDelayAlerts: PaymentDelayAlertService,
+    private readonly discrepancyAlerts: DiscrepancyAlertService,
+  ) {}
 
   @CheckModulePermission('integrations', 'view')
   @Get('status')
@@ -81,6 +97,46 @@ export class ZohoController {
   ): Promise<ZohoOpportunityDto[]> {
     return this.zohoConnection.listOpportunities(
       limit ? Number(limit) : 50,
+    );
+  }
+
+  @CheckModulePermission('integrations', 'view')
+  @Get('failed-syncs')
+  @HttpCode(HttpStatus.OK)
+  @ApiQuery({ name: 'integration', required: true })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['pending', 'dead_letter', 'resolved', 'all'],
+  })
+  @ApiOkResponse({ type: ZohoFailedSyncRecordListDto })
+  async listFailedSyncs(
+    @Query('integration') integration: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: 'pending' | 'dead_letter' | 'resolved' | 'all',
+  ): Promise<ZohoFailedSyncRecordListDto> {
+    return this.zohoConnection.listFailedSyncRecords({
+      integration,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+      status,
+    });
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('retry')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: RetryZohoSyncResultDto })
+  async retrySync(
+    @Body() body: RetryZohoSyncDto,
+    @Request() request: RequestWithUser,
+  ): Promise<RetryZohoSyncResultDto> {
+    return this.zohoConnection.retryFailedSync(
+      { failedSyncRecordId: body.failedSyncRecordId },
+      request.user!.id,
     );
   }
 
@@ -142,5 +198,21 @@ export class ZohoController {
       id,
       body.milestoneId ?? null,
     );
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('books/alerts/payment-delay')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: PaymentDelayAlertResultDto })
+  async runPaymentDelayAlerts(): Promise<PaymentDelayAlertResultDto> {
+    return this.paymentDelayAlerts.processPaymentDelayAlerts();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('books/alerts/discrepancy')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: DiscrepancyAlertResultDto })
+  async runDiscrepancyAlerts(): Promise<DiscrepancyAlertResultDto> {
+    return this.discrepancyAlerts.processDiscrepancyAlerts();
   }
 }

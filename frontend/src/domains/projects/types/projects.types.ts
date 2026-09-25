@@ -192,6 +192,7 @@ export interface ProjectMilestone {
   title: string;
   targetDate: string;
   weight?: number | null;
+  amount?: number | null;
   status: string;
   createdAt: string;
   phase?: ProjectPhase | null;

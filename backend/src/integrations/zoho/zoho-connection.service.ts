@@ -3,17 +3,22 @@ import {
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
+  BadRequestException,
   HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { AllConfigType } from '../../config/config.type';
 import { PrismaService } from '../../database/prisma.service';
 import { ZohoHttpClient } from './client/zoho-http.client';
 import { OpportunitySyncService } from './sync/opportunity-sync.service';
 import {
   ZOHO_BOOKS_INTEGRATION,
+  ZOHO_INTEGRATION,
 } from './zoho.constants';
 import { InvoiceSyncService } from './sync/invoice-sync.service';
+import { DiscrepancyAlertService } from './discrepancy-alert.service';
+import { ZohoFailedSyncRetryService } from './zoho-failed-sync-retry.service';
 
 @Injectable()
 export class ZohoConnectionService {
@@ -23,6 +28,8 @@ export class ZohoConnectionService {
     private readonly opportunitySync: OpportunitySyncService,
     private readonly invoiceSync: InvoiceSyncService,
     private readonly prisma: PrismaService,
+    private readonly discrepancyAlerts: DiscrepancyAlertService,
+    private readonly failedSyncRetry: ZohoFailedSyncRetryService,
   ) {}
 
   isConfigured(): boolean {
@@ -133,6 +140,82 @@ export class ZohoConnectionService {
     }));
   }
 
+  async listFailedSyncRecords(query: {
+    integration: string;
+    page?: number;
+    limit?: number;
+    status?: 'pending' | 'dead_letter' | 'resolved' | 'all';
+  }) {
+    const integration = query.integration?.trim();
+    if (
+      integration !== ZOHO_INTEGRATION &&
+      integration !== ZOHO_BOOKS_INTEGRATION
+    ) {
+      throw new BadRequestException({
+        status: HttpStatus.BAD_REQUEST,
+        errors: { integration: 'mustBeZohoCrmOrBooks' },
+      });
+    }
+
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const status = query.status ?? 'pending';
+
+    const where: Prisma.FailedSyncRecordWhereInput = { integration };
+    if (status === 'pending') {
+      where.isResolved = false;
+      where.deadLetteredAt = null;
+    } else if (status === 'dead_letter') {
+      where.isResolved = false;
+      where.deadLetteredAt = { not: null };
+    } else if (status === 'resolved') {
+      where.isResolved = true;
+    }
+
+    const [rows, total, unresolvedCount] = await Promise.all([
+      this.prisma.failedSyncRecord.findMany({
+        where,
+        orderBy: { lastAttempted: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.failedSyncRecord.count({ where }),
+      this.prisma.failedSyncRecord.count({
+        where: { integration, isResolved: false },
+      }),
+    ]);
+
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        integration: row.integration,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        direction: row.direction,
+        errorMsg: row.errorMsg,
+        retryCount: row.retryCount,
+        failureClass: row.failureClass,
+        deadLetteredAt: row.deadLetteredAt?.toISOString() ?? null,
+        isDeadLetter: Boolean(row.deadLetteredAt),
+        isResolved: row.isResolved,
+        lastAttempted: row.lastAttempted.toISOString(),
+        createdAt: row.createdAt.toISOString(),
+      })),
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      unresolvedCount,
+    };
+  }
+
+  retryFailedSync(
+    options: { failedSyncRecordId?: string },
+    actorId?: string,
+  ) {
+    return this.failedSyncRetry.retryFailedSync(options, actorId);
+  }
+
   isBooksConfigured(): boolean {
     return this.zohoHttp.isBooksConfigured();
   }
@@ -204,13 +287,19 @@ export class ZohoConnectionService {
     };
   }
 
-  syncInvoices() {
+  async syncInvoices() {
     if (!this.isBooksConfigured()) {
       throw new ServiceUnavailableException(
         'Zoho Books is not configured. Set ZOHO_* OAuth with Books scopes and ZOHO_BOOKS_ORGANIZATION_ID.',
       );
     }
-    return this.invoiceSync.syncInvoices();
+    const result = await this.invoiceSync.syncInvoices();
+    try {
+      await this.discrepancyAlerts.processDiscrepancyAlerts();
+    } catch {
+      // Sync succeeded; discrepancy scan failures should not fail the sync response.
+    }
+    return result;
   }
 
   async listInvoices(limit = 50) {
@@ -255,7 +344,9 @@ export class ZohoConnectionService {
       where: { id: invoiceId },
       data: {
         projectId,
-        ...(projectId ? {} : { matchedMilestoneId: null }),
+        ...(projectId
+          ? {}
+          : { matchedMilestoneId: null, discrepancyNote: null }),
       },
       include: {
         project: { select: { id: true, name: true } },
@@ -308,12 +399,29 @@ export class ZohoConnectionService {
 
     const row = await this.prisma.invoice.update({
       where: { id: invoiceId },
-      data: { matchedMilestoneId: milestoneId },
+      data: {
+        matchedMilestoneId: milestoneId,
+        ...(milestoneId ? {} : { discrepancyNote: null }),
+      },
       include: {
         project: { select: { id: true, name: true } },
         milestone: { select: { id: true, title: true } },
       },
     });
+
+    if (milestoneId) {
+      await this.discrepancyAlerts.evaluateInvoice(invoiceId);
+      const refreshed = await this.prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          project: { select: { id: true, name: true } },
+          milestone: { select: { id: true, title: true } },
+        },
+      });
+      if (refreshed) {
+        return this.toInvoiceDto(refreshed);
+      }
+    }
 
     return this.toInvoiceDto(row);
   }
@@ -326,6 +434,7 @@ export class ZohoConnectionService {
     referenceNumber: string | null;
     projectId: string | null;
     matchedMilestoneId?: string | null;
+    discrepancyNote?: string | null;
     amount: { toString(): string };
     balance: { toString(): string } | null;
     paymentMade: { toString(): string } | null;
@@ -349,6 +458,7 @@ export class ZohoConnectionService {
       matchedMilestoneId:
         row.matchedMilestoneId ?? row.milestone?.id ?? null,
       milestoneTitle: row.milestone?.title ?? null,
+      discrepancyNote: row.discrepancyNote ?? null,
       amount: row.amount.toString(),
       balance: row.balance?.toString() ?? null,
       paymentMade: row.paymentMade?.toString() ?? null,

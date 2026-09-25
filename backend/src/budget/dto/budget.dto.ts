@@ -251,6 +251,70 @@ export class ResourceCostBreakdownDto {
   rows: ResourceCostRowDto[];
 }
 
+export class ProjectInvoiceDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  zohoInvoiceId: string;
+
+  @ApiProperty()
+  invoiceNumber: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  customerName: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectName: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  matchedMilestoneId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  milestoneTitle: string | null;
+
+  @ApiProperty()
+  amount: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  balance: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  paymentMade: string | null;
+
+  @ApiProperty()
+  currency: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  invoiceDate: string | null;
+
+  @ApiProperty()
+  dueDate: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  collectionDate: string | null;
+
+  @ApiProperty({
+    description: 'Raw Zoho Books status (lowercased)',
+  })
+  status: string;
+
+  @ApiProperty({
+    description: 'Normalized payment state for UI',
+    enum: ['paid', 'unpaid', 'overdue', 'partial', 'other'],
+  })
+  paymentStatus: 'paid' | 'unpaid' | 'overdue' | 'partial' | 'other';
+
+  @ApiPropertyOptional({ nullable: true })
+  discrepancyNote: string | null;
+
+  @ApiProperty()
+  syncedAt: string;
+}
+
 export class PortfolioBudgetRowDto {
   @ApiProperty()
   projectId: string;

@@ -82,6 +82,10 @@ import {
   sumMilestoneWeights,
 } from "../../utils/milestone-weight";
 import {
+  getMilestoneAmountTotalError,
+  sumMilestoneAmounts,
+} from "../../utils/milestone-amount";
+import {
   flattenFieldErrorMessages,
   getApiErrorMessage,
 } from "@/core/errors/api-error";
@@ -155,12 +159,14 @@ function toMilestoneApiPayload(draft: {
   title: string;
   targetDate: string;
   weight?: number | null;
+  amount?: number | null;
   status: string;
 }) {
   return {
     title: draft.title,
     targetDate: toMilestoneApiDate(draft.targetDate),
     weight: draft.weight ?? undefined,
+    amount: draft.amount ?? undefined,
     status: draft.status,
   };
 }
@@ -404,7 +410,7 @@ export function CreateProjectSheet({
     setMilestoneError(null);
     let currentMilestoneDrafts = milestoneDrafts;
     const unsaved = milestoneSectionRef.current?.getUnsavedMilestone();
-    if (unsaved && (unsaved.title || unsaved.targetDate || unsaved.weight)) {
+    if (unsaved && (unsaved.title || unsaved.targetDate || unsaved.weight || unsaved.amount)) {
       if (!unsaved.title) {
         setMilestoneError("Milestone title is required.");
         document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -446,11 +452,32 @@ export function CreateProjectSheet({
         return;
       }
 
+      if (unsaved.amount) {
+        const aVal = Number(unsaved.amount);
+        if (Number.isNaN(aVal) || aVal < 0) {
+          setMilestoneError("Milestone amount must be zero or greater.");
+          document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+      }
+      const unsavedAmount = unsaved.amount ? Number(unsaved.amount) : null;
+      const unsavedAmountError = getMilestoneAmountTotalError(
+        milestoneDrafts.map((d) => d.amount),
+        unsavedAmount,
+        values.value,
+      );
+      if (unsavedAmountError) {
+        setMilestoneError(unsavedAmountError);
+        document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+
       const newDraft = {
         clientId: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         title: unsaved.title.trim().replace(/\s+/g, " "),
         targetDate: unsaved.targetDate,
         weight: unsavedWeight,
+        amount: unsavedAmount,
         status: "Pending",
       };
 
@@ -477,6 +504,25 @@ export function CreateProjectSheet({
       setMilestoneError(
         getMilestoneWeightTotalError([], milestoneWeightTotal) ??
           "Total milestone weight cannot exceed 100%.",
+      );
+      document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
+    const milestoneAmountError = getMilestoneAmountTotalError(
+      currentMilestoneDrafts.map((d) => d.amount),
+      null,
+      values.value,
+    );
+    if (
+      milestoneAmountError ||
+      (values.value != null &&
+        sumMilestoneAmounts(currentMilestoneDrafts.map((d) => d.amount)) >
+          Number(values.value) + 1e-9)
+    ) {
+      setMilestoneError(
+        milestoneAmountError ??
+          "Total milestone amounts cannot exceed the project value.",
       );
       document.getElementById("project-milestones-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
@@ -756,6 +802,7 @@ export function CreateProjectSheet({
   );
   const watchedPriority = watch("priority");
   const watchedCurrency = watch("currency");
+  const watchedValue = watch("value");
 
   const activeDept = departments.find((d) => d.id === watchedDeptId);
   const activeCustomer = customers.find((c) => c.id === watchedCustomerId);
@@ -1423,6 +1470,12 @@ export function CreateProjectSheet({
               }}
               projectStartDate={watchedStartDate}
               projectEndDate={watchedEndDate}
+              projectCurrency={watchedCurrency}
+              projectValue={
+                watchedValue != null && watchedValue !== ""
+                  ? Number(watchedValue)
+                  : null
+              }
               error={milestoneError || undefined}
               readOnly={milestonesReadOnly}
             />

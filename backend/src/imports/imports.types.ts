@@ -125,6 +125,7 @@ export type ExcelMilestoneImportRow = {
   title: string;
   targetDate?: string;
   weight?: number;
+  amount?: number | null;
   status?: string;
   phaseName?: string;
   resolvedPhaseId?: string | null;

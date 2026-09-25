@@ -7,6 +7,10 @@ export const milestoneSchema = z.object({
     (val) => (val === "" || val === null || val === undefined ? null : Number(val)),
     z.number().int().min(0).max(100).nullable().optional()
   ),
+  amount: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? null : Number(val)),
+    z.number().min(0).nullable().optional()
+  ),
   status: z.string().min(1, "Status is required"),
   phaseId: z.string().min(1, "Phase association is required"),
 });

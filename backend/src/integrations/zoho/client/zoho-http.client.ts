@@ -172,6 +172,18 @@ export class ZohoHttpClient {
     }
   }
 
+  /** Fetch a single CRM Deal by id. */
+  async crmGetDealById<T>(
+    dealId: string,
+    fields?: string,
+  ): Promise<T | null> {
+    const result = await this.crmGet<ZohoListResponse<T>>(
+      `/crm/v2/Deals/${encodeURIComponent(dealId)}`,
+      fields ? { fields } : undefined,
+    );
+    return result.data?.[0] ?? null;
+  }
+
   /** Paginate CRM module records (Deals, etc.). */
   async crmGetAllPages<T>(
     modulePath: string,
@@ -249,6 +261,16 @@ export class ZohoHttpClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /** Fetch a single Books invoice by id. */
+  async booksGetInvoiceById<T>(invoiceId: string): Promise<T | null> {
+    const result = await this.booksGet<{
+      code?: number;
+      message?: string;
+      invoice?: T;
+    }>(`/books/v3/invoices/${encodeURIComponent(invoiceId)}`);
+    return result.invoice ?? null;
   }
 
   /** Paginate Books invoices (and similar list resources). */

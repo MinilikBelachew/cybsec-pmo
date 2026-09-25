@@ -22,6 +22,15 @@ export class CreateMilestoneDto {
   @IsOptional()
   weight?: number;
 
+  @ApiPropertyOptional({
+    example: 25000,
+    description: 'Optional billing amount in the project currency',
+  })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  amount?: number;
+
   @ApiPropertyOptional({ example: 'Pending', default: 'Pending' })
   @IsString()
   @IsOptional()

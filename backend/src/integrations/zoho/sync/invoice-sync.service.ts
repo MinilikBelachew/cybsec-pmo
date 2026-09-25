@@ -7,6 +7,10 @@ import {
   ZOHO_ENTITY_TYPE,
   ZOHO_SYNC_DIRECTION,
 } from '../zoho.constants';
+import {
+  resolveZohoFailedSyncRecord,
+  upsertZohoFailedSyncRecord,
+} from '../utils/failed-sync-record.util';
 
 export type ZohoBooksInvoiceRecord = {
   invoice_id: string | number;
@@ -30,6 +34,11 @@ export type ZohoInvoiceSyncResult = {
   failed: number;
 };
 
+export type ZohoInvoiceByIdResult = {
+  success: boolean;
+  message: string;
+};
+
 @Injectable()
 export class InvoiceSyncService {
   private readonly logger = new Logger(InvoiceSyncService.name);
@@ -46,97 +55,14 @@ export class InvoiceSyncService {
     let upserted = 0;
     let unmatched = 0;
     let failed = 0;
-    const now = new Date();
 
     for (const inv of invoices) {
-      const zohoInvoiceId = String(inv.invoice_id ?? '').trim();
-      if (!zohoInvoiceId) {
-        failed += 1;
-        continue;
-      }
-
-      try {
-        const amount = this.parseAmount(inv.total) ?? this.parseAmount(inv.balance) ?? 0;
-        const balance = this.parseAmount(inv.balance);
-        const paymentMade = this.parseAmount(inv.payment_made);
-        const dueDate =
-          this.parseDate(inv.due_date) ?? this.parseDate(inv.date) ?? now;
-        const invoiceDate = this.parseDate(inv.date);
-        const collectionDate = this.parseDate(inv.last_payment_date);
-        const status = this.normalizeStatus(inv.status);
-        const invoiceNumber = (inv.invoice_number?.trim() || zohoInvoiceId).slice(
-          0,
-          100,
-        );
-        const currency = (inv.currency_code?.trim() || 'USD').slice(0, 10);
-        const customerName = inv.customer_name?.trim()?.slice(0, 255) || null;
-        const referenceNumber =
-          inv.reference_number?.trim()?.slice(0, 255) || null;
-
-        const existing = await this.prisma.invoice.findUnique({
-          where: { zohoInvoiceId },
-          select: { projectId: true },
-        });
-
-        let projectId: string | null = existing?.projectId ?? null;
-        if (!projectId) {
-          projectId = await this.resolveProjectIdByUniqueCustomer(customerName);
-        }
-
-        await this.prisma.invoice.upsert({
-          where: { zohoInvoiceId },
-          create: {
-            zohoInvoiceId,
-            projectId,
-            invoiceNumber,
-            customerName,
-            referenceNumber,
-            amount: new Prisma.Decimal(amount),
-            balance:
-              balance === null ? null : new Prisma.Decimal(balance),
-            paymentMade:
-              paymentMade === null ? null : new Prisma.Decimal(paymentMade),
-            currency,
-            invoiceDate,
-            dueDate,
-            collectionDate,
-            status,
-            syncedAt: now,
-          },
-          update: {
-            ...(existing?.projectId
-              ? {}
-              : { projectId }),
-            invoiceNumber,
-            customerName,
-            referenceNumber,
-            amount: new Prisma.Decimal(amount),
-            balance:
-              balance === null ? null : new Prisma.Decimal(balance),
-            paymentMade:
-              paymentMade === null ? null : new Prisma.Decimal(paymentMade),
-            currency,
-            invoiceDate,
-            dueDate,
-            collectionDate,
-            status,
-            syncedAt: now,
-          },
-        });
-
+      const result = await this.upsertInvoice(inv);
+      if (result.ok) {
         upserted += 1;
-        if (!projectId) {
-          unmatched += 1;
-        }
-        await this.resolveFailedSync(zohoInvoiceId);
-      } catch (err) {
+        if (result.unmatched) unmatched += 1;
+      } else {
         failed += 1;
-        const message =
-          err instanceof Error ? err.message : 'Unknown invoice upsert error';
-        this.logger.warn(
-          `Failed to upsert Zoho Books invoice ${zohoInvoiceId}: ${message}`,
-        );
-        await this.recordFailedSync(zohoInvoiceId, message, inv);
       }
     }
 
@@ -146,6 +72,137 @@ export class InvoiceSyncService {
       unmatched,
       failed,
     };
+  }
+
+  async syncInvoiceByZohoId(
+    zohoInvoiceId: string,
+    resolvedBy?: string | null,
+  ): Promise<ZohoInvoiceByIdResult> {
+    const id = zohoInvoiceId.trim();
+    if (!id) {
+      return { success: false, message: 'Missing Zoho invoice id' };
+    }
+
+    try {
+      const inv =
+        await this.zohoHttp.booksGetInvoiceById<ZohoBooksInvoiceRecord>(id);
+      if (!inv) {
+        await this.recordFailedSync(id, 'Invoice not found in Zoho Books', {
+          zohoInvoiceId: id,
+        });
+        return { success: false, message: 'Invoice not found in Zoho Books' };
+      }
+
+      const result = await this.upsertInvoice(inv, resolvedBy);
+      if (!result.ok) {
+        return {
+          success: false,
+          message: result.errorMsg ?? 'Invoice sync failed',
+        };
+      }
+      return { success: true, message: 'Invoice synced from Zoho Books' };
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown invoice sync error';
+      this.logger.warn(`Failed to sync Zoho Books invoice ${id}: ${message}`);
+      await this.recordFailedSync(id, message, { zohoInvoiceId: id });
+      return { success: false, message };
+    }
+  }
+
+  private async upsertInvoice(
+    inv: ZohoBooksInvoiceRecord,
+    resolvedBy?: string | null,
+  ): Promise<{ ok: boolean; unmatched?: boolean; errorMsg?: string }> {
+    const zohoInvoiceId = String(inv.invoice_id ?? '').trim();
+    if (!zohoInvoiceId) {
+      return { ok: false, errorMsg: 'Missing invoice_id' };
+    }
+
+    const now = new Date();
+    try {
+      const amount =
+        this.parseAmount(inv.total) ?? this.parseAmount(inv.balance) ?? 0;
+      const balance = this.parseAmount(inv.balance);
+      const paymentMade = this.parseAmount(inv.payment_made);
+      const dueDate =
+        this.parseDate(inv.due_date) ?? this.parseDate(inv.date) ?? now;
+      const invoiceDate = this.parseDate(inv.date);
+      const collectionDate = this.parseDate(inv.last_payment_date);
+      const status = this.normalizeStatus(inv.status);
+      const invoiceNumber = (inv.invoice_number?.trim() || zohoInvoiceId).slice(
+        0,
+        100,
+      );
+      const currency = (inv.currency_code?.trim() || 'USD').slice(0, 10);
+      const customerName = inv.customer_name?.trim()?.slice(0, 255) || null;
+      const referenceNumber =
+        inv.reference_number?.trim()?.slice(0, 255) || null;
+
+      const existing = await this.prisma.invoice.findUnique({
+        where: { zohoInvoiceId },
+        select: { projectId: true },
+      });
+
+      let projectId: string | null = existing?.projectId ?? null;
+      if (!projectId) {
+        projectId = await this.resolveProjectIdByUniqueCustomer(customerName);
+      }
+
+      await this.prisma.invoice.upsert({
+        where: { zohoInvoiceId },
+        create: {
+          zohoInvoiceId,
+          projectId,
+          invoiceNumber,
+          customerName,
+          referenceNumber,
+          amount: new Prisma.Decimal(amount),
+          balance: balance === null ? null : new Prisma.Decimal(balance),
+          paymentMade:
+            paymentMade === null ? null : new Prisma.Decimal(paymentMade),
+          currency,
+          invoiceDate,
+          dueDate,
+          collectionDate,
+          status,
+          syncedAt: now,
+        },
+        update: {
+          ...(existing?.projectId ? {} : { projectId }),
+          invoiceNumber,
+          customerName,
+          referenceNumber,
+          amount: new Prisma.Decimal(amount),
+          balance: balance === null ? null : new Prisma.Decimal(balance),
+          paymentMade:
+            paymentMade === null ? null : new Prisma.Decimal(paymentMade),
+          currency,
+          invoiceDate,
+          dueDate,
+          collectionDate,
+          status,
+          syncedAt: now,
+        },
+      });
+
+      await resolveZohoFailedSyncRecord(this.prisma, {
+        integration: ZOHO_BOOKS_INTEGRATION,
+        entityType: ZOHO_ENTITY_TYPE.INVOICE,
+        entityId: zohoInvoiceId,
+        resolvedBy,
+      });
+
+      return { ok: true, unmatched: !projectId };
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown invoice upsert error';
+      this.logger.warn(
+        `Failed to upsert Zoho Books invoice ${zohoInvoiceId}: ${message}`,
+      );
+      await this.recordFailedSync(zohoInvoiceId, message, inv);
+      return { ok: false, errorMsg: message };
+    }
   }
 
   /** Customer display name → Active customer with exactly one project. */
@@ -205,55 +262,13 @@ export class InvoiceSyncService {
     errorMsg: string,
     payload: unknown,
   ): Promise<void> {
-    const now = new Date();
-    const existing = await this.prisma.failedSyncRecord.findFirst({
-      where: {
-        integration: ZOHO_BOOKS_INTEGRATION,
-        entityType: ZOHO_ENTITY_TYPE.INVOICE,
-        entityId,
-        isResolved: false,
-      },
-    });
-
-    if (existing) {
-      await this.prisma.failedSyncRecord.update({
-        where: { id: existing.id },
-        data: {
-          errorMsg,
-          retryCount: existing.retryCount + 1,
-          lastAttempted: now,
-          payload: payload as Prisma.InputJsonValue,
-        },
-      });
-      return;
-    }
-
-    await this.prisma.failedSyncRecord.create({
-      data: {
-        integration: ZOHO_BOOKS_INTEGRATION,
-        entityType: ZOHO_ENTITY_TYPE.INVOICE,
-        entityId,
-        direction: ZOHO_SYNC_DIRECTION.INBOUND,
-        errorMsg,
-        retryCount: 1,
-        lastAttempted: now,
-        payload: payload as Prisma.InputJsonValue,
-      },
-    });
-  }
-
-  private async resolveFailedSync(entityId: string): Promise<void> {
-    await this.prisma.failedSyncRecord.updateMany({
-      where: {
-        integration: ZOHO_BOOKS_INTEGRATION,
-        entityType: ZOHO_ENTITY_TYPE.INVOICE,
-        entityId,
-        isResolved: false,
-      },
-      data: {
-        isResolved: true,
-        resolvedAt: new Date(),
-      },
+    await upsertZohoFailedSyncRecord(this.prisma, {
+      integration: ZOHO_BOOKS_INTEGRATION,
+      entityType: ZOHO_ENTITY_TYPE.INVOICE,
+      entityId,
+      direction: ZOHO_SYNC_DIRECTION.INBOUND,
+      errorMsg,
+      payload: payload as Prisma.InputJsonValue,
     });
   }
 }

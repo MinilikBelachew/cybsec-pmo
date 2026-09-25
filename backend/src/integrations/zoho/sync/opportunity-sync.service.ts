@@ -11,6 +11,10 @@ import {
   mapZohoDealToOpportunity,
   ZohoDealRecord,
 } from '../zoho.mapper';
+import {
+  resolveZohoFailedSyncRecord,
+  upsertZohoFailedSyncRecord,
+} from '../utils/failed-sync-record.util';
 import { ClosedWonProvisioningService } from './closed-won-provisioning.service';
 
 export type ZohoOpportunitySyncResult = {
@@ -20,6 +24,11 @@ export type ZohoOpportunitySyncResult = {
   provisioned: number;
   provisionSkipped: number;
   provisionFailed: number;
+};
+
+export type ZohoOpportunityByIdResult = {
+  success: boolean;
+  message: string;
 };
 
 const DEAL_FIELDS =
@@ -46,57 +55,16 @@ export class OpportunitySyncService {
     let provisioned = 0;
     let provisionSkipped = 0;
     let provisionFailed = 0;
-    const now = new Date();
 
     for (const deal of deals) {
-      const mapped = mapZohoDealToOpportunity(deal);
-      try {
-        const row = await this.prisma.crmOpportunity.upsert({
-          where: { zohoOpportunityId: mapped.zohoOpportunityId },
-          create: {
-            zohoOpportunityId: mapped.zohoOpportunityId,
-            name: mapped.name,
-            accountName: mapped.accountName,
-            expectedRevenue:
-              mapped.expectedRevenue === null
-                ? null
-                : new Prisma.Decimal(mapped.expectedRevenue),
-            stage: mapped.stage,
-            syncedAt: now,
-          },
-          update: {
-            name: mapped.name,
-            accountName: mapped.accountName,
-            expectedRevenue:
-              mapped.expectedRevenue === null
-                ? null
-                : new Prisma.Decimal(mapped.expectedRevenue),
-            stage: mapped.stage,
-            syncedAt: now,
-          },
-        });
+      const result = await this.upsertDeal(deal);
+      if (result.ok) {
         upserted += 1;
-        await this.resolveFailedSync(mapped.zohoOpportunityId);
-
-        const provision = await this.closedWonProvisioning.provisionIfNeeded(
-          row.id,
-          mapped,
-        );
-        if (provision.status === 'created') {
-          provisioned += 1;
-        } else if (provision.status === 'failed') {
-          provisionFailed += 1;
-        } else {
-          provisionSkipped += 1;
-        }
-      } catch (err) {
+        if (result.provisionStatus === 'created') provisioned += 1;
+        else if (result.provisionStatus === 'failed') provisionFailed += 1;
+        else provisionSkipped += 1;
+      } else {
         failed += 1;
-        const message =
-          err instanceof Error ? err.message : 'Unknown opportunity upsert error';
-        this.logger.warn(
-          `Failed to upsert Zoho deal ${mapped.zohoOpportunityId}: ${message}`,
-        );
-        await this.recordFailedSync(mapped.zohoOpportunityId, message, deal);
       }
     }
 
@@ -110,60 +78,123 @@ export class OpportunitySyncService {
     };
   }
 
+  async syncOpportunityByZohoId(
+    zohoOpportunityId: string,
+    resolvedBy?: string | null,
+  ): Promise<ZohoOpportunityByIdResult> {
+    const id = zohoOpportunityId.trim();
+    if (!id) {
+      return { success: false, message: 'Missing Zoho opportunity id' };
+    }
+
+    try {
+      const deal = await this.zohoHttp.crmGetDealById<ZohoDealRecord>(
+        id,
+        DEAL_FIELDS,
+      );
+      if (!deal) {
+        await this.recordFailedSync(id, 'Deal not found in Zoho CRM', {
+          zohoOpportunityId: id,
+        });
+        return { success: false, message: 'Deal not found in Zoho CRM' };
+      }
+
+      const result = await this.upsertDeal(deal, resolvedBy);
+      if (!result.ok) {
+        return {
+          success: false,
+          message: result.errorMsg ?? 'Opportunity sync failed',
+        };
+      }
+      return { success: true, message: 'Opportunity synced from Zoho CRM' };
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown opportunity sync error';
+      this.logger.warn(`Failed to sync Zoho deal ${id}: ${message}`);
+      await this.recordFailedSync(id, message, { zohoOpportunityId: id });
+      return { success: false, message };
+    }
+  }
+
+  private async upsertDeal(
+    deal: ZohoDealRecord,
+    resolvedBy?: string | null,
+  ): Promise<{
+    ok: boolean;
+    errorMsg?: string;
+    provisionStatus?: 'created' | 'failed' | 'skipped';
+  }> {
+    const mapped = mapZohoDealToOpportunity(deal);
+    const now = new Date();
+    try {
+      const row = await this.prisma.crmOpportunity.upsert({
+        where: { zohoOpportunityId: mapped.zohoOpportunityId },
+        create: {
+          zohoOpportunityId: mapped.zohoOpportunityId,
+          name: mapped.name,
+          accountName: mapped.accountName,
+          expectedRevenue:
+            mapped.expectedRevenue === null
+              ? null
+              : new Prisma.Decimal(mapped.expectedRevenue),
+          stage: mapped.stage,
+          syncedAt: now,
+        },
+        update: {
+          name: mapped.name,
+          accountName: mapped.accountName,
+          expectedRevenue:
+            mapped.expectedRevenue === null
+              ? null
+              : new Prisma.Decimal(mapped.expectedRevenue),
+          stage: mapped.stage,
+          syncedAt: now,
+        },
+      });
+
+      await resolveZohoFailedSyncRecord(this.prisma, {
+        integration: ZOHO_INTEGRATION,
+        entityType: ZOHO_ENTITY_TYPE.OPPORTUNITY,
+        entityId: mapped.zohoOpportunityId,
+        resolvedBy,
+      });
+
+      const provision = await this.closedWonProvisioning.provisionIfNeeded(
+        row.id,
+        mapped,
+      );
+      return {
+        ok: true,
+        provisionStatus:
+          provision.status === 'created'
+            ? 'created'
+            : provision.status === 'failed'
+              ? 'failed'
+              : 'skipped',
+      };
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown opportunity upsert error';
+      this.logger.warn(
+        `Failed to upsert Zoho deal ${mapped.zohoOpportunityId}: ${message}`,
+      );
+      await this.recordFailedSync(mapped.zohoOpportunityId, message, deal);
+      return { ok: false, errorMsg: message };
+    }
+  }
+
   private async recordFailedSync(
     entityId: string,
     errorMsg: string,
     payload: unknown,
   ): Promise<void> {
-    const now = new Date();
-    const existing = await this.prisma.failedSyncRecord.findFirst({
-      where: {
-        integration: ZOHO_INTEGRATION,
-        entityType: ZOHO_ENTITY_TYPE.OPPORTUNITY,
-        entityId,
-        isResolved: false,
-      },
-    });
-
-    if (existing) {
-      await this.prisma.failedSyncRecord.update({
-        where: { id: existing.id },
-        data: {
-          errorMsg,
-          retryCount: existing.retryCount + 1,
-          lastAttempted: now,
-          payload: payload as Prisma.InputJsonValue,
-        },
-      });
-      return;
-    }
-
-    await this.prisma.failedSyncRecord.create({
-      data: {
-        integration: ZOHO_INTEGRATION,
-        entityType: ZOHO_ENTITY_TYPE.OPPORTUNITY,
-        entityId,
-        direction: ZOHO_SYNC_DIRECTION.INBOUND,
-        errorMsg,
-        retryCount: 1,
-        lastAttempted: now,
-        payload: payload as Prisma.InputJsonValue,
-      },
-    });
-  }
-
-  private async resolveFailedSync(entityId: string): Promise<void> {
-    await this.prisma.failedSyncRecord.updateMany({
-      where: {
-        integration: ZOHO_INTEGRATION,
-        entityType: ZOHO_ENTITY_TYPE.OPPORTUNITY,
-        entityId,
-        isResolved: false,
-      },
-      data: {
-        isResolved: true,
-        resolvedAt: new Date(),
-      },
+    await upsertZohoFailedSyncRecord(this.prisma, {
+      integration: ZOHO_INTEGRATION,
+      entityType: ZOHO_ENTITY_TYPE.OPPORTUNITY,
+      entityId,
+      direction: ZOHO_SYNC_DIRECTION.INBOUND,
+      errorMsg,
+      payload: payload as Prisma.InputJsonValue,
     });
   }
 }

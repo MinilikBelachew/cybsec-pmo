@@ -157,6 +157,7 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
             ? activeMilestone.targetDate.slice(0, 10)
             : "",
           weight: activeMilestone.weight ?? null,
+          amount: activeMilestone.amount ?? null,
           status: activeMilestone.status,
           phaseId: activeMilestone.phaseId || "unassigned",
         };
@@ -165,6 +166,7 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
         title: "",
         targetDate: "",
         weight: null,
+        amount: null,
         status: "Pending",
         phaseId:
           activeForm.type === "add-milestone" && activeForm.phaseId
@@ -226,6 +228,7 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
         title: values.title,
         targetDate: new Date(values.targetDate).toISOString(),
         weight: values.weight ? Number(values.weight) : null,
+        amount: values.amount != null ? Number(values.amount) : null,
         status: values.status,
         phaseId: values.phaseId === "unassigned" ? null : values.phaseId,
       };
@@ -346,6 +349,12 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
                 </span>
               )}
               {m.weight != null && <span>Weight: {String(m.weight)}</span>}
+              {m.amount != null && (
+                <span>
+                  Amount: {String(m.amount)}
+                  {project?.currency ? ` ${project.currency}` : ""}
+                </span>
+              )}
             </div>
             {attachmentCount > 0 && (
               <div className="space-y-1">
@@ -548,9 +557,16 @@ export const MilestoneView = forwardRef<MilestoneViewRef, MilestoneViewProps>(
                 isSaving={isCreatingMilestone || isUpdatingMilestone}
                 projectStartDate={project?.startDate}
                 projectEndDate={project?.endDate}
+                projectCurrency={project?.currency}
+                projectValue={
+                  project?.value != null ? Number(project.value) : null
+                }
                 otherMilestoneWeights={milestones
                   .filter((m) => m.id !== activeForm.id)
                   .map((m) => m.weight)}
+                otherMilestoneAmounts={milestones
+                  .filter((m) => m.id !== activeForm.id)
+                  .map((m) => m.amount)}
                 documents={milestoneDocuments}
                 isDocumentsLoading={isMilestoneDocsLoading}
                 onDeleteDocument={handleDeleteEntityDocument}

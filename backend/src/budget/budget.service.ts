@@ -37,6 +37,7 @@ import {
   ProjectBudgetDto,
   ResourceCostBreakdownDto,
   ResourceCostRowDto,
+  ProjectInvoiceDto,
 } from './dto/budget.dto';
 import {
   CreateBudgetAdjustmentDto,
@@ -1086,6 +1087,145 @@ export class BudgetService {
       );
     }
     return adjustment;
+  }
+
+  async listPortfolioInvoices(
+    caslUser: CaslUserContext,
+    options?: { limit?: number; linkedOnly?: boolean },
+  ): Promise<ProjectInvoiceDto[]> {
+    const scopeWhere = this.recordScopeWhere.projectWhere(caslUser, 'read');
+    const scopedProjects = await this.prisma.project.findMany({
+      where: scopeWhere,
+      select: { id: true },
+    });
+    const projectIds = scopedProjects.map((p) => p.id);
+    const take = Math.min(Math.max(options?.limit ?? 200, 1), 500);
+    const linkedOnly = options?.linkedOnly ?? true;
+
+    const rows = await this.prisma.invoice.findMany({
+      where: linkedOnly
+        ? { projectId: { in: projectIds } }
+        : {
+            OR: [
+              { projectId: { in: projectIds } },
+              { projectId: null },
+            ],
+          },
+      orderBy: [{ dueDate: 'asc' }, { invoiceNumber: 'asc' }],
+      take,
+      include: {
+        project: { select: { id: true, name: true } },
+        milestone: { select: { id: true, title: true } },
+      },
+    });
+
+    return rows.map((row) => this.toInvoiceDto(row));
+  }
+
+  async listProjectInvoices(
+    projectId: string,
+    caslUser: CaslUserContext,
+  ): Promise<ProjectInvoiceDto[]> {
+    await this.assertProjectAccess(projectId, caslUser);
+    const rows = await this.prisma.invoice.findMany({
+      where: { projectId },
+      orderBy: [{ dueDate: 'asc' }, { invoiceNumber: 'asc' }],
+      include: {
+        project: { select: { id: true, name: true } },
+        milestone: { select: { id: true, title: true } },
+      },
+    });
+    return rows.map((row) => this.toInvoiceDto(row));
+  }
+
+  private toInvoiceDto(row: {
+    id: string;
+    zohoInvoiceId: string;
+    invoiceNumber: string;
+    customerName: string | null;
+    projectId: string | null;
+    matchedMilestoneId: string | null;
+    discrepancyNote: string | null;
+    amount: { toString(): string };
+    balance: { toString(): string } | null;
+    paymentMade: { toString(): string } | null;
+    currency: string;
+    invoiceDate: Date | null;
+    dueDate: Date;
+    collectionDate: Date | null;
+    status: string;
+    syncedAt: Date;
+    project: { id: string; name: string } | null;
+    milestone: { id: string; title: string } | null;
+  }): ProjectInvoiceDto {
+    return {
+      id: row.id,
+      zohoInvoiceId: row.zohoInvoiceId,
+      invoiceNumber: row.invoiceNumber,
+      customerName: row.customerName,
+      projectId: row.projectId,
+      projectName: row.project?.name ?? null,
+      matchedMilestoneId: row.matchedMilestoneId,
+      milestoneTitle: row.milestone?.title ?? null,
+      amount: row.amount.toString(),
+      balance: row.balance?.toString() ?? null,
+      paymentMade: row.paymentMade?.toString() ?? null,
+      currency: row.currency,
+      invoiceDate: row.invoiceDate
+        ? row.invoiceDate.toISOString().slice(0, 10)
+        : null,
+      dueDate: row.dueDate.toISOString().slice(0, 10),
+      collectionDate: row.collectionDate
+        ? row.collectionDate.toISOString().slice(0, 10)
+        : null,
+      status: row.status,
+      paymentStatus: this.derivePaymentStatus(
+        row.status,
+        row.dueDate,
+        row.balance,
+        row.collectionDate,
+      ),
+      discrepancyNote: row.discrepancyNote,
+      syncedAt: row.syncedAt.toISOString(),
+    };
+  }
+
+  private derivePaymentStatus(
+    status: string,
+    dueDate: Date,
+    balance: { toString(): string } | null,
+    collectionDate: Date | null,
+  ): ProjectInvoiceDto['paymentStatus'] {
+    const s = (status ?? '').trim().toLowerCase();
+    if (s === 'partially_paid' || s === 'partial') return 'partial';
+    if (s === 'paid' || s === 'collected') return 'paid';
+    if (s === 'void' || s === 'cancelled' || s === 'draft') return 'other';
+
+    const bal =
+      balance != null && balance.toString() !== ''
+        ? Number(balance.toString())
+        : null;
+    if (collectionDate != null && (bal == null || bal <= 0)) {
+      return 'paid';
+    }
+
+    const today = new Date();
+    const startToday = Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate(),
+    );
+    const dueUtc = Date.UTC(
+      dueDate.getUTCFullYear(),
+      dueDate.getUTCMonth(),
+      dueDate.getUTCDate(),
+    );
+    const pastDue = dueUtc < startToday;
+    const hasBalance = bal == null || bal > 0;
+
+    if (s === 'overdue' || (pastDue && hasBalance)) return 'overdue';
+    if (hasBalance) return 'unpaid';
+    return 'paid';
   }
 
   private async assertProjectAccess(

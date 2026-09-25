@@ -24,6 +24,8 @@ export {
   useGetZohoInvoicesQuery,
   useLinkZohoInvoiceMutation,
   useLinkZohoInvoiceMilestoneMutation,
+  useGetZohoFailedSyncsQuery,
+  useRetryZohoSyncMutation,
 } from "./api/integrations.api";
 export type {
   KekaSyncLogEntry,
@@ -33,4 +35,6 @@ export type {
   ZohoOpportunityRow,
   ZohoBooksStatusResponse,
   ZohoInvoiceRow,
+  ZohoFailedSyncRecord,
+  RetryZohoSyncResult,
 } from "./types/integrations.types";

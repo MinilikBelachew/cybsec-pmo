@@ -1,6 +1,7 @@
 import { registerAs } from '@nestjs/config';
 import { IsOptional, IsString } from 'class-validator';
 import validateConfig from '../../../utils/validate-config';
+import { parseZohoSyncEnabled } from '../zoho.constants';
 import { ZohoConfig } from './zoho-config.type';
 
 class EnvironmentVariablesValidator {
@@ -86,5 +87,13 @@ export default registerAs<ZohoConfig>('zoho', () => {
     apiBaseUrl,
     booksOrganizationId:
       process.env.ZOHO_BOOKS_ORGANIZATION_ID?.trim() || '',
+    crmSyncEnabled: parseZohoSyncEnabled(
+      process.env.ZOHO_CRM_SYNC_ENABLED,
+      true,
+    ),
+    booksSyncEnabled: parseZohoSyncEnabled(
+      process.env.ZOHO_BOOKS_SYNC_ENABLED,
+      true,
+    ),
   };
 });

@@ -145,6 +145,18 @@ export class ProjectsService {
       this.assertMilestoneWeightsDoNotExceedTotal(
         dto.milestones.map((m) => m.weight),
       );
+      if (dto.value != null) {
+        const amountSum = dto.milestones.reduce(
+          (sum, m) => sum + this.toMilestoneAmountNumber(m.amount),
+          0,
+        );
+        if (amountSum > Number(dto.value) + 1e-9) {
+          throw new UnprocessableEntityException({
+            status: HttpStatus.UNPROCESSABLE_ENTITY,
+            errors: { amount: 'milestoneAmountExceedsProjectValue' },
+          });
+        }
+      }
     }
 
     const currency = toPrismaCurrency(dto.currency ?? 'USD');
@@ -213,6 +225,7 @@ export class ProjectsService {
               title: milestone.title,
               targetDate: milestone.targetDate,
               weight: milestone.weight ?? null,
+              amount: milestone.amount ?? null,
               status: milestone.status ?? 'Pending',
               phaseId: milestone.phaseId ?? null,
             },
@@ -736,6 +749,10 @@ export class ProjectsService {
         })
       : null;
 
+    if (dto.value !== undefined) {
+      await this.assertProjectValueCoversMilestoneAmounts(id, dto.value);
+    }
+
     const project = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.project.update({
         where: { id },
@@ -1180,6 +1197,76 @@ export class ProjectsService {
     ]);
   }
 
+  private toMilestoneAmountNumber(amount: unknown): number {
+    if (amount == null || amount === '') return 0;
+    const n = Number(amount);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  private async assertProjectMilestoneAmountLimit(
+    projectId: string,
+    nextAmount: number | null | undefined,
+    excludeMilestoneId?: string,
+  ): Promise<void> {
+    if (nextAmount == null) {
+      return;
+    }
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { value: true },
+    });
+    if (!project || project.value == null) {
+      return;
+    }
+
+    const projectValue = Number(project.value);
+    if (!Number.isFinite(projectValue)) {
+      return;
+    }
+
+    const siblings = await this.prisma.projectMilestone.findMany({
+      where: {
+        projectId,
+        ...(excludeMilestoneId ? { id: { not: excludeMilestoneId } } : {}),
+      },
+      select: { amount: true },
+    });
+
+    const total =
+      siblings.reduce(
+        (sum, m) => sum + this.toMilestoneAmountNumber(m.amount),
+        0,
+      ) + this.toMilestoneAmountNumber(nextAmount);
+
+    if (total > projectValue + 1e-9) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { amount: 'milestoneAmountExceedsProjectValue' },
+      });
+    }
+  }
+
+  private async assertProjectValueCoversMilestoneAmounts(
+    projectId: string,
+    nextValue: number | null | undefined,
+  ): Promise<void> {
+    if (nextValue == null) {
+      return;
+    }
+    const agg = await this.prisma.projectMilestone.aggregate({
+      where: { projectId, amount: { not: null } },
+      _sum: { amount: true },
+    });
+    const sum = this.toMilestoneAmountNumber(agg._sum.amount);
+    if (sum > Number(nextValue) + 1e-9) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { value: 'projectValueBelowMilestoneAmounts' },
+      });
+    }
+  }
+
   async findPhases(projectId: string, caslUser: CaslUserContext) {
     await this.assertProjectInScope(projectId, caslUser, 'read');
 
@@ -1193,6 +1280,7 @@ export class ProjectsService {
       milestones: phase.milestones.map((m) => ({
         ...m,
         weight: m.weight != null ? Number(m.weight) : null,
+        amount: m.amount != null ? Number(m.amount) : null,
       })),
     }));
   }
@@ -1311,6 +1399,7 @@ export class ProjectsService {
       return {
         ...rest,
         weight: m.weight != null ? Number(m.weight) : null,
+        amount: m.amount != null ? Number(m.amount) : null,
         invoiceCount: invoices.length,
         invoiceNumbers: invoices.map((inv) => inv.invoiceNumber),
       };
@@ -1362,6 +1451,7 @@ export class ProjectsService {
     }
 
     await this.assertProjectMilestoneWeightLimit(projectId, dto.weight);
+    await this.assertProjectMilestoneAmountLimit(projectId, dto.amount);
 
     const milestone = await this.prisma.projectMilestone.create({
       data: {
@@ -1369,6 +1459,7 @@ export class ProjectsService {
         title: dto.title,
         targetDate: dto.targetDate,
         weight: dto.weight,
+        amount: dto.amount ?? null,
         status: dto.status ?? 'Pending',
         phaseId: dto.phaseId ?? null,
       },
@@ -1376,6 +1467,7 @@ export class ProjectsService {
     return {
       ...milestone,
       weight: milestone.weight != null ? Number(milestone.weight) : null,
+      amount: milestone.amount != null ? Number(milestone.amount) : null,
     };
   }
 
@@ -1414,16 +1506,29 @@ export class ProjectsService {
       );
     }
 
+    if (dto.amount !== undefined) {
+      await this.assertProjectMilestoneAmountLimit(
+        existing.projectId,
+        dto.amount,
+        milestoneId,
+      );
+    }
+
     const milestone = await this.prisma.projectMilestone.update({
       where: { id: milestoneId },
       data: {
         ...(dto.title !== undefined && { title: dto.title }),
         ...(dto.targetDate !== undefined && { targetDate: dto.targetDate }),
         ...(dto.weight !== undefined && { weight: dto.weight }),
+        ...(dto.amount !== undefined && { amount: dto.amount }),
         ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.phaseId !== undefined && { phaseId: dto.phaseId }),
       },
     });
+
+    if (dto.amount !== undefined) {
+      await this.refreshInvoiceDiscrepancyNotesForMilestone(milestone);
+    }
 
     if (milestone.taskId) {
       const complete = this.isMilestoneComplete(milestone.status);
@@ -1443,6 +1548,7 @@ export class ProjectsService {
     return {
       ...milestone,
       weight: milestone.weight != null ? Number(milestone.weight) : null,
+      amount: milestone.amount != null ? Number(milestone.amount) : null,
     };
   }
 
@@ -1460,7 +1566,7 @@ export class ProjectsService {
     await this.prisma.$transaction([
       this.prisma.invoice.updateMany({
         where: { matchedMilestoneId: milestoneId },
-        data: { matchedMilestoneId: null },
+        data: { matchedMilestoneId: null, discrepancyNote: null },
       }),
       this.prisma.projectMilestone.delete({ where: { id: milestoneId } }),
     ]);
@@ -1469,6 +1575,37 @@ export class ProjectsService {
   private isMilestoneComplete(status: string | null | undefined): boolean {
     const normalized = (status ?? '').trim().toLowerCase();
     return normalized === 'completed' || normalized === 'done';
+  }
+
+  /** Keep invoice.discrepancyNote in sync when milestone amount changes (alerts via daily job). */
+  private async refreshInvoiceDiscrepancyNotesForMilestone(milestone: {
+    id: string;
+    title: string;
+    amount: Prisma.Decimal | null;
+  }) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: { matchedMilestoneId: milestone.id },
+      select: { id: true, amount: true, currency: true, discrepancyNote: true },
+    });
+    if (invoices.length === 0) return;
+
+    const tolerance = new Prisma.Decimal('0.01');
+    for (const inv of invoices) {
+      let note: string | null = null;
+      if (milestone.amount != null) {
+        const diff = inv.amount.minus(milestone.amount).abs();
+        if (diff.gt(tolerance)) {
+          const signed = inv.amount.minus(milestone.amount);
+          note = `Invoice ${inv.amount.toString()} ${inv.currency} vs milestone "${milestone.title}" expected ${milestone.amount.toString()} ${inv.currency} (diff ${signed.toString()})`;
+        }
+      }
+      if (note !== (inv.discrepancyNote ?? null)) {
+        await this.prisma.invoice.update({
+          where: { id: inv.id },
+          data: { discrepancyNote: note },
+        });
+      }
+    }
   }
 
   private usdFields(conversion: UsdConversion | null) {

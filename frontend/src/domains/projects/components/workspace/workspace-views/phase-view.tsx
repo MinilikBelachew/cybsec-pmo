@@ -241,6 +241,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
         title: activeMilestone.title,
         targetDate: activeMilestone.targetDate ? activeMilestone.targetDate.slice(0, 10) : "",
         weight: activeMilestone.weight ?? null,
+        amount: activeMilestone.amount ?? null,
         status: activeMilestone.status,
         phaseId: activeMilestone.phaseId || "unassigned",
       };
@@ -249,6 +250,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
       title: "",
       targetDate: "",
       weight: null,
+      amount: null,
       status: "Pending",
       phaseId: activeForm.type === "add-milestone" && activeForm.phaseId ? activeForm.phaseId : "unassigned",
     };
@@ -360,6 +362,7 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
       title: values.title,
       targetDate: new Date(values.targetDate).toISOString(),
       weight: values.weight ? Number(values.weight) : null,
+      amount: values.amount != null ? Number(values.amount) : null,
       status: values.status,
       phaseId: values.phaseId === "unassigned" ? null : values.phaseId,
     };
@@ -623,9 +626,16 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
                 isSaving={isCreatingMilestone || isUpdatingMilestone}
                 projectStartDate={project?.startDate}
                 projectEndDate={project?.endDate}
+                projectCurrency={project?.currency}
+                projectValue={
+                  project?.value != null ? Number(project.value) : null
+                }
                 otherMilestoneWeights={milestones
                   .filter((m) => m.id !== activeForm.id)
                   .map((m) => m.weight)}
+                otherMilestoneAmounts={milestones
+                  .filter((m) => m.id !== activeForm.id)
+                  .map((m) => m.amount)}
                 documents={milestoneDocuments}
                 isDocumentsLoading={isMilestoneDocsLoading}
                 onDeleteDocument={handleDeleteEntityDocument}
@@ -1082,9 +1092,16 @@ export const PhaseView = forwardRef<PhaseViewRef, PhaseViewProps>(
               isSaving={isCreatingMilestone || isUpdatingMilestone}
               projectStartDate={project?.startDate}
               projectEndDate={project?.endDate}
+              projectCurrency={project?.currency}
+              projectValue={
+                project?.value != null ? Number(project.value) : null
+              }
               otherMilestoneWeights={milestones
                 .filter((m) => m.id !== activeForm.id)
                 .map((m) => m.weight)}
+              otherMilestoneAmounts={milestones
+                .filter((m) => m.id !== activeForm.id)
+                .map((m) => m.amount)}
               documents={milestoneDocuments}
               isDocumentsLoading={isMilestoneDocsLoading}
               onDeleteDocument={handleDeleteEntityDocument}

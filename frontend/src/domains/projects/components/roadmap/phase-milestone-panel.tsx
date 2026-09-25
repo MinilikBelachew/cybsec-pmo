@@ -282,6 +282,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
         title: activeMilestone.title,
         targetDate: activeMilestone.targetDate ? activeMilestone.targetDate.slice(0, 10) : "",
         weight: activeMilestone.weight ?? null,
+        amount: activeMilestone.amount ?? null,
         status: activeMilestone.status,
         phaseId: activeMilestone.phaseId || "unassigned",
       };
@@ -290,6 +291,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
       title: "",
       targetDate: "",
       weight: null,
+      amount: null,
       status: "Pending",
       phaseId: activeForm.type === "add-milestone" && activeForm.id ? activeForm.id : "unassigned",
     };
@@ -389,6 +391,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
       title: values.title,
       targetDate: new Date(values.targetDate).toISOString(),
       weight: values.weight ?? null,
+      amount: values.amount != null ? Number(values.amount) : null,
       status: values.status,
       phaseId: values.phaseId === "unassigned" ? null : values.phaseId,
     };
@@ -536,9 +539,16 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                   isSaving={isMilestoneSaving}
                   projectStartDate={project?.startDate}
                   projectEndDate={project?.endDate}
+                  projectCurrency={project?.currency}
+                  projectValue={
+                    project?.value != null ? Number(project.value) : null
+                  }
                   otherMilestoneWeights={milestones
                     .filter((m) => m.id !== activeForm.id)
                     .map((m) => m.weight)}
+                  otherMilestoneAmounts={milestones
+                    .filter((m) => m.id !== activeForm.id)
+                    .map((m) => m.amount)}
                   documents={milestoneDocuments}
                   isDocumentsLoading={isMilestoneDocsLoading}
                   onDeleteDocument={handleDeleteEntityDocument}
