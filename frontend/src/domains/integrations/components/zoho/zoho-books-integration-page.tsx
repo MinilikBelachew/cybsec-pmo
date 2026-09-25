@@ -26,6 +26,7 @@ import {
   useTestZohoBooksConnectionMutation,
 } from "../../api/integrations.api";
 import type { ZohoInvoiceRow } from "../../types/integrations.types";
+import { ZohoFailedSyncsPanel } from "./zoho-failed-syncs-panel";
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === "object" && "data" in err) {
@@ -203,8 +204,17 @@ export function ZohoBooksIntegrationPage() {
         </Link>
         <PageHeader
           title="Zoho Books"
-          description="Sync imports all invoices. Auto-links when a customer has exactly one project; otherwise Finance/PMO links project then milestone."
+          description="Invoices sync Zoho Books → PMO on a nightly schedule (or Sync now). Link project/milestone in PMO when auto-match cannot; retry failed rows below if the API fails."
         />
+      </div>
+
+      <div className="rounded-xl border border-border bg-card px-5 py-3 text-xs text-muted-foreground">
+        <p className="font-semibold text-foreground">Sync direction</p>
+        <p className="mt-1">
+          Invoice amount / due / paid / collection: <strong>Zoho Books → PMO</strong>.
+          Project and milestone links are owned in PMO (manual fallback when sync or
+          auto-match fails).
+        </p>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -316,6 +326,8 @@ export function ZohoBooksIntegrationPage() {
         ) : null}
       </div>
 
+      <ZohoFailedSyncsPanel integration="zoho_books" />
+
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="border-b border-border px-5 py-3 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -366,6 +378,7 @@ export function ZohoBooksIntegrationPage() {
                   <th className="px-4 py-2 font-semibold">Project</th>
                   <th className="px-4 py-2 font-semibold">Milestone</th>
                   <th className="px-4 py-2 font-semibold">Amount</th>
+                  <th className="px-4 py-2 font-semibold">Discrepancy</th>
                   <th className="px-4 py-2 font-semibold">Balance</th>
                   <th className="px-4 py-2 font-semibold">Paid</th>
                   <th className="px-4 py-2 font-semibold">Invoice date</th>
@@ -400,6 +413,18 @@ export function ZohoBooksIntegrationPage() {
                     </td>
                     <td className="px-4 py-2 whitespace-nowrap">
                       {row.amount} {row.currency}
+                    </td>
+                    <td className="px-4 py-2 max-w-[220px]">
+                      {row.discrepancyNote ? (
+                        <span
+                          className="inline-block rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive"
+                          title={row.discrepancyNote}
+                        >
+                          {row.discrepancyNote}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
                       {row.balance != null ? `${row.balance} ${row.currency}` : "—"}

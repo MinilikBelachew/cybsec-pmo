@@ -108,6 +108,7 @@ import {
   ProjectRisksPanel,
 } from "@/domains/risk-compliance";
 import { ProjectBudgetPanel } from "@/domains/budget/components/project-budget-panel";
+import { ProjectInvoicesPanel } from "@/domains/budget/components/project-invoices-panel";
 import { formatProjectBudget } from "../../utils/format-budget";
 import {
   getMethodologyDefaultGroupByPhase,
@@ -1624,8 +1625,15 @@ export function ProjectWorkspace() {
         )}
 
         {activeView === "financials" && canViewFinancials && (
-          <div className="h-full min-h-0">
-            <ProjectBudgetPanel projectId={id} canEdit={canEditFinancials} />
+          <div className="h-full min-h-0 overflow-auto p-4">
+            <div className="grid h-full min-h-0 gap-4 lg:grid-cols-2">
+              <div className="min-h-0 overflow-auto rounded-xl border border-border bg-card">
+                <ProjectBudgetPanel projectId={id} canEdit={canEditFinancials} />
+              </div>
+              <div className="min-h-0">
+                <ProjectInvoicesPanel projectId={id} />
+              </div>
+            </div>
           </div>
         )}
 

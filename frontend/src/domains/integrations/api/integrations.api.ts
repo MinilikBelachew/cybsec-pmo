@@ -19,6 +19,9 @@ import type {
   ZohoBooksStatusResponse,
   ZohoInvoiceSyncResult,
   ZohoInvoiceRow,
+  ZohoFailedSyncRecordsQuery,
+  ZohoFailedSyncRecordsResponse,
+  RetryZohoSyncResult,
 } from "../types/integrations.types";
 
 
@@ -316,7 +319,14 @@ export const integrationsApi = api.injectEndpoints({
         method: "PATCH",
         body: { projectId },
       }),
-      invalidatesTags: ["ZohoInvoices", "ZohoBooksStatus"],
+      invalidatesTags: (result) => [
+        "ZohoInvoices",
+        "ZohoBooksStatus",
+        { type: "Budget", id: "INVOICES" },
+        ...(result?.projectId
+          ? [{ type: "Budget" as const, id: `${result.projectId}-invoices` }]
+          : []),
+      ],
     }),
 
     linkZohoInvoiceMilestone: builder.mutation<
@@ -328,7 +338,48 @@ export const integrationsApi = api.injectEndpoints({
         method: "PATCH",
         body: { milestoneId },
       }),
-      invalidatesTags: ["ZohoInvoices", { type: "Milestones", id: "LIST" }],
+      invalidatesTags: (result) => [
+        "ZohoInvoices",
+        { type: "Milestones", id: "LIST" },
+        { type: "Budget", id: "INVOICES" },
+        ...(result?.projectId
+          ? [{ type: "Budget" as const, id: `${result.projectId}-invoices` }]
+          : []),
+      ],
+    }),
+
+    getZohoFailedSyncs: builder.query<
+      ZohoFailedSyncRecordsResponse,
+      ZohoFailedSyncRecordsQuery
+    >({
+      query: (params) => ({
+        url: "/integrations/zoho/failed-syncs",
+        params: {
+          integration: params.integration,
+          page: params.page ?? 1,
+          limit: params.limit ?? 20,
+          status: params.status ?? "pending",
+        },
+      }),
+      providesTags: ["FailedSyncRecords"],
+    }),
+
+    retryZohoSync: builder.mutation<
+      RetryZohoSyncResult,
+      { failedSyncRecordId: string }
+    >({
+      query: (body) => ({
+        url: "/integrations/zoho/retry",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: [
+        "FailedSyncRecords",
+        "ZohoStatus",
+        "ZohoOpportunities",
+        "ZohoBooksStatus",
+        "ZohoInvoices",
+      ],
     }),
   }),
   overrideExisting: process.env.NODE_ENV === "development",
@@ -364,4 +415,6 @@ export const {
   useGetZohoInvoicesQuery,
   useLinkZohoInvoiceMutation,
   useLinkZohoInvoiceMilestoneMutation,
+  useGetZohoFailedSyncsQuery,
+  useRetryZohoSyncMutation,
 } = integrationsApi;

@@ -9,18 +9,25 @@ import { toDateString } from "@/shared/utils/date";
 import { ProjectDatePicker, startOfToday } from "../shared/project-date-picker";
 import type { ProjectMilestone } from "../../types/projects.types";
 import { getMilestoneWeightTotalError } from "../../utils/milestone-weight";
+import { getMilestoneAmountTotalError } from "../../utils/milestone-amount";
 
 export type DraftProjectMilestone = {
   clientId: string;
   title: string;
   targetDate: string;
   weight?: number | null;
+  amount?: number | null;
   status: string;
   persistedId?: string;
 };
 
 export interface ProjectFormMilestonesSectionHandle {
-  getUnsavedMilestone: () => { title: string; targetDate: string; weight: string };
+  getUnsavedMilestone: () => {
+    title: string;
+    targetDate: string;
+    weight: string;
+    amount: string;
+  };
   clearUnsavedMilestone: () => void;
 }
 
@@ -29,6 +36,8 @@ type ProjectFormMilestonesSectionProps = {
   onDraftsChange: (drafts: DraftProjectMilestone[]) => void;
   projectStartDate?: Date;
   projectEndDate?: Date;
+  projectCurrency?: string | null;
+  projectValue?: number | null;
   error?: string;
   readOnly?: boolean;
 };
@@ -76,6 +85,7 @@ export function existingMilestonesToDrafts(
     title: milestone.title,
     targetDate: toMilestoneDateOnly(milestone.targetDate),
     weight: milestone.weight ?? null,
+    amount: milestone.amount ?? null,
     status: milestone.status || "Pending",
   }));
 }
@@ -114,6 +124,7 @@ export function toDraftMilestonePayload(drafts: DraftProjectMilestone[]) {
       title: draft.title.trim(),
       targetDate: draft.targetDate,
       weight: draft.weight ?? undefined,
+      amount: draft.amount ?? undefined,
       status: draft.status || "Pending",
     }));
 }
@@ -126,6 +137,7 @@ export function toPersistedMilestonePayload(drafts: DraftProjectMilestone[]) {
       title: draft.title.trim(),
       targetDate: draft.targetDate,
       weight: draft.weight ?? undefined,
+      amount: draft.amount ?? undefined,
       status: draft.status || "Pending",
     }));
 }
@@ -139,6 +151,8 @@ export const ProjectFormMilestonesSection = forwardRef<
     onDraftsChange,
     projectStartDate,
     projectEndDate,
+    projectCurrency,
+    projectValue,
     error,
     readOnly = false,
   },
@@ -147,6 +161,7 @@ export const ProjectFormMilestonesSection = forwardRef<
   const [title, setTitle] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [weight, setWeight] = useState("");
+  const [amount, setAmount] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [showFields, setShowFields] = useState(false);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
@@ -155,6 +170,7 @@ export const ProjectFormMilestonesSection = forwardRef<
     setTitle("");
     setTargetDate("");
     setWeight("");
+    setAmount("");
     setLocalError(null);
     setShowFields(false);
     setEditingClientId(null);
@@ -163,9 +179,9 @@ export const ProjectFormMilestonesSection = forwardRef<
   useImperativeHandle(ref, () => ({
     getUnsavedMilestone: () => {
       if (!showFields || editingClientId) {
-        return { title: "", targetDate: "", weight: "" };
+        return { title: "", targetDate: "", weight: "", amount: "" };
       }
-      return { title, targetDate, weight };
+      return { title, targetDate, weight, amount };
     },
     clearUnsavedMilestone: () => {
       resetForm();
@@ -177,6 +193,7 @@ export const ProjectFormMilestonesSection = forwardRef<
     setTitle(draft.title);
     setTargetDate(draft.targetDate);
     setWeight(draft.weight != null ? String(draft.weight) : "");
+    setAmount(draft.amount != null ? String(draft.amount) : "");
     setLocalError(null);
     setShowFields(true);
   }
@@ -224,6 +241,27 @@ export const ProjectFormMilestonesSection = forwardRef<
       return;
     }
 
+    if (amount) {
+      const aVal = Number(amount);
+      if (Number.isNaN(aVal) || aVal < 0) {
+        setLocalError("Milestone amount must be zero or greater.");
+        return;
+      }
+    }
+    const nextAmount = amount ? Number(amount) : null;
+    const siblingAmounts = drafts
+      .filter((draft) => draft.clientId !== editingClientId)
+      .map((draft) => draft.amount);
+    const amountError = getMilestoneAmountTotalError(
+      siblingAmounts,
+      nextAmount,
+      projectValue,
+    );
+    if (amountError) {
+      setLocalError(amountError);
+      return;
+    }
+
     setLocalError(null);
 
     if (editingClientId) {
@@ -235,6 +273,7 @@ export const ProjectFormMilestonesSection = forwardRef<
                 title: normalizedTitle,
                 targetDate,
                 weight: nextWeight,
+                amount: nextAmount,
               }
             : draft,
         ),
@@ -247,6 +286,7 @@ export const ProjectFormMilestonesSection = forwardRef<
           title: normalizedTitle,
           targetDate,
           weight: nextWeight,
+          amount: nextAmount,
           status: "Pending",
         },
       ]);
@@ -298,6 +338,9 @@ export const ProjectFormMilestonesSection = forwardRef<
                 <p className="truncate text-[11px] text-muted-foreground">
                   {formatMilestoneDateLabel(draft.targetDate)}
                   {draft.weight != null ? ` · ${draft.weight}%` : ""}
+                  {draft.amount != null
+                    ? ` · ${draft.amount}${projectCurrency ? ` ${projectCurrency}` : ""}`
+                    : ""}
                   {draft.persistedId ? "" : " · new"}
                 </p>
               </div>
@@ -333,8 +376,8 @@ export const ProjectFormMilestonesSection = forwardRef<
 
       {!readOnly &&
         (showFields ? (
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-            <div className="min-w-0 flex-1 space-y-1">
+          <div className="space-y-3">
+            <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">Title</Label>
               <Input
                 value={title}
@@ -344,50 +387,69 @@ export const ProjectFormMilestonesSection = forwardRef<
                   setLocalError(null);
                 }}
                 placeholder="e.g. Phase 1 sign-off"
-                className="min-w-0 h-8"
+                className="h-8 w-full"
               />
             </div>
-            <div className="w-full shrink-0 space-y-1 lg:w-[180px]">
-              <Label className="text-[11px] text-muted-foreground">Target date</Label>
-              <ProjectDatePicker
-                value={targetDate || undefined}
-                onChange={(date) => {
-                  setTargetDate(date ? toDateString(date) : "");
-                  setLocalError(null);
-                }}
-                minDate={projectStartDate ?? startOfToday()}
-                maxDate={projectEndDate}
-                placeholder="Pick a date"
-                className="h-8"
-              />
-            </div>
-            <div className="w-full shrink-0 space-y-1 lg:w-[100px]">
-              <Label className="text-[11px] text-muted-foreground">Weight %</Label>
-              <Input
-                type="number"
-                value={weight}
-                onChange={(event) => {
-                  setWeight(event.target.value);
-                  setLocalError(null);
-                }}
-                placeholder="Optional"
-                className="h-8"
-              />
-            </div>
-            <div className="flex shrink-0 items-end gap-2">
-              <Button type="button" variant="outline" onClick={resetForm} className="w-full lg:w-auto">
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleSaveDraft} className="w-full lg:w-auto">
-                {editingClientId ? (
-                  "Update"
-                ) : (
-                  <>
-                    <Plus className="mr-1 size-3.5" />
-                    Add
-                  </>
-                )}
-              </Button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="w-full space-y-1 sm:w-[180px] sm:shrink-0">
+                <Label className="text-[11px] text-muted-foreground">Target date</Label>
+                <ProjectDatePicker
+                  value={targetDate || undefined}
+                  onChange={(date) => {
+                    setTargetDate(date ? toDateString(date) : "");
+                    setLocalError(null);
+                  }}
+                  minDate={projectStartDate ?? startOfToday()}
+                  maxDate={projectEndDate}
+                  placeholder="Pick a date"
+                  className="h-8"
+                />
+              </div>
+              <div className="w-full space-y-1 sm:w-[100px] sm:shrink-0">
+                <Label className="text-[11px] text-muted-foreground">Weight %</Label>
+                <Input
+                  type="number"
+                  value={weight}
+                  onChange={(event) => {
+                    setWeight(event.target.value);
+                    setLocalError(null);
+                  }}
+                  placeholder="Optional"
+                  className="h-8"
+                />
+              </div>
+              <div className="w-full space-y-1 sm:w-[130px] sm:shrink-0">
+                <Label className="text-[11px] text-muted-foreground">
+                  Amount{projectCurrency ? ` (${projectCurrency})` : ""}
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  onChange={(event) => {
+                    setAmount(event.target.value);
+                    setLocalError(null);
+                  }}
+                  placeholder="Optional"
+                  className="h-8"
+                />
+              </div>
+              <div className="flex w-full shrink-0 items-end gap-2 sm:w-auto">
+                <Button type="button" variant="outline" onClick={resetForm} className="flex-1 sm:flex-none">
+                  Cancel
+                </Button>
+                <Button type="button" onClick={handleSaveDraft} className="flex-1 sm:flex-none">
+                  {editingClientId ? (
+                    "Update"
+                  ) : (
+                    <>
+                      <Plus className="mr-1 size-3.5" />
+                      Add
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         ) : (

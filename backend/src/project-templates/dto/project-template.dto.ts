@@ -63,6 +63,9 @@ export class TemplateMilestoneDto {
   weight: number | null;
 
   @ApiPropertyOptional({ nullable: true })
+  amount: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
   templatePhaseId: string | null;
 }
 

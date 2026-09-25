@@ -35,7 +35,8 @@ const INTEGRATIONS: IntegrationCard[] = [
   {
     id: "zoho-crm",
     name: "Zoho CRM",
-    description: "Revenue and opportunity sync for financial reporting.",
+    description:
+      "Deal sync (CRM → PMO), scheduled pull, and failed-record retry.",
     icon: Building2,
     href: "/dashboard/integrations/zoho",
     live: true,
@@ -44,7 +45,8 @@ const INTEGRATIONS: IntegrationCard[] = [
   {
     id: "zoho-books",
     name: "Zoho Books",
-    description: "Invoice sync, collection status, and project matching.",
+    description:
+      "Invoice sync (Books → PMO), collection status, matching, and retry.",
     icon: BookOpen,
     href: "/dashboard/integrations/zoho-books",
     live: true,

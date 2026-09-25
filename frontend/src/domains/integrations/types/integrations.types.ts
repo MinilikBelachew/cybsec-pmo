@@ -254,6 +254,7 @@ export type ZohoInvoiceRow = {
   projectName: string | null;
   matchedMilestoneId: string | null;
   milestoneTitle: string | null;
+  discrepancyNote: string | null;
   amount: string;
   balance: string | null;
   paymentMade: string | null;
@@ -263,4 +264,47 @@ export type ZohoInvoiceRow = {
   collectionDate: string | null;
   status: string;
   syncedAt: string;
+};
+
+export type ZohoFailedSyncStatusFilter =
+  | "pending"
+  | "dead_letter"
+  | "resolved"
+  | "all";
+
+export type ZohoFailedSyncRecord = {
+  id: string;
+  integration: string;
+  entityType: string;
+  entityId: string | null;
+  direction: string;
+  errorMsg: string;
+  retryCount: number;
+  failureClass: string;
+  deadLetteredAt: string | null;
+  isDeadLetter: boolean;
+  isResolved: boolean;
+  lastAttempted: string;
+  createdAt: string;
+};
+
+export type ZohoFailedSyncRecordsResponse = {
+  data: ZohoFailedSyncRecord[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  unresolvedCount: number;
+};
+
+export type ZohoFailedSyncRecordsQuery = {
+  integration: "zoho_crm" | "zoho_books";
+  page?: number;
+  limit?: number;
+  status?: ZohoFailedSyncStatusFilter;
+};
+
+export type RetryZohoSyncResult = {
+  success: boolean;
+  message: string;
 };

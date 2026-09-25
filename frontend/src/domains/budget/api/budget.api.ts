@@ -10,6 +10,7 @@ import type {
   PortfolioBudgetRow,
   ProjectBudget,
   ResourceCostBreakdown,
+  ProjectInvoice,
   UpdateBudgetLineItemPayload,
 } from "../types/budget.types";
 
@@ -18,6 +19,27 @@ export const budgetApi = api.injectEndpoints({
     getPortfolioBudgets: builder.query<PortfolioBudgetRow[], void>({
       query: () => `/budget`,
       providesTags: [{ type: "Budget", id: "PORTFOLIO" }],
+    }),
+
+    getPortfolioInvoices: builder.query<
+      ProjectInvoice[],
+      { limit?: number; linkedOnly?: boolean } | void
+    >({
+      query: (params) => ({
+        url: `/budget/invoices`,
+        params: {
+          limit: params?.limit ?? 200,
+          linkedOnly: params?.linkedOnly ?? true,
+        },
+      }),
+      providesTags: [{ type: "Budget", id: "INVOICES" }],
+    }),
+
+    getProjectInvoices: builder.query<ProjectInvoice[], string>({
+      query: (projectId) => `/projects/${projectId}/invoices`,
+      providesTags: (_r, _e, projectId) => [
+        { type: "Budget", id: `${projectId}-invoices` },
+      ],
     }),
 
     getProjectBudget: builder.query<ProjectBudget, string>({
@@ -207,6 +229,8 @@ export const budgetApi = api.injectEndpoints({
 
 export const {
   useGetPortfolioBudgetsQuery,
+  useGetPortfolioInvoicesQuery,
+  useGetProjectInvoicesQuery,
   useGetProjectBudgetQuery,
   useGetProjectResourceCostsQuery,
   useCreateBudgetBaselineMutation,

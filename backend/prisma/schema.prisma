@@ -542,6 +542,8 @@ model ProjectMilestone {
   title      String        @db.VarChar(255)
   targetDate DateTime      @map("target_date") @db.Date
   weight     Decimal?      @db.Decimal(5, 2)
+  /// Optional billing amount in the project's currency.
+  amount     Decimal?      @db.Decimal(15, 2)
   status     String        @default("Pending") @db.VarChar(30)
   createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz
 
@@ -1877,6 +1879,7 @@ model TemplateMilestone {
   title              String   @db.VarChar(255)
   relativeTargetDays Int      @default(0) @map("relative_target_days")
   weight             Decimal? @db.Decimal(5, 2)
+  amount             Decimal? @db.Decimal(15, 2)
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   template ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)

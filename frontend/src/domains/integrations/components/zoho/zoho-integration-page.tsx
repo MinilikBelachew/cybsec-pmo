@@ -11,6 +11,7 @@ import {
   useSyncZohoOpportunitiesMutation,
   useTestZohoConnectionMutation,
 } from "../../api/integrations.api";
+import { ZohoFailedSyncsPanel } from "./zoho-failed-syncs-panel";
 
 export function ZohoIntegrationPage() {
   const { data: status, isLoading: statusLoading, refetch: refetchStatus } =
@@ -65,8 +66,16 @@ export function ZohoIntegrationPage() {
         </Link>
         <PageHeader
           title="Zoho CRM"
-          description="Env-based OAuth connection. Sync Deals (opportunities) into PMO for M5.3 revenue tracking."
+          description="Deals sync Zoho CRM → PMO on a nightly schedule (or Sync now). Manual fallback: retry failed rows below; project work continues if Zoho is down."
         />
+      </div>
+
+      <div className="rounded-xl border border-border bg-card px-5 py-3 text-xs text-muted-foreground">
+        <p className="font-semibold text-foreground">Sync direction</p>
+        <p className="mt-1">
+          Opportunities / stage / expected revenue: <strong>Zoho CRM → PMO</strong>{" "}
+          (CRM is source of truth). Opportunity write-back is later (M5.6).
+        </p>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -216,6 +225,8 @@ export function ZohoIntegrationPage() {
           </>
         ) : null}
       </div>
+
+      <ZohoFailedSyncsPanel integration="zoho_crm" />
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="border-b border-border px-5 py-3">

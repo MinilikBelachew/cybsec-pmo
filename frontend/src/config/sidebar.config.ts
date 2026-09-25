@@ -27,6 +27,7 @@ import {
   BookOpen,
   Building2,
   Siren,
+  TrendingUp,
   type LucideIcon,
   FileStack,
 } from "lucide-react";
@@ -219,14 +220,13 @@ export const sidebarNav: NavSection[] = [
         href: "/dashboard/budget",
         permission: { action: "read", subject: "Financial" },
       },
-      // Revenue & expenses remain Phase 5 later milestones (M5.3+)
-      // {
-      //   id: "revenue",
-      //   label: "Revenue & CRM Sync",
-      //   icon: TrendingUp,
-      //   href: "/dashboard/revenue",
-      //   permission: { action: "read", subject: "Financial" },
-      // },
+      {
+        id: "revenue",
+        label: "Revenue & Collections",
+        icon: TrendingUp,
+        href: "/dashboard/revenue",
+        permission: { action: "read", subject: "Financial" },
+      },
       // {
       //   id: "expenses",
       //   label: "Expense Claims",

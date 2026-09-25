@@ -23,6 +23,7 @@ import {
   MILESTONE_WEIGHT_TOTAL_MAX,
   sumMilestoneWeights,
 } from "../../utils/milestone-weight";
+import { getMilestoneAmountTotalError } from "../../utils/milestone-amount";
 
 interface MilestoneFormProps {
   initialValues: MilestoneFormValues;
@@ -32,8 +33,12 @@ interface MilestoneFormProps {
   isSaving: boolean;
   projectStartDate?: string;
   projectEndDate?: string;
+  projectCurrency?: string | null;
+  projectValue?: number | null;
   /** Weights of other milestones in the project (exclude the one being edited). */
   otherMilestoneWeights?: Array<number | null | undefined>;
+  /** Amounts of other milestones (exclude the one being edited). */
+  otherMilestoneAmounts?: Array<number | null | undefined>;
   documents?: WorkspaceDocument[];
   isDocumentsLoading?: boolean;
   onDeleteDocument?: (documentId: string) => void;
@@ -56,7 +61,10 @@ export function MilestoneForm({
   isSaving,
   projectStartDate,
   projectEndDate,
+  projectCurrency,
+  projectValue,
   otherMilestoneWeights = [],
+  otherMilestoneAmounts = [],
   documents = [],
   isDocumentsLoading = false,
   onDeleteDocument,
@@ -69,6 +77,9 @@ export function MilestoneForm({
 
   const siblingWeightsKey = otherMilestoneWeights
     .map((w) => (w == null ? "" : String(w)))
+    .join(",");
+  const siblingAmountsKey = otherMilestoneAmounts
+    .map((a) => (a == null ? "" : String(a)))
     .join(",");
 
   const schema = useMemo(() => {
@@ -106,19 +117,39 @@ export function MilestoneForm({
         }
       )
       .superRefine((data, ctx) => {
-        const message = getMilestoneWeightTotalError(
+        const weightMessage = getMilestoneWeightTotalError(
           otherMilestoneWeights,
           data.weight,
         );
-        if (message) {
+        if (weightMessage) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message,
+            message: weightMessage,
             path: ["weight"],
           });
         }
+        const amountMessage = getMilestoneAmountTotalError(
+          otherMilestoneAmounts,
+          data.amount,
+          projectValue,
+        );
+        if (amountMessage) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: amountMessage,
+            path: ["amount"],
+          });
+        }
       });
-  }, [projectStartDate, projectEndDate, siblingWeightsKey, otherMilestoneWeights]);
+  }, [
+    projectStartDate,
+    projectEndDate,
+    siblingWeightsKey,
+    siblingAmountsKey,
+    otherMilestoneWeights,
+    otherMilestoneAmounts,
+    projectValue,
+  ]);
 
   const {
     register,
@@ -226,6 +257,27 @@ export function MilestoneForm({
                 </p>
                 <FieldError message={errors.weight?.message} />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="milestone-amount" className="text-xs font-semibold">
+                  Amount (Optional){projectCurrency ? ` · ${projectCurrency}` : ""}
+                </Label>
+                <Input
+                  id="milestone-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="h-9 dark:bg-slate-900/50"
+                  {...register("amount")}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Billing amount in project currency
+                  {projectValue != null ? ` (project value ${projectValue})` : ""}
+                </p>
+                <FieldError message={errors.amount?.message} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="milestone-status" className="text-xs font-semibold">Status</Label>
                 <Controller

@@ -192,6 +192,24 @@ export class NotificationsService {
     return [...new Set([...base, ...pms])];
   }
 
+  /** Active users whose role code is in the given list (no project PM expansion). */
+  async recipientsByRoleCodes(roleCodes: string[]): Promise<string[]> {
+    const codes = [...new Set(roleCodes.map((c) => c.trim()).filter(Boolean))];
+    if (codes.length === 0) {
+      return [];
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { code: { in: codes } },
+      },
+      select: { id: true },
+      take: 500,
+    });
+    return users.map((u) => u.id);
+  }
+
   private async createForRecipient(
     userId: string,
     email: string,

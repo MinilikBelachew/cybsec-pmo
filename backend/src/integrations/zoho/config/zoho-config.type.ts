@@ -8,4 +8,6 @@ export type ZohoConfig = {
   apiBaseUrl: string;
   /** Zoho Books organization_id (required for /books/v3 calls). */
   booksOrganizationId: string;
+  crmSyncEnabled: boolean;
+  booksSyncEnabled: boolean;
 };

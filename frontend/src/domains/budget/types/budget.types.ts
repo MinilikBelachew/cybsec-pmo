@@ -143,6 +143,35 @@ export type ResourceCostBreakdown = {
   rows: ResourceCostRow[];
 };
 
+export type InvoicePaymentStatus =
+  | "paid"
+  | "unpaid"
+  | "overdue"
+  | "partial"
+  | "other";
+
+export type ProjectInvoice = {
+  id: string;
+  zohoInvoiceId: string;
+  invoiceNumber: string;
+  customerName: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  matchedMilestoneId: string | null;
+  milestoneTitle: string | null;
+  amount: string;
+  balance: string | null;
+  paymentMade: string | null;
+  currency: string;
+  invoiceDate: string | null;
+  dueDate: string;
+  collectionDate: string | null;
+  status: string;
+  paymentStatus: InvoicePaymentStatus;
+  discrepancyNote: string | null;
+  syncedAt: string;
+};
+
 export const BUDGET_LINE_CATEGORIES = [
   "Resource",
   "Travel",

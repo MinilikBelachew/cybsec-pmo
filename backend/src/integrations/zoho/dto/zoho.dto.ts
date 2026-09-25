@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsUUID, ValidateIf } from 'class-validator';
+import { IsOptional, IsUUID, ValidateIf } from 'class-validator';
 
 export class ZohoProvisionErrorDto {
   @ApiProperty()
@@ -142,6 +142,34 @@ export class ZohoInvoiceSyncResultDto {
   failed: number;
 }
 
+export class PaymentDelayAlertResultDto {
+  @ApiProperty()
+  scanned: number;
+
+  @ApiProperty()
+  notified: number;
+
+  @ApiProperty()
+  skipped: number;
+}
+
+export class DiscrepancyAlertResultDto {
+  @ApiProperty()
+  scanned: number;
+
+  @ApiProperty()
+  mismatched: number;
+
+  @ApiProperty()
+  cleared: number;
+
+  @ApiProperty()
+  notified: number;
+
+  @ApiProperty()
+  skipped: number;
+}
+
 export class ZohoInvoiceDto {
   @ApiProperty()
   id: string;
@@ -196,6 +224,9 @@ export class ZohoInvoiceDto {
 
   @ApiPropertyOptional({ nullable: true })
   milestoneTitle: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  discrepancyNote: string | null;
 }
 
 export class LinkZohoInvoiceDto {
@@ -216,4 +247,80 @@ export class LinkZohoInvoiceMilestoneDto {
   @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsUUID()
   milestoneId: string | null;
+}
+
+export class ZohoFailedSyncRecordDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  integration: string;
+
+  @ApiProperty()
+  entityType: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  entityId: string | null;
+
+  @ApiProperty()
+  direction: string;
+
+  @ApiProperty()
+  errorMsg: string;
+
+  @ApiProperty()
+  retryCount: number;
+
+  @ApiProperty()
+  failureClass: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  deadLetteredAt: string | null;
+
+  @ApiProperty()
+  isDeadLetter: boolean;
+
+  @ApiProperty()
+  isResolved: boolean;
+
+  @ApiProperty()
+  lastAttempted: string;
+
+  @ApiProperty()
+  createdAt: string;
+}
+
+export class ZohoFailedSyncRecordListDto {
+  @ApiProperty({ type: [ZohoFailedSyncRecordDto] })
+  data: ZohoFailedSyncRecordDto[];
+
+  @ApiProperty()
+  page: number;
+
+  @ApiProperty()
+  limit: number;
+
+  @ApiProperty()
+  total: number;
+
+  @ApiProperty()
+  totalPages: number;
+
+  @ApiProperty()
+  unresolvedCount: number;
+}
+
+export class RetryZohoSyncDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  failedSyncRecordId?: string;
+}
+
+export class RetryZohoSyncResultDto {
+  @ApiProperty()
+  success: boolean;
+
+  @ApiProperty()
+  message: string;
 }

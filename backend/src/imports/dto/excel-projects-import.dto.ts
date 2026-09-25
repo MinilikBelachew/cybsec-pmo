@@ -196,6 +196,11 @@ export class ExcelMilestoneImportRowDto {
   @IsNumber()
   weight?: number;
 
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsNumber()
+  amount?: number | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

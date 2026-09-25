@@ -149,6 +149,7 @@ export class ProjectTemplatesService {
                 calendarDaysBetween(projectStart, target),
               ),
               weight: milestone.weight,
+              amount: milestone.amount,
             };
           });
         await tx.templateMilestone.createMany({ data: milestoneRows });
@@ -274,6 +275,7 @@ export class ProjectTemplatesService {
                 title: milestone.title,
                 targetDate: target,
                 weight: milestone.weight,
+                amount: milestone.amount,
                 status: 'Pending',
               };
             });
@@ -360,6 +362,7 @@ export class ProjectTemplatesService {
         title: m.title,
         relativeTargetDays: m.relativeTargetDays,
         weight: m.weight == null ? null : Number(m.weight),
+        amount: m.amount == null ? null : Number(m.amount),
         templatePhaseId: m.templatePhaseId,
       }));
       dto.tasks = row.templateTasks.map((t) => ({

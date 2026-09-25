@@ -63,6 +63,7 @@ export type ParsedMilestonePreviewRow = {
   title: string;
   targetDate: string;
   weight: number;
+  amount: number | null;
   status: string;
   phaseName: string;
   importMode: 'create' | 'update';
@@ -469,6 +470,12 @@ export function processRawMilestoneRows(
   const titleIdx = getIdx(['title', 'milestone', 'milestone name']);
   const targetDateIdx = getIdx(['target date', 'due date', 'date']);
   const weightIdx = getIdx(['weight', 'weight (%)', 'percent']);
+  const amountIdx = getIdx([
+    'amount',
+    'billing amount',
+    'milestone amount',
+    'value',
+  ]);
   const statusIdx = getIdx(['status', 'milestone status']);
   const phaseIdx = getIdx(['phase', 'phase name']);
 
@@ -480,6 +487,14 @@ export function processRawMilestoneRows(
     const targetDate = getVal(targetDateIdx);
     const weight =
       parseFloat(getVal(weightIdx, '0').replace(/[^0-9.-]/g, '')) || 0;
+    const amountRaw = getVal(amountIdx);
+    const amountParsed = amountRaw
+      ? parseFloat(amountRaw.replace(/[^0-9.-]/g, ''))
+      : NaN;
+    const amount =
+      amountRaw && Number.isFinite(amountParsed) && amountParsed >= 0
+        ? amountParsed
+        : null;
     const status = normalizeMilestoneStatus(getVal(statusIdx, 'Pending'));
     const phaseName = getVal(phaseIdx);
     const errors: string[] = [];
@@ -491,6 +506,9 @@ export function processRawMilestoneRows(
     } else if (Number.isNaN(Date.parse(targetDate))) {
       errors.push('Target date must be a valid date (YYYY-MM-DD).');
     }
+    if (amountRaw && amount == null) {
+      warnings.push('Amount was ignored (must be a number ≥ 0).');
+    }
 
     const { importMode, resolvedMilestoneId } = resolveMilestoneImportMatch(
       title,
@@ -501,6 +519,7 @@ export function processRawMilestoneRows(
       title,
       targetDate,
       weight,
+      amount,
       status,
       phaseName,
       importMode,

@@ -39,6 +39,7 @@ import {
   PortfolioBudgetRowDto,
   ProjectBudgetDto,
   ResourceCostBreakdownDto,
+  ProjectInvoiceDto,
 } from './dto/budget.dto';
 import {
   CreateBudgetAdjustmentDto,
@@ -64,6 +65,45 @@ export class BudgetController {
     @Request() request: RequestWithAbility,
   ): Promise<PortfolioBudgetRowDto[]> {
     return this.budgetService.listPortfolio(request.caslUser!);
+  }
+
+  @CheckAbility('read', 'Financial')
+  @CheckModulePermission('financials', 'view')
+  @Get('budget/invoices')
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({
+    name: 'linkedOnly',
+    required: false,
+    description: 'When true (default), only invoices linked to accessible projects',
+  })
+  @ApiOkResponse({ type: [ProjectInvoiceDto] })
+  listPortfolioInvoices(
+    @Request() request: RequestWithAbility,
+    @Query('limit') limit?: string,
+    @Query('linkedOnly') linkedOnly?: string,
+  ): Promise<ProjectInvoiceDto[]> {
+    const linked =
+      linkedOnly === undefined
+        ? true
+        : !['0', 'false', 'no'].includes(linkedOnly.trim().toLowerCase());
+    return this.budgetService.listPortfolioInvoices(request.caslUser!, {
+      limit: limit ? Number(limit) : 200,
+      linkedOnly: linked,
+    });
+  }
+
+  @CheckAbility('read', 'Financial')
+  @CheckModulePermission('financials', 'view')
+  @Get('projects/:projectId/invoices')
+  @ApiOkResponse({ type: [ProjectInvoiceDto] })
+  listProjectInvoices(
+    @Param('projectId') projectId: string,
+    @Request() request: RequestWithAbility,
+  ): Promise<ProjectInvoiceDto[]> {
+    return this.budgetService.listProjectInvoices(
+      projectId,
+      request.caslUser!,
+    );
   }
 
   @CheckAbility('read', 'Financial')

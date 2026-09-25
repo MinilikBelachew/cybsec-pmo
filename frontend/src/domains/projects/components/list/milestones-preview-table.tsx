@@ -30,6 +30,7 @@ export function MilestonesPreviewTable({ milestonesList, projName, handleSubRowC
           <th className="p-3 w-56">Title</th>
           <th className="p-3 w-32">Target Date</th>
           <th className="p-3 w-24">Weight</th>
+          <th className="p-3 w-28">Amount</th>
           <th className="p-3 w-32">Status</th>
           <th className="p-3 w-44">Phase</th>
         </tr>
@@ -68,6 +69,9 @@ export function MilestonesPreviewTable({ milestonesList, projName, handleSubRowC
             </td>
             <td className="p-3">{msRow.targetDate}</td>
             <td className="p-3 font-medium">{msRow.weight}%</td>
+            <td className="p-3 font-medium">
+              {msRow.amount != null ? msRow.amount : "—"}
+            </td>
 
             {/* Status */}
             <td className="p-3">

@@ -585,6 +585,7 @@ export class ExcelProjectsPreviewService {
           title: row.title,
           targetDate: row.targetDate || undefined,
           weight: row.weight,
+          amount: row.amount,
           status: row.status,
           phaseName: row.phaseName || undefined,
           importMode: row.importMode,
