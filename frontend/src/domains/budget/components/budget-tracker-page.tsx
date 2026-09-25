@@ -116,10 +116,10 @@ export function BudgetTrackerPage() {
       />
 
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+        {/* <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
           <Wallet className="size-3.5" />
           {data.length} projects
-        </span>
+        </span> */}
         {overrunCount > 0 && (
           <Badge
             variant="secondary"
