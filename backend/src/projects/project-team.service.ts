@@ -703,7 +703,10 @@ export class ProjectTeamService {
   }
 
   async validateNewProjectAllocations(
-    projectDto: Pick<CreateProjectDto, 'departmentId' | 'startDate' | 'endDate'>,
+    projectDto: Pick<
+      CreateProjectDto,
+      'departmentId' | 'startDate' | 'endDate' | 'customerId'
+    >,
     allocations: CreateAllocationDto[],
     actorId: string,
   ): Promise<void> {
@@ -722,6 +725,13 @@ export class ProjectTeamService {
         errors: { departmentId: 'departmentNotFound' },
       });
     }
+
+    const billingRoles = projectDto.customerId
+      ? await this.allocationPushService.listBillingRolesForCustomer(
+          projectDto.customerId,
+        )
+      : [];
+    const billingRolesRequired = billingRoles.length > 0;
 
     const policies = await this.allocationPolicyService.getPolicies();
     const warnings: string[] = [];
@@ -745,8 +755,8 @@ export class ProjectTeamService {
         actorId,
         policies,
         warnings,
-        billingRoles: [],
-        billingRolesRequired: false,
+        billingRoles,
+        billingRolesRequired,
       });
     }
   }
@@ -764,6 +774,17 @@ export class ProjectTeamService {
   > {
     await this.assertProjectInScope(projectId, caslUser, 'read');
     return this.allocationPushService.listBillingRolesForProject(projectId);
+  }
+
+  async listBillingRolesForCustomer(customerId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      billingRate: number | null;
+      rateUnit: number | null;
+    }>
+  > {
+    return this.allocationPushService.listBillingRolesForCustomer(customerId);
   }
 
   async addMembers(

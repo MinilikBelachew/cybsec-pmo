@@ -332,6 +332,14 @@ export const projectsApi = api.injectEndpoints({
       ],
     }),
 
+    getCustomerBillingRoles: builder.query<ProjectBillingRoleListResponse, string>({
+      query: (customerId) =>
+        `/projects/meta/customers/${customerId}/billing-roles`,
+      providesTags: (_result, _error, customerId) => [
+        { type: "ProjectTeam", id: `customer-billing-roles-${customerId}` },
+      ],
+    }),
+
     getAllocationDateIssues: builder.query<
       AllocationDateIssuesResponse,
       { projectId: string; params?: QueryAllocationDateIssuesParams }
@@ -540,6 +548,7 @@ export const {
   useGetTeamCandidatesQuery,
   useGetProjectTeamQuery,
   useGetProjectBillingRolesQuery,
+  useGetCustomerBillingRolesQuery,
   useGetProjectTaskAssigneesQuery,
   useLazyGetProjectTaskAssigneesQuery,
   useAddProjectTeamMembersMutation,

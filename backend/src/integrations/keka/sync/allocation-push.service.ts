@@ -252,6 +252,25 @@ export class AllocationPushService {
       .filter((role): role is NonNullable<typeof role> => role != null);
   }
 
+  async listBillingRolesForCustomer(customerId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      billingRate: number | null;
+      rateUnit: number | null;
+    }>
+  > {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { kekaClientId: true },
+    });
+    const kekaClientId = customer?.kekaClientId?.trim();
+    if (!kekaClientId) {
+      return [];
+    }
+    return this.listBillingRolesForClient(kekaClientId);
+  }
+
   async resolveBillingRoleById(
     kekaClientId: string,
     billingRoleId: string,

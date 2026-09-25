@@ -137,6 +137,9 @@ function toAllocationPayload(members: PendingTeamMember[]) {
   return members.map((member) => ({
     employeeId: member.employeeId,
     role: member.role,
+    ...(member.kekaBillingRoleId
+      ? { kekaBillingRoleId: member.kekaBillingRoleId }
+      : {}),
     ...(member.allocationMode === "percent"
       ? { percent: member.percentPerWeek }
       : { hours: member.hoursPerWeek }),
@@ -1181,6 +1184,7 @@ export function CreateProjectSheet({
             <ProjectTeamSection
               ref={teamSectionRef}
               projectId={project?.id}
+              customerId={watchedCustomerId || undefined}
               departmentId={watchedDeptId || undefined}
               startDate={watchedStartDate}
               endDate={watchedEndDate}
