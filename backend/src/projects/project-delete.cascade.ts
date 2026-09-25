@@ -47,7 +47,11 @@ export async function deleteProjectWithDependents(
   await tx.timesheet.deleteMany({ where: { projectId } });
   await tx.task.deleteMany({ where: { projectId } });
 
-  await tx.invoice.deleteMany({ where: { projectId } });
+  // Keep finance rows; unlink from the deleted project.
+  await tx.invoice.updateMany({
+    where: { projectId },
+    data: { projectId: null, matchedMilestoneId: null },
+  });
   await tx.projectMilestone.deleteMany({ where: { projectId } });
   await tx.projectPhase.deleteMany({ where: { projectId } });
   await tx.allocation.deleteMany({ where: { projectId } });

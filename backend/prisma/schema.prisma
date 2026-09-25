@@ -1137,11 +1137,16 @@ model EmployeeCostTimesheet {
 
 model Invoice {
   id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId          String       @map("project_id") @db.Uuid
+  projectId          String?      @map("project_id") @db.Uuid
   zohoInvoiceId      String       @unique @map("zoho_invoice_id") @db.VarChar(100)
   invoiceNumber      String       @map("invoice_number") @db.VarChar(100)
+  customerName       String?      @map("customer_name") @db.VarChar(255)
+  referenceNumber    String?      @map("reference_number") @db.VarChar(255)
   amount             Decimal      @db.Decimal(15, 2)
+  balance            Decimal?     @db.Decimal(15, 2)
+  paymentMade        Decimal?     @map("payment_made") @db.Decimal(15, 2)
   currency           String       @default("USD") @db.VarChar(10)
+  invoiceDate        DateTime?    @map("invoice_date") @db.Date
   dueDate            DateTime     @map("due_date") @db.Date
   collectionDate     DateTime?    @map("collection_date") @db.Date
   status             String       @db.VarChar(20)
@@ -1150,7 +1155,7 @@ model Invoice {
   syncedAt           DateTime     @map("synced_at") @db.Timestamptz
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
-  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
   milestone ProjectMilestone? @relation(fields: [matchedMilestoneId], references: [id], onDelete: SetNull)
 
   @@index([projectId], map: "idx_invoices_project")

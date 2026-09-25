@@ -195,6 +195,8 @@ export interface ProjectMilestone {
   status: string;
   createdAt: string;
   phase?: ProjectPhase | null;
+  invoiceCount?: number;
+  invoiceNumbers?: string[];
 }
 
 export interface TeamCandidate {

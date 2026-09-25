@@ -1,8 +1,12 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -28,6 +32,8 @@ import {
   ZohoBooksStatusDto,
   ZohoInvoiceSyncResultDto,
   ZohoInvoiceDto,
+  LinkZohoInvoiceDto,
+  LinkZohoInvoiceMilestoneDto,
 } from './dto/zoho.dto';
 
 @ApiBearerAuth()
@@ -111,5 +117,30 @@ export class ZohoController {
     @Query('limit') limit?: string,
   ): Promise<ZohoInvoiceDto[]> {
     return this.zohoConnection.listInvoices(limit ? Number(limit) : 50);
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Patch('books/invoices/:id/link')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoInvoiceDto })
+  async linkInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: LinkZohoInvoiceDto,
+  ): Promise<ZohoInvoiceDto> {
+    return this.zohoConnection.linkInvoice(id, body.projectId ?? null);
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Patch('books/invoices/:id/milestone')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoInvoiceDto })
+  async linkInvoiceMilestone(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: LinkZohoInvoiceMilestoneDto,
+  ): Promise<ZohoInvoiceDto> {
+    return this.zohoConnection.linkInvoiceMilestone(
+      id,
+      body.milestoneId ?? null,
+    );
   }
 }

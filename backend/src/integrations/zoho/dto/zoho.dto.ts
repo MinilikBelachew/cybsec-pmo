@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID, ValidateIf } from 'class-validator';
 
 export class ZohoProvisionErrorDto {
   @ApiProperty()
@@ -151,8 +152,14 @@ export class ZohoInvoiceDto {
   @ApiProperty()
   invoiceNumber: string;
 
-  @ApiProperty()
-  projectId: string;
+  @ApiPropertyOptional({ nullable: true })
+  customerName: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  referenceNumber: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectId: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   projectName: string | null;
@@ -160,8 +167,17 @@ export class ZohoInvoiceDto {
   @ApiProperty()
   amount: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  balance: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  paymentMade: string | null;
+
   @ApiProperty()
   currency: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  invoiceDate: string | null;
 
   @ApiProperty()
   dueDate: string;
@@ -174,4 +190,30 @@ export class ZohoInvoiceDto {
 
   @ApiProperty()
   syncedAt: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  matchedMilestoneId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  milestoneTitle: string | null;
+}
+
+export class LinkZohoInvoiceDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Project UUID to link, or null to unlink',
+  })
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID()
+  projectId: string | null;
+}
+
+export class LinkZohoInvoiceMilestoneDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Milestone UUID on the invoice project, or null to unlink',
+  })
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID()
+  milestoneId: string | null;
 }

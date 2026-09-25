@@ -22,6 +22,8 @@ export {
   useTestZohoBooksConnectionMutation,
   useSyncZohoInvoicesMutation,
   useGetZohoInvoicesQuery,
+  useLinkZohoInvoiceMutation,
+  useLinkZohoInvoiceMilestoneMutation,
 } from "./api/integrations.api";
 export type {
   KekaSyncLogEntry,

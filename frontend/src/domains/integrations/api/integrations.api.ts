@@ -306,6 +306,30 @@ export const integrationsApi = api.injectEndpoints({
       }),
       providesTags: ["ZohoInvoices"],
     }),
+
+    linkZohoInvoice: builder.mutation<
+      ZohoInvoiceRow,
+      { id: string; projectId: string | null }
+    >({
+      query: ({ id, projectId }) => ({
+        url: `/integrations/zoho/books/invoices/${id}/link`,
+        method: "PATCH",
+        body: { projectId },
+      }),
+      invalidatesTags: ["ZohoInvoices", "ZohoBooksStatus"],
+    }),
+
+    linkZohoInvoiceMilestone: builder.mutation<
+      ZohoInvoiceRow,
+      { id: string; milestoneId: string | null }
+    >({
+      query: ({ id, milestoneId }) => ({
+        url: `/integrations/zoho/books/invoices/${id}/milestone`,
+        method: "PATCH",
+        body: { milestoneId },
+      }),
+      invalidatesTags: ["ZohoInvoices", { type: "Milestones", id: "LIST" }],
+    }),
   }),
   overrideExisting: process.env.NODE_ENV === "development",
 });
@@ -338,4 +362,6 @@ export const {
   useTestZohoBooksConnectionMutation,
   useSyncZohoInvoicesMutation,
   useGetZohoInvoicesQuery,
+  useLinkZohoInvoiceMutation,
+  useLinkZohoInvoiceMilestoneMutation,
 } = integrationsApi;

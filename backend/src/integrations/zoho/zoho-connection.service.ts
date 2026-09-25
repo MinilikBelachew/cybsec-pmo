@@ -1,6 +1,9 @@
 import {
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AllConfigType } from '../../config/config.type';
@@ -9,7 +12,6 @@ import { ZohoHttpClient } from './client/zoho-http.client';
 import { OpportunitySyncService } from './sync/opportunity-sync.service';
 import {
   ZOHO_BOOKS_INTEGRATION,
-  ZOHO_ENTITY_TYPE,
 } from './zoho.constants';
 import { InvoiceSyncService } from './sync/invoice-sync.service';
 
@@ -148,13 +150,8 @@ export class ZohoConnectionService {
         isResolved: false,
       },
     });
-    const unmatchedOpenCount = await this.prisma.failedSyncRecord.count({
-      where: {
-        integration: ZOHO_BOOKS_INTEGRATION,
-        entityType: ZOHO_ENTITY_TYPE.INVOICE,
-        isResolved: false,
-        errorMsg: { startsWith: 'Unmatched' },
-      },
+    const unmatchedOpenCount = await this.prisma.invoice.count({
+      where: { projectId: null },
     });
     const recentErrors = await this.prisma.failedSyncRecord.findMany({
       where: {
@@ -223,22 +220,148 @@ export class ZohoConnectionService {
       take,
       include: {
         project: { select: { id: true, name: true } },
+        milestone: { select: { id: true, title: true } },
       },
     });
-    return rows.map((row) => ({
+    return rows.map((row) => this.toInvoiceDto(row));
+  }
+
+  async linkInvoice(invoiceId: string, projectId: string | null) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true },
+    });
+    if (!invoice) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { invoice: 'invoiceNotFound' },
+      });
+    }
+
+    if (projectId) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true },
+      });
+      if (!project) {
+        throw new NotFoundException({
+          status: HttpStatus.NOT_FOUND,
+          errors: { project: 'projectNotFound' },
+        });
+      }
+    }
+
+    const row = await this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        projectId,
+        ...(projectId ? {} : { matchedMilestoneId: null }),
+      },
+      include: {
+        project: { select: { id: true, name: true } },
+        milestone: { select: { id: true, title: true } },
+      },
+    });
+
+    return this.toInvoiceDto(row);
+  }
+
+  async linkInvoiceMilestone(
+    invoiceId: string,
+    milestoneId: string | null,
+  ) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, projectId: true },
+    });
+    if (!invoice) {
+      throw new NotFoundException({
+        status: HttpStatus.NOT_FOUND,
+        errors: { invoice: 'invoiceNotFound' },
+      });
+    }
+    if (!invoice.projectId) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: { project: 'invoiceMustBeLinkedToProject' },
+      });
+    }
+
+    if (milestoneId) {
+      const milestone = await this.prisma.projectMilestone.findUnique({
+        where: { id: milestoneId },
+        select: { id: true, projectId: true },
+      });
+      if (!milestone) {
+        throw new NotFoundException({
+          status: HttpStatus.NOT_FOUND,
+          errors: { milestone: 'milestoneNotFound' },
+        });
+      }
+      if (milestone.projectId !== invoice.projectId) {
+        throw new UnprocessableEntityException({
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          errors: { milestone: 'milestoneNotOnInvoiceProject' },
+        });
+      }
+    }
+
+    const row = await this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { matchedMilestoneId: milestoneId },
+      include: {
+        project: { select: { id: true, name: true } },
+        milestone: { select: { id: true, title: true } },
+      },
+    });
+
+    return this.toInvoiceDto(row);
+  }
+
+  private toInvoiceDto(row: {
+    id: string;
+    zohoInvoiceId: string;
+    invoiceNumber: string;
+    customerName: string | null;
+    referenceNumber: string | null;
+    projectId: string | null;
+    matchedMilestoneId?: string | null;
+    amount: { toString(): string };
+    balance: { toString(): string } | null;
+    paymentMade: { toString(): string } | null;
+    currency: string;
+    invoiceDate: Date | null;
+    dueDate: Date;
+    collectionDate: Date | null;
+    status: string;
+    syncedAt: Date;
+    project: { id: string; name: string } | null;
+    milestone?: { id: string; title: string } | null;
+  }) {
+    return {
       id: row.id,
       zohoInvoiceId: row.zohoInvoiceId,
       invoiceNumber: row.invoiceNumber,
+      customerName: row.customerName,
+      referenceNumber: row.referenceNumber,
       projectId: row.projectId,
       projectName: row.project?.name ?? null,
+      matchedMilestoneId:
+        row.matchedMilestoneId ?? row.milestone?.id ?? null,
+      milestoneTitle: row.milestone?.title ?? null,
       amount: row.amount.toString(),
+      balance: row.balance?.toString() ?? null,
+      paymentMade: row.paymentMade?.toString() ?? null,
       currency: row.currency,
+      invoiceDate: row.invoiceDate
+        ? row.invoiceDate.toISOString().slice(0, 10)
+        : null,
       dueDate: row.dueDate.toISOString().slice(0, 10),
       collectionDate: row.collectionDate
         ? row.collectionDate.toISOString().slice(0, 10)
         : null,
       status: row.status,
       syncedAt: row.syncedAt.toISOString(),
-    }));
+    };
   }
 }

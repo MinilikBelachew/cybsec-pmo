@@ -248,10 +248,17 @@ export type ZohoInvoiceRow = {
   id: string;
   zohoInvoiceId: string;
   invoiceNumber: string;
-  projectId: string;
+  customerName: string | null;
+  referenceNumber: string | null;
+  projectId: string | null;
   projectName: string | null;
+  matchedMilestoneId: string | null;
+  milestoneTitle: string | null;
   amount: string;
+  balance: string | null;
+  paymentMade: string | null;
   currency: string;
+  invoiceDate: string | null;
   dueDate: string;
   collectionDate: string | null;
   status: string;
