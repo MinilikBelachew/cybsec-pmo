@@ -11,6 +11,7 @@ import {
   useGetAllocationDateIssuesQuery,
   useGetTeamCandidatesQuery,
   useGetProjectTeamQuery,
+  useGetProjectBillingRolesQuery,
   useRemoveProjectTeamMemberMutation,
   useUpdateProjectTeamMemberMutation,
   useSetAllocationBackupMutation,
@@ -18,6 +19,7 @@ import {
   type AllocationMode,
   type PendingTeamMember,
   type ProjectAllocation,
+  type ProjectBillingRole,
   type TeamCandidate,
 } from "@/domains/projects";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
@@ -37,6 +39,13 @@ import { Checkbox } from "@/shared/ui/checkbox";
 import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { EmployeeAvatar } from "@/shared/components/employee-avatar";
 import { EmployeePickerSelect } from "@/shared/components/employee-picker-select";
 import { ProjectRoleSelect } from "@/shared/components/designation-select";
@@ -61,6 +70,7 @@ interface ProjectTeamSectionProps {
 
 interface DraftMemberConfig {
   role: string;
+  kekaBillingRoleId?: string;
   allocationMode: AllocationMode;
   hoursPerWeek: string;
   percentPerWeek: string;
@@ -69,6 +79,7 @@ interface DraftMemberConfig {
 
 interface ExistingMemberEditDraft {
   role: string;
+  kekaBillingRoleId?: string;
   allocationMode: AllocationMode;
   hoursPerWeek: string;
   percentPerWeek: string;
@@ -188,6 +199,9 @@ function buildPendingMember(
     departmentName: candidate.department.name,
     designation: candidate.designation,
     role: config.role.trim(),
+    ...(config.kekaBillingRoleId
+      ? { kekaBillingRoleId: config.kekaBillingRoleId }
+      : {}),
     allocationMode: config.allocationMode,
     hoursPerWeek: config.allocationMode === "hours" ? hours : weeklyHours,
     percentPerWeek: config.allocationMode === "percent" ? percent : Math.round((weeklyHours / candidate.weeklyCapacityHours) * 100),
@@ -224,6 +238,7 @@ function toAllocationBody(
   member: Pick<
     PendingTeamMember,
     | "role"
+    | "kekaBillingRoleId"
     | "allocationMode"
     | "hoursPerWeek"
     | "percentPerWeek"
@@ -235,10 +250,55 @@ function toAllocationBody(
     ...(member.allocationMode === "percent"
       ? { role: member.role, percent: member.percentPerWeek }
       : { role: member.role, hours: member.hoursPerWeek }),
+    ...(member.kekaBillingRoleId
+      ? { kekaBillingRoleId: member.kekaBillingRoleId }
+      : {}),
     ...(member.isOverAllocated && member.overrideReason?.trim()
       ? { overrideReason: member.overrideReason.trim() }
       : {}),
   };
+}
+
+function BillingRoleSelect({
+  value,
+  onChange,
+  roles,
+  placeholder = "Select billing role",
+  className,
+}: {
+  value?: string;
+  onChange: (role: ProjectBillingRole) => void;
+  roles: ProjectBillingRole[];
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <Select
+      value={value || undefined}
+      onValueChange={(id) => {
+        const match = roles.find((role) => role.id === id);
+        if (match) onChange(match);
+      }}
+    >
+      <SelectTrigger className={cn("h-9 w-full", className)}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {roles.map((role) => (
+          <SelectItem key={role.id} value={role.id}>
+            <span className="flex flex-col items-start gap-0.5">
+              <span>{role.name}</span>
+              {role.billingRate != null ? (
+                <span className="text-[10px] text-muted-foreground">
+                  Rate {role.billingRate}
+                </span>
+              ) : null}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function AllocationModeToggle({
@@ -370,6 +430,11 @@ export const ProjectTeamSection = forwardRef<
   const { data: designationOptionsData } = useGetDesignationOptionsQuery();
   const designationOptions = designationOptionsData?.options ?? [];
   const { data: departments = [] } = useGetDepartmentsQuery();
+  const { data: billingRolesData } = useGetProjectBillingRolesQuery(projectId ?? "", {
+    skip: !projectId,
+  });
+  const billingRoles = billingRolesData?.rows ?? [];
+  const requireBillingRole = Boolean(projectId) && billingRoles.length > 0;
   const thresholdMode = allocationPolicy?.thresholdMode ?? "warn";
   const departmentStaffingMode = allocationPolicy?.departmentStaffingMode ?? "off";
   const staffingBlocksCandidates = departmentStaffingMode === "block";
@@ -633,6 +698,7 @@ export const ProjectTeamSection = forwardRef<
     setEditingAllocationId(member.id);
     setEditDraft({
       role: member.role,
+      kekaBillingRoleId: member.kekaBillingRoleId ?? undefined,
       allocationMode: member.percent != null ? "percent" : "hours",
       hoursPerWeek: String(member.hours ?? DEFAULT_HOURS),
       percentPerWeek: String(member.percent ?? DEFAULT_PERCENT),
@@ -676,6 +742,10 @@ export const ProjectTeamSection = forwardRef<
     const percent = Number(editDraft.percentPerWeek);
     if (!editDraft.role.trim()) {
       toast.error("Project role is required.");
+      return;
+    }
+    if (requireBillingRole && !editDraft.kekaBillingRoleId) {
+      toast.error("Select a Keka billing role for this allocation.");
       return;
     }
     if (editDraft.allocationMode === "hours" && (!Number.isFinite(hours) || hours <= 0)) {
@@ -729,6 +799,9 @@ export const ProjectTeamSection = forwardRef<
         allocationId: member.id,
         body: {
           role: editDraft.role.trim(),
+          ...(editDraft.kekaBillingRoleId
+            ? { kekaBillingRoleId: editDraft.kekaBillingRoleId }
+            : {}),
           ...(editDraft.allocationMode === "percent"
             ? { percent }
             : { hours }),
@@ -910,6 +983,7 @@ export const ProjectTeamSection = forwardRef<
     checkedCandidates.every((candidate) => {
       const config = draftConfig[candidate.employeeId];
       if (!config?.role.trim()) return false;
+      if (requireBillingRole && !config.kekaBillingRoleId) return false;
       if (config.allocationMode === "hours") {
         const hours = Number(config.hoursPerWeek);
         return Number.isFinite(hours) && hours > 0;
@@ -1109,8 +1183,11 @@ export const ProjectTeamSection = forwardRef<
                         <X className="size-4" />
                       </Button>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_88px]">
-                      <div className="min-w-0">
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_88px]">
+                      <div className="min-w-0 space-y-1">
+                        <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Project role
+                        </label>
                         <ProjectRoleSelect
                           value={editDraft.role}
                           onValueChange={(role) =>
@@ -1120,6 +1197,29 @@ export const ProjectTeamSection = forwardRef<
                           extraOptions={[member.employee.designation]}
                         />
                       </div>
+                      {requireBillingRole ? (
+                        <div className="min-w-0 space-y-1">
+                          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Billing role
+                          </label>
+                          <BillingRoleSelect
+                            value={editDraft.kekaBillingRoleId}
+                            roles={billingRoles}
+                            onChange={(role) =>
+                              setEditDraft((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      kekaBillingRoleId: role.id,
+                                    }
+                                  : prev,
+                              )
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div className="hidden sm:block" />
+                      )}
                       <AllocationModeToggle
                         value={editDraft.allocationMode}
                         onChange={(mode) =>
@@ -1510,9 +1610,17 @@ export const ProjectTeamSection = forwardRef<
                 Selected employees
               </p>
               <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-white/[0.08]">
-                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_88px] gap-2 border-b border-slate-200 bg-slate-100/80 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground dark:border-white/[0.08] dark:bg-white/[0.04]">
+                <div
+                  className={cn(
+                    "grid gap-2 border-b border-slate-200 bg-slate-100/80 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground dark:border-white/[0.08] dark:bg-white/[0.04]",
+                    requireBillingRole
+                      ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_88px]"
+                      : "grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_88px]",
+                  )}
+                >
                   <span>Employee</span>
                   <span>Project role</span>
+                  {requireBillingRole ? <span>Billing role</span> : null}
                   <span>Type</span>
                   <span>Allocation</span>
                 </div>
@@ -1530,7 +1638,12 @@ export const ProjectTeamSection = forwardRef<
                   return (
                     <div
                       key={candidate.employeeId}
-                      className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_88px] items-start gap-2 border-b border-slate-200 px-3 py-2 last:border-b-0 dark:border-white/[0.08]"
+                      className={cn(
+                        "grid items-start gap-2 border-b border-slate-200 px-3 py-2 last:border-b-0 dark:border-white/[0.08]",
+                        requireBillingRole
+                          ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_88px]"
+                          : "grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_88px]",
+                      )}
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <EmployeeAvatar
@@ -1581,6 +1694,19 @@ export const ProjectTeamSection = forwardRef<
                           extraOptions={[candidate.designation]}
                         />
                       </div>
+                      {requireBillingRole ? (
+                        <div className="min-w-0 self-start">
+                          <BillingRoleSelect
+                            value={config.kekaBillingRoleId}
+                            roles={billingRoles}
+                            onChange={(role) =>
+                              updateDraftConfig(candidate.employeeId, {
+                                kekaBillingRoleId: role.id,
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
                       <AllocationModeToggle
                         value={config.allocationMode}
                         onChange={(mode) =>

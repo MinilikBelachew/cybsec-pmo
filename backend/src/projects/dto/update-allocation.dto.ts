@@ -18,6 +18,14 @@ export class UpdateAllocationDto {
   @MaxLength(100)
   role?: string;
 
+  @ApiPropertyOptional({
+    description: 'Keka client billing role id from GET /psa/clients/{id}/billingroles',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  kekaBillingRoleId?: string | null;
+
   @ApiPropertyOptional({ example: 20, description: 'Weekly hours on this project' })
   @IsOptional()
   @Type(() => Number)

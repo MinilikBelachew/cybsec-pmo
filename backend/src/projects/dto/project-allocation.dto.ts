@@ -99,6 +99,18 @@ export class ProjectAllocationDto {
   role: string;
 
   @ApiPropertyOptional({ nullable: true })
+  kekaBillingRoleId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  kekaBillingRoleName: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Snapshotted Keka billing role rate (view_rates gated on cost APIs)',
+  })
+  billingRate: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
   hours: number | null;
 
   @ApiPropertyOptional({ nullable: true })
@@ -310,4 +322,26 @@ export class ProjectTaskAssigneeDto {
     code: string;
     name: string;
   };
+}
+
+export class ProjectBillingRoleDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  billingRate: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Keka BillingRateUnit (0 = Hour typically)',
+  })
+  rateUnit: number | null;
+}
+
+export class ProjectBillingRoleListDto {
+  @ApiProperty({ type: [ProjectBillingRoleDto] })
+  rows: ProjectBillingRoleDto[];
 }

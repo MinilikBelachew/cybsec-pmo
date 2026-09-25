@@ -11,7 +11,6 @@ import {
   Query,
   Request,
   Res,
-  StreamableFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -118,18 +117,19 @@ export class BudgetController {
   async exportPortfolio(
     @Request() request: RequestWithAbility,
     @Query('format') format: 'xlsx' | 'csv' = 'xlsx',
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
+    @Res() res: Response,
+  ): Promise<void> {
     const safeFormat = format === 'csv' ? 'csv' : 'xlsx';
     const exported = await this.budgetService.exportPortfolio(
       request.caslUser!,
       safeFormat,
     );
-    res.set({
-      'Content-Type': exported.contentType,
-      'Content-Disposition': `attachment; filename="${exported.filename}"`,
-    });
-    return new StreamableFile(exported.buffer);
+    res.setHeader('Content-Type', exported.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${exported.filename}"`,
+    );
+    res.send(exported.buffer);
   }
 
   @CheckAbility('read', 'Financial')

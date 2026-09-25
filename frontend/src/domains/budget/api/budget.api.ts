@@ -214,14 +214,26 @@ export const budgetApi = api.injectEndpoints({
       ],
     }),
 
-    exportBudgetFile: builder.query<
+    exportBudgetFile: builder.mutation<
       Blob,
       { format: "xlsx" | "csv" }
     >({
       query: ({ format }) => ({
         url: "/budget/export",
         params: { format },
-        responseHandler: async (response) => response.blob(),
+        responseHandler: async (response) => {
+          if (!response.ok) {
+            const message = await response.text().catch(() => "Export failed");
+            throw new Error(message || `Export failed (${response.status})`);
+          }
+          const buffer = await response.arrayBuffer();
+          const contentType =
+            response.headers.get("Content-Type") ??
+            (format === "csv"
+              ? "text/csv; charset=utf-8"
+              : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+          return new Blob([buffer], { type: contentType });
+        },
       }),
     }),
   }),
@@ -243,7 +255,7 @@ export const {
   useProposeBudgetAdjustmentMutation,
   useApproveBudgetAdjustmentMutation,
   useRejectBudgetAdjustmentMutation,
-  useLazyExportBudgetFileQuery,
+  useExportBudgetFileMutation,
 } = budgetApi;
 
 export function downloadBudgetBlob(filename: string, blob: Blob) {
@@ -251,6 +263,8 @@ export function downloadBudgetBlob(filename: string, blob: Blob) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
+  link.remove();
   URL.revokeObjectURL(url);
 }

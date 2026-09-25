@@ -767,6 +767,11 @@ model Allocation {
   rejectionComment String?   @map("rejection_comment")
   kekaSyncedAt     DateTime? @map("keka_synced_at") @db.Timestamptz
   kekaSyncRef      String?   @map("keka_sync_ref") @db.VarChar(100)
+  /// Keka client billing role used for allocation push (`billingRoleId`).
+  kekaBillingRoleId   String?  @map("keka_billing_role_id") @db.VarChar(100)
+  kekaBillingRoleName String?  @map("keka_billing_role_name") @db.VarChar(200)
+  /// Snapshotted from Keka billing role `billingRate.rate` (typically hourly).
+  billingRate         Decimal? @map("billing_rate") @db.Decimal(12, 4)
   backupEmployeeId String?   @map("backup_employee_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
@@ -781,6 +786,7 @@ model Allocation {
   @@index([status], map: "idx_allocations_status")
   @@index([requestedBy], map: "idx_allocations_requested_by")
   @@index([backupEmployeeId], map: "idx_allocations_backup")
+  @@index([kekaBillingRoleId], map: "idx_allocations_keka_billing_role")
   @@map("allocations")
 }
 

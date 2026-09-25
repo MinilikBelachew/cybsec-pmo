@@ -103,10 +103,19 @@ export class AllocationPushService {
         allocation.project.customer?.displayName,
       );
 
-      const billingRole = await this.resolveBillingRole(
-        kekaClientId,
-        allocation.role,
-      );
+      const billingRole = allocation.kekaBillingRoleId?.trim()
+        ? {
+            id: allocation.kekaBillingRoleId.trim(),
+            name:
+              allocation.kekaBillingRoleName?.trim() ||
+              allocation.role ||
+              allocation.kekaBillingRoleId.trim(),
+            billingRate:
+              allocation.billingRate != null
+                ? Number(allocation.billingRate)
+                : null,
+          }
+        : await this.resolveBillingRole(kekaClientId, allocation.role);
 
       const allocationPercentage = this.resolveAllocationPercentage(
         allocation.percent != null ? Number(allocation.percent) : null,
@@ -173,6 +182,88 @@ export class AllocationPushService {
       await this.logFailure(allocationId, payload, message);
       return null;
     }
+  }
+
+  /**
+   * List Keka billing roles for a project's linked client
+   * (`GET /psa/clients/{id}/billingroles`).
+   */
+  async listBillingRolesForProject(projectId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      billingRate: number | null;
+      rateUnit: number | null;
+    }>
+  > {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        id: true,
+        kekaClientId: true,
+        customer: { select: { kekaClientId: true, displayName: true } },
+      },
+    });
+    if (!project) {
+      return [];
+    }
+
+    let kekaClientId: string;
+    try {
+      kekaClientId = await this.resolveKekaClientId(
+        project.id,
+        project.kekaClientId,
+        project.customer?.kekaClientId,
+        project.customer?.displayName,
+      );
+    } catch {
+      return [];
+    }
+
+    return this.listBillingRolesForClient(kekaClientId);
+  }
+
+  async listBillingRolesForClient(kekaClientId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      billingRate: number | null;
+      rateUnit: number | null;
+    }>
+  > {
+    const roles = await this.fetchBillingRoles(kekaClientId);
+    return roles
+      .map((role) => {
+        const id = role.id?.trim();
+        if (!id) return null;
+        return {
+          id,
+          name: role.name?.trim() || id,
+          billingRate:
+            typeof role.billingRate?.rate === 'number'
+              ? role.billingRate.rate
+              : null,
+          rateUnit:
+            typeof role.billingRate?.unit === 'number'
+              ? role.billingRate.unit
+              : null,
+        };
+      })
+      .filter((role): role is NonNullable<typeof role> => role != null);
+  }
+
+  async resolveBillingRoleById(
+    kekaClientId: string,
+    billingRoleId: string,
+  ): Promise<{ id: string; name: string; billingRate: number | null } | null> {
+    const roles = await this.listBillingRolesForClient(kekaClientId);
+    const match = roles.find((role) => role.id === billingRoleId.trim());
+    if (!match) return null;
+    return {
+      id: match.id,
+      name: match.name,
+      billingRate: match.billingRate,
+    };
   }
 
   private clarifyKekaError(message: string): string {
