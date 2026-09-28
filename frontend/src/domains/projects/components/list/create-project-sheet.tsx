@@ -1520,7 +1520,7 @@ export function CreateProjectSheet({
               projectEndDate={watchedEndDate}
               projectCurrency={watchedCurrency}
               projectValue={
-                watchedValue != null && watchedValue !== ""
+                watchedValue != null && (watchedValue as unknown) !== ""
                   ? Number(watchedValue)
                   : null
               }
