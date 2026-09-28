@@ -12,7 +12,7 @@ function mergeOr<T extends Prisma.ProjectWhereInput | Prisma.TaskWhereInput | Pr
 ): T {
   if (clauses.length === 0) {
     // Empty `in` is a UUID-safe "match nothing" (avoids invalid id sentinels like __casl_denied__).
-    return { id: { in: [] } } as T;
+    return { id: { in: [] } } as unknown as T;
   }
   if (clauses.length === 1) {
     return clauses[0];
