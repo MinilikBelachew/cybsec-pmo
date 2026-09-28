@@ -109,13 +109,20 @@ function stickyCellClass(
 ) {
   if (!sticky) return undefined;
 
+  // Fully opaque so scrolling columns (e.g. Budget) do not show through sticky Actions.
   const bg = isHeader
-    ? "bg-muted/50 dark:bg-muted/30"
+    ? "bg-muted dark:bg-muted"
     : selected
-      ? "bg-muted/40 dark:bg-muted/30"
-      : "bg-white dark:bg-card";
+      ? "bg-muted dark:bg-muted"
+      : "bg-card dark:bg-card";
 
-  return cn("sticky z-20", bg, sticky === "left" ? "left-0" : "right-0");
+  return cn(
+    "sticky z-30",
+    bg,
+    sticky === "left"
+      ? "left-0 shadow-[6px_0_8px_-6px_rgba(0,0,0,0.12)] dark:shadow-[6px_0_8px_-6px_rgba(0,0,0,0.45)]"
+      : "right-0 shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.12)] dark:shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.45)]",
+  );
 }
 
 const headerRowClass = "border-border/50 bg-muted/50 hover:bg-muted/50 dark:bg-muted/30";

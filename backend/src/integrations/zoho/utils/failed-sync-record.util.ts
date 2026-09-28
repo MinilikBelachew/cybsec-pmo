@@ -17,13 +17,25 @@ type UpsertFailedSyncInput = {
   maxRetries?: number;
 };
 
+export type ZohoFailedSyncUpsertOutcome = {
+  id: string;
+  integration: string;
+  entityType: string;
+  entityId: string;
+  errorMsg: string;
+  retryCount: number;
+  isNew: boolean;
+  becameDeadLetter: boolean;
+  isDeadLetter: boolean;
+};
+
 /**
  * Upserts an unresolved Zoho FailedSyncRecord and dead-letters when exhausted.
  */
 export async function upsertZohoFailedSyncRecord(
   prisma: PrismaService,
   input: UpsertFailedSyncInput,
-): Promise<void> {
+): Promise<ZohoFailedSyncUpsertOutcome> {
   const now = new Date();
   const maxRetries = input.maxRetries ?? ZOHO_FAILED_SYNC_MAX_RETRIES;
   const failureClass = ZOHO_FAILURE_CLASS.TRANSIENT;
@@ -39,7 +51,10 @@ export async function upsertZohoFailedSyncRecord(
 
   if (existing) {
     const retryCount = input.retryCount ?? existing.retryCount + 1;
-    const deadLetteredAt = retryCount >= maxRetries ? now : null;
+    const wasDeadLetter = Boolean(existing.deadLetteredAt);
+    const deadLetteredAt =
+      retryCount >= maxRetries ? existing.deadLetteredAt ?? now : null;
+    const becameDeadLetter = !wasDeadLetter && Boolean(deadLetteredAt);
 
     await prisma.failedSyncRecord.update({
       where: { id: existing.id },
@@ -52,13 +67,24 @@ export async function upsertZohoFailedSyncRecord(
         ...(input.payload !== undefined ? { payload: input.payload } : {}),
       },
     });
-    return;
+
+    return {
+      id: existing.id,
+      integration: input.integration,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      errorMsg: input.errorMsg,
+      retryCount,
+      isNew: false,
+      becameDeadLetter,
+      isDeadLetter: Boolean(deadLetteredAt),
+    };
   }
 
   const retryCount = input.retryCount ?? 1;
   const deadLetteredAt = retryCount >= maxRetries ? now : null;
 
-  await prisma.failedSyncRecord.create({
+  const created = await prisma.failedSyncRecord.create({
     data: {
       integration: input.integration,
       entityType: input.entityType,
@@ -72,6 +98,18 @@ export async function upsertZohoFailedSyncRecord(
       ...(input.payload !== undefined ? { payload: input.payload } : {}),
     },
   });
+
+  return {
+    id: created.id,
+    integration: input.integration,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    errorMsg: input.errorMsg,
+    retryCount,
+    isNew: true,
+    becameDeadLetter: Boolean(deadLetteredAt),
+    isDeadLetter: Boolean(deadLetteredAt),
+  };
 }
 
 export async function prepareZohoFailedSyncForceRetry(

@@ -53,6 +53,9 @@ export function useModulePermissions() {
       canViewCharter: hasModulePermission(permissions, "charter", "view"),
       canEditCharter: hasModulePermission(permissions, "charter", "edit"),
       canApproveCharter: hasModulePermission(permissions, "charter", "approve"),
+      canViewSow: hasModulePermission(permissions, "sow", "view"),
+      canEditSow: hasModulePermission(permissions, "sow", "edit"),
+      canApproveSow: hasModulePermission(permissions, "sow", "approve"),
     }),
     [permissions],
   );

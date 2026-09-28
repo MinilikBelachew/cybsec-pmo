@@ -73,6 +73,11 @@ export interface Project {
   crmOpportunityId?: string | null;
   charterStatus?: string | null;
   hasPendingCharter?: boolean;
+  /** Latest charter sourceOrderId starts with zoho-so: */
+  fromZohoBooks?: boolean;
+  /** Missing / unconfirmed fields from Zoho provisioning */
+  incompleteFields?: string[];
+  hasIncompleteCharterData?: boolean;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

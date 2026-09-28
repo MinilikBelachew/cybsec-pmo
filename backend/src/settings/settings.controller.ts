@@ -24,6 +24,7 @@ import {
   mapAuditSettingsDto,
   mapSessionSecuritySettingsDto,
   mapTimesheetEscalationSettingsDto,
+  mapFinanceAlertSettingsDto,
 } from './app-settings.service';
 import { AllocationPolicyService } from './allocation-policy.service';
 import { SessionSecurityPolicyService } from './session-security-policy.service';
@@ -50,6 +51,10 @@ import {
   UpdateCostFormulaSettingsDto,
   mapCostFormulaSettingsDto,
 } from './dto/cost-formula.dto';
+import {
+  FinanceAlertSettingsDto,
+  UpdateFinanceAlertSettingsDto,
+} from './dto/finance-alerts.dto';
 
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), CaslGuard, ModulePermissionGuard)
@@ -229,5 +234,31 @@ export class SettingsController {
       );
     this.costFormulaService.invalidateCache();
     return mapCostFormulaSettingsDto(formula, updatedAt);
+  }
+
+  @CheckAbility('read', 'Financial')
+  @CheckModulePermission('financials', 'view')
+  @Get('finance-alerts')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: FinanceAlertSettingsDto })
+  async getFinanceAlertSettings() {
+    const settings = await this.appSettingsService.getFinanceAlertSettings();
+    return mapFinanceAlertSettingsDto(settings);
+  }
+
+  @CheckAbility('update', 'Financial')
+  @CheckModulePermission('financials', 'edit')
+  @Patch('finance-alerts')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: FinanceAlertSettingsDto })
+  async updateFinanceAlertSettings(
+    @Body() dto: UpdateFinanceAlertSettingsDto,
+    @Request() request: RequestWithAbility,
+  ) {
+    const settings = await this.appSettingsService.updateFinanceAlertSettings(
+      dto,
+      request.user?.id,
+    );
+    return mapFinanceAlertSettingsDto(settings);
   }
 }

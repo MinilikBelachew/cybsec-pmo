@@ -57,6 +57,7 @@ import { FxModule } from './fx/fx.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { BudgetModule } from './budget/budget.module';
 import { ChartersModule } from './charters/charters.module';
+import { SowsModule } from './sows/sows.module';
 
 @Module({
   imports: [
@@ -158,6 +159,7 @@ import { ChartersModule } from './charters/charters.module';
     BudgetModule,
     BrandingModule,
     ChartersModule,
+    SowsModule,
     ScheduleModule.forRoot(),
   ],
 })

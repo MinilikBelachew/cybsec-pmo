@@ -21,7 +21,7 @@ export function ProjectInvoicesPanel({ projectId }: ProjectInvoicesPanelProps) {
         </h2>
         <p className="text-xs text-muted-foreground">
           Zoho Books invoices linked to this project (number, amount, due,
-          paid/unpaid/overdue).{" "}
+          Zoho status, collected).{" "}
           <Link
             href="/dashboard/integrations/zoho-books"
             className="underline underline-offset-2 hover:text-foreground"

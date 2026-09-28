@@ -23,6 +23,17 @@ export type {
   UpdateProjectCharterPayload,
   ApproveProjectCharterPayload,
 } from "./types/charter.types";
+export * from "./api/sows.api";
+export type {
+  SowDocument,
+  SowSnapshot,
+  CreateSowPayload,
+  UpdateSowPayload,
+  ApproveSowPayload,
+  ListSowsParams,
+} from "./types/sow.types";
+export * from "./components/workspace/project-sow-panel";
+export * from "./components/list/sows-portfolio-page";
 export type {
   WorkspaceDocument,
   WorkspaceDocumentCategory,

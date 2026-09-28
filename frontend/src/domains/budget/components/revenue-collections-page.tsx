@@ -15,9 +15,8 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { formatProjectBudget } from "@/domains/projects/utils/format-budget";
-import type { InvoicePaymentStatus } from "@/domains/budget/types/budget.types";
 
-type Filter = "all" | InvoicePaymentStatus;
+type Filter = "all" | string;
 
 export function RevenueCollectionsPage() {
   const { canViewFinancials } = useModulePermissions();
@@ -27,9 +26,20 @@ export function RevenueCollectionsPage() {
   );
   const [filter, setFilter] = useState<Filter>("all");
 
+  const zohoStatuses = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of data) {
+      const s = row.status?.trim();
+      if (s) set.add(s);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
   const visible = useMemo(() => {
     if (filter === "all") return data;
-    return data.filter((r) => r.paymentStatus === filter);
+    return data.filter(
+      (r) => r.status.trim().toLowerCase() === filter.toLowerCase(),
+    );
   }, [data, filter]);
 
   const summary = useMemo(() => {
@@ -71,22 +81,22 @@ export function RevenueCollectionsPage() {
         </div>
         <Select
           value={filter}
-          onValueChange={(v) => setFilter((v as Filter) ?? "all")}
+          onValueChange={(v) => setFilter(v ?? "all")}
         >
           <SelectTrigger className="w-[160px]" size="sm">
             <SelectValue>
               {filter === "all"
-                ? "All statuses"
-                : filter.charAt(0).toUpperCase() + filter.slice(1)}
+                ? "All Zoho statuses"
+                : filter}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="paid">Paid</SelectItem>
-            <SelectItem value="unpaid">Unpaid</SelectItem>
-            <SelectItem value="overdue">Overdue</SelectItem>
-            <SelectItem value="partial">Partial</SelectItem>
-            <SelectItem value="other">Other</SelectItem>
+            <SelectItem value="all">All Zoho statuses</SelectItem>
+            {zohoStatuses.map((status) => (
+              <SelectItem key={status} value={status}>
+                {status}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -116,8 +126,9 @@ export function RevenueCollectionsPage() {
         <div>
           <h2 className="text-sm font-bold">Invoices</h2>
           <p className="text-xs text-muted-foreground">
-            Status is normalized to paid / unpaid / overdue (Zoho raw status
-            shown under the badge). Link invoices in Integrations → Zoho Books.
+            Status is the live Zoho Books value (updates on invoice sync).
+            Summary cards still group paid / overdue for totals. Link invoices
+            in Integrations → Zoho Books.
           </p>
         </div>
         {isError ? (

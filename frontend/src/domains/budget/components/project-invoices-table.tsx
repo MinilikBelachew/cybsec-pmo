@@ -15,24 +15,20 @@ function money(amount: string | null | undefined, currency: string) {
   return formatProjectBudget(n, currency);
 }
 
-function paymentTone(status: InvoicePaymentStatus) {
-  if (status === "paid")
+/** Color hint from paymentState; label is always Zoho `status`. */
+function zohoStatusTone(paymentStatus: InvoicePaymentStatus, zohoStatus: string) {
+  const s = zohoStatus.trim().toLowerCase();
+  if (s === "paid" || paymentStatus === "paid")
     return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300";
-  if (status === "overdue")
+  if (s === "overdue" || paymentStatus === "overdue")
     return "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300";
-  if (status === "partial")
+  if (s === "partially_paid" || paymentStatus === "partial")
     return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
-  if (status === "unpaid")
+  if (s === "sent" || s === "unpaid" || paymentStatus === "unpaid")
     return "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300";
+  if (s === "draft")
+    return "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300";
   return "bg-muted text-muted-foreground";
-}
-
-function paymentLabel(status: InvoicePaymentStatus) {
-  if (status === "paid") return "Paid";
-  if (status === "unpaid") return "Unpaid";
-  if (status === "overdue") return "Overdue";
-  if (status === "partial") return "Partial";
-  return "Other";
 }
 
 type ProjectInvoicesTableProps = {
@@ -69,7 +65,7 @@ export function ProjectInvoicesTable({
             ) : null}
             <th className="px-3 py-2 font-semibold">Amount</th>
             <th className="px-3 py-2 font-semibold">Due</th>
-            <th className="px-3 py-2 font-semibold">Status</th>
+            <th className="px-3 py-2 font-semibold">Zoho status</th>
             <th className="px-3 py-2 font-semibold">Collected</th>
             <th className="px-3 py-2 font-semibold">Milestone</th>
           </tr>
@@ -112,14 +108,11 @@ export function ProjectInvoicesTable({
                 <span
                   className={cn(
                     "inline-flex rounded px-1.5 py-0.5 text-[11px] font-semibold capitalize",
-                    paymentTone(row.paymentStatus),
+                    zohoStatusTone(row.paymentStatus, row.status),
                   )}
                 >
-                  {paymentLabel(row.paymentStatus)}
+                  {row.status || "—"}
                 </span>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {row.status}
-                </p>
               </td>
               <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                 {row.collectionDate ?? "—"}

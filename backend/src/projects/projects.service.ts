@@ -60,6 +60,12 @@ import { RoleEnum } from '../roles/roles.enum';
 import { deleteProjectWithDependents } from './project-delete.cascade';
 import { FxService } from '../fx/fx.service';
 import type { UsdConversion } from '../fx/fx.types';
+import {
+  charterMetaFromLatest,
+  parseIncompleteFields,
+  removeIncompleteKeys,
+  type LatestCharterSlice,
+} from '../charters/charter-incomplete.util';
 
 const PROJECT_INCLUDE = {
   department: true,
@@ -69,9 +75,20 @@ const PROJECT_INCLUDE = {
   projectCharters: {
     orderBy: { version: 'desc' as const },
     take: 1,
-    select: { id: true, status: true },
+    select: {
+      id: true,
+      status: true,
+      sourceOrderId: true,
+      incompleteFields: true,
+    },
   },
 } as const;
+
+function latestCharterOf(
+  project: { projectCharters?: LatestCharterSlice[] },
+): LatestCharterSlice | null {
+  return project.projectCharters?.[0] ?? null;
+}
 
 const PM_ROLE_CODES = [RoleEnum.pm, RoleEnum.pmo_lead];
 
@@ -447,16 +464,13 @@ export class ProjectsService {
       const budgetTotal = apiProject.value ?? 0;
       const budgetSpent =
         apiProject.value !== undefined ? resolveBudgetSpent(project.id) : undefined;
-      const latestCharter = (
-        project as typeof project & {
-          projectCharters?: { id: string; status: string }[];
-        }
-      ).projectCharters?.[0];
+      const latestCharter = latestCharterOf(
+        project as { projectCharters?: LatestCharterSlice[] },
+      );
 
       return {
         ...apiProject,
-        charterStatus: latestCharter?.status ?? null,
-        hasPendingCharter: latestCharter?.status === 'Draft',
+        ...charterMetaFromLatest(latestCharter),
         tasksTotal: project._count.tasks,
         tasksDone: doneTaskMap.get(project.id) ?? 0,
         phasesTotal: project._count.phases,
@@ -631,10 +645,13 @@ export class ProjectsService {
       return null;
     }
 
-    return toApiProject(project as ProjectWithRelations, {
-      ability,
-      permissions: this.permissionsFor(caslUser),
-    });
+    return {
+      ...toApiProject(project as ProjectWithRelations, {
+        ability,
+        permissions: this.permissionsFor(caslUser),
+      }),
+      ...charterMetaFromLatest(latestCharterOf(project)),
+    };
   }
 
   async update(
@@ -813,10 +830,57 @@ export class ProjectsService {
         await freezeUnbaselinedTasksForProject(tx, id);
       }
 
+      // Saving project setup confirms Zoho auto-defaults (department, PM, etc.).
+      const setupKeysToClear: string[] = [];
+      if (dto.departmentId !== undefined) setupKeysToClear.push('department');
+      if (dto.primaryPmId !== undefined) setupKeysToClear.push('primaryPm');
+      if (dto.engagementType !== undefined) {
+        setupKeysToClear.push('engagementType');
+      }
+      if (dto.billingModel !== undefined) setupKeysToClear.push('billingModel');
+      if (dto.customerId !== undefined) setupKeysToClear.push('customer');
+
+      if (setupKeysToClear.length > 0) {
+        const draftCharter = await tx.projectCharter.findFirst({
+          where: { projectId: id, status: 'Draft' },
+          orderBy: { version: 'desc' },
+          select: { id: true, incompleteFields: true },
+        });
+        if (draftCharter) {
+          const nextIncomplete = removeIncompleteKeys(
+            parseIncompleteFields(draftCharter.incompleteFields),
+            setupKeysToClear,
+          );
+          await tx.projectCharter.update({
+            where: { id: draftCharter.id },
+            data: {
+              incompleteFields:
+                nextIncomplete.length > 0
+                  ? nextIncomplete
+                  : Prisma.JsonNull,
+            },
+          });
+        }
+      }
+
       return updated;
     });
 
-    return toApiProject(project as ProjectWithRelations, { ability, permissions });
+    // Re-load so charter meta reflects cleared incomplete flags.
+    const refreshed = await this.prisma.project.findFirst({
+      where: { id },
+      include: PROJECT_INCLUDE,
+    });
+
+    return {
+      ...toApiProject((refreshed ?? project) as ProjectWithRelations, {
+        ability,
+        permissions,
+      }),
+      ...charterMetaFromLatest(
+        refreshed ? latestCharterOf(refreshed) : latestCharterOf(project),
+      ),
+    };
   }
 
   async remove(id: string, caslUser: CaslUserContext, ability: AppAbility): Promise<void> {

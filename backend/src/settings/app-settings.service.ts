@@ -9,6 +9,8 @@ import {
   DEFAULT_TIMESHEET_ESCALATION,
   SESSION_SECURITY_LIMITS,
   TIMESHEET_ESCALATION_LIMITS,
+  DEFAULT_FINANCE_ALERT_SETTINGS,
+  FINANCE_ALERT_SETTINGS_LIMITS,
 } from './app-settings.constants';
 import {
   CostFormulaConfig,
@@ -20,6 +22,7 @@ import { UpdateAuditSettingsDto } from './dto/audit-settings.dto';
 import { UpdateAllocationPoliciesDto } from './dto/allocation-policies.dto';
 import { UpdateSessionSecuritySettingsDto } from './dto/session-security.dto';
 import { UpdateTimesheetEscalationSettingsDto } from './dto/timesheet-escalation.dto';
+import { UpdateFinanceAlertSettingsDto } from './dto/finance-alerts.dto';
 import { AllocationRuntimePolicies } from './allocation-policy.types';
 import { AllocationPolicySummaryDto } from '../projects/dto/project-allocation.dto';
 import {
@@ -46,6 +49,11 @@ export type SessionSecurityRuntimeSettings = {
 
 export type TimesheetEscalationRuntimeSettings = {
   escalationDays: number;
+  updatedAt: Date;
+};
+
+export type FinanceAlertRuntimeSettings = {
+  largeUnpaidBalanceThreshold: number;
   updatedAt: Date;
 };
 
@@ -225,6 +233,43 @@ export class AppSettingsService {
     return this.toTimesheetEscalationSettings(row);
   }
 
+  async getFinanceAlertSettings(): Promise<FinanceAlertRuntimeSettings> {
+    const row = await this.ensureSettingsRow();
+    return this.toFinanceAlertSettings(row);
+  }
+
+  async updateFinanceAlertSettings(
+    dto: UpdateFinanceAlertSettingsDto,
+    updatedById?: string,
+  ): Promise<FinanceAlertRuntimeSettings> {
+    const existing = await this.ensureSettingsRow();
+    const threshold =
+      dto.largeUnpaidBalanceThreshold ??
+      Number(existing.largeUnpaidBalanceThreshold);
+
+    if (
+      threshold < FINANCE_ALERT_SETTINGS_LIMITS.largeUnpaidBalanceThreshold.min ||
+      threshold > FINANCE_ALERT_SETTINGS_LIMITS.largeUnpaidBalanceThreshold.max
+    ) {
+      throw new UnprocessableEntityException({
+        status: 422,
+        errors: {
+          largeUnpaidBalanceThreshold: 'largeUnpaidBalanceThresholdOutOfRange',
+        },
+      });
+    }
+
+    const row = await this.prisma.appSetting.update({
+      where: { id: APP_SETTINGS_ID },
+      data: {
+        largeUnpaidBalanceThreshold: threshold,
+        ...(updatedById ? { updatedById } : {}),
+      },
+    });
+
+    return this.toFinanceAlertSettings(row);
+  }
+
   async getCostFormula(): Promise<{
     formula: CostFormulaConfig;
     updatedAt: Date;
@@ -364,6 +409,8 @@ export class AppSettingsService {
         sessionWarningBeforeSec: DEFAULT_SESSION_SECURITY.sessionWarningBeforeSec,
         timesheetEscalationDays:
           DEFAULT_TIMESHEET_ESCALATION.timesheetEscalationDays,
+        largeUnpaidBalanceThreshold:
+          DEFAULT_FINANCE_ALERT_SETTINGS.largeUnpaidBalanceThreshold,
       },
     });
   }
@@ -430,6 +477,13 @@ export class AppSettingsService {
       updatedAt: row.updatedAt,
     };
   }
+
+  private toFinanceAlertSettings(row: AppSetting): FinanceAlertRuntimeSettings {
+    return {
+      largeUnpaidBalanceThreshold: Number(row.largeUnpaidBalanceThreshold),
+      updatedAt: row.updatedAt,
+    };
+  }
 }
 
 export function mapAuditSettingsDto(
@@ -483,6 +537,15 @@ export function mapTimesheetEscalationSettingsDto(
 ) {
   return {
     escalationDays: settings.escalationDays,
+    updatedAt: settings.updatedAt.toISOString(),
+  };
+}
+
+export function mapFinanceAlertSettingsDto(
+  settings: FinanceAlertRuntimeSettings,
+) {
+  return {
+    largeUnpaidBalanceThreshold: settings.largeUnpaidBalanceThreshold,
     updatedAt: settings.updatedAt.toISOString(),
   };
 }

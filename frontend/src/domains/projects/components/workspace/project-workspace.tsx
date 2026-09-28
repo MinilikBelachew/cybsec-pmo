@@ -67,6 +67,7 @@ import {
   ScrollText,
   Users2,
   FolderOpen,
+  FileText,
   Milestone,
   CheckSquare,
   MessageSquareText,
@@ -74,6 +75,7 @@ import {
   CircleAlert,
   Wallet,
   FileSignature,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
@@ -101,8 +103,14 @@ import { ImportMppDialog } from "../mpp/import-mpp-dialog";
 import { ProgressReviewInbox } from "../tasks/progress-review-inbox";
 import { ProjectDocumentsPanel } from "../documents/project-documents-panel";
 import { ProjectCharterPanel } from "./project-charter-panel";
+import { ProjectSowPanel } from "./project-sow-panel";
 import { ActionPointsPanel } from "./action-points-panel";
 import { MeetingsPanel } from "./meetings-panel";
+import { CreateProjectSheet } from "../list/create-project-sheet";
+import {
+  incompleteFieldLabel,
+  isProjectSetupIncompleteKey,
+} from "../../utils/incomplete-fields";
 import {
   ProjectIssuesPanel,
   ProjectRisksPanel,
@@ -134,6 +142,7 @@ type View =
   | "team"
   | "docs"
   | "charter"
+  | "sow"
   | "actions"
   | "meetings"
   | "risks"
@@ -192,6 +201,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "team", label: "Team", icon: Users2 },
   { id: "docs", label: "Documents", icon: FolderOpen },
   { id: "charter", label: "Charter", icon: FileSignature },
+  { id: "sow", label: "SOW", icon: FileText },
   { id: "actions", label: "Action points", icon: CheckSquare },
   { id: "meetings", label: "Meetings & MoM", icon: MessageSquareText },
   { id: "risks", label: "Risks", icon: AlertTriangle },
@@ -299,7 +309,7 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
-  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam, canViewFinancials, canEditFinancials, canViewCharter, canEditCharter, canApproveCharter } =
+  const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam, canViewFinancials, canEditFinancials, canViewCharter, canEditCharter, canApproveCharter, canViewSow, canEditSow, canApproveSow } =
     useModulePermissions();
   const canManageProjectTeam = canEditProjects && canEditTeam;
   /** PM / PMO / team lead / super admin — engineers only have task edit (status/progress), not create. */
@@ -599,6 +609,9 @@ export function ProjectWorkspace() {
     if (!canViewCharter) {
       base = base.filter((view) => view.id !== "charter");
     }
+    if (!canViewSow) {
+      base = base.filter((view) => view.id !== "sow");
+    }
     const ordered = orderViewsForMethodology(base, project?.methodology);
     if (user?.backendRoleCode !== "engineer") return ordered;
     return ordered.map((view) =>
@@ -606,7 +619,7 @@ export function ProjectWorkspace() {
         ? { ...view, label: "Minutes of Meeting" }
         : view,
     );
-  }, [canViewProjectAudit, canViewFinancials, canViewCharter, project?.methodology, user?.backendRoleCode]);
+  }, [canViewProjectAudit, canViewFinancials, canViewCharter, canViewSow, project?.methodology, user?.backendRoleCode]);
 
   const methodology = resolveMethodology(project?.methodology);
   const methodologyDefaultView = getMethodologyDefaultView(methodology);
@@ -624,7 +637,8 @@ export function ProjectWorkspace() {
       VIEWS.some((v) => v.id === viewParam) &&
       (viewParam !== "audit" || canViewProjectAudit) &&
       (viewParam !== "financials" || canViewFinancials) &&
-      (viewParam !== "charter" || canViewCharter);
+      (viewParam !== "charter" || canViewCharter) &&
+      (viewParam !== "sow" || canViewSow);
     setActiveView(canOpenView ? (viewParam as View) : methodologyDefaultView);
   }, [
     project?.id,
@@ -634,11 +648,14 @@ export function ProjectWorkspace() {
     canViewProjectAudit,
     canViewFinancials,
     canViewCharter,
+    canViewSow,
   ]);
 
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
 
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [editProjectOpen, setEditProjectOpen] = useState(false);
+  const [incompleteBannerDismissed, setIncompleteBannerDismissed] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<Status>("To_Do");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskDetailDefaultTab, setTaskDetailDefaultTab] = useState<"comments" | "subtasks" | undefined>(undefined);
@@ -646,6 +663,10 @@ export function ProjectWorkspace() {
   const [parentTaskId, setParentTaskId] = useState<string | null>(null);
   const [newTaskStartDate, setNewTaskStartDate] = useState<string | null>(null);
   const [newTaskEndDate, setNewTaskEndDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIncompleteBannerDismissed(false);
+  }, [id]);
 
   useEffect(() => {
     if (activeView === "audit" && !canViewProjectAudit) {
@@ -681,7 +702,9 @@ export function ProjectWorkspace() {
       const canOpen =
         isValidView &&
         (viewParam !== "audit" || canViewProjectAudit) &&
-        (viewParam !== "financials" || canViewFinancials);
+        (viewParam !== "financials" || canViewFinancials) &&
+        (viewParam !== "charter" || canViewCharter) &&
+        (viewParam !== "sow" || canViewSow);
       if (canOpen) {
         if (project?.id) {
           methodologyAppliedFor.current = `${project.id}:${methodology}`;
@@ -729,6 +752,8 @@ export function ProjectWorkspace() {
     applyLeaveBackup,
     canViewProjectAudit,
     canViewFinancials,
+    canViewCharter,
+    canViewSow,
     project?.id,
     methodology,
   ]);
@@ -1100,7 +1125,59 @@ export function ProjectWorkspace() {
         />
       )}
       {!isFullscreen && (
-        <div className="px-5 pt-3">
+        <div className="px-5 pt-3 space-y-2">
+          {(() => {
+            const incomplete = project.incompleteFields ?? [];
+            if (incomplete.length === 0 || incompleteBannerDismissed) return null;
+            return (
+              <div className="relative rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 pe-9 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <button
+                  type="button"
+                  onClick={() => setIncompleteBannerDismissed(true)}
+                  className="absolute end-2 top-2 rounded-md p-1 text-amber-800/70 hover:bg-amber-100 hover:text-amber-950 dark:text-amber-200/70 dark:hover:bg-amber-900/50 dark:hover:text-amber-100"
+                  aria-label="Dismiss incomplete data banner"
+                  title="Dismiss"
+                >
+                  <X className="size-3.5" />
+                </button>
+                <p className="text-[11px] font-semibold text-amber-900 dark:text-amber-200">
+                  Incomplete data — finish before charter approval
+                  {project.fromZohoBooks
+                    ? " (Zoho Books)"
+                    : project.crmOpportunityId
+                      ? " (Zoho CRM)"
+                      : ""}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {incomplete.map((field) => {
+                    const isSetup = isProjectSetupIncompleteKey(field);
+                    return (
+                      <button
+                        key={field}
+                        type="button"
+                        onClick={() => {
+                          if (isSetup) {
+                            if (canEditProjects) setEditProjectOpen(true);
+                            return;
+                          }
+                          if (canViewCharter) setActiveView("charter");
+                        }}
+                        className="rounded-md border border-amber-300/80 bg-white/70 px-2 py-0.5 text-[11px] font-medium text-amber-950 hover:bg-white dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
+                        title={
+                          isSetup
+                            ? "Open Edit project to confirm"
+                            : "Open Charter tab"
+                        }
+                      >
+                        {incompleteFieldLabel(field)}
+                        {isSetup ? " · Edit project" : " · Charter"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
           {activeView !== "team" && leaveImpactSummary && leaveImpactSummary.count > 0 && (
             <p className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
               {leaveImpactSummary.count} leave conflict
@@ -1595,6 +1672,16 @@ export function ProjectWorkspace() {
           </div>
         )}
 
+        {activeView === "sow" && canViewSow && (
+          <div className="h-full min-h-0">
+            <ProjectSowPanel
+              projectId={id}
+              canEdit={canEditSow}
+              canApprove={canApproveSow}
+            />
+          </div>
+        )}
+
         {activeView === "actions" && (
           <div className="h-full min-h-0">
             <ActionPointsPanel
@@ -1665,6 +1752,12 @@ export function ProjectWorkspace() {
         projectName={project.name}
         defaultStartDate={newTaskStartDate}
         defaultEndDate={newTaskEndDate}
+      />
+
+      <CreateProjectSheet
+        open={editProjectOpen}
+        onClose={() => setEditProjectOpen(false)}
+        project={project}
       />
 
       <TaskDetailPanel

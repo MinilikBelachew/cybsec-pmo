@@ -18,6 +18,7 @@ import type {
   ZohoTestResult,
   ZohoBooksStatusResponse,
   ZohoInvoiceSyncResult,
+  ZohoInvoiceReconcileResult,
   ZohoInvoiceRow,
   ZohoFailedSyncRecordsQuery,
   ZohoFailedSyncRecordsResponse,
@@ -302,6 +303,13 @@ export const integrationsApi = api.injectEndpoints({
       ],
     }),
 
+    reconcileZohoInvoices: builder.mutation<ZohoInvoiceReconcileResult, void>({
+      query: () => ({
+        url: "/integrations/zoho/books/reconcile",
+        method: "POST",
+      }),
+    }),
+
     getZohoInvoices: builder.query<ZohoInvoiceRow[], { limit?: number } | void>({
       query: (params) => ({
         url: "/integrations/zoho/books/invoices",
@@ -412,6 +420,7 @@ export const {
   useGetZohoBooksStatusQuery,
   useTestZohoBooksConnectionMutation,
   useSyncZohoInvoicesMutation,
+  useReconcileZohoInvoicesMutation,
   useGetZohoInvoicesQuery,
   useLinkZohoInvoiceMutation,
   useLinkZohoInvoiceMilestoneMutation,

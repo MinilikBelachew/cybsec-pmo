@@ -11,6 +11,7 @@ import {
   resolveZohoFailedSyncRecord,
   upsertZohoFailedSyncRecord,
 } from '../utils/failed-sync-record.util';
+import { ZohoFailedSyncFinanceAlertService } from '../zoho-failed-sync-finance-alert.service';
 
 export type ZohoBooksInvoiceRecord = {
   invoice_id: string | number;
@@ -39,6 +40,42 @@ export type ZohoInvoiceByIdResult = {
   message: string;
 };
 
+export type ZohoInvoiceReconcileIssue = {
+  kind:
+    | 'missing_in_pmo'
+    | 'missing_in_books'
+    | 'field_mismatch'
+    | 'unlinked';
+  zohoInvoiceId: string;
+  invoiceNumber: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  details: string;
+  books?: {
+    amount: string | null;
+    status: string | null;
+    dueDate: string | null;
+    collectionDate: string | null;
+  };
+  pmo?: {
+    amount: string | null;
+    status: string | null;
+    dueDate: string | null;
+    collectionDate: string | null;
+  };
+};
+
+export type ZohoInvoiceReconcileResult = {
+  booksCount: number;
+  pmoCount: number;
+  matched: number;
+  missingInPmo: number;
+  missingInBooks: number;
+  fieldMismatch: number;
+  unlinked: number;
+  issues: ZohoInvoiceReconcileIssue[];
+};
+
 @Injectable()
 export class InvoiceSyncService {
   private readonly logger = new Logger(InvoiceSyncService.name);
@@ -46,6 +83,7 @@ export class InvoiceSyncService {
   constructor(
     private readonly zohoHttp: ZohoHttpClient,
     private readonly prisma: PrismaService,
+    private readonly failedSyncFinanceAlerts: ZohoFailedSyncFinanceAlertService,
   ) {}
 
   async syncInvoices(): Promise<ZohoInvoiceSyncResult> {
@@ -71,6 +109,171 @@ export class InvoiceSyncService {
       upserted,
       unmatched,
       failed,
+    };
+  }
+
+  /**
+   * Compare live Zoho Books invoices to PMO rows (M5.4-04 reconciliation).
+   * Does not write — reports missing / field drift / unlinked only.
+   */
+  async reconcileInvoices(): Promise<ZohoInvoiceReconcileResult> {
+    const books =
+      await this.zohoHttp.booksGetAllInvoices<ZohoBooksInvoiceRecord>();
+    const pmoRows = await this.prisma.invoice.findMany({
+      include: {
+        project: { select: { id: true, name: true } },
+      },
+    });
+
+    const pmoByZohoId = new Map(
+      pmoRows.map((row) => [row.zohoInvoiceId, row] as const),
+    );
+    const booksIds = new Set<string>();
+    const issues: ZohoInvoiceReconcileIssue[] = [];
+    let matched = 0;
+
+    for (const inv of books) {
+      const zohoInvoiceId = String(inv.invoice_id ?? '').trim();
+      if (!zohoInvoiceId) continue;
+      booksIds.add(zohoInvoiceId);
+
+      const booksAmount =
+        this.parseAmount(inv.total) ?? this.parseAmount(inv.balance);
+      const booksStatus = this.normalizeStatus(inv.status);
+      const booksDue =
+        this.parseDate(inv.due_date) ?? this.parseDate(inv.date);
+      const booksCollection = this.parseDate(inv.last_payment_date);
+      const invoiceNumber =
+        (inv.invoice_number?.trim() || zohoInvoiceId).slice(0, 100) || null;
+
+      const pmo = pmoByZohoId.get(zohoInvoiceId);
+      if (!pmo) {
+        issues.push({
+          kind: 'missing_in_pmo',
+          zohoInvoiceId,
+          invoiceNumber,
+          projectId: null,
+          projectName: null,
+          details: 'Present in Zoho Books but not in PMO — run Sync invoices',
+          books: {
+            amount: booksAmount != null ? String(booksAmount) : null,
+            status: booksStatus,
+            dueDate: booksDue ? booksDue.toISOString().slice(0, 10) : null,
+            collectionDate: booksCollection
+              ? booksCollection.toISOString().slice(0, 10)
+              : null,
+          },
+        });
+        continue;
+      }
+
+      const diffs: string[] = [];
+      const pmoAmount = Number(pmo.amount.toString());
+      if (
+        booksAmount != null &&
+        Number.isFinite(pmoAmount) &&
+        Math.abs(pmoAmount - booksAmount) > 0.01
+      ) {
+        diffs.push(
+          `amount Books=${booksAmount} PMO=${pmo.amount.toString()}`,
+        );
+      }
+      if (booksStatus !== pmo.status) {
+        diffs.push(`status Books=${booksStatus} PMO=${pmo.status}`);
+      }
+      const pmoDue = pmo.dueDate.toISOString().slice(0, 10);
+      const booksDueIso = booksDue
+        ? booksDue.toISOString().slice(0, 10)
+        : null;
+      if (booksDueIso && booksDueIso !== pmoDue) {
+        diffs.push(`dueDate Books=${booksDueIso} PMO=${pmoDue}`);
+      }
+      const pmoCollection = pmo.collectionDate
+        ? pmo.collectionDate.toISOString().slice(0, 10)
+        : null;
+      const booksCollectionIso = booksCollection
+        ? booksCollection.toISOString().slice(0, 10)
+        : null;
+      if (booksCollectionIso !== pmoCollection) {
+        diffs.push(
+          `collectionDate Books=${booksCollectionIso ?? '—'} PMO=${pmoCollection ?? '—'}`,
+        );
+      }
+
+      if (diffs.length > 0) {
+        issues.push({
+          kind: 'field_mismatch',
+          zohoInvoiceId,
+          invoiceNumber: pmo.invoiceNumber,
+          projectId: pmo.projectId,
+          projectName: pmo.project?.name ?? null,
+          details: diffs.join('; '),
+          books: {
+            amount: booksAmount != null ? String(booksAmount) : null,
+            status: booksStatus,
+            dueDate: booksDueIso,
+            collectionDate: booksCollectionIso,
+          },
+          pmo: {
+            amount: pmo.amount.toString(),
+            status: pmo.status,
+            dueDate: pmoDue,
+            collectionDate: pmoCollection,
+          },
+        });
+      } else {
+        matched += 1;
+      }
+
+      if (!pmo.projectId) {
+        issues.push({
+          kind: 'unlinked',
+          zohoInvoiceId,
+          invoiceNumber: pmo.invoiceNumber,
+          projectId: null,
+          projectName: null,
+          details: 'In PMO but not linked to a project',
+          pmo: {
+            amount: pmo.amount.toString(),
+            status: pmo.status,
+            dueDate: pmoDue,
+            collectionDate: pmoCollection,
+          },
+        });
+      }
+    }
+
+    for (const pmo of pmoRows) {
+      if (booksIds.has(pmo.zohoInvoiceId)) continue;
+      issues.push({
+        kind: 'missing_in_books',
+        zohoInvoiceId: pmo.zohoInvoiceId,
+        invoiceNumber: pmo.invoiceNumber,
+        projectId: pmo.projectId,
+        projectName: pmo.project?.name ?? null,
+        details:
+          'Present in PMO but not returned by Zoho Books list (deleted/voided or out of sync)',
+        pmo: {
+          amount: pmo.amount.toString(),
+          status: pmo.status,
+          dueDate: pmo.dueDate.toISOString().slice(0, 10),
+          collectionDate: pmo.collectionDate
+            ? pmo.collectionDate.toISOString().slice(0, 10)
+            : null,
+        },
+      });
+    }
+
+    return {
+      booksCount: booksIds.size,
+      pmoCount: pmoRows.length,
+      matched,
+      missingInPmo: issues.filter((i) => i.kind === 'missing_in_pmo').length,
+      missingInBooks: issues.filter((i) => i.kind === 'missing_in_books')
+        .length,
+      fieldMismatch: issues.filter((i) => i.kind === 'field_mismatch').length,
+      unlinked: issues.filter((i) => i.kind === 'unlinked').length,
+      issues: issues.slice(0, 500),
     };
   }
 
@@ -262,7 +465,7 @@ export class InvoiceSyncService {
     errorMsg: string,
     payload: unknown,
   ): Promise<void> {
-    await upsertZohoFailedSyncRecord(this.prisma, {
+    const outcome = await upsertZohoFailedSyncRecord(this.prisma, {
       integration: ZOHO_BOOKS_INTEGRATION,
       entityType: ZOHO_ENTITY_TYPE.INVOICE,
       entityId,
@@ -270,5 +473,6 @@ export class InvoiceSyncService {
       errorMsg,
       payload: payload as Prisma.InputJsonValue,
     });
+    await this.failedSyncFinanceAlerts.maybeNotify(outcome);
   }
 }

@@ -50,4 +50,13 @@ export const TIMESHEET_ESCALATION_LIMITS = {
   escalationDays: { min: 1, max: 30 },
 } as const;
 
+/** Default large unpaid balance alert threshold (invoice currency units). 0 disables. */
+export const DEFAULT_FINANCE_ALERT_SETTINGS = {
+  largeUnpaidBalanceThreshold: 10_000,
+} as const;
+
+export const FINANCE_ALERT_SETTINGS_LIMITS = {
+  largeUnpaidBalanceThreshold: { min: 0, max: 999_999_999 },
+} as const;
+
 export { DEFAULT_COST_FORMULA } from './cost-formula.constants';

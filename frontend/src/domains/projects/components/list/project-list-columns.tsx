@@ -107,13 +107,30 @@ export function createProjectListColumns({
               {status.label}
             </span>
             {project.crmOpportunityId ? (
-              <span className="inline-flex w-fit rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-800">
+              <span className="inline-flex w-fit rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-800 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200">
                 From Zoho
+              </span>
+            ) : null}
+            {project.fromZohoBooks ? (
+              <span className="inline-flex w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-800 dark:border-violet-800/60 dark:bg-violet-950/40 dark:text-violet-200">
+                From Zoho Books
               </span>
             ) : null}
             {project.hasPendingCharter || project.charterStatus === "Draft" ? (
               <span className="inline-flex w-fit rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-900">
                 Charter pending
+              </span>
+            ) : null}
+            {project.hasIncompleteCharterData ||
+            (project.incompleteFields && project.incompleteFields.length > 0) ? (
+              <span
+                className="inline-flex w-fit rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-900"
+                title={`${project.incompleteFields?.length ?? 0} field(s) to complete`}
+              >
+                Incomplete data
+                {project.incompleteFields && project.incompleteFields.length > 0
+                  ? ` (${project.incompleteFields.length})`
+                  : ""}
               </span>
             ) : null}
           </div>
