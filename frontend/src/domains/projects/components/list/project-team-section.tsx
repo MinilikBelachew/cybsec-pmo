@@ -12,6 +12,7 @@ import {
   useGetTeamCandidatesQuery,
   useGetProjectTeamQuery,
   useGetProjectBillingRolesQuery,
+  useGetCustomerBillingRolesQuery,
   useRemoveProjectTeamMemberMutation,
   useUpdateProjectTeamMemberMutation,
   useSetAllocationBackupMutation,
@@ -54,6 +55,8 @@ import { useDebounce } from "@/shared/hooks/use-debounce";
 
 interface ProjectTeamSectionProps {
   projectId?: string | null;
+  /** Used to load Keka billing roles before a project exists (create sheet). */
+  customerId?: string | null;
   departmentId?: string;
   startDate?: string | Date | null;
   endDate?: string | Date | null;
@@ -171,8 +174,10 @@ function buildPendingMember(
   config: DraftMemberConfig,
   startDate?: string | Date | null,
   endDate?: string | Date | null,
+  requireBillingRole = false,
 ): PendingTeamMember | null {
   if (!config.role.trim()) return null;
+  if (requireBillingRole && !config.kekaBillingRoleId) return null;
 
   const hours = Number(config.hoursPerWeek);
   const percent = Number(config.percentPerWeek);
@@ -220,6 +225,7 @@ function buildDraftMembers(
   draftConfig: Record<string, DraftMemberConfig>,
   startDate?: string | Date | null,
   endDate?: string | Date | null,
+  requireBillingRole = false,
 ): PendingTeamMember[] {
   const members: PendingTeamMember[] = [];
 
@@ -227,7 +233,13 @@ function buildDraftMembers(
     const config = draftConfig[candidate.employeeId];
     if (!config) continue;
 
-    const member = buildPendingMember(candidate, config, startDate, endDate);
+    const member = buildPendingMember(
+      candidate,
+      config,
+      startDate,
+      endDate,
+      requireBillingRole,
+    );
     if (member) members.push(member);
   }
 
@@ -272,6 +284,8 @@ function BillingRoleSelect({
   placeholder?: string;
   className?: string;
 }) {
+  const selected = roles.find((role) => role.id === value);
+
   return (
     <Select
       value={value || undefined}
@@ -281,7 +295,9 @@ function BillingRoleSelect({
       }}
     >
       <SelectTrigger className={cn("h-9 w-full", className)}>
-        <SelectValue placeholder={placeholder} />
+        <SelectValue placeholder={placeholder}>
+          {selected ? selected.name : undefined}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {roles.map((role) => (
@@ -351,6 +367,7 @@ export const ProjectTeamSection = forwardRef<
 >(function ProjectTeamSection(
   {
     projectId,
+    customerId,
     departmentId,
     startDate,
     endDate,
@@ -430,11 +447,19 @@ export const ProjectTeamSection = forwardRef<
   const { data: designationOptionsData } = useGetDesignationOptionsQuery();
   const designationOptions = designationOptionsData?.options ?? [];
   const { data: departments = [] } = useGetDepartmentsQuery();
-  const { data: billingRolesData } = useGetProjectBillingRolesQuery(projectId ?? "", {
-    skip: !projectId,
-  });
-  const billingRoles = billingRolesData?.rows ?? [];
-  const requireBillingRole = Boolean(projectId) && billingRoles.length > 0;
+  const { data: projectBillingRolesData } = useGetProjectBillingRolesQuery(
+    projectId ?? "",
+    { skip: !projectId },
+  );
+  const { data: customerBillingRolesData } = useGetCustomerBillingRolesQuery(
+    customerId ?? "",
+    { skip: !customerId || Boolean(projectId) },
+  );
+  const billingRoles =
+    (projectId
+      ? projectBillingRolesData?.rows
+      : customerBillingRolesData?.rows) ?? [];
+  const requireBillingRole = billingRoles.length > 0;
   const thresholdMode = allocationPolicy?.thresholdMode ?? "warn";
   const departmentStaffingMode = allocationPolicy?.departmentStaffingMode ?? "off";
   const staffingBlocksCandidates = departmentStaffingMode === "block";
@@ -519,10 +544,16 @@ export const ProjectTeamSection = forwardRef<
             overrideReason: bulkOverrideReason.trim() || config.overrideReason,
           };
         }
-        return buildDraftMembers(checkedCandidates, configs, startDate, endDate);
+        return buildDraftMembers(
+          checkedCandidates,
+          configs,
+          startDate,
+          endDate,
+          requireBillingRole,
+        );
       },
     }),
-    [bulkOverrideReason, checkedCandidates, draftConfig, startDate, endDate],
+    [bulkOverrideReason, checkedCandidates, draftConfig, startDate, endDate, requireBillingRole],
   );
 
   const toggleCandidate = (candidate: TeamCandidate, checked: boolean) => {
@@ -586,6 +617,7 @@ export const ProjectTeamSection = forwardRef<
       configs,
       startDate,
       endDate,
+      requireBillingRole,
     );
     if (draftMembers.length === 0) return;
 
@@ -652,7 +684,12 @@ export const ProjectTeamSection = forwardRef<
     patch: Partial<
       Pick<
         PendingTeamMember,
-        "role" | "allocationMode" | "hoursPerWeek" | "percentPerWeek" | "overrideReason"
+        | "role"
+        | "kekaBillingRoleId"
+        | "allocationMode"
+        | "hoursPerWeek"
+        | "percentPerWeek"
+        | "overrideReason"
       >
     >,
   ) => {
@@ -1790,9 +1827,17 @@ export const ProjectTeamSection = forwardRef<
             {projectId ? "To be added on save" : "Team for new project"}
           </p>
           <div className="overflow-hidden rounded-lg border border-primary/20">
-            <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px] gap-2 border-b border-primary/20 bg-primary/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div
+              className={cn(
+                "grid gap-2 border-b border-primary/20 bg-primary/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground",
+                requireBillingRole
+                  ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_88px_40px]"
+                  : "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px]",
+              )}
+            >
               <span>Employee</span>
               <span>Project role</span>
+              {requireBillingRole ? <span>Billing role</span> : null}
               <span>Type</span>
               <span>Allocation</span>
               <span />
@@ -1802,7 +1847,14 @@ export const ProjectTeamSection = forwardRef<
                 key={member.employeeId}
                 className="space-y-2 border-b border-primary/10 bg-primary/5 px-3 py-2 last:border-b-0"
               >
-                <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px] items-start gap-2">
+                <div
+                  className={cn(
+                    "grid items-start gap-2",
+                    requireBillingRole
+                      ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_88px_40px]"
+                      : "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_88px_40px]",
+                  )}
+                >
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
                       <EmployeeAvatar
@@ -1836,6 +1888,26 @@ export const ProjectTeamSection = forwardRef<
                   ) : (
                     <p className="self-start text-sm">{member.role}</p>
                   )}
+                  {requireBillingRole ? (
+                    canEdit ? (
+                      <div className="min-w-0 self-start">
+                        <BillingRoleSelect
+                          value={member.kekaBillingRoleId}
+                          roles={billingRoles}
+                          onChange={(role) =>
+                            handleUpdatePending(member.employeeId, {
+                              kekaBillingRoleId: role.id,
+                            })
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <p className="self-start truncate text-sm">
+                        {billingRoles.find((role) => role.id === member.kekaBillingRoleId)
+                          ?.name ?? "—"}
+                      </p>
+                    )
+                  ) : null}
                   {canEdit ? (
                     <AllocationModeToggle
                       value={member.allocationMode}

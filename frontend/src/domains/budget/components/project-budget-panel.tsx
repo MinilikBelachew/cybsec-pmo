@@ -3,9 +3,12 @@
 import { useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import {
+  ListOrdered,
   Loader2,
+  PenLine,
   Plus,
-  Trash2,
+  Scale,
+  Users,
   Wallet,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
@@ -19,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { DeleteDialog } from "@/shared/ui/delete-dialog";
 import { cn } from "@/shared/utils/cn";
 import { formatProjectBudget } from "@/domains/projects/utils/format-budget";
 import { DataTable } from "@/shared/components/data-table";
@@ -36,6 +40,11 @@ import {
   useApproveBudgetAdjustmentMutation,
   useRejectBudgetAdjustmentMutation,
 } from "@/domains/budget";
+import {
+  createAdjustmentColumns,
+  createCostLineColumns,
+  createRevisionColumns,
+} from "@/domains/budget/components/project-budget-columns";
 import { createResourceCostColumns } from "@/domains/budget/components/resource-cost-columns";
 import { useModulePermissions } from "@/domains/auth/hooks/use-module-permissions";
 
@@ -44,15 +53,15 @@ type ProjectBudgetPanelProps = {
   canEdit: boolean;
 };
 
+type FinanceTab = "budget" | "cost-lines" | "adjustments" | "resources";
+
 function money(amount: number | null | undefined, currency: string) {
   if (amount == null) return "—";
   return formatProjectBudget(amount, currency);
 }
 
-function statusTone(status: string) {
-  if (status === "Approved") return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300";
-  if (status === "Rejected") return "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300";
-  return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+function RequiredMark() {
+  return <span className="text-destructive font-bold">*</span>;
 }
 
 export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelProps) {
@@ -104,6 +113,10 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
   }>({});
   const [showRevisionForm, setShowRevisionForm] = useState(false);
   const [showLineForm, setShowLineForm] = useState(false);
+  const [linePendingDelete, setLinePendingDelete] = useState<{
+    id: string;
+    itemName: string;
+  } | null>(null);
   const [showAdjForm, setShowAdjForm] = useState(false);
   const [adjTarget, setAdjTarget] = useState<string>("Baseline");
   const [adjLineId, setAdjLineId] = useState("");
@@ -114,10 +127,22 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
     amount?: string;
     reason?: string;
   }>({});
+  const [financeTab, setFinanceTab] = useState<FinanceTab>("budget");
 
   const pendingRevision = useMemo(
     () => data?.revisions.find((r) => r.status === "Pending") ?? null,
     [data?.revisions],
+  );
+
+  const pendingRevisionCount = useMemo(
+    () => data?.revisions.filter((r) => r.status === "Pending").length ?? 0,
+    [data?.revisions],
+  );
+
+  const pendingAdjustmentCount = useMemo(
+    () =>
+      data?.adjustments?.filter((a) => a.status === "Pending").length ?? 0,
+    [data?.adjustments],
   );
 
   const selectedAdjLine = useMemo(
@@ -152,6 +177,83 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
     approvingAdj ||
     rejectingAdj;
 
+  const currency = data?.currency ?? "USD";
+
+  const revisionColumns = useMemo(
+    () =>
+      createRevisionColumns({
+        currency,
+        canEdit,
+        busy,
+        onApprove: async (revisionId) => {
+          try {
+            await approveRevision({ projectId, revisionId }).unwrap();
+            toast.success("Revision approved");
+          } catch (err) {
+            toast.error(
+              (err as { data?: { message?: string } })?.data?.message ??
+                "Approve failed",
+            );
+          }
+        },
+        onReject: async (revisionId) => {
+          try {
+            await rejectRevision({ projectId, revisionId }).unwrap();
+            toast.success("Revision rejected");
+          } catch (err) {
+            toast.error(
+              (err as { data?: { message?: string } })?.data?.message ??
+                "Reject failed",
+            );
+          }
+        },
+      }),
+    [currency, canEdit, busy, approveRevision, rejectRevision, projectId],
+  );
+
+  const costLineColumns = useMemo(
+    () =>
+      createCostLineColumns({
+        currency,
+        canEdit,
+        busy,
+        onDelete: (line) => setLinePendingDelete(line),
+      }),
+    [currency, canEdit, busy],
+  );
+
+  const adjustmentColumns = useMemo(
+    () =>
+      createAdjustmentColumns({
+        currency,
+        canEdit,
+        busy,
+        onApprove: async (adjustmentId) => {
+          try {
+            await approveAdjustment({ projectId, adjustmentId }).unwrap();
+            toast.success("Adjustment approved");
+          } catch (err) {
+            toast.error(
+              (err as { data?: { message?: string } })?.data?.message ??
+                "Approve failed",
+            );
+          }
+        },
+        onReject: async (adjustmentId) => {
+          try {
+            await rejectAdjustment({ projectId, adjustmentId }).unwrap();
+            toast.success("Adjustment rejected");
+          } catch (err) {
+            toast.error(
+              (err as { data?: { message?: string } })?.data?.message ??
+                "Reject failed",
+            );
+          }
+        },
+      }),
+    [currency, canEdit, busy, approveAdjustment, rejectAdjustment, projectId],
+  );
+
   if (isLoading) {
     return (
       <div className="py-12 flex justify-center text-muted-foreground gap-2 text-sm">
@@ -169,7 +271,6 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
     );
   }
 
-  const currency = data.currency;
   const hasBaseline = Boolean(data.budgetId);
 
   const onCreateBaseline = async () => {
@@ -319,7 +420,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
             <Wallet className="size-4" /> Financials
           </h2>
           <p className="text-xs text-muted-foreground">
-            Approved baseline, revisions, expected vs actual, and cost lines.
+            Project budget, cost lines, adjustments, and resource costs.
           </p>
         </div>
       </div>
@@ -365,7 +466,62 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
         ))}
       </div>
 
-      {!hasBaseline ? (
+      <div className="flex overflow-x-auto border-b border-border gap-1">
+        {(
+          [
+            {
+              id: "budget" as const,
+              label: "Budget",
+              icon: Scale,
+              count: pendingRevisionCount,
+            },
+            {
+              id: "cost-lines" as const,
+              label: "Cost lines",
+              icon: ListOrdered,
+              count: data.lineItems.length,
+            },
+            {
+              id: "adjustments" as const,
+              label: "Adjustments",
+              icon: PenLine,
+              count: pendingAdjustmentCount,
+            },
+            {
+              id: "resources" as const,
+              label: "Resource costs",
+              icon: Users,
+              count: resourceRows.length,
+            },
+          ] as const
+        ).map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setFinanceTab(tab.id)}
+              className={cn(
+                "px-3 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex shrink-0 items-center gap-1.5",
+                financeTab === tab.id
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icon className="size-3.5" />
+              {tab.label}
+              {tab.count > 0 ? (
+                <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                  {tab.count}
+                </Badge>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      {financeTab === "budget" && (
+      !hasBaseline ? (
         <div className="rounded-lg border border-dashed border-slate-300 dark:border-white/15 p-4 space-y-3">
           <div>
             <h3 className="text-sm font-semibold">Approve baseline</h3>
@@ -377,7 +533,9 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
           {canEdit ? (
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1">
-                <Label htmlFor="baseline-amount">Amount ({currency})</Label>
+                <Label htmlFor="baseline-amount">
+                  Amount ({currency}) <RequiredMark />
+                </Label>
                 <Input
                   id="baseline-amount"
                   type="number"
@@ -442,7 +600,9 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
             <div className="rounded-lg border border-slate-200/70 dark:border-white/[0.08] p-3 space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label htmlFor="rev-amount">Revised amount ({currency})</Label>
+                  <Label htmlFor="rev-amount">
+                    Revised amount ({currency}) <RequiredMark />
+                  </Label>
                   <Input
                     id="rev-amount"
                     type="number"
@@ -463,7 +623,9 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                   ) : null}
                 </div>
                 <div className="space-y-1 sm:col-span-2">
-                  <Label htmlFor="rev-reason">Reason</Label>
+                  <Label htmlFor="rev-reason">
+                    Reason <RequiredMark />
+                  </Label>
                   <textarea
                     id="rev-reason"
                     value={revisionReason}
@@ -503,105 +665,30 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
             </div>
           )}
 
-          {data.revisions.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">No revisions yet.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200/70 dark:border-white/[0.08]">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/40 text-muted-foreground">
-                  <tr>
-                    <th className="text-left font-semibold px-3 py-2">Amount</th>
-                    <th className="text-left font-semibold px-3 py-2">Reason</th>
-                    <th className="text-left font-semibold px-3 py-2">Status</th>
-                    <th className="text-left font-semibold px-3 py-2">Date</th>
-                    <th className="text-right font-semibold px-3 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.revisions.map((rev) => (
-                    <tr
-                      key={rev.id}
-                      className="border-t border-slate-200/60 dark:border-white/[0.06]"
-                    >
-                      <td className="px-3 py-2 tabular-nums font-medium">
-                        {money(rev.revisedAmount, currency)}
-                      </td>
-                      <td className="px-3 py-2 max-w-[240px] truncate" title={rev.reason}>
-                        {rev.reason}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Badge
-                          variant="secondary"
-                          className={cn("font-medium", statusTone(rev.status))}
-                        >
-                          {rev.status}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        {new Date(rev.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {canEdit && rev.status === "Pending" ? (
-                          <div className="inline-flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2"
-                              disabled={busy}
-                              onClick={async () => {
-                                try {
-                                  await approveRevision({
-                                    projectId,
-                                    revisionId: rev.id,
-                                  }).unwrap();
-                                  toast.success("Revision approved");
-                                } catch (err) {
-                                  toast.error(
-                                    (err as { data?: { message?: string } })?.data
-                                      ?.message ?? "Approve failed",
-                                  );
-                                }
-                              }}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2"
-                              disabled={busy}
-                              onClick={async () => {
-                                try {
-                                  await rejectRevision({
-                                    projectId,
-                                    revisionId: rev.id,
-                                  }).unwrap();
-                                  toast.success("Revision rejected");
-                                } catch (err) {
-                                  toast.error(
-                                    (err as { data?: { message?: string } })?.data
-                                      ?.message ?? "Reject failed",
-                                  );
-                                }
-                              }}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            columns={revisionColumns}
+            data={data.revisions}
+            getRowId={(row) => row.id}
+            hideSearch
+            emptyMessage="No revisions yet."
+            minTableWidth="min-w-[640px]"
+            enableColumnReorder
+            columnOrderStorageKey="cybsec-budget-revisions-column-order"
+            pageSize={10}
+            pageSizeOptions={[5, 10, 20]}
+          />
         </div>
+      )
       )}
 
-      {hasBaseline && (
+      {financeTab === "cost-lines" && (
+        !hasBaseline ? (
+          <div className="rounded-lg border border-dashed border-slate-300 dark:border-white/15 p-4">
+            <p className="text-xs text-muted-foreground">
+              Approve a budget baseline first to add cost line items.
+            </p>
+          </div>
+        ) : (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -625,84 +712,94 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
           </div>
 
           {showLineForm && canEdit && (
-            <div className="rounded-lg border border-slate-200/70 dark:border-white/[0.08] p-3 grid gap-3 sm:grid-cols-4">
-              <div className="space-y-1">
-                <Label>Category</Label>
-                <Select
-                  value={lineCategory}
-                  onValueChange={(v) => {
-                    if (v) setLineCategory(v);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BUDGET_LINE_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="rounded-lg border border-slate-200/70 dark:border-white/[0.08] p-3 space-y-3">
+              <div className="grid grid-cols-4 gap-3">
+                <div className="min-w-0 space-y-1">
+                  <Label>
+                    Category <RequiredMark />
+                  </Label>
+                  <Select
+                    value={lineCategory}
+                    onValueChange={(v) => {
+                      if (v) setLineCategory(v);
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BUDGET_LINE_CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label>
+                    Name <RequiredMark />
+                  </Label>
+                  <Input
+                    value={lineName}
+                    onChange={(e) => {
+                      setLineName(e.target.value);
+                      setLineErrors((prev) => ({ ...prev, name: undefined }));
+                    }}
+                    className={cn(lineErrors.name && "border-destructive")}
+                    aria-invalid={Boolean(lineErrors.name)}
+                    disabled={busy}
+                  />
+                  {lineErrors.name ? (
+                    <p className="text-xs text-destructive">{lineErrors.name}</p>
+                  ) : null}
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label>
+                    Planned <RequiredMark />
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    inputMode="decimal"
+                    value={linePlanned}
+                    onChange={(e) => {
+                      setLinePlanned(e.target.value);
+                      setLineErrors((prev) => ({ ...prev, planned: undefined }));
+                    }}
+                    className={cn(lineErrors.planned && "border-destructive")}
+                    aria-invalid={Boolean(lineErrors.planned)}
+                    disabled={busy}
+                  />
+                  {lineErrors.planned ? (
+                    <p className="text-xs text-destructive">{lineErrors.planned}</p>
+                  ) : null}
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label>
+                    Actual <RequiredMark />
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    inputMode="decimal"
+                    value={lineActual}
+                    onChange={(e) => {
+                      setLineActual(e.target.value);
+                      setLineErrors((prev) => ({ ...prev, actual: undefined }));
+                    }}
+                    className={cn(lineErrors.actual && "border-destructive")}
+                    aria-invalid={Boolean(lineErrors.actual)}
+                    disabled={busy}
+                  />
+                  {lineErrors.actual ? (
+                    <p className="text-xs text-destructive">{lineErrors.actual}</p>
+                  ) : null}
+                </div>
               </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label>Name</Label>
-                <Input
-                  value={lineName}
-                  onChange={(e) => {
-                    setLineName(e.target.value);
-                    setLineErrors((prev) => ({ ...prev, name: undefined }));
-                  }}
-                  className={cn(lineErrors.name && "border-destructive")}
-                  aria-invalid={Boolean(lineErrors.name)}
-                  disabled={busy}
-                />
-                {lineErrors.name ? (
-                  <p className="text-xs text-destructive">{lineErrors.name}</p>
-                ) : null}
-              </div>
-              <div className="space-y-1">
-                <Label>Planned *</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  value={linePlanned}
-                  onChange={(e) => {
-                    setLinePlanned(e.target.value);
-                    setLineErrors((prev) => ({ ...prev, planned: undefined }));
-                  }}
-                  className={cn(lineErrors.planned && "border-destructive")}
-                  aria-invalid={Boolean(lineErrors.planned)}
-                  disabled={busy}
-                />
-                {lineErrors.planned ? (
-                  <p className="text-xs text-destructive">{lineErrors.planned}</p>
-                ) : null}
-              </div>
-              <div className="space-y-1">
-                <Label>Actual *</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  value={lineActual}
-                  onChange={(e) => {
-                    setLineActual(e.target.value);
-                    setLineErrors((prev) => ({ ...prev, actual: undefined }));
-                  }}
-                  className={cn(lineErrors.actual && "border-destructive")}
-                  aria-invalid={Boolean(lineErrors.actual)}
-                  disabled={busy}
-                />
-                {lineErrors.actual ? (
-                  <p className="text-xs text-destructive">{lineErrors.actual}</p>
-                ) : null}
-              </div>
-              <div className="sm:col-span-4 flex gap-2">
+              <div className="flex gap-2">
                 <Button size="sm" onClick={onCreateLine} disabled={busy}>
                   {creatingLine ? <Loader2 className="size-4 animate-spin" /> : "Save line"}
                 </Button>
@@ -721,70 +818,30 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
             </div>
           )}
 
-          {data.lineItems.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">No cost lines yet.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200/70 dark:border-white/[0.08]">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/40 text-muted-foreground">
-                  <tr>
-                    <th className="text-left font-semibold px-3 py-2">Category</th>
-                    <th className="text-left font-semibold px-3 py-2">Item</th>
-                    <th className="text-right font-semibold px-3 py-2">Planned</th>
-                    <th className="text-right font-semibold px-3 py-2">Actual</th>
-                    <th className="text-right font-semibold px-3 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.lineItems.map((line) => (
-                    <tr
-                      key={line.id}
-                      className="border-t border-slate-200/60 dark:border-white/[0.06]"
-                    >
-                      <td className="px-3 py-2">{line.category}</td>
-                      <td className="px-3 py-2 font-medium">{line.itemName}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {money(line.planned, currency)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {money(line.actual, currency)}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {canEdit && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-rose-600"
-                            disabled={busy}
-                            onClick={async () => {
-                              try {
-                                await deleteLineItem({
-                                  projectId,
-                                  lineItemId: line.id,
-                                }).unwrap();
-                                toast.success("Line removed");
-                              } catch (err) {
-                                toast.error(
-                                  (err as { data?: { message?: string } })?.data
-                                    ?.message ?? "Delete failed",
-                                );
-                              }
-                            }}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            columns={costLineColumns}
+            data={data.lineItems}
+            getRowId={(row) => row.id}
+            hideSearch
+            emptyMessage="No cost lines yet."
+            minTableWidth="min-w-[560px]"
+            enableColumnReorder
+            columnOrderStorageKey="cybsec-budget-cost-lines-column-order"
+            pageSize={10}
+            pageSizeOptions={[5, 10, 20]}
+          />
         </div>
+        )
       )}
 
-      {hasBaseline && (
+      {financeTab === "adjustments" && (
+        !hasBaseline ? (
+          <div className="rounded-lg border border-dashed border-slate-300 dark:border-white/15 p-4">
+            <p className="text-xs text-muted-foreground">
+              Approve a budget baseline first to request manual adjustments.
+            </p>
+          </div>
+        ) : (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -808,102 +865,117 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
           </div>
 
           {showAdjForm && canEdit && (
-            <div className="rounded-lg border border-slate-200/70 dark:border-white/8 p-3 grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label>Target</Label>
-                <Select
-                  value={adjTarget}
-                  onValueChange={(v) => {
-                    if (!v) return;
-                    setAdjTarget(v);
-                    if (v === "Baseline") {
-                      setAdjLineId("");
-                      setAdjErrors((prev) => ({ ...prev, line: undefined }));
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Baseline">Baseline</SelectItem>
-                    <SelectItem value="LinePlanned">Line planned</SelectItem>
-                    <SelectItem value="LineActual">Line actual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {adjTarget !== "Baseline" && (
-                <div className="space-y-1">
-                  <Label>Line item</Label>
+            <div className="rounded-lg border border-slate-200/70 dark:border-white/8 p-3 space-y-3">
+              <div
+                className={cn(
+                  "grid gap-3",
+                  adjTarget === "Baseline" ? "sm:grid-cols-2" : "sm:grid-cols-3",
+                )}
+              >
+                <div className="min-w-0 space-y-1">
+                  <Label>
+                    Target <RequiredMark />
+                  </Label>
                   <Select
-                    value={adjLineId || undefined}
+                    value={adjTarget}
                     onValueChange={(v) => {
-                      if (v) {
-                        setAdjLineId(v);
+                      if (!v) return;
+                      setAdjTarget(v);
+                      if (v === "Baseline") {
+                        setAdjLineId("");
                         setAdjErrors((prev) => ({ ...prev, line: undefined }));
                       }
                     }}
                   >
-                    <SelectTrigger
-                      className={cn(adjErrors.line && "border-destructive")}
-                      aria-invalid={Boolean(adjErrors.line)}
-                    >
-                      <SelectValue placeholder="Select line">
-                        {selectedAdjLine
-                          ? `${selectedAdjLine.category}: ${selectedAdjLine.itemName}`
-                          : "Select line"}
-                      </SelectValue>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {data.lineItems.length === 0 ? (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                          No cost line items yet.
-                        </div>
-                      ) : (
-                        data.lineItems.map((line) => (
-                          <SelectItem key={line.id} value={line.id}>
-                            {line.category}: {line.itemName}
-                          </SelectItem>
-                        ))
-                      )}
+                      <SelectItem value="Baseline">Baseline</SelectItem>
+                      <SelectItem value="LinePlanned">Line planned</SelectItem>
+                      <SelectItem value="LineActual">Line actual</SelectItem>
                     </SelectContent>
                   </Select>
-                  {adjErrors.line ? (
-                    <p className="text-xs text-destructive">{adjErrors.line}</p>
-                  ) : selectedAdjLine ? (
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      Planned {money(selectedAdjLine.planned, currency)} · Actual{" "}
-                      {money(selectedAdjLine.actual, currency)}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Select a line to see its planned and actual amounts.
-                    </p>
-                  )}
                 </div>
-              )}
-              <div className="space-y-1">
-                <Label>New amount ({currency}) *</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  value={adjAmount}
-                  onChange={(e) => {
-                    setAdjAmount(e.target.value);
-                    setAdjErrors((prev) => ({ ...prev, amount: undefined }));
-                  }}
-                  className={cn(adjErrors.amount && "border-destructive")}
-                  aria-invalid={Boolean(adjErrors.amount)}
-                  disabled={busy}
-                />
-                {adjErrors.amount ? (
-                  <p className="text-xs text-destructive">{adjErrors.amount}</p>
-                ) : null}
+                {adjTarget !== "Baseline" && (
+                  <div className="min-w-0 space-y-1">
+                    <Label>
+                      Line item <RequiredMark />
+                    </Label>
+                    <Select
+                      value={adjLineId || undefined}
+                      onValueChange={(v) => {
+                        if (v) {
+                          setAdjLineId(v);
+                          setAdjErrors((prev) => ({ ...prev, line: undefined }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        className={cn(adjErrors.line && "border-destructive", "w-full")}
+                        aria-invalid={Boolean(adjErrors.line)}
+                      >
+                        <SelectValue placeholder="Select line">
+                          {selectedAdjLine
+                            ? `${selectedAdjLine.category}: ${selectedAdjLine.itemName}`
+                            : "Select line"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {data.lineItems.length === 0 ? (
+                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                            No cost line items yet.
+                          </div>
+                        ) : (
+                          data.lineItems.map((line) => (
+                            <SelectItem key={line.id} value={line.id}>
+                              {line.category}: {line.itemName}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {adjErrors.line ? (
+                      <p className="text-xs text-destructive">{adjErrors.line}</p>
+                    ) : selectedAdjLine ? (
+                      <p className="text-xs text-muted-foreground tabular-nums">
+                        Planned {money(selectedAdjLine.planned, currency)} · Actual{" "}
+                        {money(selectedAdjLine.actual, currency)}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Select a line to see its planned and actual amounts.
+                      </p>
+                    )}
+                  </div>
+                )}
+                <div className="min-w-0 space-y-1">
+                  <Label>
+                    New amount ({currency}) <RequiredMark />
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    inputMode="decimal"
+                    value={adjAmount}
+                    onChange={(e) => {
+                      setAdjAmount(e.target.value);
+                      setAdjErrors((prev) => ({ ...prev, amount: undefined }));
+                    }}
+                    className={cn(adjErrors.amount && "border-destructive")}
+                    aria-invalid={Boolean(adjErrors.amount)}
+                    disabled={busy}
+                  />
+                  {adjErrors.amount ? (
+                    <p className="text-xs text-destructive">{adjErrors.amount}</p>
+                  ) : null}
+                </div>
               </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label>Reason</Label>
+              <div className="space-y-1">
+                <Label>
+                  Reason <RequiredMark />
+                </Label>
                 <textarea
                   value={adjReason}
                   onChange={(e) => {
@@ -922,7 +994,7 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
                   <p className="text-xs text-destructive">{adjErrors.reason}</p>
                 ) : null}
               </div>
-              <div className="sm:col-span-2 flex gap-2">
+              <div className="flex gap-2">
                 <Button
                   size="sm"
                   disabled={busy}
@@ -949,106 +1021,23 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
             </div>
           )}
 
-          {(data.adjustments?.length ?? 0) === 0 ? (
-            <p className="text-xs text-muted-foreground italic">No adjustments yet.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200/70 dark:border-white/8">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/40 text-muted-foreground">
-                  <tr>
-                    <th className="text-left font-semibold px-3 py-2">Target</th>
-                    <th className="text-right font-semibold px-3 py-2">Old</th>
-                    <th className="text-right font-semibold px-3 py-2">New</th>
-                    <th className="text-left font-semibold px-3 py-2">Reason</th>
-                    <th className="text-left font-semibold px-3 py-2">Status</th>
-                    <th className="text-right font-semibold px-3 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.adjustments ?? []).map((adj) => (
-                    <tr
-                      key={adj.id}
-                      className="border-t border-slate-200/60 dark:border-white/6"
-                    >
-                      <td className="px-3 py-2">{adj.targetField}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {money(adj.oldAmount, currency)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {money(adj.newAmount, currency)}
-                      </td>
-                      <td className="px-3 py-2 max-w-60 truncate" title={adj.reason}>
-                        {adj.reason}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Badge
-                          variant="secondary"
-                          className={cn("font-medium", statusTone(adj.status))}
-                        >
-                          {adj.status}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {canEdit && adj.status === "Pending" ? (
-                          <div className="inline-flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2"
-                              disabled={busy}
-                              onClick={async () => {
-                                try {
-                                  await approveAdjustment({
-                                    projectId,
-                                    adjustmentId: adj.id,
-                                  }).unwrap();
-                                  toast.success("Adjustment approved");
-                                } catch (err) {
-                                  toast.error(
-                                    (err as { data?: { message?: string } })?.data
-                                      ?.message ?? "Approve failed",
-                                  );
-                                }
-                              }}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2"
-                              disabled={busy}
-                              onClick={async () => {
-                                try {
-                                  await rejectAdjustment({
-                                    projectId,
-                                    adjustmentId: adj.id,
-                                  }).unwrap();
-                                  toast.success("Adjustment rejected");
-                                } catch (err) {
-                                  toast.error(
-                                    (err as { data?: { message?: string } })?.data
-                                      ?.message ?? "Reject failed",
-                                  );
-                                }
-                              }}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            columns={adjustmentColumns}
+            data={data.adjustments ?? []}
+            getRowId={(row) => row.id}
+            hideSearch
+            emptyMessage="No adjustments yet."
+            minTableWidth="min-w-[720px]"
+            enableColumnReorder
+            columnOrderStorageKey="cybsec-budget-adjustments-column-order"
+            pageSize={10}
+            pageSizeOptions={[5, 10, 20]}
+          />
         </div>
+        )
       )}
 
+      {financeTab === "resources" && (
       <div className="space-y-3">
         <div>
           <h3 className="text-sm font-semibold">Resource cost breakdown</h3>
@@ -1108,6 +1097,35 @@ export function ProjectBudgetPanel({ projectId, canEdit }: ProjectBudgetPanelPro
           />
         )}
       </div>
+      )}
+
+      <DeleteDialog
+        isOpen={Boolean(linePendingDelete)}
+        onClose={() => setLinePendingDelete(null)}
+        title="Delete cost line item?"
+        description={
+          linePendingDelete
+            ? `This will permanently remove “${linePendingDelete.itemName}” from the project budget. This action cannot be undone.`
+            : "This will permanently remove this cost line item from the project budget."
+        }
+        isDeleting={deletingLine}
+        onConfirm={async () => {
+          if (!linePendingDelete) return;
+          try {
+            await deleteLineItem({
+              projectId,
+              lineItemId: linePendingDelete.id,
+            }).unwrap();
+            toast.success("Line removed");
+            setLinePendingDelete(null);
+          } catch (err) {
+            toast.error(
+              (err as { data?: { message?: string } })?.data?.message ??
+                "Delete failed",
+            );
+          }
+        }}
+      />
     </div>
   );
 }

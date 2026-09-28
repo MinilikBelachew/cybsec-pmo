@@ -165,6 +165,19 @@ export class ProjectsController {
   }
 
   @CheckAbility('read', 'Project')
+  @Get('meta/customers/:customerId/billing-roles')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'customerId', type: String, required: true })
+  @ApiOkResponse({ type: ProjectBillingRoleListDto })
+  listCustomerBillingRoles(
+    @Param('customerId') customerId: string,
+  ): Promise<ProjectBillingRoleListDto> {
+    return this.projectTeamService
+      .listBillingRolesForCustomer(customerId)
+      .then((rows) => ({ rows }));
+  }
+
+  @CheckAbility('read', 'Project')
   @Get('meta/keka-currencies')
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({
