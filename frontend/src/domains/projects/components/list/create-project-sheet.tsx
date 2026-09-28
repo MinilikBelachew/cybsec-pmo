@@ -44,6 +44,10 @@ import {
 import { cn } from "@/shared/utils/cn";
 import type { ProjectStatus, AllocationDateIssuesResponse } from "@/domains/projects/types/projects.types";
 import { AllocationAlignDialog } from "@/domains/projects/components/list/allocation-align-dialog";
+import {
+  incompleteFieldLabel,
+  isProjectSetupIncompleteKey,
+} from "@/domains/projects/utils/incomplete-fields";
 import { OVERRIDE_REASON_MAX } from "./project-team-section";
 import { RegisterClientDialog } from "@/domains/projects/components/list/register-client-dialog";
 import { formatDateValue } from "@/domains/projects/utils/allocation-date.utils";
@@ -265,6 +269,20 @@ export function CreateProjectSheet({
   const isViewOnly = isEditMode && !canEditProject;
   const showFinancialFields = canViewFinancials || canEditProject;
   const milestonesReadOnly = isViewOnly || !canEditMilestones || isFromTemplate;
+  const incompleteSetup = new Set(
+    (project?.incompleteFields ?? []).filter(isProjectSetupIncompleteKey),
+  );
+  const setupHint = (key: string) =>
+    incompleteSetup.has(key)
+      ? `Confirm ${incompleteFieldLabel(key)} (auto-filled)`
+      : undefined;
+  const setupTriggerClass = (key: string) =>
+    cn(
+      "w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between",
+      incompleteSetup.has(key)
+        ? "border-amber-400 ring-2 ring-amber-200/80 dark:border-amber-500 dark:ring-amber-900/40"
+        : "border-slate-200 dark:border-white/[0.08]",
+    );
   const teamSectionRef = useRef<ProjectTeamSectionHandle>(null);
   const milestoneSectionRef = useRef<ProjectFormMilestonesSectionHandle>(null);
   const milestonesSeededForProjectRef = useRef<string | null>(null);
@@ -849,6 +867,11 @@ export function CreateProjectSheet({
                       ? `Using template “${selectedTemplate.name}” (${selectedTemplate.phaseCount} phases, ${selectedTemplate.milestoneCount} milestones, ${selectedTemplate.taskCount} tasks). Fill in project details to create.`
                       : "Fill in project details. Structure will be copied from the selected template."
                     : "Configure project specifications inside a unified ledger"}
+              {incompleteSetup.size > 0 ? (
+                <span className="mt-1.5 block font-medium text-amber-700 dark:text-amber-300">
+                  Confirm highlighted fields — they were auto-filled.
+                </span>
+              ) : null}
             </SheetDescription>
           </SheetHeader>
 
@@ -922,7 +945,7 @@ export function CreateProjectSheet({
                   name="departmentId"
                   render={({ field }) => (
                     <Select value={field.value || ""} onValueChange={field.onChange} disabled={isViewOnly}>
-                      <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                      <SelectTrigger className={setupTriggerClass("department")}>
                         <SelectValue placeholder="Select...">
                           {activeDept ? `${activeDept.name} (${activeDept.code})` : undefined}
                         </SelectValue>
@@ -937,6 +960,11 @@ export function CreateProjectSheet({
                     </Select>
                   )}
                 />
+                {setupHint("department") ? (
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    {setupHint("department")}
+                  </p>
+                ) : null}
                 {errors.departmentId && (
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.departmentId.message}
@@ -963,7 +991,7 @@ export function CreateProjectSheet({
                       }}
                       disabled={isViewOnly}
                     >
-                      <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                      <SelectTrigger className={setupTriggerClass("customer")}>
                         <SelectValue placeholder="Select...">
                           {activeCustomer ? activeCustomer.displayName : undefined}
                         </SelectValue>
@@ -982,6 +1010,11 @@ export function CreateProjectSheet({
                     </Select>
                   )}
                 />
+                {setupHint("customer") ? (
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    {setupHint("customer")}
+                  </p>
+                ) : null}
                 {errors.customerId && (
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.customerId.message}
@@ -1057,7 +1090,7 @@ export function CreateProjectSheet({
                   name="primaryPmId"
                   render={({ field }) => (
                     <Select value={field.value || ""} onValueChange={field.onChange} disabled={isViewOnly}>
-                      <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                      <SelectTrigger className={setupTriggerClass("primaryPm")}>
                         <SelectValue placeholder="Select PM...">
                           {activePM ? activePM.displayName : undefined}
                         </SelectValue>
@@ -1072,6 +1105,11 @@ export function CreateProjectSheet({
                     </Select>
                   )}
                 />
+                {setupHint("primaryPm") ? (
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    {setupHint("primaryPm")}
+                  </p>
+                ) : null}
                 {errors.primaryPmId && (
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.primaryPmId.message}
@@ -1326,7 +1364,7 @@ export function CreateProjectSheet({
                   name="engagementType"
                   render={({ field }) => (
                     <Select value={field.value || "FixedPrice"} onValueChange={field.onChange} disabled={isViewOnly}>
-                      <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                      <SelectTrigger className={setupTriggerClass("engagementType")}>
                         <SelectValue placeholder="Select type...">
                           {watchedEngagementType === "ManagedServices" ? "Managed Services" : watchedEngagementType === "StaffAugmentation" ? "Staff Augmentation" : watchedEngagementType === "FixedPrice" ? "Fixed Price" : undefined}
                         </SelectValue>
@@ -1339,6 +1377,11 @@ export function CreateProjectSheet({
                     </Select>
                   )}
                 />
+                {setupHint("engagementType") ? (
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    {setupHint("engagementType")}
+                  </p>
+                ) : null}
                 {errors.engagementType && (
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.engagementType.message}
@@ -1355,7 +1398,7 @@ export function CreateProjectSheet({
                   name="billingModel"
                   render={({ field }) => (
                     <Select value={field.value || "FixedPrice"} onValueChange={field.onChange} disabled={isViewOnly}>
-                      <SelectTrigger className="w-full h-10 px-3 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.08] text-sm text-slate-900 dark:text-white outline-none flex items-center justify-between">
+                      <SelectTrigger className={setupTriggerClass("billingModel")}>
                         <SelectValue placeholder="Select model...">
                           {watchedBillingModel === "FixedPrice" ? "Fixed Price" : watchedBillingModel === "TimeAndMaterial" ? "Time & Material" : watchedBillingModel === "Retainer" ? "Retainer" : undefined}
                         </SelectValue>
@@ -1368,6 +1411,11 @@ export function CreateProjectSheet({
                     </Select>
                   )}
                 />
+                {setupHint("billingModel") ? (
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    {setupHint("billingModel")}
+                  </p>
+                ) : null}
                 {errors.billingModel && (
                   <p className="text-[11px] font-semibold text-rose-500 mt-1">
                     {errors.billingModel.message}

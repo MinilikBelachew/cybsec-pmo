@@ -141,6 +141,24 @@ export class ProjectDto {
   })
   hasPendingCharter?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'True when the latest charter was provisioned from a Zoho Books sales order',
+  })
+  fromZohoBooks?: boolean;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Missing / unconfirmed fields from Zoho provisioning (empty when complete)',
+  })
+  incompleteFields?: string[];
+
+  @ApiPropertyOptional({
+    description: 'True when incompleteFields has at least one entry',
+  })
+  hasIncompleteCharterData?: boolean;
+
   @ApiProperty()
   createdBy: string;
 

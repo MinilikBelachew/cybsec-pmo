@@ -8,6 +8,8 @@ import type {
   UpdateSessionSecurityPayload,
   TimesheetEscalationSettings,
   UpdateTimesheetEscalationPayload,
+  FinanceAlertSettings,
+  UpdateFinanceAlertSettingsPayload,
   CostFormulaSettings,
   UpdateCostFormulaPayload,
 } from "../types/settings.types";
@@ -90,6 +92,23 @@ export const settingsApi = api.injectEndpoints({
       invalidatesTags: ["Settings", "Timesheets", "TimesheetApprovals"],
     }),
 
+    getFinanceAlertSettings: builder.query<FinanceAlertSettings, void>({
+      query: () => ({ url: "/settings/finance-alerts" }),
+      providesTags: ["Settings"],
+    }),
+
+    updateFinanceAlertSettings: builder.mutation<
+      FinanceAlertSettings,
+      UpdateFinanceAlertSettingsPayload
+    >({
+      query: (body) => ({
+        url: "/settings/finance-alerts",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
+
     getCostFormulaSettings: builder.query<CostFormulaSettings, void>({
       query: () => ({ url: "/settings/cost-formula" }),
       providesTags: ["Settings"],
@@ -131,6 +150,8 @@ export const {
   useUpdateSessionSecuritySettingsMutation,
   useGetTimesheetEscalationSettingsQuery,
   useUpdateTimesheetEscalationSettingsMutation,
+  useGetFinanceAlertSettingsQuery,
+  useUpdateFinanceAlertSettingsMutation,
   useGetCostFormulaSettingsQuery,
   useUpdateCostFormulaSettingsMutation,
   useApproveCostFormulaSettingsMutation,

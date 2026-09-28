@@ -738,7 +738,7 @@ export function ProjectsList() {
         <div className="relative w-full min-w-0 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
           <input
-            type="search"
+            type="text"
             placeholder="Search projects, PMs..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -1021,9 +1021,26 @@ function ProjectGridCard({
                   From Zoho
                 </span>
               ) : null}
+              {p.fromZohoBooks ? (
+                <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-800 dark:border-violet-800/60 dark:bg-violet-950/40 dark:text-violet-200">
+                  From Zoho Books
+                </span>
+              ) : null}
               {p.hasPendingCharter || p.charterStatus === "Draft" ? (
                 <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
                   Charter pending
+                </span>
+              ) : null}
+              {p.hasIncompleteCharterData ||
+              (p.incompleteFields && p.incompleteFields.length > 0) ? (
+                <span
+                  className="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-900 dark:border-orange-800/60 dark:bg-orange-950/40 dark:text-orange-200"
+                  title={`${p.incompleteFields?.length ?? 0} field(s) to complete`}
+                >
+                  Incomplete data
+                  {p.incompleteFields && p.incompleteFields.length > 0
+                    ? ` (${p.incompleteFields.length})`
+                    : ""}
                 </span>
               ) : null}
             </div>

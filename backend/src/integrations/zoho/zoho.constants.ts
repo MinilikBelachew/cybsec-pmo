@@ -3,7 +3,9 @@ export const ZOHO_BOOKS_INTEGRATION = 'zoho_books';
 export const ZOHO_ENTITY_TYPE = {
   OPPORTUNITY: 'opportunity',
   CHARTER_PROVISION: 'charter_provision',
+  SALES_ORDER_CHARTER: 'sales_order_charter',
   INVOICE: 'invoice',
+  SOW_WRITEBACK: 'sow_writeback',
 } as const;
 
 export const ZOHO_SYNC_DIRECTION = {

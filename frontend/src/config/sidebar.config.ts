@@ -67,7 +67,21 @@ export const sidebarNav: NavSection[] = [
     id: "workspace",
     label: "My Workspace",
     icon: LayoutDashboard,
-    href: "/dashboard",
+    children: [
+      {
+        id: "workspace-home",
+        label: "Overview",
+        icon: LayoutDashboard,
+        href: "/dashboard",
+      },
+      {
+        id: "sows",
+        label: "SOWs",
+        icon: FileText,
+        href: "/dashboard/sows",
+        permission: { action: "read", subject: "Project" },
+      },
+    ],
   },
   {
     id: "projects",

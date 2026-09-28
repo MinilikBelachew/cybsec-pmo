@@ -15,6 +15,10 @@ import {
   useGetProjectCharterQuery,
   useUpdateProjectCharterMutation,
 } from "../../api/charters.api";
+import {
+  incompleteFieldLabel,
+  isProjectSetupIncompleteKey,
+} from "../../utils/incomplete-fields";
 
 type ProjectCharterPanelProps = {
   projectId: string;
@@ -271,6 +275,11 @@ export function ProjectCharterPanel({
   }
 
   const incomplete = data.incompleteFields ?? [];
+  const fromBooks = data.sourceOrderId?.startsWith("zoho-so:") ?? false;
+  const fromCrm =
+    Boolean(data.sourceOrderId) &&
+    (data.sourceOrderId?.startsWith("zoho-deal:") ||
+      data.sourceOrderId?.startsWith("crm-deal:"));
 
   return (
     <div className="h-full min-h-0 overflow-y-auto p-4 sm:p-6">
@@ -294,9 +303,13 @@ export function ProjectCharterPanel({
             >
               {data.status}
             </Badge>
-            {data.sourceOrderId ? (
+            {fromBooks ? (
               <Badge variant="outline" className="text-[10px] font-semibold">
-                From Zoho
+                From Zoho Books
+              </Badge>
+            ) : fromCrm || data.sourceOrderId ? (
+              <Badge variant="outline" className="text-[10px] font-semibold">
+                From Zoho CRM
               </Badge>
             ) : null}
           </div>
@@ -312,8 +325,14 @@ export function ProjectCharterPanel({
                 <span
                   key={field}
                   className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                  title={
+                    isProjectSetupIncompleteKey(field)
+                      ? "Set this on Edit project"
+                      : undefined
+                  }
                 >
-                  {field}
+                  {incompleteFieldLabel(field)}
+                  {isProjectSetupIncompleteKey(field) ? " (project)" : ""}
                 </span>
               ))}
             </div>

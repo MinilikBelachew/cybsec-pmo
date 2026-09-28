@@ -23,6 +23,7 @@ export const MODULE_TO_SUBJECT: Record<string, string> = {
   project_templates: "Project",
   project_closure: "Project",
   charter: "Project",
+  sow: "Project",
   tasks: "Task",
   subtasks: "Task",
   task_progress: "Task",

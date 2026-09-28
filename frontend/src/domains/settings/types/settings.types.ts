@@ -37,6 +37,15 @@ export type UpdateTimesheetEscalationPayload = {
   escalationDays?: number;
 };
 
+export type FinanceAlertSettings = {
+  largeUnpaidBalanceThreshold: number;
+  updatedAt: string;
+};
+
+export type UpdateFinanceAlertSettingsPayload = {
+  largeUnpaidBalanceThreshold?: number;
+};
+
 export type CostFormulaSettings = {
   basis: "ctc" | "gross";
   hoursPerWeek: number;

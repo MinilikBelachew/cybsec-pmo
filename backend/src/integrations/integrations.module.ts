@@ -11,6 +11,10 @@ export class IntegrationsModule {
   static register(): DynamicModule {
     return {
       module: IntegrationsModule,
+      // Single registration in AppModule; exports (incl. SowCrmWritebackService)
+      // available app-wide so feature modules must not call register() again
+      // (that double-registers Bull processors like sync-employees).
+      global: true,
       imports: [KekaModule.register(), ZohoModule.register()],
       exports: [KekaModule, ZohoModule],
     };

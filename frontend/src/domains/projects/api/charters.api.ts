@@ -24,7 +24,8 @@ export const chartersApi = api.injectEndpoints({
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
         { type: "ProjectCharter", id: projectId },
-        "Projects",
+        { type: "Projects", id: projectId },
+        { type: "Projects", id: "LIST" },
       ],
     }),
     approveProjectCharter: builder.mutation<
@@ -38,7 +39,8 @@ export const chartersApi = api.injectEndpoints({
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
         { type: "ProjectCharter", id: projectId },
-        "Projects",
+        { type: "Projects", id: projectId },
+        { type: "Projects", id: "LIST" },
       ],
     }),
   }),

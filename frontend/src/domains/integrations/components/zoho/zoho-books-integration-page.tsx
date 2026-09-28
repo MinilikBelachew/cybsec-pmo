@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Plug, RefreshCw } from "lucide-react";
+import { ArrowLeft, GitCompareArrows, Loader2, Plug, RefreshCw } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/ui/button";
@@ -22,10 +22,14 @@ import {
   useGetZohoInvoicesQuery,
   useLinkZohoInvoiceMilestoneMutation,
   useLinkZohoInvoiceMutation,
+  useReconcileZohoInvoicesMutation,
   useSyncZohoInvoicesMutation,
   useTestZohoBooksConnectionMutation,
 } from "../../api/integrations.api";
-import type { ZohoInvoiceRow } from "../../types/integrations.types";
+import type {
+  ZohoInvoiceReconcileResult,
+  ZohoInvoiceRow,
+} from "../../types/integrations.types";
 import { ZohoFailedSyncsPanel } from "./zoho-failed-syncs-panel";
 
 function apiErrorMessage(err: unknown, fallback: string): string {
@@ -127,11 +131,15 @@ export function ZohoBooksIntegrationPage() {
   const [testConnection, { isLoading: testing }] =
     useTestZohoBooksConnectionMutation();
   const [syncInvoices, { isLoading: syncing }] = useSyncZohoInvoicesMutation();
+  const [reconcileInvoices, { isLoading: reconciling }] =
+    useReconcileZohoInvoicesMutation();
   const [linkInvoice, { isLoading: linking }] = useLinkZohoInvoiceMutation();
   const [linkPick, setLinkPick] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<"all" | "unlinked" | "linked">("all");
+  const [reconcileResult, setReconcileResult] =
+    useState<ZohoInvoiceReconcileResult | null>(null);
 
-  const busy = testing || syncing || linking;
+  const busy = testing || syncing || linking || reconciling;
   const ready = Boolean(status?.booksConfigured);
 
   const visible = useMemo(() => {
@@ -155,12 +163,42 @@ export function ZohoBooksIntegrationPage() {
   async function onSync() {
     try {
       const result = await syncInvoices().unwrap();
-      toast.success(
-        `Synced invoices: ${result.upserted} saved (${result.fetched} fetched, ${result.unmatched} unlinked, ${result.failed} failed)`,
-      );
+      const soSummary = `Confirmed SOs: ${result.ordersCreated} charter(s) created (${result.ordersConfirmed} confirmed, ${result.ordersSkipped} skipped, ${result.ordersFailed} failed)`;
+      if (result.ordersFailed > 0 && result.ordersError) {
+        toast.error(
+          `Invoices OK (${result.upserted} saved). Sales orders failed: ${result.ordersError}`,
+        );
+      } else {
+        toast.success(
+          `Synced invoices: ${result.upserted} saved (${result.fetched} fetched, ${result.unmatched} unlinked, ${result.failed} failed). ${soSummary}`,
+        );
+      }
       await Promise.all([refetchStatus(), refetchList()]);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Sync failed"));
+    }
+  }
+
+  async function onReconcile() {
+    try {
+      const result = await reconcileInvoices().unwrap();
+      setReconcileResult(result);
+      const exceptions =
+        result.missingInPmo +
+        result.missingInBooks +
+        result.fieldMismatch +
+        result.unlinked;
+      if (exceptions === 0) {
+        toast.success(
+          `Reconciled: ${result.matched} matched (${result.booksCount} Books / ${result.pmoCount} PMO)`,
+        );
+      } else {
+        toast.success(
+          `Reconciled with ${exceptions} exception(s) — see report below`,
+        );
+      }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Reconcile failed"));
     }
   }
 
@@ -204,7 +242,7 @@ export function ZohoBooksIntegrationPage() {
         </Link>
         <PageHeader
           title="Zoho Books"
-          description="Invoices sync Zoho Books → PMO on a nightly schedule (or Sync now). Link project/milestone in PMO when auto-match cannot; retry failed rows below if the API fails."
+          description="Invoices and confirmed sales orders sync Zoho Books → PMO on a nightly schedule (or Sync now). Confirmed SOs create one Draft project + charter (skipped if the linked CRM Deal already provisioned). Link invoice project/milestone in PMO when auto-match cannot; retry failed rows below if the API fails."
         />
       </div>
 
@@ -212,8 +250,11 @@ export function ZohoBooksIntegrationPage() {
         <p className="font-semibold text-foreground">Sync direction</p>
         <p className="mt-1">
           Invoice amount / due / paid / collection: <strong>Zoho Books → PMO</strong>.
-          Project and milestone links are owned in PMO (manual fallback when sync or
-          auto-match fails).
+          Confirmed sales orders: <strong>Zoho Books → Draft project + charter</strong>{" "}
+          (no duplicate when SO is linked to a Deal that already created one).
+          Project and milestone links on invoices are owned in PMO (manual fallback when sync or
+          auto-match fails). Approved SOW PDFs attach to the linked Sales Order when present;
+          failed SOW attachments appear in the queue below for admin Retry.
         </p>
       </div>
 
@@ -256,6 +297,21 @@ export function ZohoBooksIntegrationPage() {
               )}
               Sync invoices
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || !ready}
+              onClick={onReconcile}
+              data-testid="zoho-books-reconcile"
+            >
+              {reconciling ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <GitCompareArrows className="size-3.5" />
+              )}
+              Reconcile
+            </Button>
           </div>
         </div>
 
@@ -284,6 +340,12 @@ export function ZohoBooksIntegrationPage() {
             <div>
               <dt className="text-xs text-muted-foreground">Unlinked</dt>
               <dd className="font-semibold">{status.unmatchedOpenCount}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">SO charters</dt>
+              <dd className="font-semibold">
+                {status.confirmedOrderCharterCount ?? 0}
+              </dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Last synced</dt>
@@ -326,15 +388,119 @@ export function ZohoBooksIntegrationPage() {
         ) : null}
       </div>
 
+      {reconcileResult ? (
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold">Reconciliation report</h2>
+              <p className="text-xs text-muted-foreground">
+                Live Zoho Books vs PMO compare (read-only). Sync to pull missing
+                or drifted invoices; link unlinked rows below.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setReconcileResult(null)}
+            >
+              Dismiss
+            </Button>
+          </div>
+          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+            <div>
+              <dt className="text-xs text-muted-foreground">Matched</dt>
+              <dd className="font-semibold">{reconcileResult.matched}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Missing in PMO</dt>
+              <dd className="font-semibold text-amber-700 dark:text-amber-400">
+                {reconcileResult.missingInPmo}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Missing in Books</dt>
+              <dd className="font-semibold">{reconcileResult.missingInBooks}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Field mismatch</dt>
+              <dd className="font-semibold text-destructive">
+                {reconcileResult.fieldMismatch}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Unlinked in PMO</dt>
+              <dd className="font-semibold">{reconcileResult.unlinked}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Books / PMO counts</dt>
+              <dd className="font-semibold">
+                {reconcileResult.booksCount} / {reconcileResult.pmoCount}
+              </dd>
+            </div>
+          </dl>
+          {reconcileResult.issues.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No exceptions — Books and PMO agree on compared fields.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Kind</th>
+                    <th className="px-3 py-2 font-semibold">Invoice</th>
+                    <th className="px-3 py-2 font-semibold">Project</th>
+                    <th className="px-3 py-2 font-semibold">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reconcileResult.issues.map((issue) => (
+                    <tr
+                      key={`${issue.kind}-${issue.zohoInvoiceId}-${issue.details.slice(0, 24)}`}
+                      className="border-t border-border/60 align-top"
+                    >
+                      <td className="px-3 py-2 whitespace-nowrap font-medium">
+                        {issue.kind === "missing_in_pmo"
+                          ? "Missing in PMO"
+                          : issue.kind === "missing_in_books"
+                            ? "Missing in Books"
+                            : issue.kind === "field_mismatch"
+                              ? "Field mismatch"
+                              : "Unlinked"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium">
+                          {issue.invoiceNumber ?? issue.zohoInvoiceId}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {issue.zohoInvoiceId}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {issue.projectName ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground max-w-[420px]">
+                        {issue.details}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <ZohoFailedSyncsPanel integration="zoho_books" />
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-xl border border-border bg-card">
         <div className="border-b border-border px-5 py-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold">Synced invoices</h2>
             <p className="text-xs text-muted-foreground">
               Link to a project first, then optionally to a milestone (
-              {unlinkedCount} unlinked).
+              {unlinkedCount} unlinked). Scroll horizontally to see all columns.
             </p>
           </div>
           <Select
@@ -368,8 +534,8 @@ export function ZohoBooksIntegrationPage() {
               : "No invoices in this filter."}
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-scroll overscroll-x-contain pb-1 [scrollbar-gutter:stable]">
+            <table className="min-w-[1600px] w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2 font-semibold">Number</th>
@@ -378,11 +544,12 @@ export function ZohoBooksIntegrationPage() {
                   <th className="px-4 py-2 font-semibold">Project</th>
                   <th className="px-4 py-2 font-semibold">Milestone</th>
                   <th className="px-4 py-2 font-semibold">Amount</th>
-                  <th className="px-4 py-2 font-semibold">Discrepancy</th>
+                  <th className="px-4 py-2 font-semibold min-w-[300px]">Discrepancy</th>
                   <th className="px-4 py-2 font-semibold">Balance</th>
                   <th className="px-4 py-2 font-semibold">Paid</th>
-                  <th className="px-4 py-2 font-semibold">Invoice date</th>
-                  <th className="px-4 py-2 font-semibold">Due</th>
+                  <th className="px-4 py-2 font-semibold whitespace-nowrap">Invoice date</th>
+                  <th className="px-4 py-2 font-semibold whitespace-nowrap">Due</th>
+                  <th className="px-4 py-2 font-semibold whitespace-nowrap">Collected</th>
                   <th className="px-4 py-2 font-semibold">Status</th>
                   <th className="px-4 py-2 font-semibold">Link</th>
                 </tr>
@@ -390,14 +557,16 @@ export function ZohoBooksIntegrationPage() {
               <tbody>
                 {visible.map((row) => (
                   <tr key={row.id} className="border-t border-border/60 align-top">
-                    <td className="px-4 py-2 font-medium">{row.invoiceNumber}</td>
-                    <td className="px-4 py-2 text-muted-foreground">
+                    <td className="px-4 py-2 font-medium whitespace-nowrap">
+                      {row.invoiceNumber}
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
                       {row.customerName ?? "—"}
                     </td>
-                    <td className="px-4 py-2 text-muted-foreground max-w-[120px] truncate">
+                    <td className="px-4 py-2 text-muted-foreground max-w-[140px] truncate">
                       {row.referenceNumber ?? "—"}
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-2 whitespace-nowrap">
                       {row.projectId ? (
                         <span className="text-foreground">
                           {row.projectName ?? row.projectId}
@@ -414,10 +583,10 @@ export function ZohoBooksIntegrationPage() {
                     <td className="px-4 py-2 whitespace-nowrap">
                       {row.amount} {row.currency}
                     </td>
-                    <td className="px-4 py-2 max-w-[220px]">
+                    <td className="px-4 py-2 min-w-[300px] max-w-[380px]">
                       {row.discrepancyNote ? (
                         <span
-                          className="inline-block rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive"
+                          className="inline-block w-full rounded bg-destructive/10 px-2 py-1.5 text-[11px] font-medium leading-snug text-destructive"
                           title={row.discrepancyNote}
                         >
                           {row.discrepancyNote}
@@ -434,10 +603,15 @@ export function ZohoBooksIntegrationPage() {
                         ? `${row.paymentMade} ${row.currency}`
                         : "—"}
                     </td>
-                    <td className="px-4 py-2 text-muted-foreground">
+                    <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
                       {row.invoiceDate ?? "—"}
                     </td>
-                    <td className="px-4 py-2">{row.dueDate}</td>
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      {row.dueDate ?? "—"}
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                      {row.collectionDate ?? "—"}
+                    </td>
                     <td className="px-4 py-2">{row.status}</td>
                     <td className="px-4 py-2">
                       {row.projectId ? (

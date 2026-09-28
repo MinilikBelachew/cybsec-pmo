@@ -76,8 +76,9 @@ export function ZohoFailedSyncsPanel({
         <div>
           <h2 className="text-sm font-bold">{title}</h2>
           <p className="text-xs text-muted-foreground">
-            Unresolved: {data?.unresolvedCount ?? 0}. Auto-retry runs hourly;
-            use Retry / Force retry for stuck rows.
+            Unresolved: {data?.unresolvedCount ?? 0}. Includes SOW attachment
+            failures. Auto-retry runs hourly; use Retry / Force retry for stuck
+            rows.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -145,7 +146,15 @@ export function ZohoFailedSyncsPanel({
               {rows.map((row) => (
                 <tr key={row.id} className="border-t border-border/60 align-top">
                   <td className="px-4 py-2">
-                    <p className="font-medium">{row.entityType}</p>
+                    <p className="font-medium">
+                      {row.entityType === "sow_writeback"
+                        ? "SOW write-back"
+                        : row.entityType === "sales_order_charter"
+                          ? "Sales order → charter"
+                          : row.entityType === "charter_provision"
+                            ? "Deal → charter"
+                            : row.entityType}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {row.entityId ?? "—"}
                     </p>

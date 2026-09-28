@@ -5,6 +5,7 @@ import { AllConfigType } from '../../config/config.type';
 import { ZohoHttpClient } from './client/zoho-http.client';
 import { OpportunitySyncService } from './sync/opportunity-sync.service';
 import { InvoiceSyncService } from './sync/invoice-sync.service';
+import { ConfirmedOrderCharterService } from './sync/confirmed-order-charter.service';
 
 @Injectable()
 export class ZohoSyncScheduler {
@@ -15,6 +16,7 @@ export class ZohoSyncScheduler {
     private readonly zohoHttp: ZohoHttpClient,
     private readonly opportunitySync: OpportunitySyncService,
     private readonly invoiceSync: InvoiceSyncService,
+    private readonly confirmedOrderCharter: ConfirmedOrderCharterService,
   ) {}
 
   @Cron(process.env.ZOHO_CRM_SYNC_CRON ?? '0 3 * * *')
@@ -54,10 +56,14 @@ export class ZohoSyncScheduler {
     }
 
     try {
-      this.logger.debug('Starting scheduled Zoho Books invoice sync');
+      this.logger.debug('Starting scheduled Zoho Books invoice + SO charter sync');
       const result = await this.invoiceSync.syncInvoices();
       this.logger.log(
         `Zoho Books sync: upserted ${result.upserted}/${result.fetched} (failed ${result.failed}, unmatched ${result.unmatched})`,
+      );
+      const orders = await this.confirmedOrderCharter.syncConfirmedOrders();
+      this.logger.log(
+        `Zoho Books confirmed orders: created ${orders.created}/${orders.confirmed} (skipped ${orders.skipped}, failed ${orders.failed})`,
       );
     } catch (error) {
       this.logger.error(

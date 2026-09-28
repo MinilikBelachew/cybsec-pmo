@@ -331,6 +331,8 @@ model AppSetting {
   timesheetEscalationDays       Int       @default(3) @map("timesheet_escalation_days")
   /// Approved employee cost formula (M5.2 / UC-15).
   costFormula                   Json      @default("{}") @map("cost_formula")
+  /// M5.4-06: alert Finance when project-linked invoice balance >= this (0 = disabled).
+  largeUnpaidBalanceThreshold   Decimal   @default(10000) @map("large_unpaid_balance_threshold") @db.Decimal(18, 2)
   updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
@@ -17,16 +18,20 @@ import {
   ZOHO_INTEGRATION,
 } from './zoho.constants';
 import { InvoiceSyncService } from './sync/invoice-sync.service';
+import { ConfirmedOrderCharterService } from './sync/confirmed-order-charter.service';
 import { DiscrepancyAlertService } from './discrepancy-alert.service';
 import { ZohoFailedSyncRetryService } from './zoho-failed-sync-retry.service';
 
 @Injectable()
 export class ZohoConnectionService {
+  private readonly logger = new Logger(ZohoConnectionService.name);
+
   constructor(
     private readonly configService: ConfigService<AllConfigType>,
     private readonly zohoHttp: ZohoHttpClient,
     private readonly opportunitySync: OpportunitySyncService,
     private readonly invoiceSync: InvoiceSyncService,
+    private readonly confirmedOrderCharter: ConfirmedOrderCharterService,
     private readonly prisma: PrismaService,
     private readonly discrepancyAlerts: DiscrepancyAlertService,
     private readonly failedSyncRetry: ZohoFailedSyncRetryService,
@@ -236,6 +241,9 @@ export class ZohoConnectionService {
     const unmatchedOpenCount = await this.prisma.invoice.count({
       where: { projectId: null },
     });
+    const confirmedOrderCharterCount = await this.prisma.projectCharter.count({
+      where: { sourceOrderId: { startsWith: 'zoho-so:' } },
+    });
     const recentErrors = await this.prisma.failedSyncRecord.findMany({
       where: {
         integration: ZOHO_BOOKS_INTEGRATION,
@@ -259,6 +267,7 @@ export class ZohoConnectionService {
       lastSyncedAt: latest?.syncedAt?.toISOString() ?? null,
       openFailureCount: openFailures,
       unmatchedOpenCount,
+      confirmedOrderCharterCount,
       recentErrors: recentErrors.map((row) => ({
         entityId: row.entityId ?? '',
         errorMsg: row.errorMsg,
@@ -299,7 +308,69 @@ export class ZohoConnectionService {
     } catch {
       // Sync succeeded; discrepancy scan failures should not fail the sync response.
     }
-    return result;
+
+    let orders = {
+      fetched: 0,
+      confirmed: 0,
+      created: 0,
+      skipped: 0,
+      failed: 0,
+    };
+    let ordersError: string | null = null;
+    try {
+      orders = await this.confirmedOrderCharter.syncConfirmedOrders();
+    } catch (err) {
+      // Invoice sync succeeded; SO charter failures should not fail the sync response.
+      const message =
+        err instanceof Error ? err.message : 'Confirmed sales-order sync failed';
+      const causeMsg =
+        err &&
+        typeof err === 'object' &&
+        'cause' in err &&
+        err.cause instanceof Error
+          ? err.cause.message
+          : undefined;
+      ordersError = causeMsg ? `${message}: ${causeMsg}` : message;
+      this.logger.error(
+        `Zoho Books confirmed-order sync failed after invoice sync: ${ordersError}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      orders = {
+        fetched: 0,
+        confirmed: 0,
+        created: 0,
+        skipped: 0,
+        failed: 1,
+      };
+    }
+
+    return {
+      ...result,
+      ordersFetched: orders.fetched,
+      ordersConfirmed: orders.confirmed,
+      ordersCreated: orders.created,
+      ordersSkipped: orders.skipped,
+      ordersFailed: orders.failed,
+      ordersError,
+    };
+  }
+
+  async syncConfirmedOrders() {
+    if (!this.isBooksConfigured()) {
+      throw new ServiceUnavailableException(
+        'Zoho Books is not configured. Set ZOHO_* OAuth with Books scopes and ZOHO_BOOKS_ORGANIZATION_ID.',
+      );
+    }
+    return this.confirmedOrderCharter.syncConfirmedOrders();
+  }
+
+  async reconcileInvoices() {
+    if (!this.isBooksConfigured()) {
+      throw new ServiceUnavailableException(
+        'Zoho Books is not configured. Set ZOHO_* OAuth with Books scopes and ZOHO_BOOKS_ORGANIZATION_ID.',
+      );
+    }
+    return this.invoiceSync.reconcileInvoices();
   }
 
   async listInvoices(limit = 50) {

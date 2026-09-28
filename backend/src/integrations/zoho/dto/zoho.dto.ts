@@ -124,6 +124,11 @@ export class ZohoBooksStatusDto {
   @ApiProperty()
   unmatchedOpenCount: number;
 
+  @ApiProperty({
+    description: 'Draft charters created from Zoho Books confirmed sales orders',
+  })
+  confirmedOrderCharterCount: number;
+
   @ApiProperty({ type: [ZohoProvisionErrorDto] })
   recentErrors: ZohoProvisionErrorDto[];
 }
@@ -140,6 +145,101 @@ export class ZohoInvoiceSyncResultDto {
 
   @ApiProperty()
   failed: number;
+
+  @ApiProperty({ description: 'Sales orders fetched from Zoho Books' })
+  ordersFetched: number;
+
+  @ApiProperty({ description: 'Sales orders treated as confirmed' })
+  ordersConfirmed: number;
+
+  @ApiProperty({ description: 'Draft project+charter rows created from SOs' })
+  ordersCreated: number;
+
+  @ApiProperty({ description: 'Confirmed SOs skipped (already provisioned / Deal exists)' })
+  ordersSkipped: number;
+
+  @ApiProperty({ description: 'Confirmed SO provisioning failures' })
+  ordersFailed: number;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Error message when sales-order sync threw before completing',
+  })
+  ordersError: string | null;
+}
+
+export class ZohoConfirmedOrderSyncResultDto {
+  @ApiProperty()
+  fetched: number;
+
+  @ApiProperty()
+  confirmed: number;
+
+  @ApiProperty()
+  created: number;
+
+  @ApiProperty()
+  skipped: number;
+
+  @ApiProperty()
+  failed: number;
+}
+
+export class ZohoInvoiceReconcileIssueDto {
+  @ApiProperty({
+    enum: [
+      'missing_in_pmo',
+      'missing_in_books',
+      'field_mismatch',
+      'unlinked',
+    ],
+  })
+  kind:
+    | 'missing_in_pmo'
+    | 'missing_in_books'
+    | 'field_mismatch'
+    | 'unlinked';
+
+  @ApiProperty()
+  zohoInvoiceId: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  invoiceNumber: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  projectName: string | null;
+
+  @ApiProperty()
+  details: string;
+}
+
+export class ZohoInvoiceReconcileResultDto {
+  @ApiProperty()
+  booksCount: number;
+
+  @ApiProperty()
+  pmoCount: number;
+
+  @ApiProperty()
+  matched: number;
+
+  @ApiProperty()
+  missingInPmo: number;
+
+  @ApiProperty()
+  missingInBooks: number;
+
+  @ApiProperty()
+  fieldMismatch: number;
+
+  @ApiProperty()
+  unlinked: number;
+
+  @ApiProperty({ type: [ZohoInvoiceReconcileIssueDto] })
+  issues: ZohoInvoiceReconcileIssueDto[];
 }
 
 export class PaymentDelayAlertResultDto {
@@ -168,6 +268,23 @@ export class DiscrepancyAlertResultDto {
 
   @ApiProperty()
   skipped: number;
+}
+
+export class LargeUnpaidBalanceAlertResultDto {
+  @ApiProperty()
+  scanned: number;
+
+  @ApiProperty()
+  notified: number;
+
+  @ApiProperty()
+  skipped: number;
+
+  @ApiProperty()
+  threshold: number;
+
+  @ApiProperty()
+  disabled: boolean;
 }
 
 export class ZohoInvoiceDto {

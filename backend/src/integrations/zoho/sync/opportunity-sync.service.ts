@@ -16,6 +16,7 @@ import {
   upsertZohoFailedSyncRecord,
 } from '../utils/failed-sync-record.util';
 import { ClosedWonProvisioningService } from './closed-won-provisioning.service';
+import { ZohoFailedSyncFinanceAlertService } from '../zoho-failed-sync-finance-alert.service';
 
 export type ZohoOpportunitySyncResult = {
   fetched: number;
@@ -42,6 +43,7 @@ export class OpportunitySyncService {
     private readonly zohoHttp: ZohoHttpClient,
     private readonly prisma: PrismaService,
     private readonly closedWonProvisioning: ClosedWonProvisioningService,
+    private readonly failedSyncFinanceAlerts: ZohoFailedSyncFinanceAlertService,
   ) {}
 
   async syncOpportunities(): Promise<ZohoOpportunitySyncResult> {
@@ -188,7 +190,7 @@ export class OpportunitySyncService {
     errorMsg: string,
     payload: unknown,
   ): Promise<void> {
-    await upsertZohoFailedSyncRecord(this.prisma, {
+    const outcome = await upsertZohoFailedSyncRecord(this.prisma, {
       integration: ZOHO_INTEGRATION,
       entityType: ZOHO_ENTITY_TYPE.OPPORTUNITY,
       entityId,
@@ -196,5 +198,6 @@ export class OpportunitySyncService {
       errorMsg,
       payload: payload as Prisma.InputJsonValue,
     });
+    await this.failedSyncFinanceAlerts.maybeNotify(outcome);
   }
 }

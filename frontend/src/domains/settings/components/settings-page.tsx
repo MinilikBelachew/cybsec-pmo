@@ -14,6 +14,7 @@ import { BreakGlassSection } from "./break-glass-section";
 import { SessionTimeoutSection } from "./session-timeout-section";
 import { TimesheetEscalationSection } from "./timesheet-escalation-section";
 import { CostFormulaSection } from "./cost-formula-section";
+import { FinanceAlertsSection } from "./finance-alerts-section";
 import { AuditComplianceSection } from "./audit-compliance-section";
 import { AllocationPoliciesSection } from "./allocation-policies-section";
 import { HealthRulesSection } from "./health-rules-section";
@@ -211,11 +212,18 @@ export function SettingsPage() {
       )}
 
       {activeTab === "cost" && canViewCostFormula && (
-        <CostFormulaSection
-          onSuccess={notifySuccess}
-          onError={notifyError}
-          canEdit={canEditFinancials}
-        />
+        <div className="space-y-6">
+          <CostFormulaSection
+            onSuccess={notifySuccess}
+            onError={notifyError}
+            canEdit={canEditFinancials}
+          />
+          <FinanceAlertsSection
+            onSuccess={notifySuccess}
+            onError={notifyError}
+            canEdit={canEditFinancials}
+          />
+        </div>
       )}
 
       {activeTab === "branding" && canManageBranding && (

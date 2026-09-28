@@ -74,7 +74,9 @@ export function ZohoIntegrationPage() {
         <p className="font-semibold text-foreground">Sync direction</p>
         <p className="mt-1">
           Opportunities / stage / expected revenue: <strong>Zoho CRM → PMO</strong>{" "}
-          (CRM is source of truth). Opportunity write-back is later (M5.6).
+          (CRM is source of truth). Approved SOW PDFs attach back to the linked Deal
+          (and Books Sales Order when present). Failed SOW attachments stay in the
+          queue below until Retry succeeds.
         </p>
       </div>
 

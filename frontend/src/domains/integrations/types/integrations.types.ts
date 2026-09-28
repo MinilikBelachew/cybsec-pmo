@@ -234,6 +234,7 @@ export type ZohoBooksStatusResponse = {
   lastSyncedAt: string | null;
   openFailureCount: number;
   unmatchedOpenCount: number;
+  confirmedOrderCharterCount: number;
   recentErrors: ZohoProvisionError[];
 };
 
@@ -242,6 +243,38 @@ export type ZohoInvoiceSyncResult = {
   upserted: number;
   unmatched: number;
   failed: number;
+  ordersFetched: number;
+  ordersConfirmed: number;
+  ordersCreated: number;
+  ordersSkipped: number;
+  ordersFailed: number;
+  ordersError?: string | null;
+};
+
+export type ZohoInvoiceReconcileIssueKind =
+  | "missing_in_pmo"
+  | "missing_in_books"
+  | "field_mismatch"
+  | "unlinked";
+
+export type ZohoInvoiceReconcileIssue = {
+  kind: ZohoInvoiceReconcileIssueKind;
+  zohoInvoiceId: string;
+  invoiceNumber: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  details: string;
+};
+
+export type ZohoInvoiceReconcileResult = {
+  booksCount: number;
+  pmoCount: number;
+  matched: number;
+  missingInPmo: number;
+  missingInBooks: number;
+  fieldMismatch: number;
+  unlinked: number;
+  issues: ZohoInvoiceReconcileIssue[];
 };
 
 export type ZohoInvoiceRow = {

@@ -13,6 +13,10 @@ import {
   UpdateProjectCharterDto,
 } from './dto/charter.dto';
 import { buildCharterPdf, charterPdfFileName } from './charter-pdf';
+import {
+  parseIncompleteFields,
+  recomputeIncompleteFields,
+} from './charter-incomplete.util';
 
 type CharterRow = {
   id: string;
@@ -80,6 +84,72 @@ export class ChartersService {
       throw new BadRequestException('Only Draft charters can be edited');
     }
 
+    const nextPurpose =
+      dto.purpose !== undefined ? dto.purpose : charter.purpose;
+    const nextSuccessCriteria =
+      dto.successCriteria !== undefined
+        ? dto.successCriteria
+        : charter.successCriteria;
+    const nextScopeSummary =
+      dto.scopeSummary !== undefined ? dto.scopeSummary : charter.scopeSummary;
+    const nextScopeExclusions =
+      dto.scopeExclusions !== undefined
+        ? dto.scopeExclusions
+        : charter.scopeExclusions;
+    const nextKeyDeliverables =
+      dto.keyDeliverables !== undefined
+        ? dto.keyDeliverables
+        : charter.keyDeliverables;
+    const nextHighLevelRisks =
+      dto.highLevelRisks !== undefined
+        ? dto.highLevelRisks
+        : charter.highLevelRisks;
+    const nextMilestoneSchedule =
+      dto.milestoneSchedule !== undefined
+        ? dto.milestoneSchedule
+        : charter.milestoneSchedule;
+    const nextValueSnapshot =
+      dto.valueSnapshot !== undefined
+        ? dto.valueSnapshot === null
+          ? null
+          : new Prisma.Decimal(dto.valueSnapshot)
+        : charter.valueSnapshot;
+    const nextResourceEstimates =
+      dto.resourceEstimates !== undefined
+        ? dto.resourceEstimates
+        : charter.resourceEstimates;
+    const nextStakeholders =
+      dto.stakeholders !== undefined ? dto.stakeholders : charter.stakeholders;
+    const nextPmAuthority =
+      dto.pmAuthority !== undefined ? dto.pmAuthority : charter.pmAuthority;
+    const nextStartDate =
+      dto.startDate !== undefined ? dto.startDate : charter.startDate;
+    const nextEndDate =
+      dto.endDate !== undefined ? dto.endDate : charter.endDate;
+    const nextCustomerId =
+      dto.customerId !== undefined ? dto.customerId : charter.customerId;
+
+    const previousIncomplete = parseIncompleteFields(charter.incompleteFields);
+    const nextIncomplete =
+      dto.incompleteFields !== undefined
+        ? dto.incompleteFields ?? []
+        : recomputeIncompleteFields(previousIncomplete, {
+            purpose: nextPurpose,
+            successCriteria: nextSuccessCriteria,
+            scopeSummary: nextScopeSummary,
+            scopeExclusions: nextScopeExclusions,
+            keyDeliverables: nextKeyDeliverables,
+            highLevelRisks: nextHighLevelRisks,
+            milestoneSchedule: nextMilestoneSchedule,
+            valueSnapshot: nextValueSnapshot,
+            resourceEstimates: nextResourceEstimates,
+            stakeholders: nextStakeholders,
+            pmAuthority: nextPmAuthority,
+            startDate: nextStartDate,
+            endDate: nextEndDate,
+            customerId: nextCustomerId,
+          });
+
     const updated = await this.prisma.projectCharter.update({
       where: { id: charter.id },
       data: {
@@ -124,14 +194,8 @@ export class ChartersService {
         ...(dto.customerId !== undefined
           ? { customerId: dto.customerId }
           : {}),
-        ...(dto.incompleteFields !== undefined
-          ? {
-              incompleteFields:
-                dto.incompleteFields === null
-                  ? Prisma.JsonNull
-                  : dto.incompleteFields,
-            }
-          : {}),
+        incompleteFields:
+          nextIncomplete.length > 0 ? nextIncomplete : Prisma.JsonNull,
       },
     });
 

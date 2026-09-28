@@ -27,6 +27,7 @@ import { ModulePermissionGuard } from '../../casl/module-permission.guard';
 import { ZohoConnectionService } from './zoho-connection.service';
 import { PaymentDelayAlertService } from './payment-delay-alert.service';
 import { DiscrepancyAlertService } from './discrepancy-alert.service';
+import { LargeUnpaidBalanceAlertService } from './large-unpaid-balance-alert.service';
 import {
   ZohoOpportunityDto,
   ZohoOpportunitySyncResultDto,
@@ -34,11 +35,14 @@ import {
   ZohoTestResultDto,
   ZohoBooksStatusDto,
   ZohoInvoiceSyncResultDto,
+  ZohoInvoiceReconcileResultDto,
+  ZohoConfirmedOrderSyncResultDto,
   ZohoInvoiceDto,
   LinkZohoInvoiceDto,
   LinkZohoInvoiceMilestoneDto,
   PaymentDelayAlertResultDto,
   DiscrepancyAlertResultDto,
+  LargeUnpaidBalanceAlertResultDto,
   ZohoFailedSyncRecordListDto,
   RetryZohoSyncDto,
   RetryZohoSyncResultDto,
@@ -61,6 +65,7 @@ export class ZohoController {
     private readonly zohoConnection: ZohoConnectionService,
     private readonly paymentDelayAlerts: PaymentDelayAlertService,
     private readonly discrepancyAlerts: DiscrepancyAlertService,
+    private readonly largeUnpaidAlerts: LargeUnpaidBalanceAlertService,
   ) {}
 
   @CheckModulePermission('integrations', 'view')
@@ -164,6 +169,22 @@ export class ZohoController {
     return this.zohoConnection.syncInvoices();
   }
 
+  @CheckModulePermission('integrations', 'configure')
+  @Post('books/sync/confirmed-orders')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoConfirmedOrderSyncResultDto })
+  async syncConfirmedOrders(): Promise<ZohoConfirmedOrderSyncResultDto> {
+    return this.zohoConnection.syncConfirmedOrders();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('books/reconcile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ZohoInvoiceReconcileResultDto })
+  async reconcileInvoices(): Promise<ZohoInvoiceReconcileResultDto> {
+    return this.zohoConnection.reconcileInvoices();
+  }
+
   @CheckModulePermission('integrations', 'view')
   @Get('books/invoices')
   @HttpCode(HttpStatus.OK)
@@ -214,5 +235,13 @@ export class ZohoController {
   @ApiOkResponse({ type: DiscrepancyAlertResultDto })
   async runDiscrepancyAlerts(): Promise<DiscrepancyAlertResultDto> {
     return this.discrepancyAlerts.processDiscrepancyAlerts();
+  }
+
+  @CheckModulePermission('integrations', 'configure')
+  @Post('books/alerts/large-unpaid')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: LargeUnpaidBalanceAlertResultDto })
+  async runLargeUnpaidBalanceAlerts(): Promise<LargeUnpaidBalanceAlertResultDto> {
+    return this.largeUnpaidAlerts.processLargeUnpaidBalanceAlerts();
   }
 }

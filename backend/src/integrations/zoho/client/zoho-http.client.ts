@@ -32,6 +32,7 @@ type ZohoBooksListResponse<T> = {
   code?: number;
   message?: string;
   invoices?: T[];
+  salesorders?: T[];
   page_context?: {
     page?: number;
     per_page?: number;
@@ -297,5 +298,135 @@ export class ZohoHttpClient {
     }
 
     return items;
+  }
+
+  /** Paginate Books sales orders. */
+  async booksGetAllSalesOrders<T>(): Promise<T[]> {
+    const items: T[] = [];
+    let page = 1;
+    let more = true;
+
+    while (more) {
+      const pageResult = await this.booksGet<ZohoBooksListResponse<T>>(
+        '/books/v3/salesorders',
+        {
+          page,
+          per_page: 200,
+        },
+      );
+      items.push(...(pageResult.salesorders ?? []));
+      more = Boolean(pageResult.page_context?.has_more_page);
+      page += 1;
+      if (page > 50) {
+        this.logger.warn('Zoho Books salesorder pagination stopped at page cap');
+        break;
+      }
+    }
+
+    return items;
+  }
+
+  /** Fetch a single Books sales order by id. */
+  async booksGetSalesOrderById<T>(salesorderId: string): Promise<T | null> {
+    const result = await this.booksGet<{
+      code?: number;
+      message?: string;
+      salesorder?: T;
+    }>(`/books/v3/salesorders/${encodeURIComponent(salesorderId)}`);
+    return result.salesorder ?? null;
+  }
+
+  /** Upload a file attachment onto a CRM Deal. */
+  async crmUploadDealAttachment(
+    dealId: string,
+    file: { buffer: Buffer; filename: string; contentType?: string },
+  ): Promise<void> {
+    const token = await this.getAccessToken();
+    const url = `${this.apiBase()}/crm/v2/Deals/${encodeURIComponent(dealId)}/Attachments`;
+
+    const form = new FormData();
+    const blob = new Blob([new Uint8Array(file.buffer)], {
+      type: file.contentType ?? 'application/octet-stream',
+    });
+    form.append('file', blob, file.filename);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ZOHO_HTTP_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Zoho-oauthtoken ${token}`,
+        },
+        body: form,
+        signal: controller.signal,
+      });
+
+      const body = (await response.json()) as {
+        data?: { code?: string; message?: string; status?: string }[];
+      };
+      const entry = body.data?.[0];
+      if (!response.ok || (entry?.code && entry.code !== 'SUCCESS')) {
+        throw new Error(
+          `Zoho CRM Deal attachment upload failed (${response.status}): ${
+            entry?.message ?? response.statusText
+          }`,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Upload a file attachment onto a Books sales order. */
+  async booksUploadSalesOrderAttachment(
+    salesorderId: string,
+    file: { buffer: Buffer; filename: string; contentType?: string },
+  ): Promise<void> {
+    const cfg = this.getConfig();
+    if (!cfg.booksOrganizationId) {
+      throw new ServiceUnavailableException(
+        'Zoho Books is not configured. Set ZOHO_BOOKS_ORGANIZATION_ID.',
+      );
+    }
+
+    const token = await this.getAccessToken();
+    const url = new URL(
+      `${this.apiBase()}/books/v3/salesorders/${encodeURIComponent(salesorderId)}/attachment`,
+    );
+    url.searchParams.set('organization_id', cfg.booksOrganizationId);
+
+    const form = new FormData();
+    const blob = new Blob([new Uint8Array(file.buffer)], {
+      type: file.contentType ?? 'application/octet-stream',
+    });
+    form.append('attachment', blob, file.filename);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ZOHO_HTTP_TIMEOUT_MS);
+    try {
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Zoho-oauthtoken ${token}`,
+        },
+        body: form,
+        signal: controller.signal,
+      });
+
+      const body = (await response.json()) as {
+        code?: number;
+        message?: string;
+      };
+      if (!response.ok || (typeof body.code === 'number' && body.code !== 0)) {
+        throw new Error(
+          `Zoho Books sales order attachment upload failed (${response.status}): ${
+            body.message ?? response.statusText
+          }`,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }

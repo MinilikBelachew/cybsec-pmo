@@ -19,6 +19,8 @@ import {
 } from './utils/failed-sync-record.util';
 import { OpportunitySyncService } from './sync/opportunity-sync.service';
 import { InvoiceSyncService } from './sync/invoice-sync.service';
+import { ConfirmedOrderCharterService } from './sync/confirmed-order-charter.service';
+import { SowCrmWritebackService } from './sync/sow-crm-writeback.service';
 
 export type ZohoRetrySummary = {
   attempted: number;
@@ -38,6 +40,8 @@ export class ZohoFailedSyncRetryService {
     private readonly prisma: PrismaService,
     private readonly opportunitySync: OpportunitySyncService,
     private readonly invoiceSync: InvoiceSyncService,
+    private readonly confirmedOrderCharter: ConfirmedOrderCharterService,
+    private readonly sowCrmWriteback: SowCrmWritebackService,
   ) {}
 
   async retryPendingFailures(): Promise<ZohoRetrySummary> {
@@ -155,6 +159,21 @@ export class ZohoFailedSyncRetryService {
       entityType === ZOHO_ENTITY_TYPE.CHARTER_PROVISION
     ) {
       return this.opportunitySync.syncOpportunityByZohoId(entityId, actorId);
+    }
+
+    if (
+      integration === ZOHO_BOOKS_INTEGRATION &&
+      entityType === ZOHO_ENTITY_TYPE.SALES_ORDER_CHARTER
+    ) {
+      return this.confirmedOrderCharter.provisionSalesOrderByZohoId(entityId);
+    }
+
+    if (
+      (integration === ZOHO_INTEGRATION ||
+        integration === ZOHO_BOOKS_INTEGRATION) &&
+      entityType === ZOHO_ENTITY_TYPE.SOW_WRITEBACK
+    ) {
+      return this.sowCrmWriteback.writebackByEntityId(entityId);
     }
 
     this.logger.warn(
