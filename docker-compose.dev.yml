@@ -46,6 +46,7 @@ services:
       - /usr/src/app/node_modules
       - /usr/src/app/dist
       - mpp_import_data:/tmp/mpp-imports
+      - backend_uploads_dev_data:/usr/src/app/files
     env_file:
       - ./backend/.env
     environment:
@@ -83,3 +84,4 @@ services:
 volumes:
   postgres_dev_data:
   mpp_import_data:
+  backend_uploads_dev_data:

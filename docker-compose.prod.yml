@@ -57,6 +57,7 @@ services:
       - mpxj-service
     volumes:
       - mpp_import_stage_data:/tmp/mpp-imports
+      - backend_uploads_stage_data:/usr/src/app/files
     env_file:
       - ./backend/.env.prod
     environment:
@@ -101,3 +102,4 @@ volumes:
   postgres_stage_data:
   redis_stage_data:
   mpp_import_stage_data:
+  backend_uploads_stage_data:
