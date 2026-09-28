@@ -132,7 +132,10 @@ export type DataQualityFlagType =
   | "MISSING_TIMESHEET"
   | "UNAPPROVED_TIMESHEET"
   | "STALE_INTEGRATION"
-  | "INCOMPLETE_PROJECT";
+  | "INCOMPLETE_PROJECT"
+  | "COST_MISSING_RATE"
+  | "COST_RATE_JUMP"
+  | "COST_OT_SPIKE";
 
 export interface DataQualityRules {
   includeFlagTypes?: DataQualityFlagType[];

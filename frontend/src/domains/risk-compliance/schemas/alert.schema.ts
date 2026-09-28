@@ -3,6 +3,9 @@ import { z } from "zod";
 export const ALERT_EVENT_TYPES = [
   "RISK_SCORE_BREACHED",
   "ISSUE_ESCALATED",
+  "BUDGET_OVERRUN",
+  "BUDGET_THRESHOLD_WARNING",
+  "COST_ANOMALY_DETECTED",
 ] as const;
 
 export const ALERT_CHANNELS = ["in_app", "email"] as const;

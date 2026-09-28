@@ -1,10 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { AlertEngineService } from '../../alerts/alert-engine.service';
+import { NOTIFICATION_EVENT_TYPE } from '../../notifications/notifications.constants';
+import { RoleEnum } from '../../roles/roles.enum';
 import { KEKA_SYNC_STATUS } from '../../integrations/keka/keka.constants';
 import { TIMESHEET_STATUS } from '../../timesheets/timesheets.constants';
 import {
+  COST_ANOMALY_LOOKBACK_MONTHS,
+  COST_ANOMALY_OT_SPIKE_MIN_HOURS,
+  COST_ANOMALY_OT_SPIKE_RATIO,
+  COST_ANOMALY_RATE_JUMP_PCT,
   DATA_QUALITY_FLAG_TYPE,
   DATA_QUALITY_SEVERITY,
   DataQualityFlagType,
@@ -26,9 +33,20 @@ export type DataQualityRules = {
   enabled?: Partial<Record<DataQualityFlagType, boolean>>;
 };
 
+const COST_ANOMALY_FLAG_TYPES = new Set<DataQualityFlagType>([
+  DATA_QUALITY_FLAG_TYPE.COST_MISSING_RATE,
+  DATA_QUALITY_FLAG_TYPE.COST_RATE_JUMP,
+  DATA_QUALITY_FLAG_TYPE.COST_OT_SPIKE,
+]);
+
 @Injectable()
 export class DataQualityService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(DataQualityService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alertEngine: AlertEngineService,
+  ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   scanAll() {
@@ -253,16 +271,220 @@ export class DataQualityService {
       }
     }
 
+    candidates.push(...(await this.collectCostAnomalies(projectId, now)));
+
     const rules = await this.getRules();
-    await this.persistCandidates(
-      candidates.filter((candidate) =>
-        this.isEnabled(candidate.flagType, rules),
-      ),
-      projectId,
+    const enabledCandidates = candidates.filter((candidate) =>
+      this.isEnabled(candidate.flagType, rules),
     );
+    const previouslyOpenCostKeys = new Set(
+      (
+        await this.prisma.dataQualityFlag.findMany({
+          where: {
+            isResolved: false,
+            flagType: { in: [...COST_ANOMALY_FLAG_TYPES] },
+            ...(projectId ? { projectId } : {}),
+          },
+          select: { flagType: true, objectId: true, projectId: true },
+        })
+      ).map((f) => `${f.flagType}:${f.objectId}:${f.projectId ?? ''}`),
+    );
+    await this.persistCandidates(enabledCandidates, projectId);
+    await this.notifyNewCostAnomalies(enabledCandidates, previouslyOpenCostKeys);
+
     return this.listFlags({
       resolved: false,
       ...(projectId ? { projectId } : {}),
+    });
+  }
+
+  /**
+   * M5.2-05 / UC-15 — zero rates, rate jumps, OT spikes on EmployeeCost periods.
+   */
+  private async collectCostAnomalies(
+    projectId: string | undefined,
+    now: Date,
+  ): Promise<FlagCandidate[]> {
+    const lookbackStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - COST_ANOMALY_LOOKBACK_MONTHS, 1),
+    );
+    const lookbackYear = lookbackStart.getUTCFullYear();
+    const lookbackMonth = lookbackStart.getUTCMonth() + 1;
+
+    const costs = await this.prisma.employeeCost.findMany({
+      where: {
+        ...(projectId ? { projectId } : {}),
+        OR: [
+          { periodYear: { gt: lookbackYear } },
+          {
+            periodYear: lookbackYear,
+            periodMonth: { gte: lookbackMonth },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        projectId: true,
+        periodYear: true,
+        periodMonth: true,
+        ratePerHour: true,
+        regularHours: true,
+        overtimeHours: true,
+        employee: { select: { name: true } },
+        project: { select: { name: true } },
+      },
+      orderBy: [
+        { employeeId: 'asc' },
+        { projectId: 'asc' },
+        { periodYear: 'asc' },
+        { periodMonth: 'asc' },
+      ],
+    });
+
+    const candidates: FlagCandidate[] = [];
+    const priorRate = new Map<string, number>();
+
+    for (const cost of costs) {
+      const rate = Number(cost.ratePerHour);
+      const regular = Number(cost.regularHours);
+      const overtime = Number(cost.overtimeHours);
+      const totalHours = regular + overtime;
+      const periodLabel = `${cost.periodYear}-${String(cost.periodMonth).padStart(2, '0')}`;
+      const seriesKey = `${cost.employeeId}:${cost.projectId}`;
+
+      if (totalHours > 0 && (!Number.isFinite(rate) || rate <= 0)) {
+        candidates.push({
+          flagType: DATA_QUALITY_FLAG_TYPE.COST_MISSING_RATE,
+          objectType: 'EmployeeCost',
+          objectId: cost.id,
+          projectId: cost.projectId,
+          severity: DATA_QUALITY_SEVERITY.CRITICAL,
+          description: `${cost.employee.name} on ${cost.project.name} (${periodLabel}) has ${totalHours}h approved but rate Per Hour is zero/missing`,
+        });
+      }
+
+      const previous = priorRate.get(seriesKey);
+      if (
+        previous != null &&
+        previous > 0 &&
+        Number.isFinite(rate) &&
+        rate > 0
+      ) {
+        const jumpPct = ((rate - previous) / previous) * 100;
+        if (jumpPct >= COST_ANOMALY_RATE_JUMP_PCT) {
+          candidates.push({
+            flagType: DATA_QUALITY_FLAG_TYPE.COST_RATE_JUMP,
+            objectType: 'EmployeeCost',
+            objectId: cost.id,
+            projectId: cost.projectId,
+            severity: DATA_QUALITY_SEVERITY.HIGH,
+            description: `${cost.employee.name} on ${cost.project.name} (${periodLabel}) rate jumped ${jumpPct.toFixed(0)}% (${previous} → ${rate})`,
+          });
+        }
+      }
+      if (Number.isFinite(rate) && rate > 0) {
+        priorRate.set(seriesKey, rate);
+      }
+
+      const otSpikeByRatio =
+        regular > 0 && overtime / regular >= COST_ANOMALY_OT_SPIKE_RATIO;
+      const otSpikeAbsolute =
+        regular <= 0 && overtime >= COST_ANOMALY_OT_SPIKE_MIN_HOURS;
+      if (otSpikeByRatio || otSpikeAbsolute) {
+        const ratioLabel =
+          regular > 0
+            ? `${((overtime / regular) * 100).toFixed(0)}% of regular`
+            : `${overtime}h OT with no regular hours`;
+        candidates.push({
+          flagType: DATA_QUALITY_FLAG_TYPE.COST_OT_SPIKE,
+          objectType: 'EmployeeCost',
+          objectId: cost.id,
+          projectId: cost.projectId,
+          severity: DATA_QUALITY_SEVERITY.HIGH,
+          description: `${cost.employee.name} on ${cost.project.name} (${periodLabel}) OT spike: ${overtime}h OT / ${regular}h regular (${ratioLabel})`,
+        });
+      }
+    }
+
+    return candidates;
+  }
+
+  private async notifyNewCostAnomalies(
+    candidates: FlagCandidate[],
+    previouslyOpenKeys: Set<string>,
+  ) {
+    const anomalies = candidates.filter((c) => {
+      if (!COST_ANOMALY_FLAG_TYPES.has(c.flagType)) return false;
+      const key = `${c.flagType}:${c.objectId}:${c.projectId ?? ''}`;
+      return !previouslyOpenKeys.has(key);
+    });
+    if (anomalies.length === 0) return;
+
+    try {
+      await this.ensureCostAnomalyAlertRule();
+
+      for (const anomaly of anomalies) {
+        await this.alertEngine.fire({
+          eventType: NOTIFICATION_EVENT_TYPE.COST_ANOMALY_DETECTED,
+          objectType: anomaly.objectType,
+          objectId: anomaly.objectId,
+          title: 'Cost anomaly detected',
+          body: anomaly.description,
+          payload: {
+            projectId: anomaly.projectId,
+            flagType: anomaly.flagType,
+            severity: anomaly.severity,
+            link: '/dashboard/reports/data-quality',
+          },
+          metricValue:
+            anomaly.severity === DATA_QUALITY_SEVERITY.CRITICAL ? 100 : 75,
+        });
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Cost anomaly alerts failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensureCostAnomalyAlertRule(): Promise<void> {
+    const existing = await this.prisma.alertRule.findFirst({
+      where: { eventType: NOTIFICATION_EVENT_TYPE.COST_ANOMALY_DETECTED },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const financeRole = await this.prisma.role.findFirst({
+      where: { code: RoleEnum.finance },
+      select: { id: true },
+    });
+    const pmoRole = await this.prisma.role.findFirst({
+      where: { code: RoleEnum.pmo_lead },
+      select: { id: true },
+    });
+    const recipientRoleIds = [financeRole?.id, pmoRole?.id].filter(
+      (id): id is number => id != null,
+    );
+
+    await this.prisma.alertRule.create({
+      data: {
+        eventType: NOTIFICATION_EVENT_TYPE.COST_ANOMALY_DETECTED,
+        thresholdConfig: { scoreGte: 50 },
+        channels: ['in_app', 'email'],
+        reminderCadenceHrs: 24,
+        escalationDelayHrs: 48,
+        escalationRole: RoleEnum.pmo_lead,
+        isActive: true,
+        recipients:
+          recipientRoleIds.length > 0
+            ? {
+                create: recipientRoleIds.map((roleId) => ({ roleId })),
+              }
+            : undefined,
+      },
     });
   }
 

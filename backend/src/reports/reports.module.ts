@@ -5,6 +5,7 @@ import { CaslModule } from '../casl/casl.module';
 import { MailerModule } from '../mailer/mailer.module';
 import { AuditLogsModule } from '../audit/audit-logs.module';
 import { BrandingModule } from '../branding/branding.module';
+import { AlertsModule } from '../alerts/alerts.module';
 import { ReportsController } from './reports.controller';
 import { UtilisationService } from './utilisation.service';
 import { HealthRulesService } from './health/health-rules.service';
@@ -22,6 +23,7 @@ import { REPORTS_QUEUE } from './reports.constants';
     MailerModule,
     AuditLogsModule,
     BrandingModule,
+    AlertsModule,
     BullModule.registerQueue({ name: REPORTS_QUEUE }),
   ],
   controllers: [ReportsController],

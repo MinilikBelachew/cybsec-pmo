@@ -48,6 +48,9 @@ const DEFAULT_VALUES: AlertRuleFormValues = {
 const EVENT_TYPE_LABELS: Record<(typeof ALERT_EVENT_TYPES)[number], string> = {
   RISK_SCORE_BREACHED: "Risk score breached",
   ISSUE_ESCALATED: "Issue escalated",
+  BUDGET_OVERRUN: "Budget overrun",
+  BUDGET_THRESHOLD_WARNING: "Budget threshold warning",
+  COST_ANOMALY_DETECTED: "Cost anomaly detected",
 };
 
 const CHANNEL_LABELS: Record<(typeof ALERT_CHANNELS)[number], string> = {

@@ -23,6 +23,9 @@ const FLAG_TYPES: DataQualityFlagType[] = [
   "UNAPPROVED_TIMESHEET",
   "STALE_INTEGRATION",
   "INCOMPLETE_PROJECT",
+  "COST_MISSING_RATE",
+  "COST_RATE_JUMP",
+  "COST_OT_SPIKE",
 ];
 
 const FLAG_META: Record<
@@ -44,6 +47,18 @@ const FLAG_META: Record<
   INCOMPLETE_PROJECT: {
     title: "Incomplete project",
     description: "Projects missing required setup data.",
+  },
+  COST_MISSING_RATE: {
+    title: "Missing cost rate",
+    description: "Approved hours with zero or missing hourly rate (UC-15).",
+  },
+  COST_RATE_JUMP: {
+    title: "Cost rate jump",
+    description: "Hourly rate jumped sharply vs the prior period.",
+  },
+  COST_OT_SPIKE: {
+    title: "Overtime spike",
+    description: "Overtime hours are high relative to regular hours.",
   },
 };
 
