@@ -6,7 +6,6 @@ import { usePathname, Link } from "@/i18n/routing";
 import { cn } from "@/shared/utils/cn";
 import { getVisibleSections, type NavSection } from "@/config/sidebar.config";
 import { useAuth } from "@/domains/auth";
-import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAppSelector } from "@/store/hooks";
 import { ROLE_CATALOG } from "@/config/roles.config";
 import { Button } from "@/shared/ui/button";
@@ -26,7 +25,7 @@ import { useMediaQuery } from "@/shared/hooks/use-media-query";
 export function SidebarNav() {
   const pathname = usePathname();
   const { user } = useAuth();
-  const ability = useAppAbility();
+  const permissions = useAppSelector((s) => s.auth.permissions);
   const permissionsLoaded = useAppSelector((s) => s.auth.permissionsLoaded);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mounted, setMounted] = useState(false);
@@ -116,7 +115,7 @@ export function SidebarNav() {
   const NavContent = ({ mobile = false }: { mobile?: boolean }) => {
     const isCollapsedLayout = collapsed && !mobile;
     const visibleSections = getVisibleSections(
-      ability,
+      permissions,
       permissionsLoaded,
       user?.backendRoleCode,
     );

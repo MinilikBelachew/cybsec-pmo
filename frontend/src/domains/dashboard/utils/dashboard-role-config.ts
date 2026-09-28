@@ -75,7 +75,7 @@ export function resolveDashboardLayout(
 
   const canLoadStats = canViewProjects || canViewTasks || canViewReports;
   const canLoadProjectHealth = canViewProjects;
-  const canLoadMilestones = canViewProjects || canViewMilestones;
+  const canLoadMilestones = canViewMilestones;
   const canLoadResources = canViewTeam || canViewReports;
   const canLoadBurnRate = canViewFinancials && canViewProjects;
   const canLoadAuditFeed = canViewAudit;

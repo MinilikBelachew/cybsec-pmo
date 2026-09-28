@@ -11,7 +11,8 @@ function mergeOr<T extends Prisma.ProjectWhereInput | Prisma.TaskWhereInput | Pr
   clauses: T[],
 ): T {
   if (clauses.length === 0) {
-    return { id: '__casl_denied__' } as T;
+    // Empty `in` is a UUID-safe "match nothing" (avoids invalid id sentinels like __casl_denied__).
+    return { id: { in: [] } } as T;
   }
   if (clauses.length === 1) {
     return clauses[0];
@@ -148,7 +149,7 @@ function buildModuleEmployeeWhere(
       clauses.push(
         user.departmentId
           ? { departmentId: user.departmentId }
-          : { id: '__casl_denied__' },
+          : { id: { in: [] } },
       );
       continue;
     }
@@ -172,7 +173,7 @@ function buildModuleEmployeeWhere(
   }
 
   if (!hasPermission) {
-    return { id: '__casl_denied__' };
+    return { id: { in: [] } };
   }
 
   return mergeOr(clauses);

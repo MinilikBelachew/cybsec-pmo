@@ -7,6 +7,7 @@ import {
 import {
   ROLE_CATALOG,
   ROLE_ID_BY_CODE,
+  PERMISSIONS_BY_ROLE,
   buildPermissionCatalog,
   buildRolePermissionRows,
 } from './rbac-seed-data';
@@ -128,6 +129,31 @@ async function main() {
         `Removed team.approve from team_lead (${removed.count} grant(s)).`,
       );
     }
+  }
+
+  // Prune obsolete finance grants (reports, sow, tasks, documents, etc.).
+  const financeDesiredKeys = new Set(
+    (PERMISSIONS_BY_ROLE.finance ?? []).map((p) => `${p.module}:${p.action}`),
+  );
+  const financeRolePerms = await prisma.rolePermission.findMany({
+    where: { roleId: ROLE_ID_BY_CODE.finance },
+    include: { permission: { select: { module: true, action: true } } },
+  });
+  const financeObsoleteIds = financeRolePerms
+    .filter(
+      (rp) =>
+        !financeDesiredKeys.has(
+          `${rp.permission.module}:${rp.permission.action}`,
+        ),
+    )
+    .map((rp) => rp.id);
+  if (financeObsoleteIds.length > 0) {
+    const pruned = await prisma.rolePermission.deleteMany({
+      where: { id: { in: financeObsoleteIds } },
+    });
+    console.log(
+      `Pruned obsolete finance role permissions (${pruned.count} grant(s)).`,
+    );
   }
 
   console.log('Removing unused auth permissions...');

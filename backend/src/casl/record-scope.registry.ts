@@ -14,8 +14,8 @@ export const RECORD_SCOPE_CODES = [
 
 export type RecordScopeCode = (typeof RECORD_SCOPE_CODES)[number];
 
-const DENIED_PROJECT: Prisma.ProjectWhereInput = { id: '__casl_denied__' };
-const DENIED_TASK: Prisma.TaskWhereInput = { id: '__casl_denied__' };
+const DENIED_PROJECT: Prisma.ProjectWhereInput = { id: { in: [] } };
+const DENIED_TASK: Prisma.TaskWhereInput = { id: { in: [] } };
 
 export const RECORD_SCOPE_LABELS: Record<RecordScopeCode, string> = {
   all: 'All records',

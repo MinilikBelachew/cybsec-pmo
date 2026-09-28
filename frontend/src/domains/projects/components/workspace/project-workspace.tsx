@@ -309,6 +309,8 @@ export function ProjectWorkspace() {
 
   const { user } = useAuth();
   const ability = useAppAbility();
+  const isFinanceRole = (user?.backendRoleCode ?? "") === "finance";
+  const skipExecutionQueries = isFinanceRole || !id;
   const { canCreatePhases, canEditMilestones, canImportProjects, canViewProjectAudit, canEditProjects, canEditTeam, canViewFinancials, canEditFinancials, canViewCharter, canEditCharter, canApproveCharter, canViewSow, canEditSow, canApproveSow } =
     useModulePermissions();
   const canManageProjectTeam = canEditProjects && canEditTeam;
@@ -327,7 +329,9 @@ export function ProjectWorkspace() {
   };
 
   const { data: project, isLoading: isProjectLoading, isError } = useGetProjectByIdQuery(id);
-  const { data: leaveImpacts } = useGetProjectLeaveImpactsQuery(id);
+  const { data: leaveImpacts } = useGetProjectLeaveImpactsQuery(id, {
+    skip: skipExecutionQueries,
+  });
   const leaveImpactSummary = useMemo(() => {
     const rows = leaveImpacts?.rows ?? [];
     if (rows.length === 0) {
@@ -396,13 +400,14 @@ export function ProjectWorkspace() {
 
   const { data: tasksResponse, isLoading: isTasksLoading, refetch: refetchTasks } =
     useGetTasksQuery(taskQueryParams, {
-      pollingInterval: TASKS_POLLING_INTERVAL_MS,
+      skip: skipExecutionQueries,
+      pollingInterval: skipExecutionQueries ? 0 : TASKS_POLLING_INTERVAL_MS,
       // Board/list status columns fetch their own pages; shared query still feeds
       // gantt/calendar/table and phase-grouped list.
     });
 
   const { data: projectTaskStats } = useGetActiveTaskStatsQuery(statsQueryParams, {
-    skip: !id,
+    skip: skipExecutionQueries,
   });
 
   const statusCounts = useMemo(() => {
@@ -442,16 +447,22 @@ export function ProjectWorkspace() {
 
   const [selectedPhaseIdForNewTask, setSelectedPhaseIdForNewTask] = useState<string | null>(null);
 
-  const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(id);
+  const { data: phases = [], isLoading: isPhasesLoading } = useGetPhasesQuery(id, {
+    skip: skipExecutionQueries,
+  });
 
-  const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id);
+  const { data: milestones = [], isLoading: isMilestonesLoading } = useGetMilestonesQuery(id, {
+    skip: skipExecutionQueries,
+  });
 
   const { data: taskDependencies = [] } = useGetTaskDependenciesQuery(
     { projectId: id },
-    { skip: !id },
+    { skip: skipExecutionQueries },
   );
 
-  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(id);
+  const { data: assignees = [] } = useGetProjectTaskAssigneesQuery(id, {
+    skip: skipExecutionQueries,
+  });
 
   const recentMilestones = useMemo(() => {
     return [...milestones]
@@ -600,6 +611,12 @@ export function ProjectWorkspace() {
   const isLoading = isProjectLoading || isTasksLoading || isPhasesLoading || isMilestonesLoading;
 
   const visibleViews = useMemo(() => {
+    if (isFinanceRole) {
+      return canViewFinancials
+        ? VIEWS.filter((view) => view.id === "financials")
+        : [];
+    }
+
     let base = canViewProjectAudit
       ? VIEWS
       : VIEWS.filter((view) => view.id !== "audit");
@@ -619,10 +636,20 @@ export function ProjectWorkspace() {
         ? { ...view, label: "Minutes of Meeting" }
         : view,
     );
-  }, [canViewProjectAudit, canViewFinancials, canViewCharter, canViewSow, project?.methodology, user?.backendRoleCode]);
+  }, [
+    isFinanceRole,
+    canViewProjectAudit,
+    canViewFinancials,
+    canViewCharter,
+    canViewSow,
+    project?.methodology,
+    user?.backendRoleCode,
+  ]);
 
   const methodology = resolveMethodology(project?.methodology);
-  const methodologyDefaultView = getMethodologyDefaultView(methodology);
+  const methodologyDefaultView = isFinanceRole
+    ? "financials"
+    : getMethodologyDefaultView(methodology);
 
   const methodologyAppliedFor = useRef<string | null>(null);
 
@@ -634,21 +661,14 @@ export function ProjectWorkspace() {
     const viewParam = searchParams.get("view");
     const canOpenView =
       !!viewParam &&
-      VIEWS.some((v) => v.id === viewParam) &&
-      (viewParam !== "audit" || canViewProjectAudit) &&
-      (viewParam !== "financials" || canViewFinancials) &&
-      (viewParam !== "charter" || canViewCharter) &&
-      (viewParam !== "sow" || canViewSow);
+      visibleViews.some((v) => v.id === viewParam);
     setActiveView(canOpenView ? (viewParam as View) : methodologyDefaultView);
   }, [
     project?.id,
     methodology,
     methodologyDefaultView,
     searchParams,
-    canViewProjectAudit,
-    canViewFinancials,
-    canViewCharter,
-    canViewSow,
+    visibleViews,
   ]);
 
   const [openGroups, setOpenGroups] = useState<Set<Status>>(new Set(["To_Do", "In_Progress", "Submitted_for_Review", "Approved", "Rework", "Done"]));
@@ -669,13 +689,23 @@ export function ProjectWorkspace() {
   }, [id]);
 
   useEffect(() => {
+    if (isFinanceRole && activeView !== "financials" && canViewFinancials) {
+      setActiveView("financials");
+      return;
+    }
     if (activeView === "audit" && !canViewProjectAudit) {
       setActiveView(methodologyDefaultView);
     }
     if (activeView === "financials" && !canViewFinancials) {
       setActiveView(methodologyDefaultView);
     }
-  }, [activeView, canViewProjectAudit, canViewFinancials, methodologyDefaultView]);
+  }, [
+    activeView,
+    isFinanceRole,
+    canViewProjectAudit,
+    canViewFinancials,
+    methodologyDefaultView,
+  ]);
 
   const openTaskDetail = (
     taskId: string,
@@ -698,13 +728,7 @@ export function ProjectWorkspace() {
   useEffect(() => {
     const viewParam = searchParams.get("view");
     if (viewParam && id) {
-      const isValidView = VIEWS.some((v) => v.id === viewParam);
-      const canOpen =
-        isValidView &&
-        (viewParam !== "audit" || canViewProjectAudit) &&
-        (viewParam !== "financials" || canViewFinancials) &&
-        (viewParam !== "charter" || canViewCharter) &&
-        (viewParam !== "sow" || canViewSow);
+      const canOpen = visibleViews.some((v) => v.id === viewParam);
       if (canOpen) {
         if (project?.id) {
           methodologyAppliedFor.current = `${project.id}:${methodology}`;
@@ -750,10 +774,7 @@ export function ProjectWorkspace() {
     id,
     router,
     applyLeaveBackup,
-    canViewProjectAudit,
-    canViewFinancials,
-    canViewCharter,
-    canViewSow,
+    visibleViews,
     project?.id,
     methodology,
   ]);
