@@ -47,6 +47,14 @@ next-env.d.ts
 # /test-results/
 # /test-results-phase1/
 # /test-results-phase2/
+# /test-results-phase3/
+# /test-results-phase4/
+# /test-results-phase5/
 # /playwright-report/
 # /playwright-report-phase1/
 # /playwright-report-phase2/
+# /playwright-report-phase3/
+# /playwright-report-phase4/
+# /playwright-report-phase5/
+/test-results*/
+/playwright-report*/

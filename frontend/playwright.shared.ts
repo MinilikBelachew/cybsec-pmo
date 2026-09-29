@@ -30,15 +30,20 @@ const PHASE4_SPECS = [
   "**/risk-compliance.spec.ts",
 ];
 
-const SPECS_BY_PHASE: Record<"1" | "2" | "3" | "4", string[]> = {
+const PHASE5_SPECS = [
+  "**/financial-integrations.spec.ts",
+];
+
+const SPECS_BY_PHASE: Record<"1" | "2" | "3" | "4" | "5", string[]> = {
   "1": PHASE1_SPECS,
   "2": PHASE2_SPECS,
   "3": PHASE3_SPECS,
   "4": PHASE4_SPECS,
+  "5": PHASE5_SPECS,
 };
 
 export function createPlaywrightConfig(
-  phase: "1" | "2" | "3" | "4",
+  phase: "1" | "2" | "3" | "4" | "5",
 ): PlaywrightTestConfig {
   process.env.PLAYWRIGHT_PHASE = phase;
 

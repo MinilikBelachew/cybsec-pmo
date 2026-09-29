@@ -154,7 +154,12 @@ export async function captureEvidence(
   text: string | RegExp,
   options?: { timeout?: number; holdMs?: number },
 ) {
-  const locator = page.getByText(text).first();
+  // DataTables render a md:hidden mobile copy + desktop table — skip hidden matches.
+  const locator = page
+    .getByRole("main")
+    .getByText(text)
+    .filter({ visible: true })
+    .first();
   await expect(locator).toBeVisible({ timeout: options?.timeout ?? 20000 });
   await locator.scrollIntoViewIfNeeded().catch(() => undefined);
   await holdForVideo(page, options?.holdMs ?? 3500);
