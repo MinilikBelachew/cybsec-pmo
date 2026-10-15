@@ -1,10 +1,12 @@
+# syntax=docker/dockerfile:1
 FROM node:22.18.0-slim AS base
 
 # ── deps stage ──────────────────────────────────────────────────────────────
 FROM base AS deps
 WORKDIR /app
-COPY package.json ./
-RUN npm config set fetch-retry-maxtimeout 120000 && \
+COPY package.json package-lock.json* ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retries 5 && \
     npm install
@@ -30,7 +32,8 @@ ENV NEXT_PUBLIC_ENTRA_CLIENT_ID=$NEXT_PUBLIC_ENTRA_CLIENT_ID
 ENV NEXT_PUBLIC_ENTRA_TENANT_ID=$NEXT_PUBLIC_ENTRA_TENANT_ID
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
 
 # ── runner stage (lean production image) ─────────────────────────────────────
 FROM base AS runner

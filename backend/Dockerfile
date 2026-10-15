@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM node:22.18.0-slim
 
 # openssl: required by Prisma engine binaries.
@@ -5,10 +6,12 @@ FROM node:22.18.0-slim
 # child processes on each recompile; without it the watcher crashes with "spawn ps ENOENT".
 RUN apt-get update -y && apt-get install -y openssl procps && rm -rf /var/lib/apt/lists/*
 
-RUN npm i -g @nestjs/cli typescript ts-node
+RUN --mount=type=cache,target=/root/.npm \
+    npm i -g @nestjs/cli typescript ts-node
 
 COPY package*.json /tmp/app/
-RUN cd /tmp/app && npm install
+RUN --mount=type=cache,target=/root/.npm \
+    cd /tmp/app && npm install
 
 COPY . /usr/src/app
 RUN cp -a /tmp/app/node_modules /usr/src/app
