@@ -13,6 +13,7 @@
 !/mpxj-service/
 !/DEPLOYMENT.md
 !/scripts/
+!/.github/
 
 # Ignore Java build outputs and IDE files
 /mpxj-service/target/
@@ -32,3 +33,4 @@
 /scripts/.uploaded-links.json
 /scripts/.uploaded-drive-links-phase*.json
 /scripts/.google-sheet-id
+**/node_modules/

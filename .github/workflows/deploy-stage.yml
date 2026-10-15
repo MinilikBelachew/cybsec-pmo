@@ -1,0 +1,278 @@
+name: Deploy Staging to VPS (GHCR)
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: 'Commit Hash, Branch, or Tag to deploy'
+        required: true
+        default: 'feat-phase-5-financial-and-integrations'
+      deploy_mpxj:
+        description: 'Build & Deploy MPXJ Service (Java)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-and-push:
+    name: Build & Push Images to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      backend_image: ${{ steps.meta.outputs.backend_image }}
+      frontend_image: ${{ steps.meta.outputs.frontend_image }}
+      mpxj_image: ${{ steps.meta.outputs.mpxj_image }}
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref }}
+
+      - name: Resolve Docker Image Tags
+        id: meta
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          
+          IMAGE_TAG="stage-${COMMIT_SHA}"
+          
+          BACKEND_IMAGE="ghcr.io/${REPO_LOWER}/backend:${IMAGE_TAG}"
+          BACKEND_LATEST="ghcr.io/${REPO_LOWER}/backend:stage"
+          
+          FRONTEND_IMAGE="ghcr.io/${REPO_LOWER}/frontend:${IMAGE_TAG}"
+          FRONTEND_LATEST="ghcr.io/${REPO_LOWER}/frontend:stage"
+          
+          MPXJ_IMAGE="ghcr.io/${REPO_LOWER}/mpxj-service:${IMAGE_TAG}"
+          MPXJ_LATEST="ghcr.io/${REPO_LOWER}/mpxj-service:stage"
+          
+          echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "backend_image=$BACKEND_IMAGE" >> $GITHUB_OUTPUT
+          echo "frontend_image=$FRONTEND_IMAGE" >> $GITHUB_OUTPUT
+          echo "mpxj_image=$MPXJ_IMAGE" >> $GITHUB_OUTPUT
+          echo "backend_tags=${BACKEND_IMAGE},${BACKEND_LATEST}" >> $GITHUB_OUTPUT
+          echo "frontend_tags=${FRONTEND_IMAGE},${FRONTEND_LATEST}" >> $GITHUB_OUTPUT
+          echo "mpxj_tags=${MPXJ_IMAGE},${MPXJ_LATEST}" >> $GITHUB_OUTPUT
+          
+          echo "Resolved Tag: $IMAGE_TAG"
+          echo "Resolved Backend Image: $BACKEND_IMAGE"
+          echo "Resolved Frontend Image: $FRONTEND_IMAGE"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.backend_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Dynamically populate frontend .env from secret so NO secrets or domain URLs are hardcoded in YAML
+      - name: Setup Frontend Environment from Secret
+        run: |
+          if [ -n "$STAGE_FRONTEND_ENV" ]; then
+            echo "$STAGE_FRONTEND_ENV" > ./frontend/.env
+          fi
+
+          if [ -f ./frontend/.env ]; then
+            echo "Loading build-args from ./frontend/.env..."
+            while IFS='=' read -r key value || [ -n "$key" ]; do
+              key=$(echo "$key" | tr -d '\r' | xargs)
+              value=$(echo "$value" | tr -d '\r' | xargs)
+              if [[ -n "$key" && ! "$key" =~ ^# ]]; then
+                echo "$key=$value" >> $GITHUB_ENV
+              fi
+            done < ./frontend/.env
+          fi
+        env:
+          STAGE_FRONTEND_ENV: ${{ secrets.STAGE_FRONTEND_ENV_FILE || secrets.STAGE_FRONTEND_ENV }}
+
+      - name: Build & Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.frontend_tags }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_WS_URL=${{ env.NEXT_PUBLIC_WS_URL }}
+            NEXT_PUBLIC_APP_URL=${{ env.NEXT_PUBLIC_APP_URL }}
+            NEXT_PUBLIC_ENTRA_CLIENT_ID=${{ env.NEXT_PUBLIC_ENTRA_CLIENT_ID }}
+            NEXT_PUBLIC_ENTRA_TENANT_ID=${{ env.NEXT_PUBLIC_ENTRA_TENANT_ID }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & Push MPXJ Service Image
+        if: ${{ github.event.inputs.deploy_mpxj == 'true' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ./mpxj-service
+          file: ./mpxj-service/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.mpxj_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-to-vps:
+    name: Deploy to Staging VPS
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          BACKEND_IMAGE: ${{ needs.build-and-push.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ needs.build-and-push.outputs.frontend_image }}
+          MPXJ_IMAGE: ${{ needs.build-and-push.outputs.mpxj_image }}
+          DEPLOY_MPXJ: ${{ github.event.inputs.deploy_mpxj }}
+          GIT_REF: ${{ github.event.inputs.git_ref }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PAT: ${{ secrets.GITHUB_TOKEN }}
+          STAGE_BACKEND_ENV: ${{ secrets.STAGE_BACKEND_ENV_FILE || secrets.STAGE_ENV_FILE }}
+          STAGE_FRONTEND_ENV: ${{ secrets.STAGE_FRONTEND_ENV_FILE || secrets.STAGE_FRONTEND_ENV }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          envs: IMAGE_TAG,BACKEND_IMAGE,FRONTEND_IMAGE,MPXJ_IMAGE,DEPLOY_MPXJ,GIT_REF,GHCR_USER,GHCR_PAT,STAGE_BACKEND_ENV,STAGE_FRONTEND_ENV
+          command_timeout: 15m
+          script: |
+            set -e
+            echo "🚀 Deploying to Staging on VPS (/var/www/cybsec-pmo-stage)..."
+            cd /var/www/cybsec-pmo-stage
+
+            # 1. Update git repository
+            echo "Fetching latest changes for $GIT_REF..."
+            git fetch origin
+            git checkout "$GIT_REF" || git checkout -b "$GIT_REF" "origin/$GIT_REF"
+            git pull origin "$GIT_REF" || true
+            git checkout origin/main -- docker-compose.prod.yml 2>/dev/null || true
+
+            # 2. Login to GHCR on VPS
+            echo "Authenticating with GitHub Container Registry..."
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin 2>/dev/null || true
+
+            # 3. Smart merge backend environment file (backend/.env.prod)
+            if [ -n "$STAGE_BACKEND_ENV" ]; then
+              echo "Syncing and merging backend environment into backend/.env.prod..."
+              STAGE_ENV="$STAGE_BACKEND_ENV" node -e '
+                const fs = require("fs");
+                const path = "./backend/.env.prod";
+                const incoming = process.env.STAGE_ENV || "";
+                let lines = fs.existsSync(path) ? fs.readFileSync(path, "utf8").split(/\r?\n/) : [];
+                const incomingEntries = incoming.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith("#") && l.includes("="));
+                const incomingMap = new Map();
+                for (const entry of incomingEntries) {
+                  const idx = entry.indexOf("=");
+                  const key = entry.slice(0, idx).trim();
+                  const val = entry.slice(idx + 1);
+                  if (key) incomingMap.set(key, val);
+                }
+                const updatedKeys = new Set();
+                const newLines = lines.map(line => {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) return line;
+                  const idx = trimmed.indexOf("=");
+                  const key = trimmed.slice(0, idx).trim();
+                  if (incomingMap.has(key)) {
+                    updatedKeys.add(key);
+                    return `${key}=${incomingMap.get(key)}`;
+                  }
+                  return line;
+                });
+                for (const [key, val] of incomingMap.entries()) {
+                  if (!updatedKeys.has(key)) newLines.push(`${key}=${val}`);
+                }
+                fs.mkdirSync("./backend", { recursive: true });
+                fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
+                console.log("Successfully merged " + incomingMap.size + " backend environment variables into " + path);
+              '
+            fi
+
+            # 4. Smart merge frontend environment file (frontend/.env)
+            if [ -n "$STAGE_FRONTEND_ENV" ]; then
+              echo "Syncing and merging frontend environment into frontend/.env..."
+              STAGE_ENV="$STAGE_FRONTEND_ENV" node -e '
+                const fs = require("fs");
+                const path = "./frontend/.env";
+                const incoming = process.env.STAGE_ENV || "";
+                let lines = fs.existsSync(path) ? fs.readFileSync(path, "utf8").split(/\r?\n/) : [];
+                const incomingEntries = incoming.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith("#") && l.includes("="));
+                const incomingMap = new Map();
+                for (const entry of incomingEntries) {
+                  const idx = entry.indexOf("=");
+                  const key = entry.slice(0, idx).trim();
+                  const val = entry.slice(idx + 1);
+                  if (key) incomingMap.set(key, val);
+                }
+                const updatedKeys = new Set();
+                const newLines = lines.map(line => {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) return line;
+                  const idx = trimmed.indexOf("=");
+                  const key = trimmed.slice(0, idx).trim();
+                  if (incomingMap.has(key)) {
+                    updatedKeys.add(key);
+                    return `${key}=${incomingMap.get(key)}`;
+                  }
+                  return line;
+                });
+                for (const [key, val] of incomingMap.entries()) {
+                  if (!updatedKeys.has(key)) newLines.push(`${key}=${val}`);
+                }
+                fs.mkdirSync("./frontend", { recursive: true });
+                fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
+                console.log("Successfully merged " + incomingMap.size + " frontend environment variables into " + path);
+              '
+            fi
+
+            # 5. Pull pre-built images from GHCR and tag them locally for docker compose
+            echo "Pulling images from GHCR and tagging locally..."
+            docker pull "$BACKEND_IMAGE"
+            docker tag "$BACKEND_IMAGE" "cybersec-backend-stage:$IMAGE_TAG"
+            docker tag "$BACKEND_IMAGE" "cybersec-backend-stage:latest"
+
+            docker pull "$FRONTEND_IMAGE"
+            docker tag "$FRONTEND_IMAGE" "cybersec-frontend-stage:$IMAGE_TAG"
+            docker tag "$FRONTEND_IMAGE" "cybersec-frontend-stage:latest"
+
+            if [ "$DEPLOY_MPXJ" = "true" ]; then
+              docker pull "$MPXJ_IMAGE"
+              docker tag "$MPXJ_IMAGE" "cybersec-mpxj-service-stage:$IMAGE_TAG"
+              docker tag "$MPXJ_IMAGE" "cybersec-mpxj-service-stage:latest"
+            fi
+
+            # 6. Recreate & start containers with IMAGE_TAG (zero build overhead)
+            echo "Restarting staging services with tag $IMAGE_TAG..."
+            IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.prod.yml up -d --no-build
+
+            # 7. Verify running containers
+            echo "Staging container status:"
+            docker compose -f docker-compose.prod.yml ps
+
+            # 8. Clean up unused images to preserve disk space
+            echo "Pruning dangling images..."
+            docker image prune -f
+
+            echo "🎉 Staging deployment for $IMAGE_TAG successfully completed!"
