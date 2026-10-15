@@ -13,19 +13,17 @@ on:
         default: false
         type: boolean
 
-jobs:
-  build-and-push:
-    name: Build & Push Images to GHCR
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+permissions:
+  contents: read
+  packages: write
 
+jobs:
+  build-backend:
+    name: Build & Push Backend (Cloud Runner)
+    runs-on: ubuntu-latest
     outputs:
+      image_backend: ${{ steps.meta.outputs.backend_image }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
-      backend_image: ${{ steps.meta.outputs.backend_image }}
-      frontend_image: ${{ steps.meta.outputs.frontend_image }}
-      mpxj_image: ${{ steps.meta.outputs.mpxj_image }}
       commit_sha: ${{ steps.meta.outputs.commit_sha }}
 
     steps:
@@ -34,7 +32,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.git_ref }}
 
-      - name: Resolve Docker Image Tags
+      - name: Resolve Backend Image Tags
         id: meta
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
@@ -45,24 +43,11 @@ jobs:
           BACKEND_IMAGE="ghcr.io/${REPO_LOWER}/backend:${IMAGE_TAG}"
           BACKEND_LATEST="ghcr.io/${REPO_LOWER}/backend:stage"
           
-          FRONTEND_IMAGE="ghcr.io/${REPO_LOWER}/frontend:${IMAGE_TAG}"
-          FRONTEND_LATEST="ghcr.io/${REPO_LOWER}/frontend:stage"
-          
-          MPXJ_IMAGE="ghcr.io/${REPO_LOWER}/mpxj-service:${IMAGE_TAG}"
-          MPXJ_LATEST="ghcr.io/${REPO_LOWER}/mpxj-service:stage"
-          
           echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "backend_image=$BACKEND_IMAGE" >> $GITHUB_OUTPUT
-          echo "frontend_image=$FRONTEND_IMAGE" >> $GITHUB_OUTPUT
-          echo "mpxj_image=$MPXJ_IMAGE" >> $GITHUB_OUTPUT
           echo "backend_tags=${BACKEND_IMAGE},${BACKEND_LATEST}" >> $GITHUB_OUTPUT
-          echo "frontend_tags=${FRONTEND_IMAGE},${FRONTEND_LATEST}" >> $GITHUB_OUTPUT
-          echo "mpxj_tags=${MPXJ_IMAGE},${MPXJ_LATEST}" >> $GITHUB_OUTPUT
-          
-          echo "Resolved Tag: $IMAGE_TAG"
           echo "Resolved Backend Image: $BACKEND_IMAGE"
-          echo "Resolved Frontend Image: $FRONTEND_IMAGE"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -83,6 +68,41 @@ jobs:
           tags: ${{ steps.meta.outputs.backend_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  build-frontend:
+    name: Build & Push Frontend (Cloud Runner)
+    runs-on: ubuntu-latest
+    outputs:
+      image_frontend: ${{ steps.meta.outputs.frontend_image }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref }}
+
+      - name: Resolve Frontend Image Tags
+        id: meta
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_TAG="stage-${COMMIT_SHA}"
+          FRONTEND_IMAGE="ghcr.io/${REPO_LOWER}/frontend:${IMAGE_TAG}"
+          FRONTEND_LATEST="ghcr.io/${REPO_LOWER}/frontend:stage"
+          
+          echo "frontend_image=$FRONTEND_IMAGE" >> $GITHUB_OUTPUT
+          echo "frontend_tags=${FRONTEND_IMAGE},${FRONTEND_LATEST}" >> $GITHUB_OUTPUT
+          echo "Resolved Frontend Image: $FRONTEND_IMAGE"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Dynamically populate frontend .env from secret so NO secrets or domain URLs are hardcoded in YAML
       - name: Setup Frontend Environment from Secret
@@ -120,8 +140,43 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  build-mpxj:
+    name: Build & Push MPXJ Service (Cloud Runner)
+    if: ${{ github.event.inputs.deploy_mpxj == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      image_mpxj: ${{ steps.meta.outputs.mpxj_image }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref }}
+
+      - name: Resolve MPXJ Image Tags
+        id: meta
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_TAG="stage-${COMMIT_SHA}"
+          MPXJ_IMAGE="ghcr.io/${REPO_LOWER}/mpxj-service:${IMAGE_TAG}"
+          MPXJ_LATEST="ghcr.io/${REPO_LOWER}/mpxj-service:stage"
+          
+          echo "mpxj_image=$MPXJ_IMAGE" >> $GITHUB_OUTPUT
+          echo "mpxj_tags=${MPXJ_IMAGE},${MPXJ_LATEST}" >> $GITHUB_OUTPUT
+          echo "Resolved MPXJ Image: $MPXJ_IMAGE"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build & Push MPXJ Service Image
-        if: ${{ github.event.inputs.deploy_mpxj == 'true' }}
         uses: docker/build-push-action@v5
         with:
           context: ./mpxj-service
@@ -133,17 +188,18 @@ jobs:
 
   deploy-to-vps:
     name: Deploy to Staging VPS
-    needs: build-and-push
+    needs: [build-backend, build-frontend, build-mpxj]
+    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
 
     steps:
       - name: Deploy to Server via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
-          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-          BACKEND_IMAGE: ${{ needs.build-and-push.outputs.backend_image }}
-          FRONTEND_IMAGE: ${{ needs.build-and-push.outputs.frontend_image }}
-          MPXJ_IMAGE: ${{ needs.build-and-push.outputs.mpxj_image }}
+          IMAGE_TAG: ${{ needs.build-backend.outputs.image_tag }}
+          BACKEND_IMAGE: ${{ needs.build-backend.outputs.image_backend }}
+          FRONTEND_IMAGE: ${{ needs.build-frontend.outputs.image_frontend }}
+          MPXJ_IMAGE: ${{ needs.build-mpxj.outputs.image_mpxj }}
           DEPLOY_MPXJ: ${{ github.event.inputs.deploy_mpxj }}
           GIT_REF: ${{ github.event.inputs.git_ref }}
           GHCR_USER: ${{ github.actor }}
