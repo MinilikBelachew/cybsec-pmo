@@ -1,4 +1,4 @@
-name: Deploy Production to VPS (GHCR)
+name: Deploy Production to VPS (Docker Hub)
 
 on:
   workflow_dispatch:
@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build-backend:
@@ -36,26 +35,27 @@ jobs:
         id: meta
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
-          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_TAG="prod-${COMMIT_SHA}"
-          BACKEND_IMAGE="ghcr.io/${REPO_LOWER}/backend:${IMAGE_TAG}"
-          BACKEND_LATEST="ghcr.io/${REPO_LOWER}/backend:prod"
+          DOCKER_USER="${{ secrets.DOCKERHUB_USERNAME || 'aynuayex' }}"
+          REPO="${DOCKER_USER}/cybersec-pmo"
+          
+          IMAGE_TAG="backend-${COMMIT_SHA}"
+          BACKEND_IMMUTABLE="${REPO}:${IMAGE_TAG}"
+          BACKEND_LATEST="${REPO}:backend"
           
           echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-          echo "backend_image=$BACKEND_IMAGE" >> $GITHUB_OUTPUT
-          echo "backend_tags=${BACKEND_IMAGE},${BACKEND_LATEST},ghcr.io/${REPO_LOWER}/backend:latest" >> $GITHUB_OUTPUT
-          echo "Resolved Backend Image: $BACKEND_IMAGE"
+          echo "backend_image=$BACKEND_IMMUTABLE" >> $GITHUB_OUTPUT
+          echo "backend_tags=${BACKEND_IMMUTABLE},${BACKEND_LATEST}" >> $GITHUB_OUTPUT
+          echo "Resolved Backend Tags: ${BACKEND_IMMUTABLE}, ${BACKEND_LATEST}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry (GHCR)
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME || 'aynuayex' }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build & Push Backend Image
         uses: docker/build-push-action@v5
@@ -83,24 +83,25 @@ jobs:
         id: meta
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
-          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_TAG="prod-${COMMIT_SHA}"
-          FRONTEND_IMAGE="ghcr.io/${REPO_LOWER}/frontend:${IMAGE_TAG}"
-          FRONTEND_LATEST="ghcr.io/${REPO_LOWER}/frontend:prod"
+          DOCKER_USER="${{ secrets.DOCKERHUB_USERNAME || 'aynuayex' }}"
+          REPO="${DOCKER_USER}/cybersec-pmo"
           
-          echo "frontend_image=$FRONTEND_IMAGE" >> $GITHUB_OUTPUT
-          echo "frontend_tags=${FRONTEND_IMAGE},${FRONTEND_LATEST},ghcr.io/${REPO_LOWER}/frontend:latest" >> $GITHUB_OUTPUT
-          echo "Resolved Frontend Image: $FRONTEND_IMAGE"
+          IMAGE_TAG="frontend-${COMMIT_SHA}"
+          FRONTEND_IMMUTABLE="${REPO}:${IMAGE_TAG}"
+          FRONTEND_LATEST="${REPO}:frontend"
+          
+          echo "frontend_image=$FRONTEND_IMMUTABLE" >> $GITHUB_OUTPUT
+          echo "frontend_tags=${FRONTEND_IMMUTABLE},${FRONTEND_LATEST}" >> $GITHUB_OUTPUT
+          echo "Resolved Frontend Tags: ${FRONTEND_IMMUTABLE}, ${FRONTEND_LATEST}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry (GHCR)
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME || 'aynuayex' }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Dynamically populate frontend .env from PROD secret so NO secrets or domain URLs are hardcoded in YAML
       - name: Setup Frontend Environment from Secret
@@ -155,24 +156,25 @@ jobs:
         id: meta
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
-          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_TAG="prod-${COMMIT_SHA}"
-          MPXJ_IMAGE="ghcr.io/${REPO_LOWER}/mpxj-service:${IMAGE_TAG}"
-          MPXJ_LATEST="ghcr.io/${REPO_LOWER}/mpxj-service:prod"
+          DOCKER_USER="${{ secrets.DOCKERHUB_USERNAME || 'aynuayex' }}"
+          REPO="${DOCKER_USER}/cybersec-pmo"
           
-          echo "mpxj_image=$MPXJ_IMAGE" >> $GITHUB_OUTPUT
-          echo "mpxj_tags=${MPXJ_IMAGE},${MPXJ_LATEST},ghcr.io/${REPO_LOWER}/mpxj-service:latest" >> $GITHUB_OUTPUT
-          echo "Resolved MPXJ Image: $MPXJ_IMAGE"
+          IMAGE_TAG="mpxj-service-${COMMIT_SHA}"
+          MPXJ_IMMUTABLE="${REPO}:${IMAGE_TAG}"
+          MPXJ_LATEST="${REPO}:mpxj-service"
+          
+          echo "mpxj_image=$MPXJ_IMMUTABLE" >> $GITHUB_OUTPUT
+          echo "mpxj_tags=${MPXJ_IMMUTABLE},${MPXJ_LATEST}" >> $GITHUB_OUTPUT
+          echo "Resolved MPXJ Tags: ${MPXJ_IMMUTABLE}, ${MPXJ_LATEST}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry (GHCR)
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME || 'aynuayex' }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build & Push MPXJ Service Image
         uses: docker/build-push-action@v5
@@ -194,14 +196,9 @@ jobs:
       - name: Deploy to Server via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
-          IMAGE_TAG: ${{ needs.build-backend.outputs.image_tag }}
-          BACKEND_IMAGE: ${{ needs.build-backend.outputs.image_backend }}
-          FRONTEND_IMAGE: ${{ needs.build-frontend.outputs.image_frontend }}
-          MPXJ_IMAGE: ${{ needs.build-mpxj.outputs.image_mpxj }}
-          DEPLOY_MPXJ: ${{ github.event.inputs.deploy_mpxj }}
           GIT_REF: ${{ github.event.inputs.git_ref }}
-          GHCR_USER: ${{ github.actor }}
-          GHCR_PAT: ${{ secrets.GITHUB_TOKEN }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME || 'aynuayex' }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           PROD_BACKEND_ENV: ${{ secrets.PROD_BACKEND_ENV_FILE }}
           PROD_FRONTEND_ENV: ${{ secrets.PROD_FRONTEND_ENV_FILE }}
         with:
@@ -209,11 +206,11 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          envs: IMAGE_TAG,BACKEND_IMAGE,FRONTEND_IMAGE,MPXJ_IMAGE,DEPLOY_MPXJ,GIT_REF,GHCR_USER,GHCR_PAT,PROD_BACKEND_ENV,PROD_FRONTEND_ENV
+          envs: GIT_REF,DOCKERHUB_USER,DOCKERHUB_TOKEN,PROD_BACKEND_ENV,PROD_FRONTEND_ENV
           command_timeout: 15m
           script: |
             set -e
-            echo "🚀 Deploying to Production on VPS (/var/www/cybsec-pmo)..."
+            echo "🚀 Starting Production Deployment on VPS (/var/www/cybsec-pmo)..."
             cd /var/www/cybsec-pmo
 
             # 1. Update git repository
@@ -222,9 +219,11 @@ jobs:
             git checkout "$GIT_REF" || git checkout -b "$GIT_REF" "origin/$GIT_REF"
             git pull origin "$GIT_REF" || true
 
-            # 2. Login to GHCR on VPS
-            echo "Authenticating with GitHub Container Registry..."
-            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin 2>/dev/null || true
+            # 2. Login to Docker Hub on VPS to pull private images
+            if [ -n "$DOCKERHUB_TOKEN" ]; then
+              echo "Authenticating with Docker Hub on VPS..."
+              echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin 2>/dev/null || true
+            fi
 
             # 3. Smart merge backend environment file (backend/.env.prod)
             if [ -n "$PROD_BACKEND_ENV" ]; then
@@ -300,35 +299,20 @@ jobs:
               '
             fi
 
-            # 5. Pull pre-built images from GHCR and tag them locally for production docker compose
-            echo "Pulling images from GHCR and tagging locally..."
-            docker pull "$BACKEND_IMAGE"
-            docker tag "$BACKEND_IMAGE" "cybersec-backend:$IMAGE_TAG"
-            docker tag "$BACKEND_IMAGE" "cybersec-backend:latest"
-            docker tag "$BACKEND_IMAGE" "aynuayex/cybersec-pmo:backend"
+            # 5. Pull latest Docker Hub images
+            echo "Pulling latest production images from Docker Hub..."
+            docker compose -f docker-compose.prod.yml pull
 
-            docker pull "$FRONTEND_IMAGE"
-            docker tag "$FRONTEND_IMAGE" "cybersec-frontend:$IMAGE_TAG"
-            docker tag "$FRONTEND_IMAGE" "cybersec-frontend:latest"
-            docker tag "$FRONTEND_IMAGE" "aynuayex/cybersec-pmo:frontend"
-
-            if [ "$DEPLOY_MPXJ" = "true" ] && [ -n "$MPXJ_IMAGE" ]; then
-              docker pull "$MPXJ_IMAGE"
-              docker tag "$MPXJ_IMAGE" "cybersec-mpxj-service:$IMAGE_TAG"
-              docker tag "$MPXJ_IMAGE" "cybersec-mpxj-service:latest"
-              docker tag "$MPXJ_IMAGE" "aynuayex/cybersec-pmo:mpxj-service"
-            fi
-
-            # 6. Recreate & start containers with IMAGE_TAG (zero build overhead)
-            echo "Restarting production services with tag $IMAGE_TAG..."
-            IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.prod.yml up -d --no-build
+            # 6. Recreate & start containers with zero downtime
+            echo "Restarting production containers..."
+            docker compose -f docker-compose.prod.yml up -d
 
             # 7. Verify running containers
             echo "Production container status:"
             docker compose -f docker-compose.prod.yml ps
 
-            # 8. Clean up unused images to preserve disk space
+            # 8. Clean up unused images to preserve VPS disk space
             echo "Pruning dangling images..."
             docker image prune -f
 
-            echo "🎉 Production deployment for $IMAGE_TAG successfully completed!"
+            echo "🎉 Production deployment successfully completed!"
