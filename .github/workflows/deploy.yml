@@ -213,7 +213,9 @@ jobs:
             echo "🚀 Starting Production Deployment on VPS (/var/www/cybsec-pmo)..."
             cd /var/www/cybsec-pmo
 
-            # 1. Update git repository (if .git repository exists on VPS)
+            # Ensure proper file ownership and permissions in case files were created by root
+            sudo chown -R $(whoami):$(whoami) /var/www/cybsec-pmo 2>/dev/null || true
+            chmod -R u+rwX /var/www/cybsec-pmo 2>/dev/null || true
             if [ -d .git ]; then
               echo "Git repository detected. Fetching latest changes for $GIT_REF..."
               git fetch origin || true
