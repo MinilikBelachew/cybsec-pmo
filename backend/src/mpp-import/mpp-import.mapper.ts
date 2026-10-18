@@ -714,17 +714,34 @@ export class MppImportMapper {
 
       const existingTasks = await tx.task.findMany({
         where: { projectId },
-        select: { id: true, title: true, phaseId: true },
+        select: {
+          id: true,
+          title: true,
+          phaseId: true,
+          status: true,
+          progressApproved: true,
+        },
       });
       // Match by title + phase; consume each match once so duplicates create new.
-      const existingTaskByKey = new Map<string, string>();
+      const existingTaskByKey = new Map<
+        string,
+        {
+          id: string;
+          status: TaskStatus;
+          progressApproved: number | null;
+        }
+      >();
       for (const existing of existingTasks) {
         if (!existing.phaseId) {
           continue;
         }
         const key = this.taskMatchKey(existing.title, existing.phaseId);
         if (!existingTaskByKey.has(key)) {
-          existingTaskByKey.set(key, existing.id);
+          existingTaskByKey.set(key, {
+            id: existing.id,
+            status: existing.status,
+            progressApproved: existing.progressApproved,
+          });
         }
       }
 
@@ -766,14 +783,20 @@ export class MppImportMapper {
           }
 
           const matchKey = this.taskMatchKey(task.name, phaseId);
-          const existingTaskId = existingTaskByKey.get(matchKey);
+          const existingMatch = existingTaskByKey.get(matchKey);
 
-          if (existingTaskId) {
+          if (existingMatch) {
             await tx.task.update({
-              where: { id: existingTaskId },
-              data: this.toTaskUpdateInput(phaseId, task, parentTaskId, tz),
+              where: { id: existingMatch.id },
+              data: this.toTaskUpdateInput(
+                phaseId,
+                task,
+                parentTaskId,
+                tz,
+                existingMatch,
+              ),
             });
-            uidToTaskId.set(task.uid, existingTaskId);
+            uidToTaskId.set(task.uid, existingMatch.id);
             existingTaskByKey.delete(matchKey);
             tasksUpdated += 1;
           } else {
@@ -1536,10 +1559,23 @@ export class MppImportMapper {
     task: ParsedMppTask,
     parentTaskId?: string,
     timeZone?: string,
+    existing?: {
+      status: TaskStatus;
+      progressApproved: number | null;
+    },
   ): Prisma.TaskUpdateInput {
     const fields = this.taskScheduleFields(task, timeZone);
+    const existingProgress = Number(existing?.progressApproved ?? 0);
+    // Never wipe approved progress with a lower MPP % on re-import.
+    const progressApproved = Math.max(existingProgress, fields.progressApproved);
+    // Preserve execution status (e.g. In_Progress) when MPP % is still 0 → To_Do.
+    const status = this.resolveStatusOnReimport(
+      existing?.status,
+      fields.status,
+      fields.progressApproved,
+    );
 
-    return {
+    const data: Prisma.TaskUpdateInput = {
       phase: { connect: { id: phaseId } },
       parentTask: parentTaskId
         ? { connect: { id: parentTaskId } }
@@ -1552,12 +1588,51 @@ export class MppImportMapper {
       baselineEnd: fields.baselineEnd ?? null,
       actualStart: fields.actualStart ?? null,
       actualEnd: fields.actualEnd ?? null,
-      durationDays: fields.durationDays ?? null,
-      baselineDurationDays: fields.baselineDurationDays ?? null,
-      effortHours: fields.effortHours ?? null,
-      progressApproved: fields.progressApproved,
-      status: fields.status,
+      progressApproved,
+      status,
     };
+
+    // Only write duration/effort when MPP provided values — do not null them out.
+    if (fields.durationDays != null) {
+      data.durationDays = fields.durationDays;
+    }
+    if (fields.baselineDurationDays != null) {
+      data.baselineDurationDays = fields.baselineDurationDays;
+    }
+    if (fields.effortHours != null) {
+      data.effortHours = fields.effortHours;
+    }
+
+    return data;
+  }
+
+  /**
+   * Re-import must not reset In_Progress/Done/etc. to To_Do solely because the
+   * MPP still has 0% complete (TC-M1.8-04 / DEF-P1-045).
+   */
+  private resolveStatusOnReimport(
+    existing: TaskStatus | undefined,
+    fromMpp: TaskStatus,
+    mppPercent: number,
+  ): TaskStatus {
+    if (!existing) return fromMpp;
+    if (mppPercent >= 100) return TaskStatus.Done;
+    if (fromMpp === TaskStatus.Done) return TaskStatus.Done;
+    if (
+      existing !== TaskStatus.To_Do &&
+      fromMpp === TaskStatus.To_Do &&
+      mppPercent <= 0
+    ) {
+      return existing;
+    }
+    if (
+      existing === TaskStatus.To_Do &&
+      mppPercent > 0 &&
+      mppPercent < 100
+    ) {
+      return TaskStatus.In_Progress;
+    }
+    return existing;
   }
 
   private parseDate(value?: string, timeZone?: string): Date | undefined {

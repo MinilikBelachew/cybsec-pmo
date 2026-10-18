@@ -8,4 +8,7 @@ export type AppConfig = {
   apiPrefix: string;
   fallbackLanguage: string;
   headerLanguage: string;
+  /** Global API throttle: max requests per IP within ttlMs (TC-M1.7-10). */
+  rateLimitPerIp: number;
+  rateLimitTtlMs: number;
 };

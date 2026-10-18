@@ -47,6 +47,18 @@ class EnvironmentVariablesValidator {
   @IsString()
   @IsOptional()
   APP_HEADER_LANGUAGE: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  @IsOptional()
+  API_RATE_LIMIT: number;
+
+  @IsInt()
+  @Min(1000)
+  @Max(600000)
+  @IsOptional()
+  API_RATE_TTL_MS: number;
 }
 
 export default registerAs<AppConfig>('app', () => {
@@ -66,5 +78,8 @@ export default registerAs<AppConfig>('app', () => {
     apiPrefix: process.env.API_PREFIX || 'api',
     fallbackLanguage: process.env.APP_FALLBACK_LANGUAGE || 'en',
     headerLanguage: process.env.APP_HEADER_LANGUAGE || 'x-custom-lang',
+    // TC-M1.7-10 — global API throttle (per IP). Default 200 / 10s.
+    rateLimitPerIp: parseInt(process.env.API_RATE_LIMIT ?? '200', 10),
+    rateLimitTtlMs: parseInt(process.env.API_RATE_TTL_MS ?? '10000', 10),
   };
 });

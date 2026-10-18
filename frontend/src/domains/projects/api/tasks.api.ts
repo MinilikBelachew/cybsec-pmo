@@ -610,6 +610,87 @@ export const tasksApi = api.injectEndpoints({
         method: "PATCH",
         body,
       }),
+      async onQueryStarted(
+        { taskId, updateId, decision },
+        { dispatch, queryFulfilled, getState },
+      ) {
+        const patchResults: Array<{ undo: () => void }> = [];
+
+        const applyReviewToTask = (draft: Task, reviewed?: TaskProgressUpdate) => {
+          const snapshot = reviewed?.taskProgress;
+          if (snapshot) {
+            draft.progressApproved = snapshot.progressApproved;
+            draft.progressPending = snapshot.progressPending;
+            draft.status = snapshot.status;
+            return;
+          }
+
+          // Optimistic fallback before response (TC-M1.4-03 / TC-M1.4-04):
+          // reject/rework must not keep the pending total as official progress.
+          if (decision === "reject" || decision === "rework") {
+            draft.progressPending = 0;
+            draft.status = decision === "rework" ? "Rework" : "In_Progress";
+            return;
+          }
+
+          const pendingList =
+            tasksApi.endpoints.getTaskProgressUpdates.select(taskId)(getState())
+              ?.data ?? [];
+          const pendingRow = pendingList.find((row) => row.id === updateId);
+          if (pendingRow) {
+            draft.progressApproved = Math.max(
+              draft.progressApproved ?? 0,
+              pendingRow.progressPercent,
+            );
+          }
+          draft.progressPending = 0;
+          draft.status =
+            (draft.progressApproved ?? 0) >= 100 ? "Approved" : "In_Progress";
+        };
+
+        const taskByIdState = tasksApi.endpoints.getTaskById.select(taskId)(getState());
+        if (taskByIdState?.data) {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTaskById", taskId, (draft) => {
+                applyReviewToTask(draft);
+              }),
+            ),
+          );
+        }
+
+        forEachGetTasksQuery(getState, (args) => {
+          patchResults.push(
+            dispatch(
+              tasksApi.util.updateQueryData("getTasks", args, (draft) => {
+                const task = draft.data.find((item) => item.id === taskId);
+                if (task) applyReviewToTask(task);
+              }),
+            ),
+          );
+        });
+
+        try {
+          const { data } = await queryFulfilled;
+          if (taskByIdState?.data) {
+            dispatch(
+              tasksApi.util.updateQueryData("getTaskById", taskId, (draft) => {
+                applyReviewToTask(draft, data);
+              }),
+            );
+          }
+          forEachGetTasksQuery(getState, (args) => {
+            dispatch(
+              tasksApi.util.updateQueryData("getTasks", args, (draft) => {
+                const task = draft.data.find((item) => item.id === taskId);
+                if (task) applyReviewToTask(task, data);
+              }),
+            );
+          });
+        } catch {
+          patchResults.forEach((patch) => patch.undo());
+        }
+      },
       invalidatesTags: (result, error, { taskId }) => [
         { type: "Tasks", id: taskId },
         { type: "Tasks", id: "LIST" },

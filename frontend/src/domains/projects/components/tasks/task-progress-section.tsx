@@ -92,10 +92,14 @@ export function TaskProgressSection({
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
     const map = new Map<string, number>();
+    // Only Approved/Pending advance the running total. Rejected/Rework are not applied
+    // (TC-M1.4-03 / TC-M1.4-04 — do not treat those rows as official progress).
     let previousTotal = 0;
     for (const row of chronological) {
       map.set(row.id, Math.max(0, row.progressPercent - previousTotal));
-      previousTotal = row.progressPercent;
+      if (row.status === "Approved" || row.status === "Pending") {
+        previousTotal = row.progressPercent;
+      }
     }
     return map;
   }, [updates]);
@@ -269,18 +273,20 @@ export function TaskProgressSection({
     }
 
     try {
-      await reviewProgress({
+      const reviewed = await reviewProgress({
         taskId: task.id,
         updateId,
         decision,
         reviewReason: reason || undefined,
       }).unwrap();
+      const official =
+        reviewed.taskProgress?.progressApproved ?? task.progressApproved ?? 0;
       toast.success(
         decision === "approve"
           ? "Progress approved"
           : decision === "reject"
-            ? "Progress rejected"
-            : "Rework requested",
+            ? `Progress rejected — official progress remains ${official}%`
+            : `Rework requested — official progress remains ${official}%`,
       );
       setReviewReasons((prev) => {
         const next = { ...prev };
@@ -655,9 +661,13 @@ function ProgressUpdateRow({
         <div className="flex items-center gap-2">
           <Badge className={cn("text-[10px]", STATUS_BADGE[update.status])}>{update.status}</Badge>
           <span className="text-xs font-semibold">
-            {incrementPercent != null && incrementPercent > 0
-              ? `+${incrementPercent}% → total ${update.progressPercent}%`
-              : `${update.progressPercent}%`}
+            {update.status === "Rejected" || update.status === "Rework"
+              ? incrementPercent != null && incrementPercent > 0
+                ? `+${incrementPercent}% not applied (submission was ${update.progressPercent}%)`
+                : `${update.progressPercent}% not applied`
+              : incrementPercent != null && incrementPercent > 0
+                ? `+${incrementPercent}% → total ${update.progressPercent}%`
+                : `${update.progressPercent}%`}
           </span>
           <span className="text-[11px] text-muted-foreground">{update.hoursSpent}h spent</span>
         </div>

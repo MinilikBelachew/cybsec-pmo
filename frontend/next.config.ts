@@ -4,12 +4,12 @@ import createNextIntlPlugin from 'next-intl/plugin';
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 function getBackendOrigin(): string {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6001/api/v1";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
   try {
-    const url = new URL(apiUrl.startsWith("http") ? apiUrl : "http://localhost:6001/api/v1");
+    const url = new URL(apiUrl.startsWith("http") ? apiUrl : "http://localhost:3001/api/v1");
     return `${url.protocol}//${url.host}`;
   } catch {
-    return "http://localhost:6001";
+    return "http://localhost:3001";
   }
 }
 

@@ -15,6 +15,7 @@ import {
   mapTasksToExportRows,
   pickExportFields,
   inclusiveDurationDays,
+  resolveTaskDurationDays,
   signedDayDelta,
   parsePredecessorsCell,
   formatResourceName,
@@ -378,8 +379,6 @@ export function convertToCSV(
 /** Excel worksheet names are capped at 31 characters. */
 const EXCEL_SHEET_NAME_MAX = 31;
 
-const ROUND_TRIP_TASK_FIELDS = ["Phase", "Predecessors"] as const;
-
 /**
  * Builds a unique Excel sheet name for `{projectName}{suffix}` (e.g. " Phases"),
  * matching the import convention while respecting the 31-char Excel limit.
@@ -408,15 +407,25 @@ export function buildUniqueProjectSheetName(
   return unique;
 }
 
-/** Ensures Phase + Predecessors columns are present for XLSX re-import fidelity. */
-function mergeRoundTripTaskHeaders(selectedTaskFields?: string[]): string[] {
-  const headers = selectedTaskFields?.length
+/** TC-M1.8-03 — export only the columns the user selected (or full defaults). */
+function resolveTaskExportHeaders(selectedTaskFields?: string[]): string[] {
+  return selectedTaskFields?.length
     ? [...selectedTaskFields]
     : [...DEFAULT_TASK_EXPORT_FIELDS];
-  for (const field of ROUND_TRIP_TASK_FIELDS) {
-    if (!headers.includes(field)) headers.push(field);
+}
+
+/**
+ * MSP Excel sheet uses a fixed full column set for MS Project import.
+ * Only attach it when the user exported the full default task field set —
+ * never when they chose a subset (TC-M1.8-03).
+ */
+function shouldIncludeMspExcelSheet(selectedTaskFields?: string[]): boolean {
+  if (!selectedTaskFields?.length) return true;
+  if (selectedTaskFields.length !== DEFAULT_TASK_EXPORT_FIELDS.length) {
+    return false;
   }
-  return headers;
+  const selected = new Set(selectedTaskFields);
+  return DEFAULT_TASK_EXPORT_FIELDS.every((field) => selected.has(field));
 }
 
 export function exportProjectsToXLSX(
@@ -526,7 +535,7 @@ export function exportProjectsToXLSX(
       tasksByProject[projName].push(t);
     });
 
-    const taskHeaders = mergeRoundTripTaskHeaders(selectedTaskFields);
+    const taskHeaders = resolveTaskExportHeaders(selectedTaskFields);
 
     Object.entries(tasksByProject).forEach(([projName, projTasks]) => {
       const tasksData = mapTasksToExportRows(projTasks, {
@@ -595,7 +604,10 @@ export function exportProjectsToXLSX(
       };
     }),
   );
-  if (mspRows.length > 0) {
+  if (
+    shouldIncludeMspExcelSheet(selectedTaskFields) &&
+    mspRows.length > 0
+  ) {
     prependMspExcelSheet(workbook, mspRows);
   }
 
@@ -685,6 +697,23 @@ export interface ParsedPhaseRow {
   warnings: string[];
 }
 
+/** TC-M1.8-02 — Title/Name must be real text, not blank/junk Excel placeholders. */
+function normalizeImportCell(raw: string | null | undefined): string {
+  return String(raw ?? "").replace(/\u00a0/g, " ").trim();
+}
+
+function hasMeaningfulImportTitle(raw: string | null | undefined): boolean {
+  const title = normalizeImportCell(raw);
+  if (!title) return false;
+  if (/^[-–—._*=#\s]+$/.test(title)) return false;
+  if (
+    /^(0+|n\/?a|null|undefined|none|#n\/?a|#ref!|#value!|#name\?)$/i.test(title)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function normalizePhaseStatus(raw: string): string {
   const s = raw.toLowerCase().trim().replace(/[\s-]/g, "_");
   if (["active"].includes(s)) return "Active";
@@ -712,7 +741,7 @@ export function processRawPhaseRows(
   if (rows.length <= 1) return [];
 
   const headers = rows[0].map((h) => String(h).toLowerCase().trim());
-  const dataRows = rows.slice(1);
+  const rawRows = rows.slice(1);
 
   const getIdx = (aliases: string[]) =>
     headers.findIndex((h) => aliases.includes(h));
@@ -724,9 +753,14 @@ export function processRawPhaseRows(
   const startIdx  = getIdx(["start date", "start"]);
   const endIdx    = getIdx(["end date", "end"]);
 
+  // TC-M1.8-02 — skip blank / junk phase name rows from trailing Excel cells.
+  const dataRows = rawRows.filter((row) =>
+    hasMeaningfulImportTitle(nameIdx !== -1 ? row[nameIdx] : ""),
+  );
+
   return dataRows.map((row, i) => {
     const getVal = (idx: number, fallback = "") =>
-      idx !== -1 && row[idx] ? String(row[idx]).trim() : fallback;
+      idx !== -1 && row[idx] ? normalizeImportCell(row[idx]) || fallback : fallback;
 
     const name        = getVal(nameIdx);
     const description = getVal(descIdx);
@@ -815,7 +849,7 @@ export function processRawMilestoneRows(
   if (rows.length <= 1) return [];
 
   const headers = rows[0].map((h) => String(h).toLowerCase().trim());
-  const dataRows = rows.slice(1);
+  const rawRows = rows.slice(1);
 
   const getIdx = (aliases: string[]) =>
     headers.findIndex((h) => aliases.includes(h));
@@ -826,9 +860,14 @@ export function processRawMilestoneRows(
   const statusIdx     = getIdx(["status", "milestone status"]);
   const phaseIdx      = getIdx(["phase", "phase name"]);
 
+  // TC-M1.8-02 — skip blank / junk milestone title rows from trailing Excel cells.
+  const dataRows = rawRows.filter((row) =>
+    hasMeaningfulImportTitle(titleIdx !== -1 ? row[titleIdx] : ""),
+  );
+
   return dataRows.map((row) => {
     const getVal = (idx: number, fallback = "") =>
-      idx !== -1 && row[idx] ? String(row[idx]).trim() : fallback;
+      idx !== -1 && row[idx] ? normalizeImportCell(row[idx]) || fallback : fallback;
 
     const title      = getVal(titleIdx);
     const targetDate = getVal(targetDateIdx);
@@ -1130,9 +1169,14 @@ export function processRawCSVRows(
   const pm2Idx = getIndex(["secondary pm", "backup pm"]);
   const statusIdx = getIndex(["status", "project status"]);
 
+  // TC-M1.8-02 — skip blank / junk project name rows from Excel trailing cells.
+  const dataRows = rows.filter((row) =>
+    hasMeaningfulImportTitle(nameIdx !== -1 ? row[nameIdx] : ""),
+  );
+
   const nameFrequency: Record<string, number> = {};
-  for (const row of rows) {
-    const n = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : "";
+  for (const row of dataRows) {
+    const n = nameIdx !== -1 ? normalizeImportCell(row[nameIdx]) : "";
     if (n) nameFrequency[n] = (nameFrequency[n] ?? 0) + 1;
   }
   const duplicateNames = new Set(
@@ -1141,8 +1185,9 @@ export function processRawCSVRows(
       .map(([name]) => name),
   );
 
-  return rows.map((row) => {
-    const getVal = (idx: number, fallback = "") => (idx !== -1 && row[idx] ? row[idx].trim() : fallback);
+  return dataRows.map((row) => {
+    const getVal = (idx: number, fallback = "") =>
+      idx !== -1 && row[idx] ? normalizeImportCell(row[idx]) || fallback : fallback;
 
     const name = getVal(nameIdx);
     const objective = getVal(objIdx);
@@ -1422,7 +1467,7 @@ export function convertTasksToCSV(
   dependencies: TaskExportDependency[] = [],
   projectOrganization?: string | null,
 ): string {
-  const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
+  const headers = resolveTaskExportHeaders(selectedFields);
 
   const escapeCSV = (str: any) => {
     if (str == null) return "";
@@ -1452,7 +1497,7 @@ export function exportTasksToXLSX(
   projectOrganization?: string | null,
   milestones: ProjectMilestone[] = [],
 ): ArrayBuffer {
-  const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
+  const headers = resolveTaskExportHeaders(selectedFields);
 
   const data = mapTasksToExportRows(tasks, {
     dependencies,
@@ -1465,15 +1510,17 @@ export function exportTasksToXLSX(
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Tasks");
 
-  const mspRows = buildMspExcelRows({
-    tasks,
-    phases,
-    milestones,
-    dependencies,
-    projectOrganization,
-  });
-  if (mspRows.length > 0) {
-    prependMspExcelSheet(workbook, mspRows);
+  if (shouldIncludeMspExcelSheet(selectedFields)) {
+    const mspRows = buildMspExcelRows({
+      tasks,
+      phases,
+      milestones,
+      dependencies,
+      projectOrganization,
+    });
+    if (mspRows.length > 0) {
+      prependMspExcelSheet(workbook, mspRows);
+    }
   }
 
   return XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
@@ -1621,7 +1668,9 @@ export function revalidateParsedTaskRow(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (!updated.title) errors.push("Task title is required.");
+  if (!hasMeaningfulImportTitle(updated.title)) {
+    errors.push("Task title is required.");
+  }
 
   const { importMode, resolvedTaskId } = existingTasks
     ? resolveTaskImportMatch(
@@ -1896,7 +1945,7 @@ export function processRawTaskCSVRows(
     return headers.findIndex((h) => aliases.includes(h.trim()));
   };
 
-  const titleIdx = getIndex(["title", "task title", "task name"]);
+  const titleIdx = getIndex(["title", "task title", "task name", "name"]);
   const descIdx = getIndex(["description", "desc", "details", "objective"]);
   const prioIdx = getIndex(["priority", "priority level"]);
   const statusIdx = getIndex(["status", "task status"]);
@@ -1940,8 +1989,14 @@ export function processRawTaskCSVRows(
     return Number.isFinite(parsed) ? parsed : NaN;
   };
 
-  const parsed = rows.map((row) => {
-    const getVal = (idx: number, fallback = "") => (idx !== -1 && row[idx] ? row[idx].trim() : fallback);
+  // TC-M1.8-02 — drop trailing Excel junk rows without a real task title.
+  const dataRows = rows.filter((row) =>
+    hasMeaningfulImportTitle(titleIdx !== -1 ? row[titleIdx] : ""),
+  );
+
+  const parsed = dataRows.map((row) => {
+    const getVal = (idx: number, fallback = "") =>
+      idx !== -1 && row[idx] ? normalizeImportCell(row[idx]) || fallback : fallback;
 
     const title = getVal(titleIdx);
     const description = getVal(descIdx);
@@ -2444,9 +2499,7 @@ export function exportProjectsToWord(
       tasksByProject[projName].push(t);
     });
 
-    const taskHeaders = selectedTaskFields?.length
-      ? selectedTaskFields
-      : DEFAULT_TASK_EXPORT_FIELDS;
+    const taskHeaders = resolveTaskExportHeaders(selectedTaskFields);
 
     html += `<h2>Task Schedule</h2>`;
 
@@ -2487,7 +2540,7 @@ export function exportTasksToWord(
   dependencies: TaskExportDependency[] = [],
   projectOrganization?: string | null,
 ): Blob {
-  const headers = selectedFields?.length ? selectedFields : DEFAULT_TASK_EXPORT_FIELDS;
+  const headers = resolveTaskExportHeaders(selectedFields);
   const projectName = tasks[0]?.project?.name || "Tasks";
   const mapped = mapTasksToExportRows(tasks, {
     dependencies,
@@ -2628,14 +2681,11 @@ function mspdiDurationXml(task: any): string {
   if (isMspdiMilestone(task)) {
     return `<Duration>PT0H0M0S</Duration>`;
   }
-  if (task.startDate && task.endDate) {
-    const start = new Date(`${String(task.startDate).split("T")[0]}T00:00:00Z`);
-    const end = new Date(`${String(task.endDate).split("T")[0]}T00:00:00Z`);
-    const days = Math.max(
-      1,
-      Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1,
-    );
-    return `<Duration>PT${days * 8}H0M0S</Duration>`;
+  // Prefer stored MSP working-day duration over inclusive calendar span.
+  const workingDays = resolveTaskDurationDays(task);
+  if (workingDays !== "" && Number(workingDays) > 0) {
+    const hours = Math.max(1, Math.round(Number(workingDays) * 8));
+    return `<Duration>PT${hours}H0M0S</Duration>`;
   }
   if (task.effortHours != null && Number(task.effortHours) > 0) {
     const hours = Math.round(Number(task.effortHours));

@@ -5,6 +5,7 @@ import {
   formatResourceName,
   inclusiveDurationDays,
   mergeExportResourceNames,
+  resolveTaskDurationDays,
   type TaskExportDependency,
 } from "./task-export-fields";
 import type { ProjectPhase, ProjectMilestone } from "../types/projects.types";
@@ -125,9 +126,10 @@ function pushTaskTree(
   tasks: any[],
   projectOrganization?: string | null,
 ) {
+  // Prefer stored MSP working-day duration (TC-M1.8-01 / Sara calendar-day Fail).
   const duration = task.isScheduleMilestone
     ? 0
-    : inclusiveDurationDays(task.startDate, task.endDate);
+    : resolveTaskDurationDays(task);
   const start = toStartStamp(task.startDate);
   const finish = toFinishStamp(task.endDate);
   const baselineStart = toStartStamp(task.baselineStart);
@@ -144,7 +146,7 @@ function pushTaskTree(
     outlineLevel,
     start,
     finish,
-    durationDays: duration,
+    durationDays: duration === "" ? "" : duration,
     baselineStart,
     baselineFinish,
     baselineDurationDays:

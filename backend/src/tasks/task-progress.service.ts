@@ -325,6 +325,8 @@ export class TaskProgressService {
     reviewedAt: Date,
   ) {
     let nextStatus: TaskStatus = TaskStatus.In_Progress;
+    let progressApproved = 0;
+    let progressPending = 0;
 
     const result = await this.prisma.$transaction(async (tx) => {
       const reviewed = await tx.taskProgressUpdate.update({
@@ -345,8 +347,8 @@ export class TaskProgressService {
           actualEnd: true,
         },
       });
-      const progressApproved = Math.max(task.progressApproved, update.progressPercent);
-      const progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
+      progressApproved = Math.max(task.progressApproved, update.progressPercent);
+      progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
       nextStatus =
         progressPending > 0
           ? TaskStatus.Submitted_for_Review
@@ -396,7 +398,11 @@ export class TaskProgressService {
       actorId,
     });
 
-    return this.formatProgressUpdate(result);
+    return this.formatProgressUpdate(result, 0, {
+      progressApproved,
+      progressPending,
+      status: nextStatus,
+    });
   }
 
   private async applyRejection(
@@ -406,6 +412,8 @@ export class TaskProgressService {
     reviewReason: string,
   ) {
     let nextStatus: TaskStatus = TaskStatus.In_Progress;
+    let progressApproved = 0;
+    let progressPending = 0;
 
     const result = await this.prisma.$transaction(async (tx) => {
       const reviewed = await tx.taskProgressUpdate.update({
@@ -419,7 +427,17 @@ export class TaskProgressService {
         include: PROGRESS_INCLUDE,
       });
 
-      const progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
+      // TC-M1.4-03 — reject must NOT apply the submitted %. Official KPI stays at last approved.
+      const task = await tx.task.findUniqueOrThrow({
+        where: { id: update.taskId },
+        select: {
+          progressApproved: true,
+          actualStart: true,
+          actualEnd: true,
+        },
+      });
+      progressApproved = task.progressApproved;
+      progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
       nextStatus =
         progressPending > 0
           ? TaskStatus.Submitted_for_Review
@@ -428,12 +446,13 @@ export class TaskProgressService {
       await tx.task.update({
         where: { id: update.taskId },
         data: {
+          progressApproved,
           progressPending,
           status: nextStatus,
           ...actualStampsForTaskStatus({
             nextStatus,
-            actualStart: update.task.actualStart,
-            actualEnd: update.task.actualEnd,
+            actualStart: task.actualStart,
+            actualEnd: task.actualEnd,
           }),
         },
       });
@@ -460,7 +479,11 @@ export class TaskProgressService {
       actorId,
     });
 
-    return this.formatProgressUpdate(result);
+    return this.formatProgressUpdate(result, 0, {
+      progressApproved,
+      progressPending,
+      status: nextStatus,
+    });
   }
 
   private async applyRework(
@@ -470,6 +493,8 @@ export class TaskProgressService {
     reviewReason: string,
   ) {
     let nextStatus: TaskStatus = TaskStatus.Rework;
+    let progressApproved = 0;
+    let progressPending = 0;
 
     const result = await this.prisma.$transaction(async (tx) => {
       const reviewed = await tx.taskProgressUpdate.update({
@@ -483,7 +508,17 @@ export class TaskProgressService {
         include: PROGRESS_INCLUDE,
       });
 
-      const progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
+      // TC-M1.4-04 — rework must NOT bump official %. Keep last approved; clear this pending total.
+      const task = await tx.task.findUniqueOrThrow({
+        where: { id: update.taskId },
+        select: {
+          progressApproved: true,
+          actualStart: true,
+          actualEnd: true,
+        },
+      });
+      progressApproved = task.progressApproved;
+      progressPending = await this.maxPendingProgressPercent(tx, update.taskId);
       nextStatus =
         progressPending > 0
           ? TaskStatus.Submitted_for_Review
@@ -492,12 +527,13 @@ export class TaskProgressService {
       await tx.task.update({
         where: { id: update.taskId },
         data: {
+          progressApproved,
           progressPending,
           status: nextStatus,
           ...actualStampsForTaskStatus({
             nextStatus,
-            actualStart: update.task.actualStart,
-            actualEnd: update.task.actualEnd,
+            actualStart: task.actualStart,
+            actualEnd: task.actualEnd,
           }),
         },
       });
@@ -524,7 +560,11 @@ export class TaskProgressService {
       actorId,
     });
 
-    return this.formatProgressUpdate(result);
+    return this.formatProgressUpdate(result, 0, {
+      progressApproved,
+      progressPending,
+      status: nextStatus,
+    });
   }
 
   private async logTaskStatusChangeIfNeeded(
@@ -684,6 +724,11 @@ export class TaskProgressService {
   private formatProgressUpdate(
     row: Prisma.TaskProgressUpdateGetPayload<{ include: typeof PROGRESS_INCLUDE }>,
     actualHoursLogged = 0,
+    taskProgress?: {
+      progressApproved: number;
+      progressPending: number;
+      status: TaskStatus;
+    },
   ) {
     const evidenceFiles = this.parseStoredEvidenceFiles(row);
     const effortHours =
@@ -714,6 +759,13 @@ export class TaskProgressService {
       createdAt: row.createdAt,
       engineer: row.engineer,
       reviewer: row.reviewer,
+      taskProgress: taskProgress
+        ? {
+            progressApproved: taskProgress.progressApproved,
+            progressPending: taskProgress.progressPending,
+            status: taskProgress.status,
+          }
+        : undefined,
       task: row.task
         ? {
             id: row.task.id,

@@ -243,7 +243,7 @@ export class KekaConnectionService {
 
   async getEffectiveConfig(): Promise<KekaConfig> {
     const envBase = envKekaConfigBase();
-    const appPort = process.env.APP_PORT ?? '6001';
+    const appPort = process.env.APP_PORT ?? '3001';
     const row = await this.prisma.kekaConnectionSettings.findUnique({
       where: { id: SETTINGS_ID },
     });

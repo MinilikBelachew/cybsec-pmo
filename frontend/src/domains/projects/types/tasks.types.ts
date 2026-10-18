@@ -168,6 +168,12 @@ export interface TaskProgressUpdate {
   createdAt: string;
   engineer: TaskUserSummary;
   reviewer?: TaskUserSummary | null;
+  /** Present on review responses — official task KPI after the decision. */
+  taskProgress?: {
+    progressApproved: number;
+    progressPending: number;
+    status: Task["status"];
+  };
   task?: {
     id: string;
     title: string;

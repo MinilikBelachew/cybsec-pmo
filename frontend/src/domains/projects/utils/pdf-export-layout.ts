@@ -98,19 +98,6 @@ const PDF_TASK_COLUMN_ORDER = [
   "Predecessors",
 ] as const;
 
-/** Fields that crush the PDF when dumped (cause letter-stack wrapping). */
-const PDF_TASK_EXCLUDED = new Set([
-  "Description",
-  "Parent Task",
-  "Is Summary",
-  "Effort Hours",
-  "Actual Start",
-  "Actual End",
-  "Baseline Duration Days",
-  "Start Variance Days",
-  "Finish Variance Days",
-]);
-
 /** Short header labels for PDF (still horizontal / readable). */
 const PDF_HEADER_LABELS: Record<string, string> = {
   Order: "#",
@@ -260,31 +247,15 @@ export function drawPdfScheduleTable(
  * Ignores Description / Parent Task / etc. that crush the layout.
  */
 export function resolveTaskPdfHeaders(selectedFields?: string[]): string[] {
-  const allow = new Set<string>(PDF_TASK_COLUMN_ORDER);
-
+  // Default curated set (readable landscape table).
   if (!selectedFields?.length) {
     return [...PDF_TASK_COLUMN_ORDER];
   }
 
-  const picked = selectedFields.filter(
-    (f) => allow.has(f) && !PDF_TASK_EXCLUDED.has(f),
-  );
-
-  // Always keep the core schedule / ownership columns.
-  for (const required of [
-    "Title",
-    "Status",
-    "Priority",
-    "Start Date",
-    "End Date",
-    "Assignee",
-    "Resource Names",
-  ]) {
-    if (!picked.includes(required) && allow.has(required)) {
-      picked.push(required);
-    }
-  }
-
-  // Stable left-to-right order.
-  return PDF_TASK_COLUMN_ORDER.filter((f) => picked.includes(f));
+  // TC-M1.8-03 — export exactly the columns the user selected.
+  // Prefer known PDF order for readability; append any other selected fields.
+  const selected = selectedFields.filter(Boolean);
+  const ordered = PDF_TASK_COLUMN_ORDER.filter((f) => selected.includes(f));
+  const extras = selected.filter((f) => !ordered.includes(f));
+  return [...ordered, ...extras];
 }

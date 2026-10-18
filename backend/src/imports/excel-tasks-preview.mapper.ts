@@ -7,6 +7,10 @@ import {
   normalizeImportTaskDateTime,
   parseImportTaskDateTime,
 } from './task-datetime.util';
+import {
+  hasMeaningfulImportTitle,
+  normalizeImportCell,
+} from './import-row-junk.util';
 
 export type PreviewPhase = {
   id: string;
@@ -106,7 +110,7 @@ export function processRawTaskRows(
   const getIndex = (aliases: string[]) =>
     headers.findIndex((h) => aliases.includes(h.trim()));
 
-  const titleIdx = getIndex(['title', 'task title', 'task name']);
+  const titleIdx = getIndex(['title', 'task title', 'task name', 'name']);
   const descIdx = getIndex(['description', 'desc', 'details', 'objective']);
   const prioIdx = getIndex(['priority', 'priority level']);
   const statusIdx = getIndex(['status', 'task status']);
@@ -160,9 +164,17 @@ export function processRawTaskRows(
     return Number.isFinite(parsed) ? parsed : NaN;
   };
 
-  const parsed = rows.map((row) => {
+  // TC-M1.8-02 — drop trailing Excel junk rows (no real title), even if other
+  // cells have leftover formatting / zeros / fill-down phase values.
+  const dataRows = rows.filter((row) => {
+    const title =
+      titleIdx !== -1 ? normalizeImportCell(row[titleIdx]) : '';
+    return hasMeaningfulImportTitle(title);
+  });
+
+  const parsed = dataRows.map((row) => {
     const getVal = (idx: number, fallback = '') =>
-      idx !== -1 && row[idx] ? row[idx].trim() : fallback;
+      idx !== -1 && row[idx] ? normalizeImportCell(row[idx]) || fallback : fallback;
 
     const title = getVal(titleIdx);
     const description = getVal(descIdx);
@@ -248,7 +260,9 @@ export function revalidateParsedTaskRow(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (!updated.title) errors.push('Task title is required.');
+  if (!hasMeaningfulImportTitle(updated.title)) {
+    errors.push('Task title is required.');
+  }
 
   const { importMode, resolvedTaskId } = existingTasks
     ? resolveTaskImportMatch(

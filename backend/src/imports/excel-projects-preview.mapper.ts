@@ -7,6 +7,10 @@ import {
   PROJECT_NAME_MAX_LENGTH,
   PROJECT_OBJECTIVE_MAX_LENGTH,
 } from '../projects/constants/project-limits';
+import {
+  hasMeaningfulImportTitle,
+  normalizeImportCell,
+} from './import-row-junk.util';
 
 export type CatalogDepartment = { id: string; name: string; code: string };
 export type CatalogCustomer = { id: string; displayName: string };
@@ -122,8 +126,14 @@ export function processRawProjectRows(
   const pm2Idx = getIndex(['secondary pm', 'backup pm']);
   const statusIdx = getIndex(['status', 'project status']);
 
+  // TC-M1.8-02 — skip blank / junk project name rows from Excel trailing cells.
+  const dataRows = rows.filter((row) => {
+    const n = nameIdx !== -1 ? normalizeImportCell(row[nameIdx]) : '';
+    return hasMeaningfulImportTitle(n);
+  });
+
   const nameFrequency: Record<string, number> = {};
-  for (const row of rows) {
+  for (const row of dataRows) {
     const n = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : '';
     if (n) nameFrequency[n] = (nameFrequency[n] ?? 0) + 1;
   }
@@ -133,9 +143,9 @@ export function processRawProjectRows(
       .map(([name]) => name),
   );
 
-  return rows.map((row) => {
+  return dataRows.map((row) => {
     const getVal = (idx: number, fallback = '') =>
-      idx !== -1 && row[idx] ? row[idx].trim() : fallback;
+      idx !== -1 && row[idx] ? row[idx].replace(/\u00a0/g, ' ').trim() : fallback;
 
     const name = getVal(nameIdx);
     const objective = getVal(objIdx);
@@ -405,9 +415,15 @@ export function processRawPhaseRows(
   const startIdx = getIdx(['start date', 'start']);
   const endIdx = getIdx(['end date', 'end']);
 
-  return dataRows.map((row, i) => {
+  // TC-M1.8-02 — skip blank / junk phase name rows from trailing Excel cells.
+  const namedRows = dataRows.filter((row) => {
+    const name = nameIdx !== -1 ? normalizeImportCell(row[nameIdx]) : '';
+    return hasMeaningfulImportTitle(name);
+  });
+
+  return namedRows.map((row, i) => {
     const getVal = (idx: number, fallback = '') =>
-      idx !== -1 && row[idx] ? String(row[idx]).trim() : fallback;
+      idx !== -1 && row[idx] ? String(row[idx]).replace(/\u00a0/g, ' ').trim() : fallback;
 
     const name = getVal(nameIdx);
     const description = getVal(descIdx);
@@ -472,9 +488,15 @@ export function processRawMilestoneRows(
   const statusIdx = getIdx(['status', 'milestone status']);
   const phaseIdx = getIdx(['phase', 'phase name']);
 
-  return dataRows.map((row) => {
+  // TC-M1.8-02 — skip blank / junk milestone title rows from trailing Excel cells.
+  const titledRows = dataRows.filter((row) => {
+    const title = titleIdx !== -1 ? normalizeImportCell(row[titleIdx]) : '';
+    return hasMeaningfulImportTitle(title);
+  });
+
+  return titledRows.map((row) => {
     const getVal = (idx: number, fallback = '') =>
-      idx !== -1 && row[idx] ? String(row[idx]).trim() : fallback;
+      idx !== -1 && row[idx] ? String(row[idx]).replace(/\u00a0/g, ' ').trim() : fallback;
 
     const title = getVal(titleIdx);
     const targetDate = getVal(targetDateIdx);

@@ -75,10 +75,9 @@ export function resolveWordTaskTableGroups(
 
   for (const group of WORD_TASK_TABLE_GROUPS) {
     const headers = group.fields.filter((field) => selected.has(field));
-    const dataCols = headers.filter(
-      (field) => field !== "Order" && field !== "Title",
-    );
-    if (dataCols.length === 0) continue;
+    // TC-M1.8-03 — keep a group when any selected column lands in it
+    // (including Title/Phase-only subsets).
+    if (headers.length === 0) continue;
     groups.push({ title: group.title, headers });
   }
 

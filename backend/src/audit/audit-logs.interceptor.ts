@@ -324,17 +324,44 @@ export class AuditLogsInterceptor implements NestInterceptor {
       return { objectType: 'File', action: 'CREATE_UPLOAD', resourceId: null };
     }
 
-    // DEF-P1-071 — Settings → Security session timeout is a business action,
-    // not a generic UPDATE_SETTINGS / PATCH.
-    if (root === 'settings' && url.includes('session-security')) {
-      return {
-        objectType: 'Settings',
-        action:
-          method === 'PATCH' || method === 'PUT'
-            ? 'UPDATE_SESSION_TIMEOUT'
-            : this.mapRootAction(method, root),
-        resourceId: null,
-      };
+    // DEF-P1-071 — Settings mutations are business actions, not generic UPDATE_SETTINGS.
+    if (root === 'settings' && (method === 'PATCH' || method === 'PUT')) {
+      if (url.includes('session-security')) {
+        return {
+          objectType: 'Settings',
+          action: 'UPDATE_SESSION_TIMEOUT',
+          resourceId: null,
+        };
+      }
+      if (url.includes('audit/run-archive')) {
+        return {
+          objectType: 'Settings',
+          action: 'RUN_AUDIT_ARCHIVE',
+          resourceId: null,
+        };
+      }
+      // …/settings/audit (not run-archive)
+      if (urlParts[1] === 'audit') {
+        return {
+          objectType: 'Settings',
+          action: 'UPDATE_AUDIT_SETTINGS',
+          resourceId: null,
+        };
+      }
+      if (url.includes('allocation-policies')) {
+        return {
+          objectType: 'Settings',
+          action: 'UPDATE_ALLOCATION_POLICIES',
+          resourceId: null,
+        };
+      }
+      if (url.includes('timesheet-escalation')) {
+        return {
+          objectType: 'Settings',
+          action: 'UPDATE_TIMESHEET_ESCALATION',
+          resourceId: null,
+        };
+      }
     }
 
     if (root === 'tasks' && urlParts[1] === 'dependencies') {

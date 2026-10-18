@@ -42,9 +42,70 @@ export function generateAuditDescription(input: DescriptionInput): string {
       Number.isFinite(record.idleTimeoutSec)
         ? record.idleTimeoutSec
         : null;
+    const warning =
+      typeof record?.warningBeforeSec === 'number' &&
+      Number.isFinite(record.warningBeforeSec)
+        ? record.warningBeforeSec
+        : null;
+    if (seconds != null && warning != null) {
+      return `Updated session timeout to ${seconds}s (warning ${warning}s before)`;
+    }
     return seconds != null
       ? `Updated session timeout to ${seconds}s`
       : 'Updated session timeout';
+  }
+  if (action === 'UPDATE_AUDIT_SETTINGS') {
+    return describeSettingsFieldChanges(
+      newValue,
+      'Updated audit settings',
+      {
+        auditRetentionMonths: (v) => `log retention to ${v} months`,
+        auditExportMaxRows: (v) => `export max rows to ${v}`,
+        auditExportExcelJsonCellLimit: (v) => `Excel JSON cell limit to ${v}`,
+        auditExportPdfJsonLimit: (v) => `PDF JSON limit to ${v}`,
+        auditArchiveEnabled: (v) =>
+          `audit archive ${v === true || v === 'true' ? 'enabled' : 'disabled'}`,
+      },
+    );
+  }
+  if (action === 'RUN_AUDIT_ARCHIVE') {
+    const record =
+      newValue && typeof newValue === 'object' && !Array.isArray(newValue)
+        ? (newValue as Record<string, unknown>)
+        : null;
+    const count =
+      typeof record?.archivedCount === 'number' &&
+      Number.isFinite(record.archivedCount)
+        ? record.archivedCount
+        : null;
+    return count != null
+      ? `Ran audit archive (${count} row(s) archived)`
+      : 'Ran audit archive';
+  }
+  if (action === 'UPDATE_ALLOCATION_POLICIES') {
+    return describeSettingsFieldChanges(
+      newValue,
+      'Updated allocation policies',
+      {
+        thresholdMode: (v) => `threshold mode to ${v}`,
+        designationMismatchMode: (v) => `designation mismatch mode to ${v}`,
+        departmentStaffingMode: (v) => `department staffing mode to ${v}`,
+      },
+    );
+  }
+  if (action === 'UPDATE_TIMESHEET_ESCALATION') {
+    const record =
+      newValue && typeof newValue === 'object' && !Array.isArray(newValue)
+        ? (newValue as Record<string, unknown>)
+        : null;
+    const days =
+      typeof record?.escalationDays === 'number' &&
+      Number.isFinite(record.escalationDays)
+        ? record.escalationDays
+        : null;
+    return days != null
+      ? `Updated timesheet escalation to ${days} day(s)`
+      : 'Updated timesheet escalation settings';
   }
   if (action === 'REFRESH') return 'Session refreshed';
   if (
@@ -653,6 +714,31 @@ function looksLikeUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value.trim(),
   );
+}
+
+/** Build a scannable settings description from response/body fields (DEF-P1-071). */
+function describeSettingsFieldChanges(
+  newValue: unknown,
+  fallback: string,
+  fieldLabels: Record<string, (value: unknown) => string>,
+): string {
+  const record =
+    newValue && typeof newValue === 'object' && !Array.isArray(newValue)
+      ? (newValue as Record<string, unknown>)
+      : null;
+  if (!record) return fallback;
+
+  const parts: string[] = [];
+  for (const [key, toLabel] of Object.entries(fieldLabels)) {
+    if (!(key in record) || record[key] === undefined || record[key] === null) {
+      continue;
+    }
+    parts.push(toLabel(record[key]));
+  }
+
+  if (parts.length === 0) return fallback;
+  if (parts.length === 1) return `Updated ${parts[0]}`;
+  return `Updated ${parts.join('; ')}`;
 }
 
 function summarizeChangedFields(

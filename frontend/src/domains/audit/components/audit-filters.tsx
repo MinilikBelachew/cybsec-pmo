@@ -26,6 +26,10 @@ const ACTION_OPTIONS = [
   { value: "SESSION_TIMEOUT", label: "Session timed out" },
   { value: "REFRESH", label: "Session refreshed" },
   { value: "UPDATE_SESSION_TIMEOUT", label: "Updated session timeout" },
+  { value: "UPDATE_AUDIT_SETTINGS", label: "Updated audit settings" },
+  { value: "RUN_AUDIT_ARCHIVE", label: "Ran audit archive" },
+  { value: "UPDATE_ALLOCATION_POLICIES", label: "Updated allocation policies" },
+  { value: "UPDATE_TIMESHEET_ESCALATION", label: "Updated timesheet escalation" },
   { value: "BREAK_GLASS_ACTIVATED", label: "Activated break-glass" },
   { value: "BREAK_GLASS_STOPPED", label: "Stopped break-glass" },
   { value: "CREATE_PROJECT", label: "Created project" },
@@ -44,6 +48,7 @@ const OBJECT_OPTIONS = [
   { value: "User", label: "User" },
   { value: "Project", label: "Project" },
   { value: "Task", label: "Task" },
+  { value: "Settings", label: "Settings" },
 ];
 
 type FilterOption = {

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import databaseConfig from './database/config/database.config';
@@ -71,6 +73,23 @@ import { MeetingsModule } from './meetings/meetings.module';
         fxConfig,
       ],
       envFilePath: ['.env'],
+    }),
+    // TC-M1.7-10 — global API rate limit (default 200 req / 10s per IP).
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService<AllConfigType>) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl:
+              configService.get('app.rateLimitTtlMs', { infer: true }) ??
+              10_000,
+            limit:
+              configService.get('app.rateLimitPerIp', { infer: true }) ?? 200,
+          },
+        ],
+      }),
     }),
     BullModule.forRootAsync({
       imports: [ConfigModule],
@@ -145,6 +164,12 @@ import { MeetingsModule } from './meetings/meetings.module';
     MeetingsModule,
     BrandingModule,
     ScheduleModule.forRoot(),
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

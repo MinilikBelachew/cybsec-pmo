@@ -34,6 +34,8 @@ import { PROJECT_NAME_MAX, PROJECT_OBJECTIVE_MAX } from "../../schemas/project/c
 import { formatShortDateTime } from "@/shared/utils/date";
 
 const ACCEPTED_EXTENSIONS = [".mpp", ".mpx", ".xml"];
+/** Initial Notes rows; remainder behind Show all (TC-M1.8-01 “+N more”). */
+const NOTES_PREVIEW_LIMIT = 8;
 
 type ImportMppDialogProps = {
   open: boolean;
@@ -214,6 +216,7 @@ export function ImportMppDialog({
   const [preview, setPreview] = useState<MppImportPreview | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showAllNotes, setShowAllNotes] = useState(false);
   const [editableProjects, setEditableProjects] = useState<MppEditableProject[]>([]);
   const [result, setResult] = useState<{
     tasksCreated: number;
@@ -250,6 +253,7 @@ export function ImportMppDialog({
     setEditableProjects([]);
     setResult(null);
     setIsDragging(false);
+    setShowAllNotes(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [open]);
 
@@ -323,8 +327,17 @@ export function ImportMppDialog({
     setEditableProjects([]);
     setResult(null);
     setIsDragging(false);
+    setShowAllNotes(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
+
+  const previewNotes = useMemo(() => {
+    if (!preview) return [] as string[];
+    return [
+      ...editableProjects.flatMap((p) => p.warnings),
+      ...preview.warnings,
+    ];
+  }, [preview, editableProjects]);
 
   const isAcceptedFile = (file: File): boolean => {
     const extension = file.name.match(/\.[^.]+$/)?.[0]?.toLowerCase() ?? "";
@@ -337,6 +350,7 @@ export function ImportMppDialog({
     setParseError(null);
     setResult(null);
     setEditableProjects([]);
+    setShowAllNotes(false);
     setStep("select");
 
     try {
@@ -976,37 +990,28 @@ export function ImportMppDialog({
                       </div>
                     </div>
 
-                    {(preview.warnings.length > 0 ||
-                      editableProjects.some((p) => p.warnings.length > 0)) && (
+                    {previewNotes.length > 0 && (
                       <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
                         <p className="mb-1 font-semibold">Notes</p>
                         <ul className="list-disc space-y-0.5 pl-4">
-                          {[
-                            ...editableProjects.flatMap((p) => p.warnings),
-                            ...preview.warnings,
-                          ]
-                            .slice(0, 8)
-                            .map((warning, index) => (
-                              <li key={index}>{warning}</li>
-                            ))}
-                          {preview.warnings.length +
-                            editableProjects.reduce(
-                              (n, p) => n + p.warnings.length,
-                              0,
-                            ) >
-                            8 && (
-                            <li>
-                              +
-                              {preview.warnings.length +
-                                editableProjects.reduce(
-                                  (n, p) => n + p.warnings.length,
-                                  0,
-                                ) -
-                                8}{" "}
-                              more…
-                            </li>
-                          )}
+                          {(showAllNotes
+                            ? previewNotes
+                            : previewNotes.slice(0, NOTES_PREVIEW_LIMIT)
+                          ).map((warning, index) => (
+                            <li key={index}>{warning}</li>
+                          ))}
                         </ul>
+                        {previewNotes.length > NOTES_PREVIEW_LIMIT && (
+                          <button
+                            type="button"
+                            className="mt-2 font-semibold underline underline-offset-2 hover:opacity-80"
+                            onClick={() => setShowAllNotes((v) => !v)}
+                          >
+                            {showAllNotes
+                              ? "Show less"
+                              : `Show all ${previewNotes.length} notes (+${previewNotes.length - NOTES_PREVIEW_LIMIT} more)`}
+                          </button>
+                        )}
                       </div>
                     )}
 
