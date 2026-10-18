@@ -255,7 +255,8 @@ export function resolveTaskPdfHeaders(selectedFields?: string[]): string[] {
   // TC-M1.8-03 — export exactly the columns the user selected.
   // Prefer known PDF order for readability; append any other selected fields.
   const selected = selectedFields.filter(Boolean);
-  const ordered = PDF_TASK_COLUMN_ORDER.filter((f) => selected.includes(f));
+  const knownOrder = PDF_TASK_COLUMN_ORDER as readonly string[];
+  const ordered = knownOrder.filter((f) => selected.includes(f));
   const extras = selected.filter((f) => !ordered.includes(f));
   return [...ordered, ...extras];
 }
