@@ -213,26 +213,13 @@ jobs:
             echo "🚀 Starting Production Deployment on VPS (/var/www/cybsec-pmo)..."
             cd /var/www/cybsec-pmo
 
-            # Ensure proper file ownership and permissions in case files were created by root
-            sudo chown -R $(whoami):$(whoami) /var/www/cybsec-pmo 2>/dev/null || true
-            chmod -R u+rwX /var/www/cybsec-pmo 2>/dev/null || true
-            if [ -d .git ]; then
-              echo "Git repository detected. Fetching latest changes for $GIT_REF..."
-              git fetch origin || true
-              git checkout "$GIT_REF" 2>/dev/null || git checkout -b "$GIT_REF" "origin/$GIT_REF" 2>/dev/null || true
-              git pull origin "$GIT_REF" 2>/dev/null || true
-            else
-              echo "Notice: /var/www/cybsec-pmo is a standalone production directory (no .git repository)."
-              echo "Proceeding directly with Docker Hub image pull & deployment..."
-            fi
-
-            # 2. Login to Docker Hub on VPS to pull private images
+            # 1. Login to Docker Hub on VPS to pull private images
             if [ -n "$DOCKERHUB_TOKEN" ]; then
               echo "Authenticating with Docker Hub on VPS..."
               echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin 2>/dev/null || true
             fi
 
-            # 3. Smart merge backend environment file (backend/.env.prod)
+            # 2. Smart merge backend environment file (backend/.env.prod) if provided
             if [ -n "$PROD_BACKEND_ENV" ]; then
               echo "Syncing and merging backend environment into backend/.env.prod..."
               STAGE_ENV="$PROD_BACKEND_ENV" node -e '
@@ -263,13 +250,17 @@ jobs:
                 for (const [key, val] of incomingMap.entries()) {
                   if (!updatedKeys.has(key)) newLines.push(`${key}=${val}`);
                 }
-                fs.mkdirSync("./backend", { recursive: true });
-                fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
-                console.log("Successfully merged " + incomingMap.size + " backend environment variables into " + path);
+                try {
+                  fs.mkdirSync("./backend", { recursive: true });
+                  fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
+                  console.log("Successfully merged " + incomingMap.size + " backend environment variables into " + path);
+                } catch (err) {
+                  console.warn("Notice: Could not write to " + path + " (" + err.message + "). Proceeding with existing manual server file.");
+                }
               '
             fi
 
-            # 4. Smart merge frontend environment file (frontend/.env) if provided
+            # 3. Smart merge frontend environment file (frontend/.env) if provided
             if [ -n "$PROD_FRONTEND_ENV" ]; then
               echo "Syncing and merging frontend environment into frontend/.env..."
               STAGE_ENV="$PROD_FRONTEND_ENV" node -e '
@@ -300,9 +291,13 @@ jobs:
                 for (const [key, val] of incomingMap.entries()) {
                   if (!updatedKeys.has(key)) newLines.push(`${key}=${val}`);
                 }
-                fs.mkdirSync("./frontend", { recursive: true });
-                fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
-                console.log("Successfully merged " + incomingMap.size + " frontend environment variables into " + path);
+                try {
+                  fs.mkdirSync("./frontend", { recursive: true });
+                  fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
+                  console.log("Successfully merged " + incomingMap.size + " frontend environment variables into " + path);
+                } catch (err) {
+                  console.warn("Notice: Could not write to " + path + " (" + err.message + "). Proceeding with existing manual server file.");
+                }
               '
             fi
 
