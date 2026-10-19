@@ -108,6 +108,20 @@ function PreviewSelect({
   );
 }
 
+/** Preview UI: work tasks = schedule rows minus milestones (still imported as tasks). */
+export function previewWorkTaskCount(taskCount: number, milestoneCount: number) {
+  return Math.max(0, (taskCount || 0) - (milestoneCount || 0));
+}
+
+function workTasksOnly(
+  tasks: MppImportPreviewTask[],
+  milestones: MppImportPreviewMilestone[],
+) {
+  if (!milestones.length) return tasks;
+  const msUids = new Set(milestones.map((m) => m.uid));
+  return tasks.filter((t) => !msUids.has(t.uid));
+}
+
 function groupTasksByPhase(tasks: MppImportPreviewTask[]) {
   const order: string[] = [];
   const map = new Map<string, MppImportPreviewTask[]>();
@@ -389,7 +403,13 @@ export function MppImportPreviewPanel({
           {projects.map((proj) => {
             const isExpanded = openAccordion === proj.name;
             const tab = activeTab[proj.name] || "tasks";
-            const phaseGroups = groupTasksByPhase(proj.tasks);
+            const workTaskCount = previewWorkTaskCount(
+              proj.taskCount,
+              proj.milestoneCount,
+            );
+            const phaseGroups = groupTasksByPhase(
+              workTasksOnly(proj.tasks, proj.milestones),
+            );
             return (
               <div
                 key={proj.name}
@@ -420,7 +440,7 @@ export function MppImportPreviewPanel({
                     </Badge>
                     <Badge variant="outline" className="gap-1 text-[10px] font-semibold">
                       <CheckSquare className="size-3" />
-                      {proj.taskCount} Tasks
+                      {workTaskCount} Tasks
                     </Badge>
                   </div>
                 </button>
@@ -471,7 +491,7 @@ export function MppImportPreviewPanel({
                             : "border-transparent text-muted-foreground hover:text-foreground",
                         )}
                       >
-                        Tasks ({proj.tasks.length})
+                        Tasks ({workTaskCount})
                       </button>
                     </div>
 

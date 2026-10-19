@@ -122,9 +122,14 @@ function usePaginatedTaskList(
     });
   }, [data, page]);
 
-  const total = data?.meta?.total;
+  const metaTotal = data?.meta?.total;
   const hasNextPage = Boolean(data?.hasNextPage);
   const loadedCount = rows.length;
+  // Never report fewer than rows already on screen (guards meta.total: 0 bugs).
+  const total =
+    typeof metaTotal === "number"
+      ? Math.max(metaTotal, loadedCount)
+      : loadedCount;
 
   const loadMore = useCallback(() => {
     if (!hasNextPage || isFetching) return;
@@ -141,7 +146,8 @@ function usePaginatedTaskList(
     tasks: rows,
     page,
     pageSize,
-    total: typeof total === "number" ? total : loadedCount,
+    total,
+    loadedCount,
     hasNextPage,
     isLoading: isLoading && page === 1,
     isFetching,

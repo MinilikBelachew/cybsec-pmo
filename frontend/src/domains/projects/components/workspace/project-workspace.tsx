@@ -1076,10 +1076,14 @@ export function ProjectWorkspace() {
     );
   }
 
+  // Header Tasks uses full-tree work stats (same filter as board KPI).
+  // Prefer byStatus.Done for the completed side so it matches the Done column
+  // (allTaskStats.done includes Approved and inflated the old "7 / 105" bug).
   const totalTasks = allTaskStats?.total ?? tasks.length;
   const completedTasks =
+    allTaskStats?.byStatus?.Done ??
     allTaskStats?.done ??
-    tasks.filter((t) => t.status === "Done" || t.status === "Approved").length;
+    tasks.filter((t) => t.status === "Done").length;
   const progressPercent = overallProgressPercent;
 
   return (

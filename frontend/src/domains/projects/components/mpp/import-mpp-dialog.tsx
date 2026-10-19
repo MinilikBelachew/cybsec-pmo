@@ -28,6 +28,7 @@ import { useImportProgress } from "../import/import-progress-provider";
 import type { MppImportPreview } from "../../types/mpp-import.types";
 import {
   MppImportPreviewPanel,
+  previewWorkTaskCount,
   type MppEditableProject,
 } from "./mpp-import-preview-panel";
 import { PROJECT_NAME_MAX, PROJECT_OBJECTIVE_MAX } from "../../schemas/project/create-project.schema";
@@ -713,11 +714,24 @@ export function ImportMppDialog({
   const updatingExisting =
     isNewProject && editableProjects[0]?.importMode === "update";
 
+  const previewWorkTasks = preview
+    ? previewWorkTaskCount(
+        editableProjects[0]?.taskCount ?? preview.counts.importableTasks,
+        editableProjects[0]?.milestoneCount ??
+          preview.counts.milestonesFromFile ??
+          0,
+      )
+    : 0;
+  const previewMilestones =
+    editableProjects[0]?.milestoneCount ??
+    preview?.counts.milestonesFromFile ??
+    0;
+
   const confirmLabel = !isNewProject || updatingExisting
-    ? `Confirm & save ${editableProjects[0]?.taskCount ?? preview?.counts.importableTasks ?? 0} tasks`
+    ? `Confirm & save ${previewWorkTasks} tasks`
     : isPortfolio
       ? `Import ${editableProjects.length || preview?.counts.projects || 0} projects`
-      : `Create project & import ${preview?.counts.importableTasks ?? 0} tasks`;
+      : `Create project & import ${previewWorkTasks} tasks`;
 
   const footerHint = (() => {
     if (parseError) return "File cannot be imported until a valid MS Project file is selected.";
@@ -729,14 +743,18 @@ export function ImportMppDialog({
       }
       if (!isNewProject || updatingExisting) {
         const row = editableProjects[0];
-        return `${updatingExisting ? "Update existing project" : "Into this project"} · ${row?.taskCount ?? preview.counts.importableTasks} tasks · ${row?.phaseCount ?? preview.counts.phasesFromSummaries} phases · ${row?.milestoneCount ?? preview.counts.milestonesFromFile ?? 0} milestones · ${row?.dependencyCount ?? preview.counts.dependencies} dependencies`;
+        const work = previewWorkTaskCount(
+          row?.taskCount ?? preview.counts.importableTasks,
+          row?.milestoneCount ?? preview.counts.milestonesFromFile ?? 0,
+        );
+        return `${updatingExisting ? "Update existing project" : "Into this project"} · ${work} tasks · ${row?.phaseCount ?? preview.counts.phasesFromSummaries} phases · ${row?.milestoneCount ?? preview.counts.milestonesFromFile ?? 0} milestones · ${row?.dependencyCount ?? preview.counts.dependencies} dependencies`;
       }
       if (isPortfolio) {
         const createCount = editableProjects.filter((p) => p.importMode === "create").length;
         const updateCount = editableProjects.filter((p) => p.importMode === "update").length;
         return `${editableProjects.length} projects ready · ${createCount} create · ${updateCount} update`;
       }
-      return `${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones · ${preview.counts.dependencies} dependencies`;
+      return `${previewWorkTaskCount(preview.counts.importableTasks, preview.counts.milestonesFromFile ?? 0)} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones · ${preview.counts.dependencies} dependencies`;
     }
     return null;
   })();
@@ -858,8 +876,8 @@ export function ImportMppDialog({
                         {(selectedFile.size / 1024).toFixed(1)} KB
                         {preview && !parseError
                           ? isPortfolio
-                            ? ` · ${preview.counts.projects ?? editableProjects.length} projects · ${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones`
-                            : ` · ${preview.counts.importableTasks} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones`
+                            ? ` · ${preview.counts.projects ?? editableProjects.length} projects · ${previewWorkTaskCount(preview.counts.importableTasks, preview.counts.milestonesFromFile ?? 0)} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones`
+                            : ` · ${previewWorkTaskCount(preview.counts.importableTasks, preview.counts.milestonesFromFile ?? 0)} tasks · ${preview.counts.phasesFromSummaries} phases · ${preview.counts.milestonesFromFile ?? 0} milestones`
                           : isPreviewing
                             ? " · Parsing…"
                             : ""}
@@ -970,9 +988,7 @@ export function ImportMppDialog({
                           </span>
                         )}
                         <span className="rounded-lg border border-border/60 bg-background px-2 py-1">
-                          {editableProjects[0]?.taskCount ??
-                            preview.counts.importableTasks}{" "}
-                          tasks
+                          {previewWorkTasks} tasks
                         </span>
                         <span className="rounded-lg border border-border/60 bg-background px-2 py-1">
                           {editableProjects[0]?.phaseCount ??
@@ -980,7 +996,7 @@ export function ImportMppDialog({
                           phases
                         </span>
                         <span className="rounded-lg border border-border/60 bg-background px-2 py-1">
-                          {preview.counts.milestonesFromFile ?? 0} milestones
+                          {previewMilestones} milestones
                         </span>
                         <span className="rounded-lg border border-border/60 bg-background px-2 py-1">
                           {editableProjects[0]?.dependencyCount ??

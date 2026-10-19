@@ -1318,18 +1318,18 @@ function ListStatusSection({
       skip: !isOpen,
     });
 
-  // When open, prefer the column query total (same as listed rows). A stale
-  // statusCount of 0 must not hide a non-empty section (tester: To Do = 0).
-  const displayCount = isOpen
-    ? typeof total === "number"
-      ? total
-      : typeof statusCount === "number"
+  const groupTasks = tasks as unknown as Task[];
+  // Open: badge follows listed rows (never 0 while rows exist).
+  // Closed: stats hint only.
+  const displayCount = !isOpen
+    ? typeof statusCount === "number"
+      ? statusCount
+      : 0
+    : isLoading && groupTasks.length === 0
+      ? typeof statusCount === "number"
         ? statusCount
         : 0
-    : typeof statusCount === "number"
-      ? statusCount
-      : 0;
-  const groupTasks = tasks as unknown as Task[];
+      : Math.max(total, groupTasks.length);
 
   React.useEffect(() => {
     if (!isOpen || groupTasks.length === 0) return;

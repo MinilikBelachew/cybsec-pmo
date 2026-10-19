@@ -315,14 +315,14 @@ function BoardStatusColumn({
     [tasks],
   );
 
-  // Prefer column query total (same filter as cards). statusCount is only a
-  // loading hint — full-tree/milestone stats must not inflate the badge.
+  // Badge = same query as cards. statusCount only while empty/loading.
+  // Never show 0 when cards are already rendered.
   const displayCount =
-    typeof total === "number"
-      ? total
-      : typeof statusCount === "number"
+    isLoading && enriched.length === 0
+      ? typeof statusCount === "number"
         ? statusCount
-        : enriched.length;
+        : 0
+      : Math.max(total, enriched.length);
   const isOver = dragOverCol === col.id && dragOverTask === null;
   const overLimit = col.wipLimit !== undefined && displayCount > col.wipLimit;
 
