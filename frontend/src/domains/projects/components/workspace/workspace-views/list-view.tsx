@@ -1318,8 +1318,17 @@ function ListStatusSection({
       skip: !isOpen,
     });
 
-  const displayCount =
-    typeof statusCount === "number" ? statusCount : isOpen ? total : 0;
+  // When open, prefer the column query total (same as listed rows). A stale
+  // statusCount of 0 must not hide a non-empty section (tester: To Do = 0).
+  const displayCount = isOpen
+    ? typeof total === "number"
+      ? total
+      : typeof statusCount === "number"
+        ? statusCount
+        : 0
+    : typeof statusCount === "number"
+      ? statusCount
+      : 0;
   const groupTasks = tasks as unknown as Task[];
 
   React.useEffect(() => {

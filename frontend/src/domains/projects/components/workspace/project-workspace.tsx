@@ -1000,6 +1000,53 @@ export function ProjectWorkspace() {
     setIsSheetOpen(true);
   };
 
+  /** Workspace health: overdue tasks / past project end — not leave-slip only. */
+  const projectHealth = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endRaw = project?.endDate ? new Date(project.endDate) : null;
+    const endPassed = Boolean(
+      endRaw && !Number.isNaN(endRaw.getTime()) && endRaw < today,
+    );
+    const overdueCount = allTaskStats?.overdue ?? 0;
+    const leaveSlip = leaveImpactSummary?.maxSlip ?? 0;
+
+    if (endPassed || overdueCount > 0) {
+      const parts: string[] = [];
+      if (endPassed) parts.push("end date passed");
+      if (overdueCount > 0) {
+        parts.push(
+          `${overdueCount} overdue task${overdueCount === 1 ? "" : "s"}`,
+        );
+      }
+      return {
+        label: "at risk",
+        className:
+          "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
+        detail: parts.join(" · "),
+      };
+    }
+    if (leaveSlip > 0) {
+      return {
+        label: `~${leaveSlip}d slip risk`,
+        className:
+          "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+        detail: `${leaveImpactSummary?.count ?? 0} leave conflict(s)`,
+      };
+    }
+    return {
+      label: "on track",
+      className:
+        "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
+      detail: null as string | null,
+    };
+  }, [
+    project?.endDate,
+    allTaskStats?.overdue,
+    leaveImpactSummary?.maxSlip,
+    leaveImpactSummary?.count,
+  ]);
+
   if (isLoading) {
     return (
       <div className="flex h-96 items-center justify-center text-muted-foreground">
@@ -1081,15 +1128,15 @@ export function ProjectWorkspace() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-muted-foreground">Project Health</span>
-              {leaveImpactSummary && leaveImpactSummary.maxSlip > 0 ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                  ~{leaveImpactSummary.maxSlip}d slip risk
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-                  on track
-                </span>
-              )}
+              <span
+                className={cn(
+                  "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
+                  projectHealth.className,
+                )}
+                title={projectHealth.detail ?? undefined}
+              >
+                {projectHealth.label}
+              </span>
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs font-semibold">
@@ -1103,11 +1150,13 @@ export function ProjectWorkspace() {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground">
-                {leaveImpactSummary
-                  ? `${leaveImpactSummary.count} leave conflict${leaveImpactSummary.count === 1 ? "" : "s"} · projected slip up to ~${leaveImpactSummary.maxSlip} day(s)`
-                  : project?.percentComplete != null
-                    ? "From imported project schedule"
-                    : "Average approved progress across tasks"}
+                {projectHealth.detail
+                  ? projectHealth.detail
+                  : leaveImpactSummary
+                    ? `${leaveImpactSummary.count} leave conflict${leaveImpactSummary.count === 1 ? "" : "s"} · projected slip up to ~${leaveImpactSummary.maxSlip} day(s)`
+                    : project?.percentComplete != null
+                      ? "From imported project schedule"
+                      : "Average approved progress across tasks"}
                 {project?.durationVarianceDays != null && (
                   <>
                     {" · "}
