@@ -20,15 +20,27 @@ type TaskListQueryFilters = StatusColumnFilters & {
   unassignedPhase?: boolean;
 };
 
+type PaginatedTaskListOptions = {
+  pageSize?: number;
+  skip?: boolean;
+  /**
+   * Kanban: include nested SUB tasks in the status column so In Progress
+   * (etc.) does not empty when search is cleared.
+   * List stays top-level-only unless searching.
+   */
+  includeNestedTasks?: boolean;
+};
+
 /**
- * Paginated top-level tasks for one list/board group.
+ * Paginated tasks for one list/board group.
  * Pages append via "Load more"; filter changes reset to page 1.
  */
 function usePaginatedTaskList(
   filters: TaskListQueryFilters,
-  options?: { pageSize?: number; skip?: boolean },
+  options?: PaginatedTaskListOptions,
 ) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
+  const includeNestedTasks = Boolean(options?.includeNestedTasks);
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<GanttTaskRow[]>([]);
 
@@ -42,6 +54,8 @@ function usePaginatedTaskList(
     const trimmed = filters.search?.trim();
     if (trimmed) {
       params.search = trimmed;
+      params.topLevelOnly = false;
+    } else if (includeNestedTasks) {
       params.topLevelOnly = false;
     }
     if (filters.priority) params.priority = filters.priority;
@@ -59,6 +73,7 @@ function usePaginatedTaskList(
     filters.status,
     page,
     pageSize,
+    includeNestedTasks,
   ]);
 
   const filterKey = useMemo(
@@ -72,6 +87,7 @@ function usePaginatedTaskList(
         ownerId: filters.ownerId || "",
         status: filters.status || "",
         pageSize,
+        includeNestedTasks,
       }),
     [
       filters.projectId,
@@ -82,6 +98,7 @@ function usePaginatedTaskList(
       filters.ownerId,
       filters.status,
       pageSize,
+      includeNestedTasks,
     ],
   );
 
@@ -135,12 +152,13 @@ function usePaginatedTaskList(
 }
 
 /**
- * Option B: one paginated query per status column (top-level tasks only).
+ * One paginated query per status column.
+ * Pass includeNestedTasks for Kanban so nested In Progress cards stay visible.
  */
 export function usePaginatedStatusTasks(
   status: TaskStatus,
   filters: StatusColumnFilters,
-  options?: { pageSize?: number; skip?: boolean },
+  options?: PaginatedTaskListOptions,
 ) {
   return usePaginatedTaskList({ ...filters, status }, options);
 }
@@ -149,7 +167,7 @@ export function usePaginatedStatusTasks(
 export function usePaginatedPhaseTasks(
   phaseId: string | null,
   filters: StatusColumnFilters,
-  options?: { pageSize?: number; skip?: boolean },
+  options?: PaginatedTaskListOptions,
 ) {
   return usePaginatedTaskList(
     {

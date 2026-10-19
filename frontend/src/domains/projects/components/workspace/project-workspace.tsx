@@ -361,6 +361,7 @@ export function ProjectWorkspace() {
     skip: !id,
   });
 
+  /** List columns stay top-level; Kanban badges use full-tree status counts. */
   const statusCounts = useMemo(() => {
     const by = projectTaskStats?.byStatus;
     if (!by) return undefined;
@@ -371,6 +372,17 @@ export function ProjectWorkspace() {
       >
     >;
   }, [projectTaskStats]);
+
+  const boardStatusCounts = useMemo(() => {
+    const by = allTaskStats?.byStatus;
+    if (!by) return statusCounts;
+    return by as Partial<
+      Record<
+        "To_Do" | "In_Progress" | "Submitted_for_Review" | "Approved" | "Rework" | "Done",
+        number
+      >
+    >;
+  }, [allTaskStats?.byStatus, statusCounts]);
 
   const tasksTotal = tasksResponse?.meta?.total ?? tasksResponse?.data?.length ?? 0;
   const tasksTotalPages = Math.max(1, Math.ceil(tasksTotal / TASKS_PAGE_SIZE));
@@ -1370,7 +1382,7 @@ export function ProjectWorkspace() {
             search={debouncedSearch}
             priority={PRIORITY_FILTER_TO_API[priorityFilter]}
             phases={phases}
-            statusCounts={statusCounts}
+            statusCounts={boardStatusCounts}
             toggleTask={toggleTask}
             onTaskClick={openTaskDetail}
             canApproveTask={canReviewProgress}

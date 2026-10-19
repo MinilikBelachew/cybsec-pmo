@@ -289,7 +289,11 @@ function BoardStatusColumn({
   phases?: ProjectPhase[];
 }) {
   const { tasks, total, hasNextPage, isLoading, isFetching, loadMore } =
-    usePaginatedStatusTasks(col.id, filters, { pageSize: 20 });
+    usePaginatedStatusTasks(col.id, filters, {
+      pageSize: 20,
+      // Flat-by-status: include SUB/SUB² so clearing search does not empty In Progress.
+      includeNestedTasks: true,
+    });
 
   const displayCount = typeof statusCount === "number" ? statusCount : total;
   const isOver = dragOverCol === col.id && dragOverTask === null;
