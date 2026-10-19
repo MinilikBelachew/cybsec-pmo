@@ -348,12 +348,13 @@ export function ProjectWorkspace() {
     skip: !id,
   });
 
-  // Header Tasks KPI = entire tree (parents + nested), not top-level only.
+  // Header / board KPI = full work-task tree (parents + nested). Exclude
+  // schedule-milestone rows so counts match Kanban cards and MPP work tasks.
   const allTasksStatsParams = useMemo(
     (): GetTasksParams => ({
       ...statsQueryParams,
       topLevelOnly: false,
-      includeScheduleMilestones: true,
+      includeScheduleMilestones: false,
     }),
     [statsQueryParams],
   );
@@ -361,7 +362,7 @@ export function ProjectWorkspace() {
     skip: !id,
   });
 
-  /** List columns stay top-level; Kanban badges use full-tree status counts. */
+  /** List columns stay top-level; Kanban badges use full-tree work-task counts. */
   const statusCounts = useMemo(() => {
     const by = projectTaskStats?.byStatus;
     if (!by) return undefined;

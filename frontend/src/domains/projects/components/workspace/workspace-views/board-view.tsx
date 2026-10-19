@@ -295,10 +295,6 @@ function BoardStatusColumn({
       includeNestedTasks: true,
     });
 
-  const displayCount = typeof statusCount === "number" ? statusCount : total;
-  const isOver = dragOverCol === col.id && dragOverTask === null;
-  const overLimit = col.wipLimit !== undefined && displayCount > col.wipLimit;
-
   const enriched = useMemo(
     () =>
       tasks.map((t) => {
@@ -318,6 +314,17 @@ function BoardStatusColumn({
       }),
     [tasks],
   );
+
+  // Prefer column query total (same filter as cards). statusCount is only a
+  // loading hint — full-tree/milestone stats must not inflate the badge.
+  const displayCount =
+    typeof total === "number"
+      ? total
+      : typeof statusCount === "number"
+        ? statusCount
+        : enriched.length;
+  const isOver = dragOverCol === col.id && dragOverTask === null;
+  const overLimit = col.wipLimit !== undefined && displayCount > col.wipLimit;
 
   return (
     <div
