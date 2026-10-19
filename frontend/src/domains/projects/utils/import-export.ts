@@ -82,61 +82,14 @@ export const DEFAULT_PROJECT_EXPORT_FIELDS = [
   "Status",
 ] as const;
 
-/** Schedule columns that must appear on project export even if dialog state is stale. */
-const REQUIRED_PROJECT_SCHEDULE_FIELDS = [
-  "Duration Days",
-  "Baseline Start",
-  "Baseline End",
-  "Baseline Duration Days",
-  "% Complete",
-  "Duration Variance Days",
-  "Actual Start",
-  "Actual End",
-] as const;
-
-/** Always include Resource Names even if dialog selection is stale. */
-const REQUIRED_PROJECT_RESOURCE_FIELD = "Resource Names";
-
 /**
- * Resolve export headers: honor user selection, but always insert schedule
- * columns after End Date (fixes stale dialog state after field list updates).
+ * Resolve project export headers — same rule as tasks (TC-M1.8-03):
+ * only the columns the user selected (or full defaults when none selected).
  */
 export function resolveProjectExportHeaders(selectedFields?: string[]): string[] {
-  const base =
-    selectedFields && selectedFields.length > 0
-      ? [...selectedFields]
-      : [...DEFAULT_PROJECT_EXPORT_FIELDS];
-
-  const have = new Set(base);
-  const missing = REQUIRED_PROJECT_SCHEDULE_FIELDS.filter((f) => !have.has(f));
-  let result = base;
-  if (missing.length > 0) {
-    const endIdx = base.indexOf("End Date");
-    if (endIdx >= 0) {
-      result = [
-        ...base.slice(0, endIdx + 1),
-        ...missing,
-        ...base.slice(endIdx + 1),
-      ];
-    } else {
-      result = [...base, ...missing];
-    }
-  }
-
-  if (!result.includes(REQUIRED_PROJECT_RESOURCE_FIELD)) {
-    const actualEndIdx = result.indexOf("Actual End");
-    if (actualEndIdx >= 0) {
-      result = [
-        ...result.slice(0, actualEndIdx + 1),
-        REQUIRED_PROJECT_RESOURCE_FIELD,
-        ...result.slice(actualEndIdx + 1),
-      ];
-    } else {
-      result = [...result, REQUIRED_PROJECT_RESOURCE_FIELD];
-    }
-  }
-
-  return result;
+  return selectedFields?.length
+    ? [...selectedFields]
+    : [...DEFAULT_PROJECT_EXPORT_FIELDS];
 }
 
 function toExportDay(value?: string | Date | null): string {

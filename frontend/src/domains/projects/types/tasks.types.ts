@@ -230,7 +230,7 @@ export interface TaskActiveStats {
   rework: number;
   done: number;
   overdue: number;
-  /** Per-status counts for top-level tasks (option B board/list columns). */
+  /** Per-status counts (top-level by default; full tree when topLevelOnly=false). */
   byStatus?: Partial<Record<TaskStatus, number>>;
 }
 

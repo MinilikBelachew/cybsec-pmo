@@ -83,6 +83,12 @@ export const tasksApi = api.injectEndpoints({
         if (params?.search) queryParams.append("search", params.search);
         if (params?.phaseId) queryParams.append("phaseId", params.phaseId);
         if (params?.ownerId) queryParams.append("ownerId", params.ownerId);
+        if (params?.topLevelOnly === false) {
+          queryParams.append("topLevelOnly", "false");
+        }
+        if (params?.includeScheduleMilestones === true) {
+          queryParams.append("includeScheduleMilestones", "true");
+        }
         const qs = queryParams.toString();
         return qs ? `/tasks/stats?${qs}` : "/tasks/stats";
       },

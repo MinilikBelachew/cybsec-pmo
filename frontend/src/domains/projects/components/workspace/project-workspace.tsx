@@ -348,6 +348,19 @@ export function ProjectWorkspace() {
     skip: !id,
   });
 
+  // Header Tasks KPI = entire tree (parents + nested), not top-level only.
+  const allTasksStatsParams = useMemo(
+    (): GetTasksParams => ({
+      ...statsQueryParams,
+      topLevelOnly: false,
+      includeScheduleMilestones: true,
+    }),
+    [statsQueryParams],
+  );
+  const { data: allTaskStats } = useGetActiveTaskStatsQuery(allTasksStatsParams, {
+    skip: !id,
+  });
+
   const statusCounts = useMemo(() => {
     const by = projectTaskStats?.byStatus;
     if (!by) return undefined;
@@ -1003,8 +1016,10 @@ export function ProjectWorkspace() {
     );
   }
 
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.status === "Done" || t.status === "Approved").length;
+  const totalTasks = allTaskStats?.total ?? tasks.length;
+  const completedTasks =
+    allTaskStats?.done ??
+    tasks.filter((t) => t.status === "Done" || t.status === "Approved").length;
   const progressPercent = overallProgressPercent;
 
   return (

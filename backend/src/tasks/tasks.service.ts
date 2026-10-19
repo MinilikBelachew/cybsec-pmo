@@ -1526,13 +1526,14 @@ export class TasksService {
   }
 
   async getTaskStats(query: QueryTaskDto, caslUser: CaslUserContext) {
-    // Stats always count top-level tasks (same unit as board/list columns).
+    // Default = top-level only (board/list badges). Pass topLevelOnly=false for
+    // full tree totals (workspace header Tasks KPI).
     const hiddenIds = query.includeScheduleMilestones
       ? []
       : await this.hiddenScheduleTaskIds(query.projectId);
     const where = this.withHiddenScheduleTasks(
       this.buildTaskListWhere(
-        { ...query, topLevelOnly: true, page: undefined, limit: undefined },
+        { ...query, page: undefined, limit: undefined },
         caslUser,
       ),
       hiddenIds,
