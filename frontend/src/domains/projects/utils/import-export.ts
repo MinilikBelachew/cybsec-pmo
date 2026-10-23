@@ -2636,14 +2636,15 @@ function workingDaysMonFri(
  * Keeps MPP round-trip and still works for scratch PMO rows with empty durationDays.
  */
 function resolveExportDurationDays(task: any): number | "" {
-  if (isMspdiMilestone(task)) return 0;
+  const isMs = isMspdiMilestone(task);
   if (
     task?.durationDays != null &&
     Number.isFinite(Number(task.durationDays)) &&
-    Number(task.durationDays) > 0
+    Number(task.durationDays) >= 0
   ) {
     return Math.round(Number(task.durationDays) * 10) / 10;
   }
+  if (isMs) return 0;
   const working = workingDaysMonFri(task?.startDate, task?.endDate);
   if (working !== "") return working;
   return inclusiveDurationDays(task?.startDate, task?.endDate);
@@ -2729,15 +2730,19 @@ function compareMilestoneOrder(a: any, b: any): number {
 }
 
 function mspdiDurationHours(task: any): number {
-  if (isMspdiMilestone(task)) {
+  const isMs = isMspdiMilestone(task);
+  const workingDays = resolveExportDurationDays(task);
+  if (workingDays === 0) {
     return 0;
   }
-  const workingDays = resolveExportDurationDays(task);
   if (workingDays !== "" && Number(workingDays) > 0) {
     return Math.max(1, Math.round(Number(workingDays) * 8 * 10) / 10);
   }
   if (task.effortHours != null && Number(task.effortHours) > 0) {
     return Math.max(1, Math.round(Number(task.effortHours) * 10) / 10);
+  }
+  if (isMs) {
+    return 0;
   }
   // Never omit Duration — MS Project marks missing duration as estimated ("1 day?").
   return 8;

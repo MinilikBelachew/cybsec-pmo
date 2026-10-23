@@ -431,20 +431,34 @@ export class MspdiExportBuilder {
         this.decimalToNumber(task.baselineDurationDays) ??
         this.inclusiveDays(task.baselineStart, task.baselineEnd);
 
-      const resolvedDurationDays = task.isScheduleMilestone ? 0 : durationDays;
+      const isMilestone = Boolean(task.isScheduleMilestone);
+      const storedDuration = this.decimalToNumber(task.durationDays);
+      const explicitDurationDays =
+        storedDuration != null
+          ? storedDuration
+          : isMilestone
+            ? 0
+            : this.inclusiveDays(task.startDate, task.endDate);
+      const resolvedDurationDays = isMilestone
+        ? storedDuration != null && storedDuration > 0
+          ? storedDuration
+          : 0
+        : explicitDurationDays;
+      const isZeroMilestone = isMilestone && resolvedDurationDays === 0;
+
       exportTasks.push({
         id: task.id,
         name: task.title,
         parentId,
         summary: (childrenByParent.get(task.id) ?? []).length > 0,
         outlineLevel,
-        milestone: task.isScheduleMilestone || undefined,
+        milestone: isMilestone || undefined,
         startDate: start,
-        finishDate: task.isScheduleMilestone ? start : finish,
+        finishDate: isZeroMilestone ? start : finish,
         baselineStart,
         baselineFinish,
         durationDays: resolvedDurationDays,
-        workHours: task.isScheduleMilestone ? 0 : workHours,
+        workHours: isZeroMilestone ? 0 : workHours,
         baselineDurationDays,
         startVarianceDays: this.signedDayDelta(start, baselineStart),
         finishVarianceDays: this.signedDayDelta(finish, baselineFinish),

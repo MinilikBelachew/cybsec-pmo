@@ -191,7 +191,7 @@ function toDateTime(value?: string, end = false) {
 
 /** MSPDI duration: working days → PT hours (8h day). Supports fractions. */
 function toIsoDuration(days?: number | null, milestone = false): string {
-  if (milestone) {
+  if (milestone && (days == null || Number(days) === 0)) {
     return 'PT0H0M0S';
   }
   if (days == null || !Number.isFinite(Number(days)) || Number(days) < 0) {
@@ -562,7 +562,17 @@ function renderScheduleFields(
     summary?: boolean;
   },
 ): string {
-  const isZeroDurationMilestone = Boolean(task.milestone);
+  const explicitDuration = calendarDurationDays({
+    durationDays: task.durationDays,
+    startDate: task.startDate,
+    finishDate: task.finishDate,
+  });
+  const durationDays = task.milestone
+    ? task.durationDays != null && Number(task.durationDays) > 0
+      ? Number(task.durationDays)
+      : 0
+    : explicitDuration;
+  const isZeroDurationMilestone = Boolean(task.milestone && durationDays === 0);
   const start = toDateTime(task.startDate);
   const finish = toDateTime(
     isZeroDurationMilestone ? task.startDate || task.finishDate : task.finishDate,
@@ -570,15 +580,9 @@ function renderScheduleFields(
   );
   const baselineStart = toDateTime(task.baselineStart);
   const baselineFinish = toDateTime(task.baselineFinish, true);
-  const durationDays = task.milestone
-    ? 0
-    : calendarDurationDays({
-        durationDays: task.durationDays,
-        startDate: task.startDate,
-        finishDate: task.finishDate,
-      });
   const duration =
-    toIsoDuration(durationDays, Boolean(task.milestone)) || 'PT8H0M0S';
+    toIsoDuration(durationDays, Boolean(task.milestone)) ||
+    (task.milestone ? 'PT0H0M0S' : 'PT8H0M0S');
   const work = toIsoWork(task.workHours);
   const baselineDuration = toIsoDuration(task.baselineDurationDays);
   const durationVariance =
