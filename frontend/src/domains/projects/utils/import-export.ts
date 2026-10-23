@@ -2602,7 +2602,12 @@ function mapMppDepType(depType?: string): number {
 }
 
 function isMspdiMilestone(task: any): boolean {
-  return Boolean(task?._milestoneExport || task?.milestone);
+  return Boolean(
+    task?._milestoneExport ||
+    task?.milestone ||
+    task?.isScheduleMilestone ||
+    task?.scheduleMilestone
+  );
 }
 
 /** Mon–Fri inclusive day count (MSP Standard approx; used when durationDays missing). */
@@ -2631,6 +2636,7 @@ function workingDaysMonFri(
  * Keeps MPP round-trip and still works for scratch PMO rows with empty durationDays.
  */
 function resolveExportDurationDays(task: any): number | "" {
+  if (isMspdiMilestone(task)) return 0;
   if (
     task?.durationDays != null &&
     Number.isFinite(Number(task.durationDays)) &&
@@ -2653,21 +2659,32 @@ function prepareMilestonesForMspdiExport(
   milestones: any[],
 ): { tasks: any[]; standaloneMilestones: any[] } {
   const milestoneByKey = new Map<string, any>();
+  const milestoneByTaskId = new Map<string, any>();
   for (const ms of milestones || []) {
     milestoneByKey.set(scheduleKey(ms.title, ms.phaseId), ms);
+    if (ms.taskId) {
+      milestoneByTaskId.set(ms.taskId, ms);
+    }
   }
   const taskKeys = new Set(
     (tasks || []).map((t) => scheduleKey(t.title || t.name, t.phaseId || t.phase?.id)),
   );
   const markedTasks = (tasks || []).map((t) => {
     const key = scheduleKey(t.title || t.name, t.phaseId || t.phase?.id);
-    const ms = milestoneByKey.get(key);
-    if (!ms) return t;
+    const ms = (t.id ? milestoneByTaskId.get(t.id) : null) ?? milestoneByKey.get(key);
+    const isMs = Boolean(
+      ms ||
+      t.isScheduleMilestone ||
+      t.scheduleMilestone ||
+      t.milestone ||
+      t._milestoneExport
+    );
+    if (!isMs) return t;
     return {
       ...t,
       milestone: true,
       _milestoneExport: true,
-      _linkedMilestoneId: ms.id,
+      _linkedMilestoneId: ms?.id ?? t._linkedMilestoneId,
     };
   });
   const taskIds = new Set((tasks || []).map((t) => t.id).filter(Boolean));
@@ -2712,7 +2729,9 @@ function compareMilestoneOrder(a: any, b: any): number {
 }
 
 function mspdiDurationHours(task: any): number {
-  if (isMspdiMilestone(task)) return 0;
+  if (isMspdiMilestone(task)) {
+    return 0;
+  }
   const workingDays = resolveExportDurationDays(task);
   if (workingDays !== "" && Number(workingDays) > 0) {
     return Math.max(1, Math.round(Number(workingDays) * 8 * 10) / 10);
@@ -3243,8 +3262,9 @@ function renderMspScheduleMetaXml(
   if (isSummary) {
     return `      <Manual>0</Manual>\n      <ConstraintType>0</ConstraintType>\n`;
   }
-  const mode = (task?.mspTaskMode || "").trim().toLowerCase();
-  const manual = mode === "auto" ? 0 : 1;
+  // All leaf tasks stay Manually Scheduled (<Manual>1</Manual>) so MS Project's
+  // scheduling engine never moves dates, recalculates durations, or collapses tasks to 0 days.
+  const manual = 1;
   const constraintType = (task?.mspConstraintType || "ASAP");
   const code = mspBrowserConstraintCode(constraintType);
   const needsDate = code >= 2; // not ASAP / ALAP
@@ -3322,20 +3342,19 @@ function mspBrowserCfTypeCode(type?: string, fieldName?: string): string {
 function renderMspExtendedAttributesDefsXml(
   defs?: Array<{ fieldName: string; index?: number; type?: string; alias?: string; fieldId?: string }> | null,
 ): string {
-  if (!defs?.length) return "";
   const seenFieldIds = new Set<string>();
   let block = `  <ExtendedAttributes>\n`;
-  let count = 0;
-  for (const def of defs) {
+  // Always emit Flag1 as IsMilestone so MS Project round-trips milestones reliably
+  block += `    <ExtendedAttribute>\n      <FieldID>188743752</FieldID>\n      <FieldName>Flag1</FieldName>\n      <CFType>4</CFType>\n      <ElemType>20</ElemType>\n      <Alias>IsMilestone</Alias>\n    </ExtendedAttribute>\n`;
+  seenFieldIds.add("188743752");
+  for (const def of defs || []) {
     // Only emit definitions for customized fields that have an Alias
     if (!def.alias?.trim()) continue;
     const fieldId = mspBrowserCustomFieldId(def.fieldName, def.fieldId);
     if (!fieldId || seenFieldIds.has(fieldId)) continue;
     seenFieldIds.add(fieldId);
-    count++;
     block += `    <ExtendedAttribute>\n      <FieldID>${escMppXml(fieldId)}</FieldID>\n      <FieldName>${escMppXml(def.fieldName)}</FieldName>\n      <CFType>${mspBrowserCfTypeCode(def.type, def.fieldName)}</CFType>\n      <ElemType>20</ElemType>\n      <Alias>${escMppXml(def.alias.trim())}</Alias>\n    </ExtendedAttribute>\n`;
   }
-  if (count === 0) return "";
   block += `  </ExtendedAttributes>\n`;
   return block;
 }
@@ -3353,9 +3372,13 @@ function renderMppTaskXml(opts: {
 }): string {
   const { uid, wbs, outlineLevel, name, summary, task, predecessorXml = "", customFieldDefs } = opts;
   const milestone = task ? isMspdiMilestone(task) : false;
+  const durHours = task ? mspdiDurationHours(task) : 8;
   const start = task ? toMppDateTime(task.startDate) : "";
   const finish = task
-    ? toMppDateTime(milestone ? task.startDate || task.endDate : task.endDate, true)
+    ? toMppDateTime(
+        milestone && durHours === 0 ? task.startDate || task.endDate : task.endDate,
+        !(milestone && durHours === 0),
+      )
     : "";
   // Never invent baseline from current dates (summary/project drift).
   const baselineStart = task
@@ -3377,7 +3400,9 @@ function renderMppTaskXml(opts: {
       : "";
   const actualFinish =
     task && percent >= 100
-      ? toMppDateTime(task.actualEnd || task.endDate, true)
+      ? milestone && durHours === 0
+        ? actualStart || toMppDateTime(task.actualEnd || task.endDate)
+        : toMppDateTime(task.actualEnd || task.endDate, true)
       : "";
 
   // Flat Baseline* + nested <Baseline Number=0> (required) so Project shows Baseline columns.
@@ -3422,7 +3447,7 @@ ${baselineBlock}${task ? mspdiVarianceXml(task) : ""}      <PercentComplete>${pe
       <CalendarUID>1</CalendarUID>
       <Priority>${task ? mapMppPriority(task.priority) : 500}</Priority>
       <Notes>${escMppXml(task?.description || "")}</Notes>
-${renderMspCustomFieldsXml(task, opts.customFieldDefs)}${predecessorXml}    </Task>
+${milestone ? `      <ExtendedAttribute>\n        <FieldID>188743752</FieldID>\n        <Value>1</Value>\n      </ExtendedAttribute>\n` : ""}${renderMspCustomFieldsXml(task, opts.customFieldDefs)}${predecessorXml}    </Task>
 `;
 }
 
@@ -3480,6 +3505,9 @@ function collectMspdiExportResources(
   for (const task of tasks) {
     const taskUid = idToUid.get(task.id);
     if (taskUid == null) continue;
+    // Milestones do not have work assignments; assigning resources to milestones
+    // causes MS Project to show "[0%]" resource labels across the Gantt chart.
+    if (isMspdiMilestone(task)) continue;
     const ownerName = task.owner?.displayName?.trim() || "";
     const backupName = task.backupOwner?.displayName?.trim() || "";
     const merged = mergeExportResourceNames(
@@ -3544,15 +3572,6 @@ function appendMspdiResourcesAndAssignments(
   xml += `  </Resources>
   <Assignments>
 `;
-  // Split Units across co-assignees on the same task so Project does not
-  // treat every person as 100% (which inflates to 200%/400% overallocation).
-  const assigneesPerTask = new Map<number, number>();
-  for (const row of assignmentRows) {
-    assigneesPerTask.set(
-      row.taskUid,
-      (assigneesPerTask.get(row.taskUid) || 0) + 1,
-    );
-  }
 
   let assignmentUid = 1_048_577;
   for (const row of assignmentRows) {
@@ -3560,14 +3579,11 @@ function appendMspdiResourcesAndAssignments(
     const finish = toMppDateTime(row.task.endDate, true);
     const workXml = mspdiWorkXml(row.task);
     const work = workXml.replace("<Work>", "").replace("</Work>", "");
-    const share = assigneesPerTask.get(row.taskUid) || 1;
-    const units = Math.round((1 / share) * 100) / 100;
-    const unitsAttr = units.toFixed(2);
     xml += `    <Assignment>
       <UID>${assignmentUid++}</UID>
       <ResourceUID>${row.resourceUid}</ResourceUID>
       <TaskUID>${row.taskUid}</TaskUID>
-      <Units>${unitsAttr}</Units>
+      <Units>1.00</Units>
       ${work ? `<Work>${work}</Work>
       <RegularWork>${work}</RegularWork>
       <RemainingWork>${work}</RemainingWork>` : ""}

@@ -330,17 +330,25 @@ function cfTypeCode(type?: string, fieldName?: string): string {
 function renderExtendedAttributesDefs(
   defs?: MspdiExportRequestPayload['customFieldDefs'],
 ): string {
-  if (!defs?.length) return '';
   const seenFieldIds = new Set<string>();
   let block = `  <ExtendedAttributes>\n`;
-  let count = 0;
-  for (const def of defs) {
-    if (!def.alias?.trim()) continue;
-    const fieldId = mspCustomFieldId(def.fieldName, def.fieldId);
-    if (!fieldId || seenFieldIds.has(fieldId)) continue;
-    seenFieldIds.add(fieldId);
-    count++;
-    block += `    <ExtendedAttribute>
+  // Always emit Flag1 as IsMilestone so MS Project round-trips milestones reliably
+  block += `    <ExtendedAttribute>
+      <FieldID>188743752</FieldID>
+      <FieldName>Flag1</FieldName>
+      <CFType>4</CFType>
+      <ElemType>20</ElemType>
+      <Alias>IsMilestone</Alias>
+    </ExtendedAttribute>\n`;
+  seenFieldIds.add('188743752');
+
+  if (defs?.length) {
+    for (const def of defs) {
+      if (!def.alias?.trim()) continue;
+      const fieldId = mspCustomFieldId(def.fieldName, def.fieldId);
+      if (!fieldId || seenFieldIds.has(fieldId)) continue;
+      seenFieldIds.add(fieldId);
+      block += `    <ExtendedAttribute>
       <FieldID>${esc(fieldId)}</FieldID>
       <FieldName>${esc(def.fieldName)}</FieldName>
       <CFType>${cfTypeCode(def.type, def.fieldName)}</CFType>
@@ -348,8 +356,8 @@ function renderExtendedAttributesDefs(
       <Alias>${esc(def.alias.trim())}</Alias>
     </ExtendedAttribute>
 `;
+    }
   }
-  if (count === 0) return '';
   block += `  </ExtendedAttributes>\n`;
   return block;
 }
@@ -431,9 +439,7 @@ function renderConstraintXml(task: MspdiExportTaskPayload): string {
     needsDate && task.constraintDate
       ? toDateTime(task.constraintDate)
       : '';
-  const manual = task.taskMode?.trim().toLowerCase() === 'auto' ? 0 : 1;
-  let block = `      <Manual>${manual}</Manual>
-      <ConstraintType>${code}</ConstraintType>
+  let block = `      <ConstraintType>${code}</ConstraintType>
 `;
   if (date) {
     block += `      <ConstraintDate>${date}</ConstraintDate>
@@ -556,8 +562,12 @@ function renderScheduleFields(
     summary?: boolean;
   },
 ): string {
+  const isZeroDurationMilestone = Boolean(task.milestone);
   const start = toDateTime(task.startDate);
-  const finish = toDateTime(task.finishDate, true);
+  const finish = toDateTime(
+    isZeroDurationMilestone ? task.startDate || task.finishDate : task.finishDate,
+    !isZeroDurationMilestone,
+  );
   const baselineStart = toDateTime(task.baselineStart);
   const baselineFinish = toDateTime(task.baselineFinish, true);
   const durationDays = task.milestone
@@ -584,8 +594,15 @@ function renderScheduleFields(
   if (start) parts.push(`      <Start>${start}</Start>`);
   if (finish) parts.push(`      <Finish>${finish}</Finish>`);
   parts.push(`      <Duration>${duration}</Duration>`);
-  // Summaries auto-schedule so MS Project rolls up children; leaves stay manual.
-  parts.push(`      <Manual>${task.summary ? 0 : 1}</Manual>`);
+  // Summaries auto-schedule so MS Project rolls up children; milestones stay manual; leaves follow taskMode/manual.
+  const manual = task.summary
+    ? 0
+    : task.milestone
+      ? 1
+      : task.taskMode?.trim().toLowerCase() === 'auto'
+        ? 0
+        : 1;
+  parts.push(`      <Manual>${manual}</Manual>`);
   if (work) parts.push(`      <Work>${work}</Work>`);
   if (baselineStart || baselineFinish || task.baselineDurationDays) {
     // Flat fields help some Project views; nested Baseline Number=0 is required for Baseline columns.
@@ -724,6 +741,7 @@ export function buildLocalMspdiXml(payload: MspdiExportRequestPayload): Buffer {
   );
   if (hasTaskNames) {
     for (const task of payload.tasks) {
+      if (task.milestone) continue;
       for (const resourceName of splitResourceNames(task.resourceNames)) {
         assignmentRows.push({
           taskId: task.id,
@@ -746,6 +764,8 @@ export function buildLocalMspdiXml(payload: MspdiExportRequestPayload): Buffer {
       });
     }
     for (const assignment of payload.assignments ?? []) {
+      const task = taskById.get(assignment.taskId);
+      if (task?.milestone) continue;
       assignmentRows.push({
         taskId: assignment.taskId,
         resourceKey: assignment.resourceId,
@@ -828,7 +848,10 @@ ${schedule}
       <Active>1</Active>
       <CalendarUID>1</CalendarUID>
 ${renderConstraintXml(task)}      <Notes>${esc(task.notes || '')}</Notes>
-${renderTaskExtendedAttributes(task.customFields, working.customFieldDefs)}`;
+${task.milestone ? `      <ExtendedAttribute>
+        <FieldID>188743752</FieldID>
+        <Value>1</Value>
+      </ExtendedAttribute>\n` : ''}${renderTaskExtendedAttributes(task.customFields, working.customFieldDefs)}`;
 
     for (const dep of links) {
       const predUid = idToUid.get(dep.predecessorId);

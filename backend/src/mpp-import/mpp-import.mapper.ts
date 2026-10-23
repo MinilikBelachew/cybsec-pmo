@@ -324,7 +324,12 @@ export class MppImportMapper {
     const importableTasks = allTasks.filter((task) =>
       this.isImportableScheduleRow(task, byUid),
     );
-    const milestoneTasks = this.getMppMilestoneTasks(allTasks);
+    const hasMilestoneFlagDef = (parsed.customFieldDefs ?? []).some(
+      (d) =>
+        (d.fieldName || '').toLowerCase() === 'flag1' ||
+        (d.alias || '').toLowerCase() === 'ismilestone',
+    );
+    const milestoneTasks = this.getMppMilestoneTasks(allTasks, hasMilestoneFlagDef);
     const nestedSummaryTasks = allTasks.filter(
       (task) =>
         task.summary &&
@@ -884,7 +889,12 @@ export class MppImportMapper {
     const importableTasks = allTasks.filter((task) =>
       this.isImportableScheduleRow(task, byUid),
     );
-    const milestoneTasks = this.getMppMilestoneTasks(allTasks);
+    const hasMilestoneFlagDef = (parsed.customFieldDefs ?? []).some(
+      (d) =>
+        (d.fieldName || '').toLowerCase() === 'flag1' ||
+        (d.alias || '').toLowerCase() === 'ismilestone',
+    );
+    const milestoneTasks = this.getMppMilestoneTasks(allTasks, hasMilestoneFlagDef);
 
     if (importableTasks.length === 0 && milestoneTasks.length === 0) {
       throw new Error('No importable tasks or milestones found in the project file');
@@ -1528,15 +1538,41 @@ export class MppImportMapper {
    * Do not infer from missing/zero duration — that over-tags normal tasks
    * on export→re-import when durationDays is weak/null.
    */
-  private isMppMilestone(task: ParsedMppTask): boolean {
+  private isMppMilestone(
+    task: ParsedMppTask,
+    hasMilestoneFlagDef = false,
+  ): boolean {
     if (!task.name?.trim() || task.summary || task.outlineLevel === 0) {
+      return false;
+    }
+    const hasFlag1 =
+      Array.isArray(task.customFields) &&
+      task.customFields.some((entry) => {
+        const key = (entry?.fieldName || '').trim().toLowerCase();
+        if (key === 'flag1' || key === 'ismilestone') {
+          const val = String(entry?.value ?? '').trim().toLowerCase();
+          return val === '1' || val === 'true' || val === 'yes';
+        }
+        return false;
+      });
+
+    if (hasFlag1) {
+      return true;
+    }
+    // If the file explicitly defines Flag1 / IsMilestone (exported from Cybsec PMO),
+    // only rows with Flag1=1 are genuine milestones. This prevents tasks that MS Project
+    // auto-collapsed to 0 days from becoming unwanted milestones.
+    if (hasMilestoneFlagDef) {
       return false;
     }
     return Boolean(task.milestone);
   }
 
-  private getMppMilestoneTasks(allTasks: ParsedMppTask[]): ParsedMppTask[] {
-    return allTasks.filter((task) => this.isMppMilestone(task));
+  private getMppMilestoneTasks(
+    allTasks: ParsedMppTask[],
+    hasMilestoneFlagDef = false,
+  ): ParsedMppTask[] {
+    return allTasks.filter((task) => this.isMppMilestone(task, hasMilestoneFlagDef));
   }
 
   private isTopLevelPhaseSummary(

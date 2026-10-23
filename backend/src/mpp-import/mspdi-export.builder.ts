@@ -440,7 +440,7 @@ export class MspdiExportBuilder {
         outlineLevel,
         milestone: task.isScheduleMilestone || undefined,
         startDate: start,
-        finishDate: finish,
+        finishDate: task.isScheduleMilestone ? start : finish,
         baselineStart,
         baselineFinish,
         durationDays: resolvedDurationDays,
