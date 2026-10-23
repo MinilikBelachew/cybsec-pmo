@@ -62,6 +62,8 @@ interface Task {
   baselineDurationDays?: number | null;
   actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
+  isPhaseScheduleTask?: boolean;
+  isScheduleMilestone?: boolean;
 }
 
 function formatDueDate(dateStr?: string | null) {
@@ -190,7 +192,9 @@ export function ListView({
   onBulkPriority,
   onBulkDelete,
 }: ListViewProps) {
-  const [groupByPhase, setGroupByPhase] = React.useState(groupByPhaseDefault);
+  const [groupByPhase, setGroupByPhase] = React.useState(
+    phases.length > 0 ? true : groupByPhaseDefault,
+  );
   const [openPhases, setOpenPhases] = React.useState<Record<string, boolean>>({});
   const [expandedParents, setExpandedParents] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -200,10 +204,10 @@ export function ListView({
   const { canEditDependencies } = useModulePermissions();
 
   React.useEffect(() => {
-    setGroupByPhase(groupByPhaseDefault);
+    setGroupByPhase(phases.length > 0 ? true : groupByPhaseDefault);
     setLoadedById(new Map());
     setSelectedIds(new Set());
-  }, [projectId, groupByPhaseDefault]);
+  }, [projectId, groupByPhaseDefault, phases.length]);
 
   function nestedRowsFor(task: Task, childDepth: number): Task[] {
     return (task.children ?? []).map((c) => ({
@@ -1316,9 +1320,12 @@ function ListStatusSection({
     usePaginatedStatusTasks(status, filters, {
       pageSize: 20,
       skip: !isOpen,
+      includeNestedTasks: true,
     });
 
-  const groupTasks = tasks as unknown as Task[];
+  const groupTasks = (tasks as unknown as Task[]).filter(
+    (t) => !t.isPhaseScheduleTask,
+  );
   // Open: badge follows listed rows (never 0 while rows exist).
   // Closed: stats hint only.
   const displayCount = !isOpen
@@ -1437,9 +1444,12 @@ function ListPhaseSection({
     usePaginatedPhaseTasks(phaseId, filters, {
       pageSize: 20,
       skip: !isOpen,
+      includeNestedTasks: true,
     });
 
-  const groupTasks = tasks as unknown as Task[];
+  const groupTasks = (tasks as unknown as Task[]).filter(
+    (t) => !t.isPhaseScheduleTask,
+  );
 
   React.useEffect(() => {
     if (!isOpen || groupTasks.length === 0) return;

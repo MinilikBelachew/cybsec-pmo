@@ -2,13 +2,16 @@ import { Injectable } from '@nestjs/common';
 import {
   PhaseStatus,
   Prisma,
+  PriorityLevel,
   TaskStatus,
 } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   MppImportPreview,
+  MppImportPreviewPhase,
   MppImportPreviewProject,
   MppImportPreviewMilestone,
+  MppImportPreviewTask,
   MppImportResultSummary,
   MppPortfolioSegment,
   ParsedMppProject,
@@ -20,6 +23,7 @@ import {
   fromMspdiDateTime,
   resolveMspExportTimeZone,
 } from './mspdi-datetime.util';
+import { renumberProjectPlanRows } from '../projects/utils/plan-row.util';
 
 const PREVIEW_TASK_LIMIT = 250;
 const DEFAULT_PHASE_NAME = 'Imported Schedule';
@@ -35,13 +39,15 @@ export class MppImportMapper {
   async buildPreview(
     parsed: ParsedMppProject,
     existingProjects: { id: string; name: string }[] = [],
-    options?: { forceSingle?: boolean },
+    options?: { forceSingle?: boolean; targetProjectId?: string },
   ): Promise<MppImportPreview> {
     if (!options?.forceSingle && this.isPortfolio(parsed)) {
       return this.buildPortfolioPreview(parsed, existingProjects);
     }
 
-    return this.buildSinglePreview(parsed, existingProjects);
+    return this.buildSinglePreview(parsed, existingProjects, {
+      targetProjectId: options?.targetProjectId,
+    });
   }
 
   /**
@@ -226,14 +232,16 @@ export class MppImportMapper {
     const sampleMilestones: MppImportPreviewMilestone[] = [];
 
     for (const segment of segments) {
-      const single = await this.buildSinglePreview(segment.parsed);
+      const existing = existingByName.get(segment.projectName.trim());
+      const single = await this.buildSinglePreview(segment.parsed, existingProjects, {
+        targetProjectId: existing?.id,
+      });
       importableTasks += single.counts.importableTasks;
       phasesFromSummaries += single.counts.phasesFromSummaries;
       milestonesFromFile += single.counts.milestonesFromFile;
       skippedSummaryTasks += single.counts.skippedSummaryTasks;
       dependencies += single.counts.dependencies;
 
-      const existing = existingByName.get(segment.projectName.trim());
       projects.push({
         name: segment.projectName,
         startDate: segment.startDate,
@@ -251,6 +259,7 @@ export class MppImportMapper {
         dependencyCount: single.counts.dependencies,
         importMode: existing ? 'update' : 'create',
         resolvedProjectId: existing?.id,
+        phases: single.phases,
         tasks: single.tasks,
         milestones: single.milestones,
       });
@@ -303,6 +312,7 @@ export class MppImportMapper {
   private async buildSinglePreview(
     parsed: ParsedMppProject,
     existingProjects: { id: string; name: string }[] = [],
+    options?: { targetProjectId?: string },
   ): Promise<MppImportPreview> {
     const allTasks = parsed.tasks ?? [];
     const byUid = this.indexByUid(allTasks);
@@ -324,6 +334,7 @@ export class MppImportMapper {
         task.outlineLevel !== 0,
     ).length;
     const importableUids = new Set(importableTasks.map((task) => task.uid));
+    const resourceNamesByUid = this.resourceNamesByTaskUid(parsed);
 
     let dependencies = 0;
     for (const task of importableTasks) {
@@ -336,46 +347,78 @@ export class MppImportMapper {
 
     const resourceMatch = await this.countResourceMatches(parsed);
 
-    const tasks = importableTasks.slice(0, PREVIEW_TASK_LIMIT).map((task) => {
-      const phaseSummaryUid = this.resolvePhaseSummaryUid(task, byUid);
-      return {
-        uid: task.uid,
-        name: task.name,
-        startDate: task.startDate,
-        finishDate: task.finishDate,
-        durationDays: task.durationDays,
-        workHours: task.workHours,
-        baselineStartDate: task.baselineStartDate,
-        baselineFinishDate: task.baselineFinishDate,
-        baselineDurationDays: task.baselineDurationDays,
-        actualStartDate: task.actualStartDate,
-        actualFinishDate: task.actualFinishDate,
-        percentComplete: task.percentComplete,
-        phaseName: phaseSummaryUid
-          ? phaseNameByUid.get(phaseSummaryUid)
-          : undefined,
-        hasParent: Boolean(
-          task.parentUid && importableUids.has(task.parentUid),
-        ),
-        predecessorCount: (task.predecessors ?? []).filter((predecessor) =>
-          importableUids.has(predecessor.predecessorUid),
-        ).length,
-      };
-    });
+    let tasks: MppImportPreviewTask[] = importableTasks
+      .slice(0, PREVIEW_TASK_LIMIT)
+      .map((task) => {
+        const phaseSummaryUid = this.resolvePhaseSummaryUid(task, byUid);
+        const notes = task.notes?.trim();
+        return {
+          uid: task.uid,
+          name: task.name,
+          startDate: task.startDate,
+          finishDate: task.finishDate,
+          durationDays: task.durationDays,
+          workHours: task.workHours,
+          baselineStartDate: task.baselineStartDate,
+          baselineFinishDate: task.baselineFinishDate,
+          baselineDurationDays: task.baselineDurationDays,
+          actualStartDate: task.actualStartDate,
+          actualFinishDate: task.actualFinishDate,
+          percentComplete: task.percentComplete,
+          phaseName: phaseSummaryUid
+            ? phaseNameByUid.get(phaseSummaryUid)
+            : undefined,
+          hasParent: Boolean(
+            task.parentUid && importableUids.has(task.parentUid),
+          ),
+          predecessorCount: (task.predecessors ?? []).filter((predecessor) =>
+            importableUids.has(predecessor.predecessorUid),
+          ).length,
+          importMode: 'create' as const,
+          priority: this.mapMspPriorityToLevel(task.priority),
+          assigneeNames: resourceNamesByUid.get(task.uid) ?? [],
+          notesPreview: notes ? notes.slice(0, 120) : undefined,
+        };
+      });
 
-    const milestones = this.mapMilestonePreviewRows(
+    let milestones = this.mapMilestonePreviewRows(
       milestoneTasks,
       byUid,
       phaseNameByUid,
       PREVIEW_TASK_LIMIT,
     );
 
+    let phases: MppImportPreviewPhase[] = phaseSummaries.map((summary) => ({
+      name: summary.name.trim(),
+      startDate: summary.startDate,
+      finishDate: summary.finishDate,
+      durationDays: summary.durationDays,
+      percentComplete: summary.percentComplete,
+      importMode: 'create' as const,
+    }));
+
     const projectName = this.resolveVisibleProjectName(parsed, byUid);
-    const existing = this.findExistingProjectByName(
-      existingProjects,
-      projectName,
-      parsed.project?.name,
-    );
+    const existing =
+      (options?.targetProjectId
+        ? existingProjects.find((p) => p.id === options.targetProjectId)
+        : undefined) ??
+      this.findExistingProjectByName(
+        existingProjects,
+        projectName,
+        parsed.project?.name,
+      );
+
+    if (existing) {
+      const annotated = await this.annotatePreviewAgainstExisting(
+        existing.id,
+        phases,
+        tasks,
+        milestones,
+      );
+      phases = annotated.phases;
+      tasks = annotated.tasks;
+      milestones = annotated.milestones;
+    }
 
     const warnings = [...(parsed.warnings ?? []), ...resourceMatch.warnings];
     if (importableTasks.length > PREVIEW_TASK_LIMIT) {
@@ -393,8 +436,10 @@ export class MppImportMapper {
       );
     }
     if (phaseSummaries.length > 0) {
+      const phaseUpdates = phases.filter((p) => p.importMode === 'update').length;
+      const phaseCreates = phases.length - phaseUpdates;
       warnings.push(
-        `${phaseSummaries.length} top-level summary row(s) will be imported as phases.`,
+        `${phases.length} phase(s): ${phaseUpdates} update, ${phaseCreates} new.`,
       );
     }
     if (milestoneTasks.length > PREVIEW_TASK_LIMIT) {
@@ -408,14 +453,15 @@ export class MppImportMapper {
       );
     }
     if (milestoneTasks.length > 0) {
+      const msUpdates = milestones.filter((m) => m.importMode === 'update').length;
       warnings.push(
-        `${milestoneTasks.length} milestone row(s) will stay in the task tree (and also appear under Milestones).`,
+        `${milestoneTasks.length} milestone(s): ${msUpdates} update, ${milestoneTasks.length - msUpdates} new.`,
       );
     }
-
     if (existing) {
+      const taskUpdates = tasks.filter((t) => t.importMode === 'update').length;
       warnings.push(
-        `Matching existing project "${existing.name}" — this import will update it, not create a duplicate.`,
+        `Matching existing project "${existing.name}" — ${taskUpdates} task(s) update, ${tasks.length - taskUpdates} new (matched by title + phase).`,
       );
     }
 
@@ -436,6 +482,7 @@ export class MppImportMapper {
         resourcesMatched: resourceMatch.matched,
         resourcesUnmatched: resourceMatch.unmatched,
       },
+      phases,
       tasks,
       milestones,
       warnings,
@@ -459,8 +506,277 @@ export class MppImportMapper {
           : undefined,
         percentComplete: ms.percentComplete,
         status: this.resolveMppMilestoneStatus(ms),
+        importMode: 'create' as const,
       };
     });
+  }
+
+  /** MSP Resource Names per task UID (preview assignees). */
+  private resourceNamesByTaskUid(
+    parsed: ParsedMppProject,
+  ): Map<number, string[]> {
+    const resourcesByUid = new Map(
+      (parsed.resources ?? []).map((r) => [r.uid, r]),
+    );
+    const namesByTask = new Map<number, string[]>();
+    for (const assignment of parsed.assignments ?? []) {
+      const resource = resourcesByUid.get(assignment.resourceUid);
+      const name = resource?.name?.trim();
+      if (!name) continue;
+      const list = namesByTask.get(assignment.taskUid) ?? [];
+      if (!list.includes(name)) list.push(name);
+      namesByTask.set(assignment.taskUid, list);
+    }
+    return namesByTask;
+  }
+
+  /**
+   * Mark preview rows NEW vs UPDATE using the same title+phase matching as persist.
+   * Also attach short field-change hints for UPDATE rows.
+   */
+  private async annotatePreviewAgainstExisting(
+    projectId: string,
+    phases: MppImportPreviewPhase[],
+    tasks: MppImportPreviewTask[],
+    milestones: MppImportPreviewMilestone[],
+  ): Promise<{
+    phases: MppImportPreviewPhase[];
+    tasks: MppImportPreviewTask[];
+    milestones: MppImportPreviewMilestone[];
+  }> {
+    const existingPhases = await this.prisma.projectPhase.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        name: true,
+        startDate: true,
+        endDate: true,
+        description: true,
+        taskId: true,
+        task: {
+          select: {
+            durationDays: true,
+            progressApproved: true,
+            status: true,
+          },
+        },
+      },
+    });
+    const phaseTwinIds = new Set(
+      existingPhases
+        .map((p) => p.taskId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const phaseByName = new Map(
+      existingPhases.map((p) => [p.name.trim().toLowerCase(), p]),
+    );
+
+    const existingTasks = await this.prisma.task.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        title: true,
+        phaseId: true,
+        status: true,
+        progressApproved: true,
+        durationDays: true,
+        startDate: true,
+        endDate: true,
+        description: true,
+        priority: true,
+        owner: { select: { displayName: true } },
+        backupOwner: { select: { displayName: true } },
+      },
+    });
+    const existingTaskByKey = new Map<
+      string,
+      (typeof existingTasks)[number]
+    >();
+    for (const row of existingTasks) {
+      if (!row.phaseId || phaseTwinIds.has(row.id)) continue;
+      const key = this.taskMatchKey(row.title, row.phaseId, null);
+      if (!existingTaskByKey.has(key)) {
+        existingTaskByKey.set(key, row);
+      }
+    }
+
+    const existingMilestones = await this.prisma.projectMilestone.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        title: true,
+        phaseId: true,
+        status: true,
+        targetDate: true,
+      },
+    });
+    const existingMsByKey = new Map<
+      string,
+      (typeof existingMilestones)[number]
+    >();
+    for (const row of existingMilestones) {
+      const key = this.milestoneMatchKey(row.title, row.phaseId);
+      if (!existingMsByKey.has(key)) {
+        existingMsByKey.set(key, row);
+      }
+    }
+
+    const annotatedPhases = phases.map((phase) => {
+      const existing = phaseByName.get(phase.name.trim().toLowerCase());
+      if (!existing) return phase;
+      const details: string[] = [];
+      if (
+        this.previewDateChanged(existing.startDate, phase.startDate) ||
+        this.previewDateChanged(existing.endDate, phase.finishDate)
+      ) {
+        details.push('dates');
+      }
+      if (
+        phase.durationDays != null &&
+        Number(existing.task?.durationDays ?? NaN) !== Number(phase.durationDays)
+      ) {
+        details.push('duration');
+      }
+      if (
+        phase.percentComplete != null &&
+        Number(existing.task?.progressApproved ?? 0) !==
+          Math.round(phase.percentComplete)
+      ) {
+        details.push('% complete');
+      }
+      return {
+        ...phase,
+        importMode: 'update' as const,
+        updateDetails: details.length ? details : ['schedule'],
+      };
+    });
+
+    // Resolve file phase name → existing phase id (after name match / create path).
+    const phaseIdByPreviewName = new Map<string, string>();
+    for (const phase of annotatedPhases) {
+      const existing = phaseByName.get(phase.name.trim().toLowerCase());
+      if (existing) {
+        phaseIdByPreviewName.set(phase.name.trim().toLowerCase(), existing.id);
+      }
+    }
+
+    const usedTaskKeys = new Set<string>();
+    const annotatedTasks = tasks.map((task) => {
+      const phaseKey = (task.phaseName?.trim() || '').toLowerCase();
+      const phaseId = phaseIdByPreviewName.get(phaseKey);
+      if (!phaseId) {
+        return task; // phase is new → task will be created
+      }
+      const matchKey = this.taskMatchKey(task.name, phaseId, null);
+      if (usedTaskKeys.has(matchKey)) {
+        return task;
+      }
+      const existing = existingTaskByKey.get(matchKey);
+      if (!existing) {
+        return task;
+      }
+      usedTaskKeys.add(matchKey);
+
+      const details: string[] = [];
+      const incomingStatus =
+        (task.percentComplete ?? 0) >= 100
+          ? 'Done'
+          : (task.percentComplete ?? 0) > 0
+            ? 'In_Progress'
+            : 'To_Do';
+      if (existing.status !== incomingStatus) {
+        details.push(`status → ${incomingStatus.replace('_', ' ')}`);
+      }
+      if (
+        this.previewDateChanged(existing.startDate, task.startDate) ||
+        this.previewDateChanged(existing.endDate, task.finishDate)
+      ) {
+        details.push('dates');
+      }
+      if (
+        task.durationDays != null &&
+        Number(existing.durationDays ?? NaN) !== Number(task.durationDays)
+      ) {
+        details.push(`duration ${task.durationDays}d`);
+      }
+      if (task.notesPreview && task.notesPreview !== (existing.description || '').slice(0, 120)) {
+        details.push('notes');
+      }
+      if (task.priority && task.priority !== existing.priority) {
+        details.push(`priority ${task.priority}`);
+      }
+      const incomingAssignees = (task.assigneeNames ?? []).join(', ');
+      const existingAssignees = [
+        existing.owner?.displayName,
+        existing.backupOwner?.displayName,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      if (incomingAssignees && incomingAssignees !== existingAssignees) {
+        details.push(`assignee ${incomingAssignees}`);
+      }
+      if (
+        task.percentComplete != null &&
+        Number(existing.progressApproved ?? 0) !==
+          Math.round(task.percentComplete)
+      ) {
+        details.push(`${Math.round(task.percentComplete)}%`);
+      }
+
+      return {
+        ...task,
+        importMode: 'update' as const,
+        updateDetails: details.length ? details.slice(0, 5) : ['schedule'],
+      };
+    });
+
+    const usedMsKeys = new Set<string>();
+    const annotatedMilestones = milestones.map((ms) => {
+      const phaseKey = (ms.phaseName?.trim() || '').toLowerCase();
+      const phaseId = phaseIdByPreviewName.get(phaseKey) ?? null;
+      // Milestones under a brand-new phase name → create
+      if (ms.phaseName?.trim() && !phaseId) {
+        return ms;
+      }
+      const key = this.milestoneMatchKey(ms.title, phaseId);
+      if (usedMsKeys.has(key)) return ms;
+      const existing = existingMsByKey.get(key);
+      if (!existing) return ms;
+      usedMsKeys.add(key);
+
+      const details: string[] = [];
+      if (existing.status !== ms.status) {
+        details.push(`status → ${ms.status}`);
+      }
+      if (this.previewDateChanged(existing.targetDate, ms.targetDate)) {
+        details.push('target date');
+      }
+      return {
+        ...ms,
+        importMode: 'update' as const,
+        updateDetails: details.length ? details : ['schedule'],
+      };
+    });
+
+    return {
+      phases: annotatedPhases,
+      tasks: annotatedTasks,
+      milestones: annotatedMilestones,
+    };
+  }
+
+  private previewDateChanged(
+    existing: Date | string | null | undefined,
+    incoming?: string,
+  ): boolean {
+    if (!incoming) return false;
+    if (!existing) return true;
+    const a =
+      existing instanceof Date
+        ? existing.toISOString().slice(0, 10)
+        : String(existing).slice(0, 10);
+    const b = incoming.slice(0, 10);
+    return a !== b;
   }
 
   /** L1 summaries that have at least one nested summary child (= projects in a portfolio). */
@@ -582,7 +898,7 @@ export class MppImportMapper {
         endDate: true,
         phases: {
           orderBy: { orderIndex: 'asc' },
-          select: { id: true, orderIndex: true, name: true },
+          select: { id: true, orderIndex: true, name: true, taskId: true },
         },
       },
     });
@@ -637,6 +953,7 @@ export class MppImportMapper {
       await this.applyProjectScheduleFromParsed(tx, projectId, parsed, tz);
 
       const summaryUidToPhaseId = new Map<number, string>();
+      const phaseTwinIds = new Set<string>();
       const phaseByName = new Map(
         project.phases.map((phase) => [
           phase.name.trim().toLowerCase(),
@@ -659,15 +976,36 @@ export class MppImportMapper {
           this.parseDate(summary.finishDate, tz) ??
           this.parseDate(parsed.project?.finishDate, tz) ??
           project.endDate;
+        const scheduleFields = this.taskScheduleFields(summary, tz);
 
         const existingPhase = phaseByName.get(phaseName.toLowerCase());
+        let phaseId: string;
+        let twinTaskId: string | null | undefined =
+          existingPhase && 'taskId' in existingPhase
+            ? (existingPhase as { taskId?: string | null }).taskId
+            : undefined;
+
         if (existingPhase) {
           await tx.projectPhase.update({
             where: { id: existingPhase.id },
-            data: { startDate, endDate },
+            data: {
+              startDate,
+              endDate,
+              ...(scheduleFields.description
+                ? { description: scheduleFields.description }
+                : {}),
+            },
           });
+          phaseId = existingPhase.id;
           summaryUidToPhaseId.set(summary.uid, existingPhase.id);
           phasesUpdated += 1;
+          twinTaskId =
+            (
+              await tx.projectPhase.findUnique({
+                where: { id: existingPhase.id },
+                select: { taskId: true },
+              })
+            )?.taskId ?? twinTaskId;
         } else {
           const phase = await tx.projectPhase.create({
             data: {
@@ -677,21 +1015,94 @@ export class MppImportMapper {
               startDate,
               endDate,
               status: PhaseStatus.Planned,
+              description: scheduleFields.description,
             },
           });
+          phaseId = phase.id;
           summaryUidToPhaseId.set(summary.uid, phase.id);
           phaseByName.set(phaseName.toLowerCase(), {
             id: phase.id,
             orderIndex: phase.orderIndex,
             name: phase.name,
+            taskId: null,
           });
           phasesCreated += 1;
+          twinTaskId = null;
+        }
+
+        // Upsert schedule twin (holds duration, %, phase→phase deps, assignees).
+        if (twinTaskId) {
+          await tx.task.update({
+            where: { id: twinTaskId },
+            data: {
+              title: scheduleFields.title,
+              description: scheduleFields.description,
+              startDate: scheduleFields.startDate ?? startDate,
+              endDate: scheduleFields.endDate ?? endDate,
+              baselineStart: scheduleFields.baselineStart ?? null,
+              baselineEnd: scheduleFields.baselineEnd ?? null,
+              durationDays: scheduleFields.durationDays ?? null,
+              baselineDurationDays: scheduleFields.baselineDurationDays ?? null,
+              effortHours: scheduleFields.effortHours ?? null,
+              progressApproved: scheduleFields.progressApproved,
+              status: scheduleFields.status,
+              priority: scheduleFields.priority,
+              mspTaskMode: scheduleFields.mspTaskMode ?? null,
+              mspConstraintType: scheduleFields.mspConstraintType ?? null,
+              mspConstraintDate: scheduleFields.mspConstraintDate ?? null,
+              mspCustomFields:
+                scheduleFields.mspCustomFields != null
+                  ? (scheduleFields.mspCustomFields as unknown as Prisma.InputJsonValue)
+                  : Prisma.JsonNull,
+              phase: { connect: { id: phaseId } },
+              parentTask: { disconnect: true },
+            },
+          });
+          uidToTaskId.set(summary.uid, twinTaskId);
+          phaseTwinIds.add(twinTaskId);
+        } else {
+          const twin = await tx.task.create({
+            data: {
+              project: { connect: { id: project.id } },
+              phase: { connect: { id: phaseId } },
+              title: scheduleFields.title,
+              description: scheduleFields.description,
+              startDate: scheduleFields.startDate ?? startDate,
+              endDate: scheduleFields.endDate ?? endDate,
+              baselineStart: scheduleFields.baselineStart ?? null,
+              baselineEnd: scheduleFields.baselineEnd ?? null,
+              durationDays: scheduleFields.durationDays ?? null,
+              baselineDurationDays: scheduleFields.baselineDurationDays ?? null,
+              effortHours: scheduleFields.effortHours ?? null,
+              progressApproved: scheduleFields.progressApproved,
+              status: scheduleFields.status,
+              mspCustomFields:
+                scheduleFields.mspCustomFields != null
+                  ? (scheduleFields.mspCustomFields as unknown as Prisma.InputJsonValue)
+                  : Prisma.JsonNull,
+              priority: scheduleFields.priority,
+              mspTaskMode: scheduleFields.mspTaskMode ?? null,
+              mspConstraintType: scheduleFields.mspConstraintType ?? null,
+              mspConstraintDate: scheduleFields.mspConstraintDate ?? null,
+            },
+          });
+          await tx.projectPhase.update({
+            where: { id: phaseId },
+            data: { taskId: twin.id },
+          });
+          uidToTaskId.set(summary.uid, twin.id);
+          phaseTwinIds.add(twin.id);
+          const entry = phaseByName.get(phaseName.toLowerCase());
+          if (entry) {
+            (entry as { taskId?: string | null }).taskId = twin.id;
+          }
+          tasksCreated += 1;
         }
       }
 
       if (phasesCreated > 0 || phasesUpdated > 0) {
         warnings.push(
-          `Phases from summary rows: ${phasesCreated} created, ${phasesUpdated} updated.`,
+          `Phases from summary rows: ${phasesCreated} created, ${phasesUpdated} updated (with schedule twins).`,
         );
       }
 
@@ -718,11 +1129,14 @@ export class MppImportMapper {
           id: true,
           title: true,
           phaseId: true,
+          parentTaskId: true,
           status: true,
           progressApproved: true,
         },
       });
-      // Match by title + phase; consume each match once so duplicates create new.
+      // Match by title + phase + parent; consume each match once so duplicates
+      // under different parents (e.g. two "Defining Schema") create/update correctly.
+      // Exclude phase schedule twins so they are not treated as work tasks.
       const existingTaskByKey = new Map<
         string,
         {
@@ -732,10 +1146,18 @@ export class MppImportMapper {
         }
       >();
       for (const existing of existingTasks) {
-        if (!existing.phaseId) {
+        if (!existing.phaseId || phaseTwinIds.has(existing.id)) {
           continue;
         }
-        const key = this.taskMatchKey(existing.title, existing.phaseId);
+        const parentKey = this.normalizeMatchParentId(
+          existing.parentTaskId,
+          phaseTwinIds,
+        );
+        const key = this.taskMatchKey(
+          existing.title,
+          existing.phaseId,
+          parentKey,
+        );
         if (!existingTaskByKey.has(key)) {
           existingTaskByKey.set(key, {
             id: existing.id,
@@ -782,7 +1204,11 @@ export class MppImportMapper {
             );
           }
 
-          const matchKey = this.taskMatchKey(task.name, phaseId);
+          const parentKey = this.normalizeMatchParentId(
+            parentTaskId,
+            phaseTwinIds,
+          );
+          const matchKey = this.taskMatchKey(task.name, phaseId, parentKey);
           const existingMatch = existingTaskByKey.get(matchKey);
 
           if (existingMatch) {
@@ -842,7 +1268,12 @@ export class MppImportMapper {
         );
       }
 
-      for (const task of importableTasks) {
+      // Replace predecessors from the file: upsert file links, then remove stale
+      // deps whose successor was part of this import (keeps PMO aligned with MPP).
+      const desiredDepKeys = new Set<string>();
+      const importedTaskIds = new Set(uidToTaskId.values());
+      const linkRows = [...importableTasks, ...phaseSummaries];
+      for (const task of linkRows) {
         const successorId = uidToTaskId.get(task.uid);
         if (!successorId) {
           continue;
@@ -859,6 +1290,7 @@ export class MppImportMapper {
 
           const depType = predecessor.type || 'FS';
           const lagDays = predecessor.lagDays ?? 0;
+          desiredDepKeys.add(`${predecessorId}|${successorId}`);
           const existingDep = await tx.taskDependency.findUnique({
             where: {
               predecessorId_successorId: { predecessorId, successorId },
@@ -886,6 +1318,27 @@ export class MppImportMapper {
         }
       }
 
+      if (importedTaskIds.size > 0) {
+        const staleDeps = await tx.taskDependency.findMany({
+          where: {
+            successorId: { in: [...importedTaskIds] },
+          },
+          select: { id: true, predecessorId: true, successorId: true },
+        });
+        let dependenciesRemoved = 0;
+        for (const dep of staleDeps) {
+          const key = `${dep.predecessorId}|${dep.successorId}`;
+          if (desiredDepKeys.has(key)) continue;
+          await tx.taskDependency.delete({ where: { id: dep.id } });
+          dependenciesRemoved += 1;
+        }
+        if (dependenciesRemoved > 0) {
+          warnings.push(
+            `Removed ${dependenciesRemoved} predecessor link(s) not present in the import file.`,
+          );
+        }
+      }
+
       const assignmentApply = await this.applyResourceAssignments(
         tx,
         parsed,
@@ -900,6 +1353,8 @@ export class MppImportMapper {
       };
       assignmentsApplied = assignmentApply.assignmentsApplied;
       assignmentsSkipped = assignmentApply.assignmentsSkipped;
+
+      await renumberProjectPlanRows(tx, projectId);
       },
       {
         // Large MSPDI/MPP files (1000+ tasks) exceed Prisma's default 5s interactive timeout.
@@ -950,6 +1405,7 @@ export class MppImportMapper {
   /**
    * MS Project often has: [optional outline 0] → plan name (L1) → Phase 1/2/3 (L2).
    * That L1 row is the project, not a Cybsec phase.
+   * Detect with ≥1 phase child (single-phase plans included).
    */
   private getScheduleWrapperSummary(
     byUid: Map<number, ParsedMppTask>,
@@ -976,10 +1432,27 @@ export class MppImportMapper {
       (task) =>
         task.summary &&
         Boolean(task.name?.trim()) &&
-        task.outlineLevel === 2,
+        task.outlineLevel === 2 &&
+        (task.parentUid === wrapper.uid ||
+          this.isDescendantOf(task, wrapper.uid, byUid)),
     );
-    const phaseRows = direct.length >= 2 ? direct : atNextLevel;
-    return phaseRows.length >= 2 ? wrapper : undefined;
+    const phaseRows = direct.length > 0 ? direct : atNextLevel;
+    return phaseRows.length >= 1 ? wrapper : undefined;
+  }
+
+  private isDescendantOf(
+    task: ParsedMppTask,
+    ancestorUid: number,
+    byUid: Map<number, ParsedMppTask>,
+  ): boolean {
+    let uid = task.parentUid;
+    const visited = new Set<number>();
+    while (uid != null && !visited.has(uid)) {
+      if (uid === ancestorUid) return true;
+      visited.add(uid);
+      uid = byUid.get(uid)?.parentUid;
+    }
+    return false;
   }
 
   private isScheduleWrapperSummary(
@@ -1051,27 +1524,15 @@ export class MppImportMapper {
   }
 
   /**
-   * MS Project milestones: explicit Milestone flag, or zero-duration leaf rows
-   * (diamond on Gantt). Named "Milestone" with duration > 0 stays a task.
+   * MS Project milestones: only the explicit Milestone flag on a leaf row.
+   * Do not infer from missing/zero duration — that over-tags normal tasks
+   * on export→re-import when durationDays is weak/null.
    */
   private isMppMilestone(task: ParsedMppTask): boolean {
     if (!task.name?.trim() || task.summary || task.outlineLevel === 0) {
       return false;
     }
-    if (task.milestone) {
-      return true;
-    }
-    if (
-      task.durationDays != null &&
-      Number.isFinite(task.durationDays) &&
-      task.durationDays > 0
-    ) {
-      return false;
-    }
-    if (task.startDate && task.finishDate) {
-      return true;
-    }
-    return task.durationDays == null;
+    return Boolean(task.milestone);
   }
 
   private getMppMilestoneTasks(allTasks: ParsedMppTask[]): ParsedMppTask[] {
@@ -1207,6 +1668,23 @@ export class MppImportMapper {
       },
     });
 
+    const twin = await tx.task.create({
+      data: {
+        project: { connect: { id: project.id } },
+        phase: { connect: { id: phase.id } },
+        title: DEFAULT_PHASE_NAME,
+        startDate,
+        endDate,
+        priority: PriorityLevel.Medium,
+        status: TaskStatus.To_Do,
+        progressApproved: 0,
+      },
+    });
+    await tx.projectPhase.update({
+      where: { id: phase.id },
+      data: { taskId: twin.id },
+    });
+
     warnings.push(
       `Created default phase "${DEFAULT_PHASE_NAME}" for tasks without a summary group.`,
     );
@@ -1319,8 +1797,27 @@ export class MppImportMapper {
     return { created, updated, warnings };
   }
 
-  private taskMatchKey(title: string, phaseId: string): string {
-    return `${phaseId}|${title.trim().toLowerCase()}`;
+  /**
+   * Match key for re-import. Parent is included so same titles under different
+   * summaries (Admin Console vs Policy Manager) do not collide.
+   * Phase schedule twins count as "no parent" (top-level under the phase).
+   */
+  private taskMatchKey(
+    title: string,
+    phaseId: string,
+    parentTaskId?: string | null,
+  ): string {
+    const parent = parentTaskId?.trim() || '';
+    return `${phaseId}|${parent}|${title.trim().toLowerCase()}`;
+  }
+
+  private normalizeMatchParentId(
+    parentTaskId: string | null | undefined,
+    phaseTwinIds: Set<string>,
+  ): string | null {
+    if (!parentTaskId) return null;
+    if (phaseTwinIds.has(parentTaskId)) return null;
+    return parentTaskId;
   }
 
   private taskScheduleFields(task: ParsedMppTask, timeZone?: string): {
@@ -1337,6 +1834,11 @@ export class MppImportMapper {
     effortHours: number | undefined;
     progressApproved: number;
     status: TaskStatus;
+    priority: PriorityLevel;
+    mspTaskMode: string | undefined;
+    mspConstraintType: string | undefined;
+    mspConstraintDate: Date | undefined;
+    mspCustomFields: Record<string, string> | undefined;
   } {
     const progress = Math.max(0, Math.min(100, task.percentComplete ?? 0));
     const status =
@@ -1364,9 +1866,13 @@ export class MppImportMapper {
         ? Math.max(1, Math.round(durationDays * 8))
         : undefined;
 
+    // MSP Notes only → Task.description. Do not invent WBS/other text as Notes.
+    const notes = task.notes?.trim();
+    const description = notes ? notes.slice(0, 8000) : undefined;
+
     return {
       title: task.name.slice(0, 255),
-      description: task.wbs ? `WBS: ${task.wbs}` : undefined,
+      description,
       startDate,
       endDate,
       // Only store true MSP baselines; do not copy current dates as baseline.
@@ -1379,11 +1885,117 @@ export class MppImportMapper {
       effortHours: effortFromWork ?? effortFromDuration,
       progressApproved: progress,
       status,
+      priority: this.mapMspPriorityToLevel(task.priority),
+      mspTaskMode: this.normalizeTaskMode(task.taskMode),
+      mspConstraintType: this.normalizeConstraintType(task.constraintType),
+      mspConstraintDate: this.constraintDateForType(
+        task.constraintType,
+        this.parseDate(task.constraintDate, timeZone),
+      ),
+      mspCustomFields: this.toMspCustomFieldsMap(task.customFields),
     };
   }
 
+  private normalizeTaskMode(value?: string | null): string {
+    if (value && value.trim().toLowerCase() === 'auto') return 'Auto';
+    return 'Manual';
+  }
+
+  private normalizeConstraintType(value?: string | null): string {
+    const code = (value || 'ASAP').trim().toUpperCase();
+    switch (code) {
+      case 'ASAP':
+      case 'ALAP':
+      case 'SNET':
+      case 'FNET':
+      case 'SNLT':
+      case 'FNLT':
+      case 'MSO':
+      case 'MFO':
+        return code;
+      case 'AS_SOON_AS_POSSIBLE':
+        return 'ASAP';
+      case 'AS_LATE_AS_POSSIBLE':
+        return 'ALAP';
+      case 'MUST_START_ON':
+        return 'MSO';
+      case 'MUST_FINISH_ON':
+        return 'MFO';
+      case 'START_NO_EARLIER_THAN':
+        return 'SNET';
+      case 'START_NO_LATER_THAN':
+        return 'SNLT';
+      case 'FINISH_NO_EARLIER_THAN':
+        return 'FNET';
+      case 'FINISH_NO_LATER_THAN':
+        return 'FNLT';
+      default:
+        return 'ASAP';
+    }
+  }
+
+  private constraintDateForType(
+    type?: string | null,
+    date?: Date,
+  ): Date | undefined {
+    const code = this.normalizeConstraintType(type);
+    if (code === 'ASAP' || code === 'ALAP') return undefined;
+    return date;
+  }
+
+  /**
+   * Inverse of export mapPriority (Critical=1000, High=700, Medium=500, Low=300).
+   * Midpoints keep re-import stable after export.
+   */
+  private mapMspPriorityToLevel(value?: number | null): PriorityLevel {
+    if (value == null || !Number.isFinite(Number(value))) {
+      return PriorityLevel.Medium;
+    }
+    const n = Math.max(0, Math.min(1000, Math.round(Number(value))));
+    if (n >= 850) return PriorityLevel.Critical;
+    if (n >= 600) return PriorityLevel.High;
+    if (n >= 400) return PriorityLevel.Medium;
+    return PriorityLevel.Low;
+  }
+
+  /** Non-empty custom field values → JSON map keyed by Text1 / Flag2 / …. */
+  private toMspCustomFieldsMap(
+    values?: { fieldName?: string; value?: string }[] | null,
+  ): Record<string, string> | undefined {
+    if (!Array.isArray(values) || values.length === 0) return undefined;
+    const map: Record<string, string> = {};
+    for (const entry of values) {
+      const key = entry?.fieldName?.trim();
+      const value = entry?.value?.trim();
+      if (!key || !value) continue;
+      map[key] = value.slice(0, 4000);
+    }
+    return Object.keys(map).length > 0 ? map : undefined;
+  }
+
+  private normalizeCustomFieldDefs(
+    defs?: ParsedMppProject['customFieldDefs'],
+  ): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+    if (!Array.isArray(defs) || defs.length === 0) {
+      return Prisma.JsonNull;
+    }
+    const cleaned = defs
+      .filter((d) => d?.fieldName?.trim())
+      .map((d) => ({
+        fieldName: d.fieldName.trim(),
+        index: d.index ?? undefined,
+        type: d.type?.trim() || undefined,
+        alias: d.alias?.trim() || undefined,
+        fieldId: d.fieldId?.trim() || undefined,
+      }));
+    return cleaned.length > 0
+      ? (cleaned as unknown as Prisma.InputJsonValue)
+      : Prisma.JsonNull;
+  }
+
   private normalizeDurationDays(value?: number | null): number | undefined {
-    if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) {
+    // 0 is valid (MSP milestones / summary baseline duration); only reject null/NaN/negative.
+    if (value == null || !Number.isFinite(Number(value)) || Number(value) < 0) {
       return undefined;
     }
     return Math.round(Number(value) * 10) / 10;
@@ -1479,7 +2091,9 @@ export class MppImportMapper {
       data.durationVarianceDays = durationVarianceDays;
     }
 
-    if (Object.keys(data).length === 0) return;
+    data.mspCustomFieldDefs = this.normalizeCustomFieldDefs(
+      parsed.customFieldDefs,
+    );
 
     await tx.project.update({
       where: { id: projectId },
@@ -1550,6 +2164,14 @@ export class MppImportMapper {
       effortHours: fields.effortHours ?? null,
       progressApproved: fields.progressApproved,
       status: fields.status,
+      priority: fields.priority,
+      mspTaskMode: fields.mspTaskMode ?? null,
+      mspConstraintType: fields.mspConstraintType ?? null,
+      mspConstraintDate: fields.mspConstraintDate ?? null,
+      mspCustomFields:
+        fields.mspCustomFields != null
+          ? (fields.mspCustomFields as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
       ...(createdAt ? { createdAt } : {}),
     };
   }
@@ -1590,6 +2212,10 @@ export class MppImportMapper {
       actualEnd: fields.actualEnd ?? null,
       progressApproved,
       status,
+      priority: fields.priority,
+      mspTaskMode: fields.mspTaskMode ?? null,
+      mspConstraintType: fields.mspConstraintType ?? null,
+      mspConstraintDate: fields.mspConstraintDate ?? null,
     };
 
     // Only write duration/effort when MPP provided values — do not null them out.
@@ -1602,6 +2228,11 @@ export class MppImportMapper {
     if (fields.effortHours != null) {
       data.effortHours = fields.effortHours;
     }
+    // Replace custom fields from this MPP (empty → clear).
+    data.mspCustomFields =
+      fields.mspCustomFields != null
+        ? (fields.mspCustomFields as unknown as Prisma.InputJsonValue)
+        : Prisma.JsonNull;
 
     return data;
   }

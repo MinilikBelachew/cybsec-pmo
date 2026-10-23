@@ -1,5 +1,8 @@
 package com.cybsec.mpxj.dto;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class MspdiExportTaskDto {
   /** Stable id from Nest (UUID) used to resolve dependency endpoints. */
   private String id;
@@ -20,6 +23,12 @@ public class MspdiExportTaskDto {
   private Integer percentComplete;
   private Integer priority;
   private String notes;
+  /** Manual or Auto. */
+  private String taskMode;
+  /** ASAP, ALAP, SNET, FNET, SNLT, FNLT, MSO, MFO. */
+  private String constraintType;
+  private String constraintDate;
+  private List<ParsedCustomFieldValueDto> customFields = new ArrayList<>();
 
   public String getId() {
     return id;
@@ -163,5 +172,37 @@ public class MspdiExportTaskDto {
 
   public void setNotes(String notes) {
     this.notes = notes;
+  }
+
+  public String getTaskMode() {
+    return taskMode;
+  }
+
+  public void setTaskMode(String taskMode) {
+    this.taskMode = taskMode;
+  }
+
+  public String getConstraintType() {
+    return constraintType;
+  }
+
+  public void setConstraintType(String constraintType) {
+    this.constraintType = constraintType;
+  }
+
+  public String getConstraintDate() {
+    return constraintDate;
+  }
+
+  public void setConstraintDate(String constraintDate) {
+    this.constraintDate = constraintDate;
+  }
+
+  public List<ParsedCustomFieldValueDto> getCustomFields() {
+    return customFields;
+  }
+
+  public void setCustomFields(List<ParsedCustomFieldValueDto> customFields) {
+    this.customFields = customFields;
   }
 }

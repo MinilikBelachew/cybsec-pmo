@@ -11,6 +11,7 @@ public class MspdiExportRequest {
   private List<MspdiExportHolidayDto> holidays = new ArrayList<>();
   private List<MspdiExportResourceDto> resources = new ArrayList<>();
   private List<MspdiExportAssignmentDto> assignments = new ArrayList<>();
+  private List<ParsedCustomFieldDefDto> customFieldDefs = new ArrayList<>();
 
   public MspdiExportProjectPropertiesDto getProject() {
     return project;
@@ -18,6 +19,14 @@ public class MspdiExportRequest {
 
   public void setProject(MspdiExportProjectPropertiesDto project) {
     this.project = project;
+  }
+
+  public List<ParsedCustomFieldDefDto> getCustomFieldDefs() {
+    return customFieldDefs;
+  }
+
+  public void setCustomFieldDefs(List<ParsedCustomFieldDefDto> customFieldDefs) {
+    this.customFieldDefs = customFieldDefs;
   }
 
   public List<MspdiExportTaskDto> getTasks() {

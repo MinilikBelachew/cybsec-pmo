@@ -42,7 +42,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import { ChevronDown, ChevronLeft, Plus, Star, List, LayoutGrid, Calendar as CalendarIcon, ChartGantt, Table2, Search, ArrowLeft, Flag, ChevronRight, CheckCircle2, Clock, Upload, Download, FileUp, Maximize2, Minimize2, ScrollText, Users2, FolderOpen, Milestone, CheckSquare, MessageSquareText } from "lucide-react";
+import { ChevronDown, ChevronLeft, Plus, Star, List, LayoutGrid, Calendar as CalendarIcon, ChartGantt, Table2, Sheet, Search, ArrowLeft, Flag, ChevronRight, CheckCircle2, Clock, Upload, Download, FileUp, Maximize2, Minimize2, ScrollText, Users2, FolderOpen, Milestone, CheckSquare, MessageSquareText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -52,6 +52,7 @@ import { ListView } from "./workspace-views/list-view";
 import { BoardView, type BoardQuickCreatePayload } from "./workspace-views/board-view";
 import { CalendarView } from "./workspace-views/calendar-view";
 import { GanttView } from "./workspace-views/gantt-view";
+import { ScheduleView } from "./workspace-views/schedule-view";
 import { TableView } from "./workspace-views/table-view";
 import { PhaseView, type PhaseViewRef } from "./workspace-views/phase-view";
 import { MilestoneView, type MilestoneViewRef } from "./workspace-views/milestone-view";
@@ -89,6 +90,7 @@ type View =
   | "board"
   | "calendar"
   | "gantt"
+  | "schedule"
   | "table"
   | "phases"
   | "milestones"
@@ -143,6 +145,7 @@ const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "board", label: "Kanban board", icon: LayoutGrid },
   { id: "calendar", label: "Calendar", icon: CalendarIcon },
   { id: "gantt", label: "Gantt", icon: ChartGantt },
+  { id: "schedule", label: "Schedule", icon: Sheet },
   { id: "table", label: "Table", icon: Table2 },
   { id: "phases", label: "Phases", icon: Flag },
   { id: "milestones", label: "Milestones", icon: Milestone },
@@ -297,12 +300,16 @@ export function ProjectWorkspace() {
 
   const taskQueryParams = useMemo((): GetTasksParams => {
     const wbsFetch =
-      project?.methodology === "Waterfall" && activeView === "table";
+      activeView === "table" ||
+      activeView === "schedule" ||
+      activeView === "gantt" ||
+      activeView === "list";
     const params: GetTasksParams = {
       projectId: id,
       page: wbsFetch ? 1 : tasksPage,
       limit: wbsFetch ? TASKS_WBS_FETCH_LIMIT : TASKS_PAGE_SIZE,
       includeScheduleMilestones: true,
+      ...(wbsFetch ? { topLevelOnly: false } : {}),
     };
     const trimmedSearch = debouncedSearch.trim();
     if (trimmedSearch) {
@@ -1090,7 +1097,7 @@ export function ProjectWorkspace() {
     <div
       ref={containerRef}
       className={cn(
-        "flex flex-col overflow-y-auto text-foreground transition-colors duration-300",
+        "flex min-w-0 flex-col overflow-x-hidden overflow-y-auto text-foreground transition-colors duration-300",
         "h-[calc(100vh-6rem)] -m-6 bg-transparent"
       )}
     >
@@ -1382,7 +1389,7 @@ export function ProjectWorkspace() {
         </div>
       </div>
       )}
-      <div className="flex flex-1 min-h-[28rem] flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden">
         {activeView === "list" && (
           <div className="flex-1 min-h-0 overflow-hidden">
           <ListView
@@ -1410,7 +1417,7 @@ export function ProjectWorkspace() {
             onMoveTask={handleMoveTask}
             phases={phases}
             milestones={milestones}
-            groupByPhaseDefault={getMethodologyDefaultGroupByPhase(methodology)}
+            groupByPhaseDefault={phases.length > 0 ? true : getMethodologyDefaultGroupByPhase(methodology)}
             assignees={assignees}
             onAssignTask={canAssignTask ? handleAssignTask : undefined}
             onUpdateTaskDates={canManageTasks ? handleUpdateTaskDates : undefined}
@@ -1460,8 +1467,16 @@ export function ProjectWorkspace() {
 
         {(activeView === "table" ||
           activeView === "gantt" ||
+          activeView === "schedule" ||
           activeView === "calendar") && (
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div
+            className={cn(
+              "flex-1 min-h-0",
+              activeView === "schedule"
+                ? "flex min-w-0 w-full max-w-full flex-col overflow-hidden"
+                : "overflow-hidden",
+            )}
+          >
             {activeView === "calendar" && (
               <CalendarView
                 tasks={tasks}
@@ -1486,6 +1501,21 @@ export function ProjectWorkspace() {
                 milestones={milestones}
                 onTaskClick={openTaskDetail}
               />
+            )}
+
+            {activeView === "schedule" && (
+              <div className="flex h-full min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden">
+                <ScheduleView
+                  tasks={tasksResponse?.data ?? []}
+                  dependencies={taskDependencies}
+                  projectId={id}
+                  phases={phases}
+                  milestones={milestones}
+                  customFieldDefs={project.mspCustomFieldDefs}
+                  canEdit={canCreateTask}
+                  onTaskClick={openTaskDetail}
+                />
+              </div>
             )}
 
             {activeView === "table" && (
@@ -1517,7 +1547,7 @@ export function ProjectWorkspace() {
                 onBulkPriority={canManageTasks ? handleBulkPriority : undefined}
                 onBulkDelete={canManageTasks ? handleBulkDeleteTasks : undefined}
                 dependencies={taskDependencies}
-                wbsTree={getMethodologyTableWbsTree(methodology)}
+                wbsTree={phases.length > 0 ? true : getMethodologyTableWbsTree(methodology)}
               />
             )}
           </div>
@@ -1526,7 +1556,7 @@ export function ProjectWorkspace() {
         {(activeView === "table" ||
           activeView === "gantt" ||
           activeView === "calendar") &&
-          !(activeView === "table" && getMethodologyTableWbsTree(methodology)) &&
+          !(activeView === "table" && (phases.length > 0 || getMethodologyTableWbsTree(methodology))) &&
           tasksTotal > 0 && (
             <div className="flex items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-4 py-2 shrink-0">
               <span className="text-xs text-muted-foreground">

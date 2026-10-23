@@ -11,6 +11,7 @@ import {
   IsUUID,
   Max,
   IsBoolean,
+  IsObject,
   MaxLength,
   Min,
   Validate,
@@ -117,7 +118,7 @@ export class CreateTaskDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
+  @Min(0)
   durationDays?: number;
 
   @ApiPropertyOptional({ example: '2026-06-01' })
@@ -151,7 +152,7 @@ export class CreateTaskDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
+  @Min(0)
   baselineDurationDays?: number;
 
   @ApiPropertyOptional({
@@ -178,4 +179,24 @@ export class CreateTaskDto {
   @IsOptional()
   @IsBoolean()
   isPhaseGate?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'MSP local custom field values keyed by slot name (Text1, Flag2, …). Replaces the full map on update.',
+    example: { Text1: 'Waiting on sign-off', Text2: 'Client' },
+  })
+  @IsOptional()
+  @IsObject()
+  mspCustomFields?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    example: 12,
+    description:
+      '1-based MSP plan row / outline ID used for Schedule order and predecessor tokens.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  planRowId?: number;
 }

@@ -131,6 +131,7 @@ const TASK_INCLUDE = {
     orderBy: { createdAt: 'desc' as const },
   },
   scheduleMilestone: { select: { id: true } },
+  schedulePhase: { select: { id: true } },
 } as const;
 
 /** Nested tree rows (any depth). Used after list/detail so MPP outlines are not capped at 3 levels. */
@@ -151,8 +152,16 @@ const SUBTASK_TREE_SELECT = {
   baselineDurationDays: true,
   effortHours: true,
   progressApproved: true,
+  planRowId: true,
+  phaseId: true,
+  phase: { select: { id: true, name: true, orderIndex: true } },
+  mspCustomFields: true,
+  mspTaskMode: true,
+  mspConstraintType: true,
+  mspConstraintDate: true,
   owner: { select: { id: true, displayName: true, email: true } },
   scheduleMilestone: { select: { id: true } },
+  schedulePhase: { select: { id: true } },
 } as const;
 
 type SubTaskTreeRow = {
@@ -161,6 +170,8 @@ type SubTaskTreeRow = {
   status: string;
   priority?: string;
   parentTaskId: string | null;
+  phaseId?: string | null;
+  phase?: { id: string; name: string; orderIndex?: number | null } | null;
   startDate?: Date | string | null;
   endDate?: Date | string | null;
   createdAt?: Date | string;
@@ -174,7 +185,10 @@ type SubTaskTreeRow = {
   progressApproved?: number;
   owner?: { id: string; displayName: string; email: string } | null;
   scheduleMilestone?: { id: string } | null;
+  schedulePhase?: { id: string } | null;
   isScheduleMilestone?: boolean;
+  isPhaseScheduleTask?: boolean;
+  planRowId?: number | null;
   subTasks?: SubTaskTreeRow[];
 };
 
@@ -264,26 +278,34 @@ export class TasksService {
     if (!projectId) {
       return [];
     }
-    const milestones = await this.prisma.projectMilestone.findMany({
-      where: { projectId },
-      select: { taskId: true, title: true, phaseId: true },
-    });
-    if (milestones.length === 0) {
-      return [];
-    }
-    const linkedIds = milestones
-      .map((row) => row.taskId)
-      .filter((id): id is string => Boolean(id));
-    const matched = await this.prisma.task.findMany({
-      where: {
-        projectId,
-        OR: milestones.map((row) => ({
-          title: { equals: row.title, mode: 'insensitive' as const },
-          phaseId: row.phaseId,
-        })),
-      },
-      select: { id: true },
-    });
+    const [milestones, phases] = await Promise.all([
+      this.prisma.projectMilestone.findMany({
+        where: { projectId },
+        select: { taskId: true, title: true, phaseId: true },
+      }),
+      this.prisma.projectPhase.findMany({
+        where: { projectId },
+        select: { taskId: true },
+      }),
+    ]);
+    const linkedIds = [
+      ...milestones.map((row) => row.taskId),
+      ...phases.map((row) => row.taskId),
+    ].filter((id): id is string => Boolean(id));
+
+    const matched =
+      milestones.length === 0
+        ? []
+        : await this.prisma.task.findMany({
+            where: {
+              projectId,
+              OR: milestones.map((row) => ({
+                title: { equals: row.title, mode: 'insensitive' as const },
+                phaseId: row.phaseId,
+              })),
+            },
+            select: { id: true },
+          });
     return [...new Set([...linkedIds, ...matched.map((row) => row.id)])];
   }
 
@@ -326,7 +348,8 @@ export class TasksService {
       if (
         !row.parentTaskId ||
         hidden.has(row.id) ||
-        Boolean(row.scheduleMilestone)
+        Boolean(row.scheduleMilestone) ||
+        Boolean(row.schedulePhase)
       ) {
         continue;
       }
@@ -353,6 +376,7 @@ export class TasksService {
             ? Number(row.baselineDurationDays)
             : null,
         isScheduleMilestone: Boolean(row.scheduleMilestone),
+        isPhaseScheduleTask: Boolean(row.schedulePhase),
         subTasks: children.map((child) => mapRow(child, visited)),
       };
     };
@@ -369,10 +393,17 @@ export class TasksService {
     task: Awaited<ReturnType<typeof this.prisma.task.findUnique>> & object,
     roleCode?: string | null,
   ) {
-    const { comments, workspaceDocuments, scheduleMilestone, ...rest } = task as any;
+    const {
+      comments,
+      workspaceDocuments,
+      scheduleMilestone,
+      schedulePhase,
+      ...rest
+    } = task as any;
     return {
       ...rest,
       isScheduleMilestone: Boolean(scheduleMilestone),
+      isPhaseScheduleTask: Boolean(schedulePhase),
       durationDays:
         rest.durationDays != null && Number.isFinite(Number(rest.durationDays))
           ? Number(rest.durationDays)
@@ -1622,6 +1653,7 @@ export class TasksService {
     }
     if (!query.includeScheduleMilestones) {
       filters.push({ scheduleMilestone: { is: null } });
+      filters.push({ schedulePhase: { is: null } });
     }
     if (query.search) {
       filters.push({
@@ -1926,6 +1958,12 @@ export class TasksService {
             : undefined,
         status: dto.status ? this.mapStatusToPrisma(dto.status) : undefined,
           isPhaseGate: false,
+          mspCustomFields:
+            dto.mspCustomFields !== undefined
+              ? (dto.mspCustomFields as Prisma.InputJsonValue)
+              : undefined,
+          planRowId:
+            dto.planRowId !== undefined ? dto.planRowId : undefined,
         },
       });
 

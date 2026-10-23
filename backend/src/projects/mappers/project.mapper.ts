@@ -159,6 +159,11 @@ export function toApiProject(
       project.durationVarianceDays != null
         ? Number(project.durationVarianceDays)
         : null,
+    mspCustomFieldDefs: Array.isArray(
+      (project as { mspCustomFieldDefs?: unknown }).mspCustomFieldDefs,
+    )
+      ? (project as { mspCustomFieldDefs: unknown[] }).mspCustomFieldDefs
+      : null,
     actualStartDate: project.actualStartDate
       ? project.actualStartDate.toISOString().slice(0, 10)
       : null,

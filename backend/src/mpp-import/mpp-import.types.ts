@@ -4,6 +4,20 @@ export type ParsedMppPredecessor = {
   lagDays: number;
 };
 
+/** MSP local custom field catalog entry (Text1 + alias, etc.). */
+export type ParsedMppCustomFieldDef = {
+  fieldName: string;
+  index?: number;
+  type?: string;
+  alias?: string;
+  fieldId?: string;
+};
+
+export type ParsedMppCustomFieldValue = {
+  fieldName: string;
+  value: string;
+};
+
 export type ParsedMppTask = {
   uid: number;
   id?: number;
@@ -26,6 +40,17 @@ export type ParsedMppTask = {
   percentComplete?: number;
   /** MS Project Cost. Used only when this row is the project/L1 summary. */
   cost?: number;
+  /** MS Project Notes → Cybsec description. */
+  notes?: string;
+  /** MSP Priority 0–1000 (500 = Medium). */
+  priority?: number;
+  /** Manual | Auto */
+  taskMode?: string;
+  /** ASAP | ALAP | SNET | FNET | SNLT | FNLT | MSO | MFO */
+  constraintType?: string;
+  constraintDate?: string;
+  /** Non-empty MSP local custom field values. */
+  customFields?: ParsedMppCustomFieldValue[];
   predecessors: ParsedMppPredecessor[];
 };
 
@@ -60,6 +85,8 @@ export type ParsedMppProject = {
   tasks: ParsedMppTask[];
   resources: ParsedMppResource[];
   assignments: ParsedMppAssignment[];
+  /** Project custom field catalog (aliased slots ∪ slots with values). */
+  customFieldDefs?: ParsedMppCustomFieldDef[];
   warnings: string[];
 };
 
@@ -93,6 +120,9 @@ export type MppImportPreviewMilestone = {
   phaseName?: string;
   percentComplete?: number;
   status: string;
+  importMode: 'create' | 'update';
+  /** Short labels of fields that will change on update (dates, status, …). */
+  updateDetails?: string[];
 };
 
 export type MppImportPreviewTask = {
@@ -111,6 +141,24 @@ export type MppImportPreviewTask = {
   phaseName?: string;
   hasParent: boolean;
   predecessorCount: number;
+  importMode: 'create' | 'update';
+  priority?: string;
+  /** MSP resource names assigned to this row. */
+  assigneeNames?: string[];
+  /** Notes / description preview from MSP Notes. */
+  notesPreview?: string;
+  /** Short labels of fields that will change on update. */
+  updateDetails?: string[];
+};
+
+export type MppImportPreviewPhase = {
+  name: string;
+  startDate?: string;
+  finishDate?: string;
+  durationDays?: number;
+  percentComplete?: number;
+  importMode: 'create' | 'update';
+  updateDetails?: string[];
 };
 
 export type MppImportPreviewProject = {
@@ -130,6 +178,7 @@ export type MppImportPreviewProject = {
   dependencyCount: number;
   importMode: 'create' | 'update';
   resolvedProjectId?: string;
+  phases?: MppImportPreviewPhase[];
   tasks: MppImportPreviewTask[];
   milestones: MppImportPreviewMilestone[];
 };
@@ -155,6 +204,7 @@ export type MppImportPreview = {
     projects?: number;
   };
   projects?: MppImportPreviewProject[];
+  phases?: MppImportPreviewPhase[];
   tasks: MppImportPreviewTask[];
   milestones: MppImportPreviewMilestone[];
   warnings: string[];

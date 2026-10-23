@@ -20,7 +20,11 @@ import type {
   Department,
   ProjectManager,
 } from "../../types/projects.types";
-import type { MppImportPreviewMilestone, MppImportPreviewTask } from "../../types/mpp-import.types";
+import type {
+  MppImportPreviewMilestone,
+  MppImportPreviewPhase,
+  MppImportPreviewTask,
+} from "../../types/mpp-import.types";
 import {
   BILLING_OPTIONS,
   CURRENCY_OPTIONS,
@@ -49,11 +53,36 @@ export type MppEditableProject = {
   phaseCount: number;
   milestoneCount: number;
   dependencyCount: number;
+  phases?: MppImportPreviewPhase[];
   tasks: MppImportPreviewTask[];
   milestones: MppImportPreviewMilestone[];
   errors: string[];
   warnings: string[];
 };
+
+function ImportModeBadge({ mode }: { mode?: "create" | "update" }) {
+  if (mode === "update") {
+    return (
+      <span className="shrink-0 rounded-full border border-amber-500/25 bg-amber-500/15 px-1.5 py-0.5 text-[8px] font-bold text-amber-600 dark:text-amber-400">
+        UPDATE
+      </span>
+    );
+  }
+  return (
+    <span className="shrink-0 rounded-full border border-emerald-500/25 bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold text-emerald-600 dark:text-emerald-400">
+      NEW
+    </span>
+  );
+}
+
+function UpdateDetailsLine({ details }: { details?: string[] }) {
+  if (!details?.length) return null;
+  return (
+    <p className="mt-0.5 text-[10px] leading-snug text-amber-700/90 dark:text-amber-400/90">
+      {details.join(" · ")}
+    </p>
+  );
+}
 
 type Props = {
   projects: MppEditableProject[];
@@ -122,18 +151,40 @@ function workTasksOnly(
   return tasks.filter((t) => !msUids.has(t.uid));
 }
 
-function groupTasksByPhase(tasks: MppImportPreviewTask[]) {
+/** Include milestone-only phases so the Phases tab matches `phaseCount`. */
+function groupPhasesForPreview(
+  tasks: MppImportPreviewTask[],
+  milestones: MppImportPreviewMilestone[],
+) {
   const order: string[] = [];
-  const map = new Map<string, MppImportPreviewTask[]>();
-  for (const task of tasks) {
-    const phase = task.phaseName?.trim() || "No Phase";
+  const map = new Map<
+    string,
+    { tasks: MppImportPreviewTask[]; milestoneCount: number }
+  >();
+
+  const ensure = (phase: string) => {
     if (!map.has(phase)) {
       order.push(phase);
-      map.set(phase, []);
+      map.set(phase, { tasks: [], milestoneCount: 0 });
     }
-    map.get(phase)!.push(task);
+    return map.get(phase)!;
+  };
+
+  for (const task of tasks) {
+    ensure(task.phaseName?.trim() || "No Phase").tasks.push(task);
   }
-  return order.map((phase) => ({ phase, tasks: map.get(phase)! }));
+  for (const ms of milestones) {
+    ensure(ms.phaseName?.trim() || "No Phase").milestoneCount += 1;
+  }
+
+  return order.map((phase) => {
+    const row = map.get(phase)!;
+    return {
+      phase,
+      tasks: row.tasks,
+      milestoneCount: row.milestoneCount,
+    };
+  });
 }
 
 export function MppImportPreviewPanel({
@@ -407,8 +458,77 @@ export function MppImportPreviewPanel({
               proj.taskCount,
               proj.milestoneCount,
             );
-            const phaseGroups = groupTasksByPhase(
-              workTasksOnly(proj.tasks, proj.milestones),
+            const workTasks = workTasksOnly(proj.tasks, proj.milestones);
+            const phaseGroups = groupPhasesForPreview(workTasks, proj.milestones);
+            const phaseRows: Array<{
+              name: string;
+              importMode: "create" | "update";
+              updateDetails?: string[];
+              startDate?: string;
+              finishDate?: string;
+              taskLabel: string;
+            }> =
+              proj.phases && proj.phases.length > 0
+                ? proj.phases.map((p) => {
+                    const group = phaseGroups.find(
+                      (g) => g.phase === p.name,
+                    );
+                    const workCount = group?.tasks.length ?? 0;
+                    const msCount = group?.milestoneCount ?? 0;
+                    const scheduleLabel =
+                      msCount > 0 && workCount > 0
+                        ? `${workCount} · ${msCount} ms`
+                        : msCount > 0 && workCount === 0
+                          ? `${msCount} milestone${msCount === 1 ? "" : "s"}`
+                          : String(workCount);
+                    return {
+                      name: p.name,
+                      importMode: p.importMode,
+                      updateDetails: p.updateDetails,
+                      startDate: p.startDate,
+                      finishDate: p.finishDate,
+                      taskLabel: scheduleLabel,
+                    };
+                  })
+                : phaseGroups.map((group) => {
+                    const msDates = proj.milestones
+                      .filter(
+                        (m) =>
+                          (m.phaseName?.trim() || "No Phase") === group.phase,
+                      )
+                      .map((m) => m.targetDate)
+                      .filter(Boolean) as string[];
+                    const starts = [
+                      ...group.tasks.map((t) => t.startDate),
+                      ...msDates,
+                    ]
+                      .filter(Boolean)
+                      .sort() as string[];
+                    const ends = [
+                      ...group.tasks.map((t) => t.finishDate),
+                      ...msDates,
+                    ]
+                      .filter(Boolean)
+                      .sort() as string[];
+                    const workCount = group.tasks.length;
+                    const msCount = group.milestoneCount;
+                    const scheduleLabel =
+                      msCount > 0 && workCount > 0
+                        ? `${workCount} · ${msCount} ms`
+                        : msCount > 0 && workCount === 0
+                          ? `${msCount} milestone${msCount === 1 ? "" : "s"}`
+                          : String(workCount);
+                    return {
+                      name: group.phase,
+                      importMode: "create" as const,
+                      startDate: starts[0],
+                      finishDate: ends[ends.length - 1],
+                      taskLabel: scheduleLabel,
+                    };
+                  });
+            const phasesTabCount = Math.max(
+              proj.phaseCount || 0,
+              phaseRows.length,
             );
             return (
               <div
@@ -460,7 +580,7 @@ export function MppImportPreviewPanel({
                             : "border-transparent text-muted-foreground hover:text-foreground",
                         )}
                       >
-                        Phases ({phaseGroups.length})
+                        Phases ({phasesTabCount})
                       </button>
                       <button
                         type="button"
@@ -508,17 +628,18 @@ export function MppImportPreviewPanel({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60">
-                            {phaseGroups.map((group) => {
-                              const starts = group.tasks
-                                .map((t) => t.startDate)
-                                .filter(Boolean)
-                                .sort();
-                              const ends = group.tasks
-                                .map((t) => t.finishDate)
-                                .filter(Boolean)
-                                .sort();
-                              return (
-                                <tr key={group.phase} className="hover:bg-muted/5">
+                            {phaseRows.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={5}
+                                  className="p-6 text-center text-muted-foreground"
+                                >
+                                  No phases detected in this file.
+                                </td>
+                              </tr>
+                            ) : (
+                              phaseRows.map((row) => (
+                                <tr key={row.name} className="hover:bg-muted/5">
                                   <td className="p-3">
                                     <span className="flex items-center gap-1.5 font-semibold text-emerald-600">
                                       <CheckCircle className="size-3.5" />
@@ -527,22 +648,19 @@ export function MppImportPreviewPanel({
                                   </td>
                                   <td className="p-3">
                                     <div className="flex items-center gap-1.5 font-semibold">
-                                      <span className="shrink-0 rounded-full border border-emerald-500/25 bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold text-emerald-600">
-                                        NEW
-                                      </span>
-                                      <span className="truncate">{group.phase}</span>
+                                      <ImportModeBadge mode={row.importMode} />
+                                      <span className="truncate">{row.name}</span>
                                     </div>
+                                    <UpdateDetailsLine details={row.updateDetails} />
                                   </td>
                                   <td className="p-3 text-muted-foreground">
-                                    {group.tasks.length}
+                                    {row.taskLabel}
                                   </td>
-                                  <td className="p-3">{formatDate(starts[0])}</td>
-                                  <td className="p-3">
-                                    {formatDate(ends[ends.length - 1])}
-                                  </td>
+                                  <td className="p-3">{formatDate(row.startDate)}</td>
+                                  <td className="p-3">{formatDate(row.finishDate)}</td>
                                 </tr>
-                              );
-                            })}
+                              ))
+                            )}
                           </tbody>
                         </table>
                       ) : tab === "milestones" ? (
@@ -577,9 +695,11 @@ export function MppImportPreviewPanel({
                                   </td>
                                   <td className="p-3">
                                     <div className="flex items-center gap-1.5 font-semibold">
+                                      <ImportModeBadge mode={ms.importMode} />
                                       <Flag className="size-3 shrink-0 text-amber-600" />
                                       <span className="truncate">{ms.title}</span>
                                     </div>
+                                    <UpdateDetailsLine details={ms.updateDetails} />
                                   </td>
                                   <td className="p-3">{formatDate(ms.targetDate)}</td>
                                   <td className="p-3 font-medium text-primary">
@@ -603,24 +723,25 @@ export function MppImportPreviewPanel({
                           </tbody>
                         </table>
                       ) : (
-                        <table className="w-full min-w-[1100px] text-left text-xs">
+                        <table className="w-full min-w-[1200px] text-left text-xs">
                           <thead>
                             <tr className="border-b border-border bg-muted/40 text-[10px] font-bold uppercase text-muted-foreground">
                               <th className="w-36 p-3">Validation</th>
                               <th className="w-64 p-3">Title</th>
-                              <th className="w-32 p-3">Priority</th>
-                              <th className="w-36 p-3">Status</th>
-                              <th className="w-48 p-3">Phase</th>
-                              <th className="w-36 p-3">Start</th>
-                              <th className="w-36 p-3">End</th>
-                              <th className="w-28 p-3">Effort</th>
+                              <th className="w-28 p-3">Priority</th>
+                              <th className="w-32 p-3">Status</th>
+                              <th className="w-36 p-3">Assignee</th>
+                              <th className="w-40 p-3">Phase</th>
+                              <th className="w-32 p-3">Start</th>
+                              <th className="w-32 p-3">End</th>
+                              <th className="w-24 p-3">Effort</th>
                             </tr>
                           </thead>
                           <tbody>
                             {phaseGroups.map((group) => (
                               <React.Fragment key={group.phase}>
                                 <tr className="bg-primary/5">
-                                  <td colSpan={8} className="px-3 py-2">
+                                  <td colSpan={9} className="px-3 py-2">
                                     <div className="flex items-center gap-2">
                                       <Layers className="size-3.5 text-primary" />
                                       <span className="text-[11px] font-bold text-primary">
@@ -642,13 +763,20 @@ export function MppImportPreviewPanel({
                                         ? "In_Progress"
                                         : "To_Do";
                                   const status = TASK_STATUS_CONFIG[statusKey];
-                                  const priority = PRIORITY_CONFIG.Medium;
+                                  const priorityKey =
+                                    (task.priority as keyof typeof PRIORITY_CONFIG) ||
+                                    "Medium";
+                                  const priority =
+                                    PRIORITY_CONFIG[priorityKey] ??
+                                    PRIORITY_CONFIG.Medium;
                                   const effort =
                                     task.workHours != null
                                       ? `${task.workHours} hrs`
                                       : task.durationDays != null
                                         ? `${task.durationDays * 8} hrs`
                                         : "—";
+                                  const assignees =
+                                    task.assigneeNames?.filter(Boolean) ?? [];
                                   return (
                                     <tr
                                       key={`${proj.name}-${task.uid}`}
@@ -662,11 +790,15 @@ export function MppImportPreviewPanel({
                                       </td>
                                       <td className="p-3">
                                         <div className="flex items-center gap-1.5 font-bold">
-                                          <span className="shrink-0 rounded-full border border-emerald-500/25 bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold text-emerald-600">
-                                            NEW
-                                          </span>
+                                          <ImportModeBadge mode={task.importMode} />
                                           <span className="truncate">{task.name}</span>
                                         </div>
+                                        <UpdateDetailsLine details={task.updateDetails} />
+                                        {task.notesPreview && (
+                                          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                                            Notes: {task.notesPreview}
+                                          </div>
+                                        )}
                                         {task.hasParent && (
                                           <div className="text-[10px] text-muted-foreground">
                                             Nested task
@@ -681,7 +813,7 @@ export function MppImportPreviewPanel({
                                             priority.text,
                                           )}
                                         >
-                                          Medium
+                                          {priority.label ?? priorityKey}
                                         </span>
                                       </td>
                                       <td className="p-3">
@@ -699,6 +831,11 @@ export function MppImportPreviewPanel({
                                           {status.label}
                                         </span>
                                       </td>
+                                      <td className="p-3 text-muted-foreground">
+                                        {assignees.length
+                                          ? assignees.join(", ")
+                                          : "—"}
+                                      </td>
                                       <td className="p-3">
                                         <span className="font-medium text-primary underline-offset-2 hover:underline">
                                           {task.phaseName || "—"}
@@ -712,10 +849,10 @@ export function MppImportPreviewPanel({
                                 })}
                               </React.Fragment>
                             ))}
-                            {proj.tasks.length === 0 && (
+                            {workTasks.length === 0 && (
                               <tr>
                                 <td
-                                  colSpan={8}
+                                  colSpan={9}
                                   className="p-6 text-center text-muted-foreground"
                                 >
                                   No importable tasks in this project.

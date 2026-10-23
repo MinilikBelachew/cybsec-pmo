@@ -89,7 +89,7 @@ export class QueryTaskDto {
   @ApiPropertyOptional({
     default: false,
     description:
-      'When true, include MPP schedule-milestone tasks. List/board omit them by default.',
+      'When true, include MPP schedule twins (milestone + phase summary tasks). List/board omit them by default.',
   })
   @Transform(({ value }) => {
     if (value === undefined || value === null || value === '') return false;

@@ -4,7 +4,9 @@ export class MppImportResultDto {
   @ApiProperty()
   tasksCreated: number;
 
-  @ApiProperty({ description: 'Existing tasks matched by title+phase and updated' })
+  @ApiProperty({
+    description: 'Existing tasks matched by title+phase+parent and updated',
+  })
   tasksUpdated: number;
 
   @ApiProperty()

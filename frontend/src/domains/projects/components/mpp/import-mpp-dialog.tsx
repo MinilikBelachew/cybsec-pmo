@@ -164,6 +164,7 @@ function buildEditableProjects(
         phaseCount: project.phaseCount,
         milestoneCount: project.milestoneCount ?? 0,
         dependencyCount: project.dependencyCount,
+        phases: project.phases ?? [],
         tasks: project.tasks ?? [],
         milestones: project.milestones ?? [],
         errors: [],
@@ -193,6 +194,7 @@ function buildEditableProjects(
     phaseCount: data.counts.phasesFromSummaries,
     milestoneCount: data.counts.milestonesFromFile ?? 0,
     dependencyCount: data.counts.dependencies,
+    phases: data.phases ?? [],
     tasks: data.tasks ?? [],
     milestones: data.milestones ?? [],
     errors: [],
@@ -410,6 +412,7 @@ export function ImportMppDialog({
               matched?.milestoneCount ?? data.counts.milestonesFromFile ?? 0,
             dependencyCount:
               matched?.dependencyCount ?? data.counts.dependencies,
+            phases: matched?.phases ?? data.phases ?? [],
             tasks: matched?.tasks ?? data.tasks ?? [],
             milestones: matched?.milestones ?? data.milestones ?? [],
             errors: [],

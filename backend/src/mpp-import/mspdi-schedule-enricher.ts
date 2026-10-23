@@ -147,7 +147,12 @@ function pickNum(
   primary?: number | null,
   fallback?: number,
 ): number | undefined {
-  if (primary != null && Number.isFinite(Number(primary)) && Number(primary) > 0) {
+  // Keep 0 (MSP 0-day duration / baseline); reject only null/NaN/negative.
+  if (
+    primary != null &&
+    Number.isFinite(Number(primary)) &&
+    Number(primary) >= 0
+  ) {
     return Number(primary);
   }
   return fallback;
@@ -285,6 +290,6 @@ export function isoDurationToHours(iso?: string): number | undefined {
   if (!m) return undefined;
   const hours =
     Number(m[1] || 0) + Number(m[2] || 0) / 60 + Number(m[3] || 0) / 3600;
-  if (!Number.isFinite(hours) || hours <= 0) return undefined;
+  if (!Number.isFinite(hours) || hours < 0) return undefined;
   return Math.round(hours * 10) / 10;
 }

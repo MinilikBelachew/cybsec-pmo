@@ -19,7 +19,8 @@
 
   <properties>
     <java.version>21</java.version>
-    <mpxj.version>16.5.0</mpxj.version>
+    <!-- 16.10+ improves MPP calendar/time-range handling vs 16.5 (effectiveRanges NPEs). -->
+    <mpxj.version>16.10.0</mpxj.version>
   </properties>
 
   <dependencies>

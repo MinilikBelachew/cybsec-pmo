@@ -53,6 +53,8 @@ export class MppImportService {
       return await this.mapper.buildPreview(parsed, existingProjects, {
         // Workspace import into one project: keep the whole outline (L1 = phases).
         forceSingle: Boolean(projectId),
+        // Match phases/tasks/milestones against this project even if the file title differs.
+        targetProjectId: projectId,
       });
     } finally {
       await this.safeDeleteFile(filePath);

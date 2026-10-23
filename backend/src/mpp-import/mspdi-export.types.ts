@@ -20,11 +20,28 @@ export type MspdiExportTaskPayload = {
   startVarianceDays?: number;
   /** Finish − baseline finish (calendar days). */
   finishVarianceDays?: number;
+  /** Duration − baseline duration (working days). */
+  durationVarianceDays?: number;
   percentComplete?: number;
   priority?: number;
   notes?: string;
   /** Comma-separated MSP Resource Names for this row (owner, backup, unmatched). */
   resourceNames?: string;
+  /** Non-empty MSP local custom field values (Text1 → value). */
+  customFields?: { fieldName: string; value: string }[];
+  /** Manual | Auto */
+  taskMode?: string;
+  /** ASAP | ALAP | SNET | FNET | SNLT | FNLT | MSO | MFO */
+  constraintType?: string;
+  constraintDate?: string;
+};
+
+export type MspdiExportCustomFieldDef = {
+  fieldName: string;
+  index?: number;
+  type?: string;
+  alias?: string;
+  fieldId?: string;
 };
 
 export type MspdiExportDependencyPayload = {
@@ -71,6 +88,7 @@ export type MspdiExportRequestPayload = {
   holidays?: MspdiExportHolidayPayload[];
   resources?: MspdiExportResourcePayload[];
   assignments?: MspdiExportAssignmentPayload[];
+  customFieldDefs?: MspdiExportCustomFieldDef[];
 };
 
 export type MspdiExportFileResult = {

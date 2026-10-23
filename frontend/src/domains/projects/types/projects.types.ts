@@ -62,6 +62,14 @@ export interface Project {
   percentComplete?: number | null;
   /** Current duration − baseline duration (working days). */
   durationVarianceDays?: number | null;
+  /** MSP local custom field catalog (Text1 aliases, etc.). */
+  mspCustomFieldDefs?: Array<{
+    fieldName: string;
+    index?: number;
+    type?: string;
+    alias?: string;
+    fieldId?: string;
+  }> | null;
   actualStartDate?: string | null;
   actualEndDate?: string | null;
   value?: number;
@@ -176,6 +184,8 @@ export interface ProjectPhase {
   startDate: string;
   endDate: string;
   status: PhaseStatus;
+  /** Linked hidden schedule twin task (MPP phase summary). */
+  taskId?: string | null;
   createdAt: string;
   updatedAt: string;
   milestones?: ProjectMilestone[];

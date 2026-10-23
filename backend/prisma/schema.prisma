@@ -446,6 +446,8 @@ model Project {
   kekaClientId      String?        @map("keka_client_id") @db.VarChar(100)
   kekaProjectCode   String?        @map("keka_project_code") @db.VarChar(100)
   kekaSyncedAt      DateTime?      @map("keka_synced_at") @db.Timestamptz
+  /// MSP local custom field catalog (Text1 aliases, etc.) for Schedule + round-trip.
+  mspCustomFieldDefs Json?         @map("msp_custom_field_defs")
   createdBy         String         @map("created_by") @db.Uuid
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -518,12 +520,16 @@ model ProjectPhase {
   startDate   DateTime    @map("start_date") @db.Date
   endDate     DateTime    @map("end_date") @db.Date
   status      PhaseStatus @default(Planned)
+  /// Linked MPP summary row for phase→phase deps, duration, assignees. Null until twin created.
+  taskId      String?     @unique @map("task_id") @db.Uuid
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   project    Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Schedule twin (hidden from normal task lists), same pattern as ProjectMilestone.taskId.
+  task       Task?              @relation("PhaseScheduleTask", fields: [taskId], references: [id], onDelete: SetNull)
   milestones ProjectMilestone[]
-  tasks      Task[]
+  tasks      Task[]             @relation("PhaseWorkTasks")
   workspaceDocuments WorkspaceDocument[]
 
   @@index([projectId], map: "idx_phases_project")
@@ -581,6 +587,16 @@ model Task {
   isPhaseGate      Boolean       @default(false) @map("is_phase_gate")
   isOnCriticalPath Boolean       @default(false) @map("is_on_critical_path")
   backupOwnerId    String?       @map("backup_owner_id") @db.Uuid
+  /// MSP-style outline row number (1..N) for ID / Predecessors display. Renumbered on plan reorder.
+  planRowId        Int?          @map("plan_row_id")
+  /// MSP local custom field values keyed by slot name (e.g. Text1 → "Pending Action" value).
+  mspCustomFields  Json?         @map("msp_custom_fields")
+  /// MSP Task Mode: Manual | Auto (preserve for round-trip; not editable in PMO for now).
+  mspTaskMode      String?       @map("msp_task_mode") @db.VarChar(16)
+  /// MSP Constraint Type code: ASAP, ALAP, SNET, FNET, SNLT, FNLT, MSO, MFO.
+  mspConstraintType String?      @map("msp_constraint_type") @db.VarChar(16)
+  /// MSP Constraint Date (null for ASAP/ALAP → Project shows NA).
+  mspConstraintDate DateTime?    @map("msp_constraint_date") @db.Date
   /// Linked Keka PSA task id (GET/POST /psa/projects/{projectId}/tasks). Used for timesheet push.
   kekaTaskId       String?       @unique @map("keka_task_id") @db.VarChar(100)
   kekaSyncedAt     DateTime?     @map("keka_synced_at") @db.Timestamptz
@@ -590,7 +606,7 @@ model Task {
   project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   parentTask  Task?   @relation("SubTasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
   subTasks    Task[]  @relation("SubTasks")
-  phase       ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  phase       ProjectPhase? @relation("PhaseWorkTasks", fields: [phaseId], references: [id], onDelete: SetNull)
   owner       User?   @relation("TaskOwner", fields: [ownerId], references: [id])
   backupOwner User?   @relation("TaskBackupOwner", fields: [backupOwnerId], references: [id])
 
@@ -603,6 +619,8 @@ model Task {
   timesheets        Timesheet[]
   /// Present when this task is the MPP schedule row for a ProjectMilestone.
   scheduleMilestone ProjectMilestone? @relation("MilestoneScheduleTask")
+  /// Present when this task is the MPP summary row for a ProjectPhase.
+  schedulePhase     ProjectPhase?     @relation("PhaseScheduleTask")
 
   @@index([projectId], map: "idx_tasks_project")
   @@index([ownerId], map: "idx_tasks_owner")
@@ -611,6 +629,7 @@ model Task {
   @@index([phaseId], map: "idx_tasks_phase")
   @@index([phaseId, isPhaseGate], map: "idx_tasks_phase_gate")
   @@index([backupOwnerId], map: "idx_tasks_backup_owner")
+  @@index([projectId, planRowId], map: "idx_tasks_project_plan_row")
   @@map("tasks")
 }
 

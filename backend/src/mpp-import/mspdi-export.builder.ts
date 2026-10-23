@@ -1,13 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import {
   MspdiExportAssignmentPayload,
+  MspdiExportCustomFieldDef,
   MspdiExportDependencyPayload,
   MspdiExportHolidayPayload,
   MspdiExportRequestPayload,
   MspdiExportResourcePayload,
   MspdiExportTaskPayload,
 } from './mspdi-export.types';
+import {
+  filterMspdiCycleDependencies,
+  mergeCustomFieldDefsForExport,
+} from './mspdi-export.local';
 import {
   extraResourceNames,
   mergeExportResourceNames,
@@ -46,11 +51,18 @@ type TaskRow = {
   owner: PersonRow | null;
   backupOwner: PersonRow | null;
   resourceNames: string | null;
+  mspCustomFields?: unknown;
+  mspTaskMode?: string | null;
+  mspConstraintType?: string | null;
+  mspConstraintDate?: Date | null;
   isScheduleMilestone: boolean;
+  isPhaseScheduleTask?: boolean;
 };
 
 @Injectable()
 export class MspdiExportBuilder {
+  private readonly logger = new Logger(MspdiExportBuilder.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -75,6 +87,7 @@ export class MspdiExportBuilder {
         baselineDurationDays: true,
         percentComplete: true,
         durationVarianceDays: true,
+        mspCustomFieldDefs: true,
         customer: {
           select: { displayName: true, companyName: true },
         },
@@ -88,6 +101,7 @@ export class MspdiExportBuilder {
             startDate: true,
             endDate: true,
             orderIndex: true,
+            taskId: true,
           },
         },
       },
@@ -128,14 +142,20 @@ export class MspdiExportBuilder {
         ownerId: true,
         backupOwnerId: true,
         resourceNames: true,
+        mspCustomFields: true,
+        mspTaskMode: true,
+        mspConstraintType: true,
+        mspConstraintDate: true,
         owner: { select: personSelect },
         backupOwner: { select: personSelect },
         scheduleMilestone: { select: { id: true } },
+        schedulePhase: { select: { id: true } },
       },
     });
     const tasks: TaskRow[] = loadedTasks.map((task) => ({
       ...task,
       isScheduleMilestone: Boolean(task.scheduleMilestone),
+      isPhaseScheduleTask: Boolean(task.schedulePhase),
     }));
 
     const dependencies = await this.prisma.taskDependency.findMany({
@@ -190,54 +210,150 @@ export class MspdiExportBuilder {
 
     const exportTasks: MspdiExportTaskPayload[] = [];
     const phaseIdByExportId = new Map<string, string>();
+    const customFieldDefs =
+      this.toCustomFieldDefsPayload(project.mspCustomFieldDefs) ?? [];
 
-    const childrenByParent = new Map<string, TaskRow[]>();
-    for (const task of tasks) {
-      if (!task.parentTaskId) continue;
-      const list = childrenByParent.get(task.parentTaskId) ?? [];
-      list.push(task);
-      childrenByParent.set(task.parentTaskId, list);
-    }
+    const twinIds = new Set(
+      project.phases
+        .map((p) => p.taskId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const workTasks = tasks.filter((t) => !t.isPhaseScheduleTask);
+    const topLevel = workTasks.filter(
+      (t) => !t.parentTaskId || twinIds.has(t.parentTaskId),
+    );
 
-    const topLevel = tasks.filter((t) => !t.parentTaskId);
+    // L1 project summary under OL0 (MSP plan name above phases).
+    const projectExportId = `project:${project.id}`;
+    const projectRollup = this.rollupSchedule(
+      workTasks,
+      { startDate: project.startDate, endDate: project.endDate },
+      tz,
+    );
+    exportTasks.push({
+      id: projectExportId,
+      name: project.name,
+      summary: true,
+      outlineLevel: 1,
+      startDate: projectRollup.startDate,
+      finishDate: projectRollup.finishDate,
+      baselineStart: projectRollup.baselineStart,
+      baselineFinish: projectRollup.baselineFinish,
+      durationDays: projectRollup.durationDays,
+      baselineDurationDays: projectRollup.baselineDurationDays,
+      startVarianceDays: this.signedDayDelta(
+        projectRollup.startDate,
+        projectRollup.baselineStart,
+      ),
+      finishVarianceDays: this.signedDayDelta(
+        projectRollup.finishDate,
+        projectRollup.baselineFinish,
+      ),
+      durationVarianceDays:
+        projectRollup.durationDays != null &&
+        projectRollup.baselineDurationDays != null
+          ? Math.round(
+              (Number(projectRollup.durationDays) -
+                Number(projectRollup.baselineDurationDays)) *
+                10,
+            ) / 10
+          : undefined,
+      percentComplete: projectRollup.percentComplete,
+      priority: 500,
+    });
 
     for (const phase of project.phases) {
-      const phaseExportId = `phase:${phase.id}`;
+      const phaseWork = workTasks.filter((t) => t.phaseId === phase.id);
+      const twin = phase.taskId
+        ? tasks.find((t) => t.id === phase.taskId)
+        : undefined;
+      const phaseExportId = twin?.id ?? `phase:${phase.id}`;
       phaseIdByExportId.set(phase.id, phaseExportId);
-      const phaseTasks = tasks.filter((t) => t.phaseId === phase.id);
-      const rollup = this.rollupSchedule(
-        phaseTasks,
-        {
-          startDate: phase.startDate,
-          endDate: phase.endDate,
-        },
-        tz,
-      );
 
-      exportTasks.push({
-        id: phaseExportId,
-        name: phase.name,
-        summary: true,
-        outlineLevel: 1,
-        startDate: rollup.startDate,
-        finishDate: rollup.finishDate,
-        // Only real baselines from child tasks — never invent from current dates.
-        baselineStart: rollup.baselineStart,
-        baselineFinish: rollup.baselineFinish,
-        durationDays: rollup.durationDays,
-        baselineDurationDays: rollup.baselineDurationDays,
-        startVarianceDays: this.signedDayDelta(
-          rollup.startDate,
-          rollup.baselineStart,
-        ),
-        finishVarianceDays: this.signedDayDelta(
-          rollup.finishDate,
-          rollup.baselineFinish,
-        ),
-        percentComplete: rollup.percentComplete,
-        priority: 500,
-        notes: phase.description ?? undefined,
-      });
+      if (twin) {
+        const start = toMspdiDateTime(twin.startDate, false, tz);
+        const finish = toMspdiDateTime(twin.endDate, true, tz);
+        const baselineStart = toMspdiDateTime(twin.baselineStart, false, tz);
+        const baselineFinish = toMspdiDateTime(twin.baselineEnd, true, tz);
+        const durationDays =
+          this.decimalToNumber(twin.durationDays) ??
+          this.inclusiveDays(twin.startDate, twin.endDate);
+        const baselineDurationDays =
+          this.decimalToNumber(twin.baselineDurationDays) ??
+          this.inclusiveDays(twin.baselineStart, twin.baselineEnd);
+        exportTasks.push({
+          id: twin.id,
+          name: twin.title || phase.name,
+          parentId: projectExportId,
+          summary: true,
+          outlineLevel: 2,
+          startDate: start,
+          finishDate: finish,
+          baselineStart,
+          baselineFinish,
+          durationDays,
+          baselineDurationDays,
+          workHours: this.decimalToNumber(twin.effortHours),
+          startVarianceDays: this.signedDayDelta(start, baselineStart),
+          finishVarianceDays: this.signedDayDelta(finish, baselineFinish),
+          durationVarianceDays:
+            durationDays != null && baselineDurationDays != null
+              ? Math.round(
+                  (Number(durationDays) - Number(baselineDurationDays)) * 10,
+                ) / 10
+              : undefined,
+          percentComplete: Math.max(
+            0,
+            Math.min(100, twin.progressApproved ?? 0),
+          ),
+          priority: this.mapPriority(twin.priority),
+          notes: twin.description ?? phase.description ?? undefined,
+          resourceNames: this.mergedResourceNames(twin, projectOrganization),
+          customFields: this.toCustomFieldsPayload(
+            twin.mspCustomFields,
+            customFieldDefs,
+          ),
+          ...this.mspScheduleMeta(twin, tz),
+        });
+      } else {
+        const rollup = this.rollupSchedule(
+          phaseWork,
+          { startDate: phase.startDate, endDate: phase.endDate },
+          tz,
+        );
+        exportTasks.push({
+          id: phaseExportId,
+          name: phase.name,
+          parentId: projectExportId,
+          summary: true,
+          outlineLevel: 2,
+          startDate: rollup.startDate,
+          finishDate: rollup.finishDate,
+          baselineStart: rollup.baselineStart,
+          baselineFinish: rollup.baselineFinish,
+          durationDays: rollup.durationDays,
+          baselineDurationDays: rollup.baselineDurationDays,
+          startVarianceDays: this.signedDayDelta(
+            rollup.startDate,
+            rollup.baselineStart,
+          ),
+          finishVarianceDays: this.signedDayDelta(
+            rollup.finishDate,
+            rollup.baselineFinish,
+          ),
+          durationVarianceDays:
+            rollup.durationDays != null && rollup.baselineDurationDays != null
+              ? Math.round(
+                  (Number(rollup.durationDays) -
+                    Number(rollup.baselineDurationDays)) *
+                    10,
+                ) / 10
+              : undefined,
+          percentComplete: rollup.percentComplete,
+          priority: 500,
+          notes: phase.description ?? undefined,
+        });
+      }
     }
 
     const unphasedParentId = 'phase:__unphased__';
@@ -245,7 +361,7 @@ export class MspdiExportBuilder {
       topLevel.some((t) => !t.phaseId) ||
       milestones.some((m) => !m.phaseId && isStandaloneMilestone(m));
     if (hasUnphased) {
-      const unphasedTasks = tasks.filter((t) => !t.phaseId);
+      const unphasedTasks = workTasks.filter((t) => !t.phaseId);
       const rollup = this.rollupSchedule(
         unphasedTasks,
         {
@@ -256,9 +372,10 @@ export class MspdiExportBuilder {
       );
       exportTasks.push({
         id: unphasedParentId,
-        name: 'Imported Schedule',
+        name: 'Unphased',
+        parentId: projectExportId,
         summary: true,
-        outlineLevel: 1,
+        outlineLevel: 2,
         startDate: rollup.startDate,
         finishDate: rollup.finishDate,
         baselineStart: rollup.baselineStart,
@@ -273,9 +390,25 @@ export class MspdiExportBuilder {
           rollup.finishDate,
           rollup.baselineFinish,
         ),
+        durationVarianceDays:
+          rollup.durationDays != null && rollup.baselineDurationDays != null
+            ? Math.round(
+                (Number(rollup.durationDays) -
+                  Number(rollup.baselineDurationDays)) *
+                  10,
+              ) / 10
+            : undefined,
         percentComplete: rollup.percentComplete,
         priority: 500,
       });
+    }
+
+    const childrenByParent = new Map<string, TaskRow[]>();
+    for (const task of workTasks) {
+      if (!task.parentTaskId || twinIds.has(task.parentTaskId)) continue;
+      const list = childrenByParent.get(task.parentTaskId) ?? [];
+      list.push(task);
+      childrenByParent.set(task.parentTaskId, list);
     }
 
     const pushTaskTree = (
@@ -283,17 +416,22 @@ export class MspdiExportBuilder {
       parentId: string,
       outlineLevel: number,
     ) => {
+      if (task.isPhaseScheduleTask) return;
       const start = toMspdiDateTime(task.startDate, false, tz);
       const finish = toMspdiDateTime(task.endDate, true, tz);
       // Export only stored baselines (same rule as import — do not copy current→baseline).
       const baselineStart = toMspdiDateTime(task.baselineStart, false, tz);
       const baselineFinish = toMspdiDateTime(task.baselineEnd, true, tz);
-      const durationDays = this.inclusiveDays(task.startDate, task.endDate);
+      // Prefer stored working-day duration (import fidelity); calendar only as fallback.
+      const durationDays =
+        this.decimalToNumber(task.durationDays) ??
+        this.inclusiveDays(task.startDate, task.endDate);
       const workHours = this.decimalToNumber(task.effortHours);
       const baselineDurationDays =
         this.decimalToNumber(task.baselineDurationDays) ??
         this.inclusiveDays(task.baselineStart, task.baselineEnd);
 
+      const resolvedDurationDays = task.isScheduleMilestone ? 0 : durationDays;
       exportTasks.push({
         id: task.id,
         name: task.title,
@@ -305,15 +443,27 @@ export class MspdiExportBuilder {
         finishDate: finish,
         baselineStart,
         baselineFinish,
-        durationDays: task.isScheduleMilestone ? 0 : durationDays,
+        durationDays: resolvedDurationDays,
         workHours: task.isScheduleMilestone ? 0 : workHours,
         baselineDurationDays,
         startVarianceDays: this.signedDayDelta(start, baselineStart),
         finishVarianceDays: this.signedDayDelta(finish, baselineFinish),
+        durationVarianceDays:
+          resolvedDurationDays != null && baselineDurationDays != null
+            ? Math.round(
+                (Number(resolvedDurationDays) - Number(baselineDurationDays)) *
+                  10,
+              ) / 10
+            : undefined,
         percentComplete: Math.max(0, Math.min(100, task.progressApproved ?? 0)),
         priority: this.mapPriority(task.priority),
         notes: task.description ?? undefined,
         resourceNames: this.mergedResourceNames(task, projectOrganization),
+        customFields: this.toCustomFieldsPayload(
+          task.mspCustomFields,
+          customFieldDefs,
+        ),
+        ...this.mspScheduleMeta(task, tz),
       });
 
       for (const child of childrenByParent.get(task.id) ?? []) {
@@ -325,7 +475,7 @@ export class MspdiExportBuilder {
       const phaseExportId = phaseIdByExportId.get(phase.id)!;
       const phaseTasks = topLevel.filter((t) => t.phaseId === phase.id);
       for (const task of phaseTasks) {
-        pushTaskTree(task, phaseExportId, 2);
+        pushTaskTree(task, phaseExportId, 3);
       }
       const phaseMilestones = milestones.filter(
         (m) => m.phaseId === phase.id && isStandaloneMilestone(m),
@@ -338,7 +488,7 @@ export class MspdiExportBuilder {
           parentId: phaseExportId,
           summary: false,
           milestone: true,
-          outlineLevel: 2,
+          outlineLevel: 3,
           startDate: start,
           finishDate: toMspdiDateTime(ms.targetDate, true, tz),
           percentComplete:
@@ -350,7 +500,7 @@ export class MspdiExportBuilder {
 
     if (hasUnphased) {
       for (const task of topLevel.filter((t) => !t.phaseId)) {
-        pushTaskTree(task, unphasedParentId, 2);
+        pushTaskTree(task, unphasedParentId, 3);
       }
       for (const ms of milestones.filter(
         (m) => !m.phaseId && isStandaloneMilestone(m),
@@ -362,7 +512,7 @@ export class MspdiExportBuilder {
           parentId: unphasedParentId,
           summary: false,
           milestone: true,
-          outlineLevel: 2,
+          outlineLevel: 3,
           startDate: start,
           finishDate: toMspdiDateTime(ms.targetDate, true, tz),
           percentComplete:
@@ -372,7 +522,7 @@ export class MspdiExportBuilder {
       }
     }
 
-    const depPayload: MspdiExportDependencyPayload[] = dependencies.map(
+    const rawDepPayload: MspdiExportDependencyPayload[] = dependencies.map(
       (dep) => ({
         predecessorId: dep.predecessorId,
         successorId: dep.successorId,
@@ -380,6 +530,11 @@ export class MspdiExportBuilder {
         lagDays: dep.lagDays ?? 0,
       }),
     );
+    const { dependencies: depPayload, warnings: cycleWarnings } =
+      filterMspdiCycleDependencies(exportTasks, rawDepPayload);
+    for (const warning of cycleWarnings) {
+      this.logger.warn(warning);
+    }
 
     const taskDays = exportTasks
       .flatMap((t) => [t.startDate, t.finishDate])
@@ -437,7 +592,107 @@ export class MspdiExportBuilder {
       holidays,
       resources,
       assignments,
+      customFieldDefs: mergeCustomFieldDefsForExport(
+        customFieldDefs,
+        exportTasks,
+      ),
     };
+  }
+
+  private mspScheduleMeta(
+    task: {
+      mspTaskMode?: string | null;
+      mspConstraintType?: string | null;
+      mspConstraintDate?: Date | null;
+    },
+    timeZone: string,
+  ): Pick<
+    MspdiExportTaskPayload,
+    'taskMode' | 'constraintType' | 'constraintDate'
+  > {
+    const type = (task.mspConstraintType || 'ASAP').trim().toUpperCase();
+    const needsDate = type !== 'ASAP' && type !== 'ALAP';
+    return {
+      taskMode:
+        task.mspTaskMode?.trim().toLowerCase() === 'auto' ? 'Auto' : 'Manual',
+      constraintType: type || 'ASAP',
+      constraintDate:
+        needsDate && task.mspConstraintDate
+          ? toMspdiDateTime(task.mspConstraintDate, false, timeZone) ||
+            undefined
+          : undefined,
+    };
+  }
+
+  private toCustomFieldsPayload(
+    raw: unknown,
+    defs?: MspdiExportCustomFieldDef[],
+  ): { fieldName: string; value: string }[] | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const aliasToSlot = new Map(
+      (defs ?? [])
+        .filter((d) => d.alias?.trim() && d.fieldName?.trim())
+        .map((d) => [
+          d.alias!.trim().toLowerCase(),
+          d.fieldName.trim(),
+        ]),
+    );
+    const out: { fieldName: string; value: string }[] = [];
+    for (const [fieldName, value] of Object.entries(
+      raw as Record<string, unknown>,
+    )) {
+      if (!fieldName?.trim()) continue;
+      const text =
+        value == null
+          ? ''
+          : typeof value === 'string'
+            ? value.trim()
+            : String(value).trim();
+      if (!text) continue;
+      const key = fieldName.trim();
+      const slot =
+        aliasToSlot.get(key.toLowerCase()) ||
+        key;
+      out.push({ fieldName: slot, value: text });
+    }
+    return out.length > 0 ? out : undefined;
+  }
+
+  private toCustomFieldDefsPayload(raw: unknown):
+    | {
+        fieldName: string;
+        index?: number;
+        type?: string;
+        alias?: string;
+        fieldId?: string;
+      }[]
+    | undefined {
+    if (!Array.isArray(raw) || raw.length === 0) return undefined;
+    const out: {
+      fieldName: string;
+      index?: number;
+      type?: string;
+      alias?: string;
+      fieldId?: string;
+    }[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const row = entry as Record<string, unknown>;
+      const fieldName =
+        typeof row.fieldName === 'string' ? row.fieldName.trim() : '';
+      if (!fieldName) continue;
+      out.push({
+        fieldName,
+        index:
+          typeof row.index === 'number' && Number.isFinite(row.index)
+            ? row.index
+            : undefined,
+        type: typeof row.type === 'string' ? row.type : undefined,
+        alias: typeof row.alias === 'string' ? row.alias.trim() : undefined,
+        fieldId: typeof row.fieldId === 'string' ? row.fieldId.trim() : undefined,
+      });
+    }
+    return out.length > 0 ? out : undefined;
   }
 
   /**
@@ -586,11 +841,13 @@ export class MspdiExportBuilder {
     const baselineStart = baselineStarts[0];
     const baselineFinish = baselineFinishes[baselineFinishes.length - 1];
 
-    const durationDays = this.inclusiveDays(startDate, finishDate);
-    const baselineDurationDays = this.inclusiveDays(
-      baselineStart,
-      baselineFinish,
-    );
+    // Phase/summary span ≈ Mon–Fri working days (not inclusive calendar).
+    const durationDays =
+      this.workingDaysMonFri(startDate, finishDate) ??
+      this.inclusiveDays(startDate, finishDate);
+    const baselineDurationDays =
+      this.workingDaysMonFri(baselineStart, baselineFinish) ??
+      this.inclusiveDays(baselineStart, baselineFinish);
 
     return {
       startDate,
@@ -601,6 +858,23 @@ export class MspdiExportBuilder {
       baselineDurationDays,
       percentComplete: this.averageProgress(members),
     };
+  }
+
+  /** Count Mon–Fri days inclusive (approx. MSP Standard calendar without holidays). */
+  private workingDaysMonFri(
+    start?: string | null,
+    end?: string | null,
+  ): number | undefined {
+    if (!start || !end) return undefined;
+    const s = Date.parse(`${String(start).slice(0, 10)}T12:00:00Z`);
+    const e = Date.parse(`${String(end).slice(0, 10)}T12:00:00Z`);
+    if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return undefined;
+    let count = 0;
+    for (let t = s; t <= e; t += 86_400_000) {
+      const day = new Date(t).getUTCDay();
+      if (day !== 0 && day !== 6) count += 1;
+    }
+    return Math.max(1, count);
   }
 
   private averageProgress(members: { progressApproved?: number | null }[]): number {
@@ -677,7 +951,8 @@ export class MspdiExportBuilder {
   private decimalToNumber(value: unknown): number | undefined {
     if (value == null) return undefined;
     const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return undefined;
+    // Keep 0-day durations for MSP variance parity.
+    if (!Number.isFinite(n) || n < 0) return undefined;
     return Math.round(n * 10) / 10;
   }
 

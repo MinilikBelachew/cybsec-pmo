@@ -6,6 +6,7 @@ export type MethodologyPlanView =
   | "board"
   | "calendar"
   | "gantt"
+  | "schedule"
   | "table"
   | "phases"
   | "milestones";
@@ -28,21 +29,48 @@ export const METHODOLOGY_PLAN: Record<ProjectMethodology, MethodologyPlanProfile
   Agile: {
     defaultView: "board",
     primaryViews: ["board", "list", "calendar"],
-    planViewOrder: ["board", "list", "calendar", "table", "gantt", "phases", "milestones"],
+    planViewOrder: [
+      "board",
+      "list",
+      "calendar",
+      "table",
+      "gantt",
+      "schedule",
+      "phases",
+      "milestones",
+    ],
     defaultGroupByPhase: false,
     tableWbsTree: false,
   },
   Waterfall: {
     defaultView: "gantt",
-    primaryViews: ["gantt", "phases", "milestones", "list"],
-    planViewOrder: ["gantt", "phases", "milestones", "list", "table", "board", "calendar"],
+    primaryViews: ["gantt", "schedule", "phases", "milestones", "list"],
+    planViewOrder: [
+      "gantt",
+      "schedule",
+      "phases",
+      "milestones",
+      "list",
+      "table",
+      "board",
+      "calendar",
+    ],
     defaultGroupByPhase: true,
     tableWbsTree: true,
   },
   Hybrid: {
     defaultView: "list",
-    primaryViews: ["list", "board", "gantt", "phases", "milestones"],
-    planViewOrder: ["list", "board", "gantt", "phases", "milestones", "calendar", "table"],
+    primaryViews: ["list", "board", "gantt", "schedule", "phases", "milestones"],
+    planViewOrder: [
+      "list",
+      "board",
+      "gantt",
+      "schedule",
+      "phases",
+      "milestones",
+      "calendar",
+      "table",
+    ],
     defaultGroupByPhase: false,
     tableWbsTree: false,
   },

@@ -28,7 +28,16 @@ export type DesiredSuccessorLink = {
 
 /** Flatten nested task rows and assign stable 1-based plan IDs (MPP Order). */
 export function buildPlanIdMaps(
-  tasks: { id: string; createdAt?: string; startDate?: string | null; title?: string; name?: string; children?: any[] }[],
+  tasks: {
+    id: string;
+    createdAt?: string;
+    startDate?: string | null;
+    title?: string;
+    name?: string;
+    planRowId?: number | null;
+    children?: any[];
+    subTasks?: any[];
+  }[],
 ): {
   idToPlanId: Map<string, number>;
   planIdToId: Map<number, string>;
@@ -37,11 +46,20 @@ export function buildPlanIdMaps(
   const flat: any[] = [];
   const walk = (t: any) => {
     flat.push(t);
-    for (const c of t.children ?? []) walk(c);
+    for (const c of t.children ?? t.subTasks ?? []) walk(c);
   };
   for (const t of tasks) walk(t);
 
-  flat.sort(comparePlanOrderAsc);
+  const withStored = flat.filter(
+    (t) => t.planRowId != null && Number.isFinite(Number(t.planRowId)),
+  );
+  if (withStored.length === flat.length && flat.length > 0) {
+    flat.sort(
+      (a, b) => Number(a.planRowId) - Number(b.planRowId),
+    );
+  } else {
+    flat.sort(comparePlanOrderAsc);
+  }
 
   const idToPlanId = new Map<string, number>();
   const planIdToId = new Map<number, string>();
@@ -49,12 +67,36 @@ export function buildPlanIdMaps(
   let n = 1;
   for (const t of flat) {
     if (idToPlanId.has(t.id)) continue;
-    idToPlanId.set(t.id, n);
-    planIdToId.set(n, t.id);
+    const planId =
+      t.planRowId != null && Number.isFinite(Number(t.planRowId))
+        ? Number(t.planRowId)
+        : n;
+    idToPlanId.set(t.id, planId);
+    planIdToId.set(planId, t.id);
     orderedIds.push(t.id);
-    n += 1;
+    n = Math.max(n, planId) + 1;
   }
   return { idToPlanId, planIdToId, orderedIds };
+}
+
+function formatDepToken(
+  otherId: string,
+  depType: TaskDependencyType | string | undefined,
+  lagDays: number | undefined,
+  idToPlanId: Map<string, number>,
+  fallbackTitle?: string,
+): string {
+  const planId = idToPlanId.get(otherId);
+  const type = (depType || "FS").toUpperCase() as TaskDependencyType;
+  const lag = Number(lagDays) || 0;
+  const idPart =
+    planId != null
+      ? String(planId)
+      : (fallbackTitle || otherId.slice(0, 8)).replace(/,/g, " ");
+  if (type === "FS" && lag === 0) return idPart;
+  if (lag === 0) return `${idPart}${type}`;
+  const lagStr = lag > 0 ? `+${lag}d` : `${lag}d`;
+  return `${idPart}${type}${lagStr}`;
 }
 
 /** Display like MS Project: `3` | `3SS` | `14FS+3d` | `3,5FS+2d` */
@@ -65,27 +107,37 @@ export function formatPredecessorsGrid(
 ): string {
   const links = dependencies.filter((d) => d.successorId === taskId);
   if (links.length === 0) return "";
-
   return links
-    .map((dep) => {
-      const planId = idToPlanId.get(dep.predecessorId);
-      const type = (dep.depType || "FS").toUpperCase() as TaskDependencyType;
-      const lag = Number(dep.lagDays) || 0;
-      const idPart =
-        planId != null
-          ? String(planId)
-          : (dep.predecessor?.title || dep.predecessorId.slice(0, 8)).replace(
-              /,/g,
-              " ",
-            );
+    .map((dep) =>
+      formatDepToken(
+        dep.predecessorId,
+        dep.depType,
+        dep.lagDays,
+        idToPlanId,
+        dep.predecessor?.title,
+      ),
+    )
+    .join(",");
+}
 
-      // MS Project: bare ID = FS + 0 lag; otherwise append type and/or +Nd
-      if (type === "FS" && lag === 0) return idPart;
-      if (lag === 0) return `${idPart}${type}`;
-      const lagStr = lag > 0 ? `+${lag}d` : `${lag}d`;
-      // Always show type when lag is present (e.g. 14FS+3d)
-      return `${idPart}${type}${lagStr}`;
-    })
+/** Successors column (tasks that depend on this one). */
+export function formatSuccessorsGrid(
+  taskId: string,
+  dependencies: TaskDependency[],
+  idToPlanId: Map<string, number>,
+): string {
+  const links = dependencies.filter((d) => d.predecessorId === taskId);
+  if (links.length === 0) return "";
+  return links
+    .map((dep) =>
+      formatDepToken(
+        dep.successorId,
+        dep.depType,
+        dep.lagDays,
+        idToPlanId,
+        dep.successor?.title,
+      ),
+    )
     .join(",");
 }
 

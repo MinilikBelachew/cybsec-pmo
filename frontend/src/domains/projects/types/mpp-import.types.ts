@@ -21,6 +21,8 @@ export type MppImportPreviewMilestone = {
   phaseName?: string;
   percentComplete?: number;
   status: string;
+  importMode: "create" | "update";
+  updateDetails?: string[];
 };
 
 export type MppImportPreviewTask = {
@@ -34,6 +36,21 @@ export type MppImportPreviewTask = {
   phaseName?: string;
   hasParent: boolean;
   predecessorCount: number;
+  importMode: "create" | "update";
+  priority?: string;
+  assigneeNames?: string[];
+  notesPreview?: string;
+  updateDetails?: string[];
+};
+
+export type MppImportPreviewPhase = {
+  name: string;
+  startDate?: string;
+  finishDate?: string;
+  durationDays?: number;
+  percentComplete?: number;
+  importMode: "create" | "update";
+  updateDetails?: string[];
 };
 
 export type MppImportPreviewProject = {
@@ -53,6 +70,7 @@ export type MppImportPreviewProject = {
   dependencyCount: number;
   importMode: "create" | "update";
   resolvedProjectId?: string;
+  phases?: MppImportPreviewPhase[];
   tasks: MppImportPreviewTask[];
   milestones: MppImportPreviewMilestone[];
 };
@@ -76,6 +94,7 @@ export type MppImportPreview = {
     projects?: number;
   };
   projects?: MppImportPreviewProject[];
+  phases?: MppImportPreviewPhase[];
   tasks: MppImportPreviewTask[];
   milestones: MppImportPreviewMilestone[];
   warnings: string[];

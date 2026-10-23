@@ -82,6 +82,10 @@ export interface GanttTaskRow {
   actualDurationDays?: number | null;
   scheduleVarianceDays?: number | null;
   isScheduleMilestone?: boolean;
+  isPhaseScheduleTask?: boolean;
+  planRowId?: number | null;
+  resourceNames?: string | null;
+  progressApproved?: number;
 }
 
 const PRIORITY_MAP: Record<string, GanttPriority> = {
@@ -252,6 +256,10 @@ export function mapTaskToGanttRow(
     effortVarianceHours: task.effortVarianceHours ?? null,
     isOverEffort: Boolean(task.isOverEffort),
     isScheduleMilestone: Boolean(task.isScheduleMilestone),
+    isPhaseScheduleTask: Boolean(task.isPhaseScheduleTask),
+    planRowId: task.planRowId ?? null,
+    resourceNames: task.resourceNames ?? null,
+    progressApproved: task.progressApproved ?? 0,
     ...scheduleFields(task),
   };
 }
@@ -287,6 +295,7 @@ export function isHiddenScheduleTask(
     title?: string;
     phaseId?: string | null;
     isScheduleMilestone?: boolean;
+    isPhaseScheduleTask?: boolean;
   },
   milestones?: Array<{
     taskId?: string | null;
@@ -294,7 +303,7 @@ export function isHiddenScheduleTask(
     phaseId?: string | null;
   }>,
 ): boolean {
-  if (task.isScheduleMilestone) return true;
+  if (task.isScheduleMilestone || task.isPhaseScheduleTask) return true;
   if (!milestones?.length) return false;
   const title = (task.name ?? task.title ?? "").trim().toLowerCase();
   if (!title) return false;
@@ -313,6 +322,7 @@ export function isHiddenScheduleTask(
 export function filterWorkTasks<
   T extends {
     isScheduleMilestone?: boolean;
+    isPhaseScheduleTask?: boolean;
     children?: T[];
     id?: string;
     name?: string;
@@ -327,11 +337,28 @@ export function filterWorkTasks<
     phaseId?: string | null;
   }>,
 ): T[] {
-  return tasks
-    .filter((task) => !isHiddenScheduleTask(task, milestones))
-    .map((task) =>
+  const result: T[] = [];
+  for (const task of tasks) {
+    if (task.isPhaseScheduleTask) {
+      // The phase summary itself is not an individual work task row, but its children are.
+      // Promote its children into the work tasks stream so they are not discarded.
+      if (task.children?.length) {
+        const enrichedChildren = task.children.map((c) => ({
+          ...c,
+          phaseId: c.phaseId || task.phaseId,
+        })) as unknown as T[];
+        result.push(...filterWorkTasks(enrichedChildren, milestones));
+      }
+      continue;
+    }
+    if (isHiddenScheduleTask(task, milestones)) {
+      continue;
+    }
+    result.push(
       task.children?.length
         ? { ...task, children: filterWorkTasks(task.children, milestones) }
         : task,
     );
+  }
+  return result;
 }

@@ -19,12 +19,20 @@ import { UpdateMilestoneDto } from './dto/update-milestone.dto';
 import {
   assertPhaseGateReadyToComplete,
 } from './phase-gate.util';
-import { ProjectStatus, TaskStatus, PhaseStatus, PartyType, Prisma } from '@prisma/client';
+import {
+  ProjectStatus,
+  TaskStatus,
+  PhaseStatus,
+  PartyType,
+  Prisma,
+  PriorityLevel,
+} from '@prisma/client';
 import {
   freezeUnbaselinedTasksForProject,
   inclusiveCalendarDays,
   projectScheduleOnStatusChange,
 } from './utils/schedule-dates.util';
+import { renumberProjectPlanRows } from './utils/plan-row.util';
 import { ClientSyncService } from '../integrations/keka/sync/client-sync.service';
 import { ProjectLinkService } from '../integrations/keka/sync/project-link.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -105,6 +113,18 @@ export class ProjectsService {
     private readonly projectLinkService: ProjectLinkService,
     private readonly fx: FxService,
   ) {}
+
+  /**
+   * Work-task counters for project list KPIs — same rules as workspace header:
+   * full tree (parents + nested), exclude MPP phase/milestone schedule twins.
+   */
+  private workTaskCountWhere(projectIds: string[]): Prisma.TaskWhereInput {
+    return {
+      projectId: { in: projectIds },
+      scheduleMilestone: { is: null },
+      schedulePhase: { is: null },
+    };
+  }
 
   private permissionsFor(user: CaslUserContext) {
     return this.permissionsCache.getByRoleId(user.roleId);
@@ -325,7 +345,6 @@ export class ProjectsService {
           ...PROJECT_INCLUDE,
           _count: {
             select: {
-              tasks: { where: { parentTaskId: null } },
               phases: true,
               milestones: true,
             },
@@ -337,14 +356,25 @@ export class ProjectsService {
     ]);
 
     const projectIds = projects.map((project) => project.id);
-    const [doneTaskGroups, completedPhaseGroups, doneMilestoneGroups, employeeCostGroups, budgetLineItems] =
+    const [
+      totalTaskGroups,
+      doneTaskGroups,
+      completedPhaseGroups,
+      doneMilestoneGroups,
+      employeeCostGroups,
+      budgetLineItems,
+    ] =
       projectIds.length
       ? await Promise.all([
           this.prisma.task.groupBy({
             by: ['projectId'],
+            where: this.workTaskCountWhere(projectIds),
+            _count: { _all: true },
+          }),
+          this.prisma.task.groupBy({
+            by: ['projectId'],
             where: {
-              projectId: { in: projectIds },
-              parentTaskId: null,
+              ...this.workTaskCountWhere(projectIds),
               status: TaskStatus.Done,
             },
             _count: { _all: true },
@@ -378,8 +408,11 @@ export class ProjectsService {
             },
           }),
         ])
-      : [[], [], [], [], []];
+      : [[], [], [], [], [], []];
 
+    const totalTaskMap = new Map(
+      totalTaskGroups.map((row) => [row.projectId, row._count._all]),
+    );
     const doneTaskMap = new Map(
       doneTaskGroups.map((row) => [row.projectId, row._count._all]),
     );
@@ -432,7 +465,7 @@ export class ProjectsService {
 
       return {
         ...apiProject,
-        tasksTotal: project._count.tasks,
+        tasksTotal: totalTaskMap.get(project.id) ?? 0,
         tasksDone: doneTaskMap.get(project.id) ?? 0,
         phasesTotal: project._count.phases,
         phasesCompleted: completedPhaseMap.get(project.id) ?? 0,
@@ -531,7 +564,6 @@ export class ProjectsService {
         ...PROJECT_INCLUDE,
         _count: {
           select: {
-            tasks: { where: { parentTaskId: null } },
             phases: true,
             milestones: true,
           },
@@ -540,36 +572,44 @@ export class ProjectsService {
     });
 
     const projectIds = projects.map((project) => project.id);
-    const [doneTaskGroups, completedPhaseGroups, doneMilestoneGroups] = projectIds.length
-      ? await Promise.all([
-          this.prisma.task.groupBy({
-            by: ['projectId'],
-            where: {
-              projectId: { in: projectIds },
-              parentTaskId: null,
-              status: TaskStatus.Done,
-            },
-            _count: { _all: true },
-          }),
-          this.prisma.projectPhase.groupBy({
-            by: ['projectId'],
-            where: {
-              projectId: { in: projectIds },
-              status: PhaseStatus.Completed,
-            },
-            _count: { _all: true },
-          }),
-          this.prisma.projectMilestone.groupBy({
-            by: ['projectId'],
-            where: {
-              projectId: { in: projectIds },
-              status: 'Done',
-            },
-            _count: { _all: true },
-          }),
-        ])
-      : [[], [], []];
+    const [totalTaskGroups, doneTaskGroups, completedPhaseGroups, doneMilestoneGroups] =
+      projectIds.length
+        ? await Promise.all([
+            this.prisma.task.groupBy({
+              by: ['projectId'],
+              where: this.workTaskCountWhere(projectIds),
+              _count: { _all: true },
+            }),
+            this.prisma.task.groupBy({
+              by: ['projectId'],
+              where: {
+                ...this.workTaskCountWhere(projectIds),
+                status: TaskStatus.Done,
+              },
+              _count: { _all: true },
+            }),
+            this.prisma.projectPhase.groupBy({
+              by: ['projectId'],
+              where: {
+                projectId: { in: projectIds },
+                status: PhaseStatus.Completed,
+              },
+              _count: { _all: true },
+            }),
+            this.prisma.projectMilestone.groupBy({
+              by: ['projectId'],
+              where: {
+                projectId: { in: projectIds },
+                status: 'Done',
+              },
+              _count: { _all: true },
+            }),
+          ])
+        : [[], [], [], []];
 
+    const totalTaskMap = new Map(
+      totalTaskGroups.map((row) => [row.projectId, row._count._all]),
+    );
     const doneTaskMap = new Map(
       doneTaskGroups.map((row) => [row.projectId, row._count._all]),
     );
@@ -585,7 +625,7 @@ export class ProjectsService {
         ability,
         permissions: this.permissionsFor(caslUser),
       }),
-      tasksTotal: project._count.tasks,
+      tasksTotal: totalTaskMap.get(project.id) ?? 0,
       tasksDone: doneTaskMap.get(project.id) ?? 0,
       phasesTotal: project._count.phases,
       phasesCompleted: completedPhaseMap.get(project.id) ?? 0,
@@ -1194,16 +1234,44 @@ export class ProjectsService {
         errors: { endDate: 'endDateMustBeAfterStartDate' },
       });
     }
-    return this.prisma.projectPhase.create({
-      data: {
-        projectId,
-        name: dto.name,
-        description: dto.description,
-        orderIndex: dto.orderIndex ?? 0,
-        startDate: dto.startDate,
-        endDate: dto.endDate,
-        status: dto.status,
-      },
+
+    return this.prisma.$transaction(async (tx) => {
+      const phase = await tx.projectPhase.create({
+        data: {
+          projectId,
+          name: dto.name,
+          description: dto.description,
+          orderIndex: dto.orderIndex ?? 0,
+          startDate: dto.startDate,
+          endDate: dto.endDate,
+          status: dto.status,
+        },
+      });
+
+      const durationDays = inclusiveCalendarDays(dto.startDate, dto.endDate);
+      const twin = await tx.task.create({
+        data: {
+          projectId,
+          phaseId: phase.id,
+          title: dto.name.slice(0, 255),
+          description: dto.description ?? null,
+          startDate: dto.startDate,
+          endDate: dto.endDate,
+          durationDays: durationDays ?? undefined,
+          priority: PriorityLevel.Medium,
+          status: TaskStatus.To_Do,
+          progressApproved: 0,
+          progressPending: 0,
+        },
+      });
+
+      const updated = await tx.projectPhase.update({
+        where: { id: phase.id },
+        data: { taskId: twin.id },
+      });
+
+      await renumberProjectPlanRows(tx, projectId);
+      return updated;
     });
   }
 
@@ -1236,16 +1304,63 @@ export class ProjectsService {
       await assertPhaseGateReadyToComplete(this.prisma, phaseId);
     }
 
-    return this.prisma.projectPhase.update({
-      where: { id: phaseId },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.orderIndex !== undefined && { orderIndex: dto.orderIndex }),
-        ...(dto.startDate !== undefined && { startDate: dto.startDate }),
-        ...(dto.endDate !== undefined && { endDate: dto.endDate }),
-        ...(dto.status !== undefined && { status: nextStatus }),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.projectPhase.update({
+        where: { id: phaseId },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.orderIndex !== undefined && { orderIndex: dto.orderIndex }),
+          ...(dto.startDate !== undefined && { startDate: dto.startDate }),
+          ...(dto.endDate !== undefined && { endDate: dto.endDate }),
+          ...(dto.status !== undefined && { status: nextStatus }),
+        },
+      });
+
+      const name = dto.name !== undefined ? dto.name : existing.name;
+      const description =
+        dto.description !== undefined ? dto.description : existing.description;
+      const durationDays = inclusiveCalendarDays(startDate, endDate);
+
+      if (existing.taskId) {
+        await tx.task.update({
+          where: { id: existing.taskId },
+          data: {
+            title: name.slice(0, 255),
+            description: description ?? null,
+            startDate,
+            endDate,
+            durationDays: durationDays ?? null,
+          },
+        });
+      } else {
+        const twin = await tx.task.create({
+          data: {
+            projectId: existing.projectId,
+            phaseId: phaseId,
+            title: name.slice(0, 255),
+            description: description ?? null,
+            startDate,
+            endDate,
+            durationDays: durationDays ?? undefined,
+            priority: PriorityLevel.Medium,
+            status: TaskStatus.To_Do,
+            progressApproved: 0,
+            progressPending: 0,
+          },
+        });
+        await tx.projectPhase.update({
+          where: { id: phaseId },
+          data: { taskId: twin.id },
+        });
+        updated.taskId = twin.id;
+      }
+
+      if (dto.orderIndex !== undefined) {
+        await renumberProjectPlanRows(tx, existing.projectId);
+      }
+
+      return updated;
     });
   }
 
@@ -1261,7 +1376,10 @@ export class ProjectsService {
     await this.assertProjectInScope(existing.projectId, caslUser, 'approve');
 
     const assignedTaskCount = await this.prisma.task.count({
-      where: { phaseId },
+      where: {
+        phaseId,
+        ...(existing.taskId ? { id: { not: existing.taskId } } : {}),
+      },
     });
     if (assignedTaskCount > 0) {
       throw new UnprocessableEntityException({
@@ -1271,13 +1389,21 @@ export class ProjectsService {
       });
     }
 
-    await this.prisma.$transaction([
-      this.prisma.projectMilestone.updateMany({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.projectMilestone.updateMany({
         where: { phaseId },
         data: { phaseId: null },
-      }),
-      this.prisma.projectPhase.delete({ where: { id: phaseId } }),
-    ]);
+      });
+      if (existing.taskId) {
+        await tx.projectPhase.update({
+          where: { id: phaseId },
+          data: { taskId: null },
+        });
+        await tx.task.delete({ where: { id: existing.taskId } }).catch(() => undefined);
+      }
+      await tx.projectPhase.delete({ where: { id: phaseId } });
+      await renumberProjectPlanRows(tx, existing.projectId);
+    });
   }
 
   async findMilestones(projectId: string, caslUser: CaslUserContext) {

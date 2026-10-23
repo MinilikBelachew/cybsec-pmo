@@ -8,6 +8,7 @@ public class ParsedProjectDto {
   private List<ParsedTaskDto> tasks = new ArrayList<>();
   private List<ParsedResourceDto> resources = new ArrayList<>();
   private List<ParsedAssignmentDto> assignments = new ArrayList<>();
+  private List<ParsedCustomFieldDefDto> customFieldDefs = new ArrayList<>();
   private List<String> warnings = new ArrayList<>();
 
   public ParsedProjectPropertiesDto getProject() {
@@ -40,6 +41,14 @@ public class ParsedProjectDto {
 
   public void setAssignments(List<ParsedAssignmentDto> assignments) {
     this.assignments = assignments;
+  }
+
+  public List<ParsedCustomFieldDefDto> getCustomFieldDefs() {
+    return customFieldDefs;
+  }
+
+  public void setCustomFieldDefs(List<ParsedCustomFieldDefDto> customFieldDefs) {
+    this.customFieldDefs = customFieldDefs;
   }
 
   public List<String> getWarnings() {

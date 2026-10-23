@@ -47,6 +47,21 @@ export class MppImportPreviewTaskDto {
 
   @ApiProperty()
   predecessorCount: number;
+
+  @ApiProperty({ enum: ['create', 'update'] })
+  importMode: 'create' | 'update';
+
+  @ApiPropertyOptional()
+  priority?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  assigneeNames?: string[];
+
+  @ApiPropertyOptional()
+  notesPreview?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  updateDetails?: string[];
 }
 
 export class MppImportPreviewMilestoneDto {
@@ -67,6 +82,35 @@ export class MppImportPreviewMilestoneDto {
 
   @ApiProperty()
   status: string;
+
+  @ApiProperty({ enum: ['create', 'update'] })
+  importMode: 'create' | 'update';
+
+  @ApiPropertyOptional({ type: [String] })
+  updateDetails?: string[];
+}
+
+export class MppImportPreviewPhaseDto {
+  @ApiProperty()
+  name: string;
+
+  @ApiPropertyOptional()
+  startDate?: string;
+
+  @ApiPropertyOptional()
+  finishDate?: string;
+
+  @ApiPropertyOptional()
+  durationDays?: number;
+
+  @ApiPropertyOptional()
+  percentComplete?: number;
+
+  @ApiProperty({ enum: ['create', 'update'] })
+  importMode: 'create' | 'update';
+
+  @ApiPropertyOptional({ type: [String] })
+  updateDetails?: string[];
 }
 
 export class MppImportPreviewProjectDto {
@@ -119,6 +163,9 @@ export class MppImportPreviewProjectDto {
 
   @ApiPropertyOptional({ format: 'uuid' })
   resolvedProjectId?: string;
+
+  @ApiPropertyOptional({ type: [MppImportPreviewPhaseDto] })
+  phases?: MppImportPreviewPhaseDto[];
 
   @ApiProperty({ type: [MppImportPreviewTaskDto] })
   tasks: MppImportPreviewTaskDto[];
@@ -191,6 +238,9 @@ export class MppImportPreviewDto {
 
   @ApiPropertyOptional({ type: [MppImportPreviewProjectDto] })
   projects?: MppImportPreviewProjectDto[];
+
+  @ApiPropertyOptional({ type: [MppImportPreviewPhaseDto] })
+  phases?: MppImportPreviewPhaseDto[];
 
   @ApiProperty({ type: [MppImportPreviewTaskDto] })
   tasks: MppImportPreviewTaskDto[];

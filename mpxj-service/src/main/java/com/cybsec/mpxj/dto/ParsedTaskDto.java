@@ -27,6 +27,20 @@ public class ParsedTaskDto {
   private Integer percentComplete;
   /** MS Project Cost on this row. Used only for project/L1 budget; not persisted as task cost. */
   private Double cost;
+  /** MS Project Notes → Cybsec task/phase description. */
+  private String notes;
+  /**
+   * MSP Priority (0–1000). Cybsec maps: Critical≈1000, High≈700, Medium≈500, Low≈300.
+   */
+  private Integer priority;
+  /** Manual or Auto. */
+  private String taskMode;
+  /** ASAP, ALAP, SNET, FNET, SNLT, FNLT, MSO, MFO. */
+  private String constraintType;
+  /** Constraint date (ISO); null when ASAP/ALAP. */
+  private String constraintDate;
+  /** Non-empty MSP local custom field values (Text1, Flag2, …). */
+  private List<ParsedCustomFieldValueDto> customFields = new ArrayList<>();
   private List<ParsedPredecessorDto> predecessors = new ArrayList<>();
 
   public Integer getUid() {
@@ -179,6 +193,54 @@ public class ParsedTaskDto {
 
   public void setCost(Double cost) {
     this.cost = cost;
+  }
+
+  public String getNotes() {
+    return notes;
+  }
+
+  public void setNotes(String notes) {
+    this.notes = notes;
+  }
+
+  public Integer getPriority() {
+    return priority;
+  }
+
+  public void setPriority(Integer priority) {
+    this.priority = priority;
+  }
+
+  public String getTaskMode() {
+    return taskMode;
+  }
+
+  public void setTaskMode(String taskMode) {
+    this.taskMode = taskMode;
+  }
+
+  public String getConstraintType() {
+    return constraintType;
+  }
+
+  public void setConstraintType(String constraintType) {
+    this.constraintType = constraintType;
+  }
+
+  public String getConstraintDate() {
+    return constraintDate;
+  }
+
+  public void setConstraintDate(String constraintDate) {
+    this.constraintDate = constraintDate;
+  }
+
+  public List<ParsedCustomFieldValueDto> getCustomFields() {
+    return customFields;
+  }
+
+  public void setCustomFields(List<ParsedCustomFieldValueDto> customFields) {
+    this.customFields = customFields;
   }
 
   public List<ParsedPredecessorDto> getPredecessors() {

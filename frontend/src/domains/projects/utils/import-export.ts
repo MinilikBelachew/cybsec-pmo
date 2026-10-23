@@ -15,7 +15,6 @@ import {
   mapTasksToExportRows,
   pickExportFields,
   inclusiveDurationDays,
-  resolveTaskDurationDays,
   signedDayDelta,
   parsePredecessorsCell,
   formatResourceName,
@@ -2564,8 +2563,9 @@ function escMppXml(str: string) {
     .replace(/>/g, "&gt;");
 }
 
-function toMppDateTime(value?: string | null, endOfDay = false): string {
-  return toMspdiDateTime(value, endOfDay);
+function toMppDateTime(value?: string | Date | null, endOfDay = false): string {
+  const str = value instanceof Date ? value.toISOString() : (value ? String(value) : null);
+  return toMspdiDateTime(str, endOfDay);
 }
 
 function mapMppPriority(p: string) {
@@ -2605,20 +2605,101 @@ function isMspdiMilestone(task: any): boolean {
   return Boolean(task?._milestoneExport || task?.milestone);
 }
 
+/** Mon–Fri inclusive day count (MSP Standard approx; used when durationDays missing). */
+function workingDaysMonFri(
+  start?: string | Date | null,
+  end?: string | Date | null,
+): number | "" {
+  const s = toExportDay(start);
+  const e = toExportDay(end);
+  if (!s || !e) return "";
+  const startMs = Date.parse(`${s}T12:00:00Z`);
+  const endMs = Date.parse(`${e}T12:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return "";
+  }
+  let count = 0;
+  for (let t = startMs; t <= endMs; t += 86_400_000) {
+    const day = new Date(t).getUTCDay();
+    if (day !== 0 && day !== 6) count += 1;
+  }
+  return Math.max(1, count);
+}
+
+/**
+ * Prefer stored working-day duration; else Mon–Fri span; else inclusive calendar.
+ * Keeps MPP round-trip and still works for scratch PMO rows with empty durationDays.
+ */
+function resolveExportDurationDays(task: any): number | "" {
+  if (
+    task?.durationDays != null &&
+    Number.isFinite(Number(task.durationDays)) &&
+    Number(task.durationDays) > 0
+  ) {
+    return Math.round(Number(task.durationDays) * 10) / 10;
+  }
+  const working = workingDaysMonFri(task?.startDate, task?.endDate);
+  if (working !== "") return working;
+  return inclusiveDurationDays(task?.startDate, task?.endDate);
+}
+
+function scheduleKey(title: string, phaseId?: string | null) {
+  return `${phaseId ?? ""}|${String(title || "").trim().toLowerCase()}`;
+}
+
+/** Mark linked schedule tasks as milestones; only emit standalone UI milestones. */
+function prepareMilestonesForMspdiExport(
+  tasks: any[],
+  milestones: any[],
+): { tasks: any[]; standaloneMilestones: any[] } {
+  const milestoneByKey = new Map<string, any>();
+  for (const ms of milestones || []) {
+    milestoneByKey.set(scheduleKey(ms.title, ms.phaseId), ms);
+  }
+  const taskKeys = new Set(
+    (tasks || []).map((t) => scheduleKey(t.title || t.name, t.phaseId || t.phase?.id)),
+  );
+  const markedTasks = (tasks || []).map((t) => {
+    const key = scheduleKey(t.title || t.name, t.phaseId || t.phase?.id);
+    const ms = milestoneByKey.get(key);
+    if (!ms) return t;
+    return {
+      ...t,
+      milestone: true,
+      _milestoneExport: true,
+      _linkedMilestoneId: ms.id,
+    };
+  });
+  const taskIds = new Set((tasks || []).map((t) => t.id).filter(Boolean));
+  const standaloneMilestones = (milestones || []).filter((ms) => {
+    // Linked milestone whose schedule task was omitted from the fetch — still emit it.
+    if (ms.taskId && !taskIds.has(ms.taskId)) {
+      return !taskKeys.has(scheduleKey(ms.title, ms.phaseId));
+    }
+    if (ms.taskId) return false;
+    return !taskKeys.has(scheduleKey(ms.title, ms.phaseId));
+  });
+  return { tasks: markedTasks, standaloneMilestones };
+}
+
 function toMilestoneExportTask(ms: {
   id: string;
   title: string;
   targetDate: string;
   status?: string;
+  taskId?: string | null;
 }): any {
   const day = String(ms.targetDate).split("T")[0];
   const completed = String(ms.status || "").toLowerCase() === "completed";
   return {
-    id: `milestone:${ms.id}`,
+    // Prefer linked task id so predecessor links resolve on round-trip.
+    id: ms.taskId || `milestone:${ms.id}`,
     title: ms.title,
     startDate: day,
     endDate: day,
+    durationDays: 0,
     _milestoneExport: true,
+    milestone: true,
     progressApproved: completed ? 100 : 0,
     priority: "Medium",
   };
@@ -2630,21 +2711,27 @@ function compareMilestoneOrder(a: any, b: any): number {
   return String(a.title || "").localeCompare(String(b.title || ""));
 }
 
-function mspdiDurationXml(task: any): string {
-  if (isMspdiMilestone(task)) {
-    return `<Duration>PT0H0M0S</Duration>`;
-  }
-  // Prefer stored MSP working-day duration over inclusive calendar span.
-  const workingDays = resolveTaskDurationDays(task);
+function mspdiDurationHours(task: any): number {
+  if (isMspdiMilestone(task)) return 0;
+  const workingDays = resolveExportDurationDays(task);
   if (workingDays !== "" && Number(workingDays) > 0) {
-    const hours = Math.max(1, Math.round(Number(workingDays) * 8));
-    return `<Duration>PT${hours}H0M0S</Duration>`;
+    return Math.max(1, Math.round(Number(workingDays) * 8 * 10) / 10);
   }
   if (task.effortHours != null && Number(task.effortHours) > 0) {
-    const hours = Math.round(Number(task.effortHours));
-    return `<Duration>PT${hours}H0M0S</Duration>`;
+    return Math.max(1, Math.round(Number(task.effortHours) * 10) / 10);
   }
-  return "";
+  // Never omit Duration — MS Project marks missing duration as estimated ("1 day?").
+  return 8;
+}
+
+function mspdiDurationXml(task: any): string {
+  const hours = mspdiDurationHours(task);
+  const whole = Math.floor(hours);
+  const minutes = Math.round((hours - whole) * 60);
+  if (minutes > 0) {
+    return `<Duration>PT${whole}H${minutes}M0S</Duration>`;
+  }
+  return `<Duration>PT${whole}H0M0S</Duration>`;
 }
 
 function mspdiWorkXml(task: any): string {
@@ -2734,14 +2821,204 @@ function mspdiBaselineDurationHours(task: any): number | null {
     Number.isFinite(Number(task.baselineDurationDays)) &&
     Number(task.baselineDurationDays) > 0
   ) {
-    return Math.round(Number(task.baselineDurationDays) * 8);
+    return Math.round(Number(task.baselineDurationDays) * 8 * 10) / 10;
   }
+  const working = workingDaysMonFri(
+    task.baselineStart || task.baselineStartDate,
+    task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
+  );
+  if (working !== "") return Number(working) * 8;
   const days = inclusiveDurationDays(
     task.baselineStart || task.baselineStartDate,
     task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
   );
   if (days === "") return null;
   return Number(days) * 8;
+}
+
+/** Earliest start / latest finish from member tasks (and optional extra dates). */
+function rollupMemberDateRange(
+  members: any[],
+  extraDates: { start?: string | Date | null; end?: string | Date | null }[] = [],
+) {
+  const starts: string[] = [];
+  const ends: string[] = [];
+  for (const t of members || []) {
+    if (t?.startDate) starts.push(String(t.startDate));
+    if (t?.endDate) ends.push(String(t.endDate));
+    if (t?.targetDate) {
+      starts.push(String(t.targetDate));
+      ends.push(String(t.targetDate));
+    }
+  }
+  for (const x of extraDates) {
+    if (x.start) starts.push(String(x.start));
+    if (x.end) ends.push(String(x.end));
+  }
+  starts.sort();
+  ends.sort();
+  return {
+    startDate: starts[0] as string | undefined,
+    endDate: ends.length ? (ends[ends.length - 1] as string) : undefined,
+  };
+}
+
+function earlierDate(a?: string | Date | null, b?: string | Date | null) {
+  if (!a) return b || undefined;
+  if (!b) return a;
+  return String(a).slice(0, 10) <= String(b).slice(0, 10) ? a : b;
+}
+
+function laterDate(a?: string | Date | null, b?: string | Date | null) {
+  if (!a) return b || undefined;
+  if (!b) return a;
+  return String(a).slice(0, 10) >= String(b).slice(0, 10) ? a : b;
+}
+
+/** Earliest baseline start / latest baseline finish from members (true baselines only). */
+function rollupMemberBaselineRange(members: any[] = []) {
+  const starts: string[] = [];
+  const ends: string[] = [];
+  for (const t of members || []) {
+    const bs = t?.baselineStart || t?.baselineStartDate;
+    const be =
+      t?.baselineEnd || t?.baselineFinish || t?.baselineFinishDate || t?.baselineEndDate;
+    if (bs) starts.push(String(bs));
+    if (be) ends.push(String(be));
+  }
+  starts.sort();
+  ends.sort();
+  return {
+    baselineStart: starts[0] as string | undefined,
+    baselineEnd: ends.length ? (ends[ends.length - 1] as string) : undefined,
+  };
+}
+
+function resolveBaselineDurationDays(task: any): number | undefined {
+  if (
+    task?.baselineDurationDays != null &&
+    Number.isFinite(Number(task.baselineDurationDays)) &&
+    Number(task.baselineDurationDays) > 0
+  ) {
+    return Math.round(Number(task.baselineDurationDays) * 10) / 10;
+  }
+  const working = workingDaysMonFri(
+    task?.baselineStart || task?.baselineStartDate,
+    task?.baselineEnd || task?.baselineFinish || task?.baselineFinishDate,
+  );
+  if (working !== "") return Number(working);
+  const days = inclusiveDurationDays(
+    task?.baselineStart || task?.baselineStartDate,
+    task?.baselineEnd || task?.baselineFinish || task?.baselineFinishDate,
+  );
+  return days === "" ? undefined : Number(days);
+}
+
+function resolveDurationVarianceDays(task: any): number | undefined {
+  if (
+    task?.durationVarianceDays != null &&
+    Number.isFinite(Number(task.durationVarianceDays))
+  ) {
+    return Math.round(Number(task.durationVarianceDays) * 10) / 10;
+  }
+  const duration = resolveExportDurationDays(task);
+  const baseline = resolveBaselineDurationDays(task);
+  if (duration === "" || baseline == null) return undefined;
+  return Math.round((Number(duration) - Number(baseline)) * 10) / 10;
+}
+
+function projectScheduleExportFields(project: any, memberTasks: any[] = []) {
+  const rolled = rollupMemberDateRange(memberTasks, [
+    { start: project?.startDate, end: project?.endDate },
+  ]);
+  const rolledBaseline = rollupMemberBaselineRange(memberTasks);
+  // Prefer stored project dates, but never shrink below the task rollup span.
+  const startDate = earlierDate(project?.startDate, rolled.startDate) || rolled.startDate;
+  const endDate = laterDate(project?.endDate, rolled.endDate) || rolled.endDate;
+  const durationDays =
+    project?.durationDays != null && Number(project.durationDays) > 0
+      ? Number(project.durationDays)
+      : workingDaysMonFri(startDate, endDate) ||
+        inclusiveDurationDays(startDate, endDate) ||
+        undefined;
+  const baselineStart =
+    project?.baselineStartDate ||
+    project?.baselineStart ||
+    rolledBaseline.baselineStart;
+  const baselineEnd =
+    project?.baselineEndDate ||
+    project?.baselineEnd ||
+    rolledBaseline.baselineEnd;
+  const baselineDurationDays =
+    project?.baselineDurationDays != null &&
+    Number(project.baselineDurationDays) > 0
+      ? Number(project.baselineDurationDays)
+      : workingDaysMonFri(baselineStart, baselineEnd) ||
+        inclusiveDurationDays(baselineStart, baselineEnd) ||
+        undefined;
+  const durationVarianceDays =
+    project?.durationVarianceDays != null &&
+    Number.isFinite(Number(project.durationVarianceDays))
+      ? Number(project.durationVarianceDays)
+      : durationDays != null && baselineDurationDays != null
+        ? Math.round((Number(durationDays) - Number(baselineDurationDays)) * 10) / 10
+        : undefined;
+  const percent =
+    project?.percentComplete != null && Number.isFinite(Number(project.percentComplete))
+      ? Math.max(0, Math.min(100, Math.round(Number(project.percentComplete))))
+      : avgTopLevelProgress(memberTasks);
+  return {
+    startDate,
+    endDate,
+    durationDays,
+    baselineStart,
+    baselineEnd,
+    baselineDurationDays,
+    durationVarianceDays,
+    progressApproved: percent,
+  };
+}
+
+function phaseScheduleExportFields(
+  phase: any,
+  phaseTasks: any[],
+  phaseMilestones: any[] = [],
+) {
+  const members = [...(phaseTasks || []), ...(phaseMilestones || [])];
+  const rolled = rollupMemberDateRange(members, [
+    { start: phase?.startDate, end: phase?.endDate },
+  ]);
+  const rolledBaseline = rollupMemberBaselineRange(phaseTasks || []);
+  const startDate = earlierDate(phase?.startDate, rolled.startDate) || rolled.startDate;
+  const endDate = laterDate(phase?.endDate, rolled.endDate) || rolled.endDate;
+  const durationDays =
+    workingDaysMonFri(startDate, endDate) ||
+    inclusiveDurationDays(startDate, endDate) ||
+    undefined;
+  // Roll up child task baselines only — never invent from current dates.
+  const baselineStart = rolledBaseline.baselineStart;
+  const baselineEnd = rolledBaseline.baselineEnd;
+  const baselineDurationDays =
+    workingDaysMonFri(baselineStart, baselineEnd) ||
+    inclusiveDurationDays(baselineStart, baselineEnd) ||
+    undefined;
+  const durationVarianceDays =
+    durationDays != null &&
+    baselineDurationDays != null &&
+    Number(baselineDurationDays) > 0
+      ? Math.round((Number(durationDays) - Number(baselineDurationDays)) * 10) / 10
+      : undefined;
+  return {
+    startDate,
+    endDate,
+    durationDays,
+    baselineStart,
+    baselineEnd,
+    baselineDurationDays,
+    durationVarianceDays,
+    progressApproved: avgTopLevelProgress(phaseTasks),
+    description: phase?.description,
+  };
 }
 
 function mspdiVarianceXml(task: any): string {
@@ -2753,13 +3030,17 @@ function mspdiVarianceXml(task: any): string {
     task.endDate,
     task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
   );
+  const durVar = resolveDurationVarianceDays(task);
   let xml = "";
   if (startVar !== "") {
-    // StartVariance in tenths of a minute
+    // Variance fields are tenths of a minute (4800 = 1 working day @ 8h).
     xml += `      <StartVariance>${Number(startVar) * 4800}</StartVariance>\n`;
   }
   if (finishVar !== "") {
     xml += `      <FinishVariance>${Number(finishVar) * 4800}</FinishVariance>\n`;
+  }
+  if (durVar != null && Number.isFinite(durVar)) {
+    xml += `      <DurationVariance>${Math.round(Number(durVar) * 4800)}</DurationVariance>\n`;
   }
   return xml;
 }
@@ -2786,19 +3067,277 @@ function renderMppHolidayExceptions(
     .join("\n");
 }
 
+/**
+ * Full Mon–Fri 8–12 / 13–17 week. Non-working days include empty WorkingTimes so
+ * Project → Save As .mpp does not leave null hour ranges (MPXJ effectiveRanges NPE).
+ */
+function renderMppWeekDaysXml(): string {
+  const working = (dayType: number) => `        <WeekDay>
+          <DayType>${dayType}</DayType>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime>
+            <WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime>
+          </WorkingTimes>
+        </WeekDay>`;
+  const off = (dayType: number) => `        <WeekDay>
+          <DayType>${dayType}</DayType>
+          <DayWorking>0</DayWorking>
+          <WorkingTimes/>
+        </WeekDay>`;
+  return `      <WeekDays>
+${off(1)}
+${working(2)}
+${working(3)}
+${working(4)}
+${working(5)}
+${working(6)}
+${off(7)}
+      </WeekDays>`;
+}
+
+function newMspdiGuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().toUpperCase();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  }).toUpperCase();
+}
+
+/** Resource calendar UID: keep Standard as 1; resource N uses calendar N+1. */
+function mspdiResourceCalendarUid(resourceUid: number): number {
+  return resourceUid + 1;
+}
+
+/**
+ * Standard base calendar + one full derived calendar per resource.
+ * Pointing every resource at base alone makes Project invent incomplete calendars
+ * on Save As .mpp, which MPXJ cannot read (effectiveRanges null).
+ */
 function renderMppCalendarsXml(
   holidays: { date: string; name?: string }[] = [],
+  resources: { uid: number; name: string }[] = [],
 ): string {
   const exceptions = renderMppHolidayExceptions(holidays);
-  return `  <Calendars>
+  const weekDays = renderMppWeekDaysXml();
+  let xml = `  <Calendars>
     <Calendar>
       <UID>1</UID>
+      <GUID>${newMspdiGuid()}</GUID>
       <Name>Standard</Name>
       <IsBaseCalendar>1</IsBaseCalendar>
+      <IsBaselineCalendar>0</IsBaselineCalendar>
       <BaseCalendarUID>-1</BaseCalendarUID>
+${weekDays}
 ${exceptions ? `      <Exceptions>\n${exceptions}\n      </Exceptions>` : ""}
     </Calendar>
-  </Calendars>`;
+`;
+  for (const resource of resources) {
+    if (resource.uid <= 0) continue;
+    const calUid = mspdiResourceCalendarUid(resource.uid);
+    xml += `    <Calendar>
+      <UID>${calUid}</UID>
+      <GUID>${newMspdiGuid()}</GUID>
+      <Name>${escMppXml(resource.name)}</Name>
+      <IsBaseCalendar>0</IsBaseCalendar>
+      <IsBaselineCalendar>0</IsBaselineCalendar>
+      <BaseCalendarUID>1</BaseCalendarUID>
+${weekDays}
+    </Calendar>
+`;
+  }
+  xml += `  </Calendars>`;
+  return xml;
+}
+
+// ---------------------------------------------------------------------------
+// MSP round-trip helpers — mirrors mspdi-export.local.ts on the backend
+// ---------------------------------------------------------------------------
+
+const MSP_TASK_TEXT_PIDS = [
+  188743731, 188743734, 188743737, 188743740, 188743743,
+  188743746, 188743747, 188743748, 188743749, 188743750,
+];
+
+/** Map a standard MS Project custom field name (Text1, Number3 …) to its
+ *  numeric FieldID according to official Microsoft Project PjField specifications. */
+function mspBrowserCustomFieldId(
+  fieldName: string,
+  fallbackFieldId?: string,
+): string {
+  // Only accept fallback if it is a genuine 8- or 9-digit MSPDI FieldID (not internal MPXJ ordinal)
+  if (fallbackFieldId && /^\d{8,9}$/.test(fallbackFieldId)) return fallbackFieldId;
+  const m = /^(Text|Number|Flag|Date|Cost|Duration|Start|Finish)(\d+)$/i.exec(
+    fieldName.trim(),
+  );
+  if (!m) return "";
+  const family = m[1].toLowerCase();
+  const index = Number(m[2]);
+  if (!Number.isFinite(index) || index < 1) return "";
+
+  if (family === "text") {
+    if (index <= 10) return String(MSP_TASK_TEXT_PIDS[index - 1]);
+    if (index <= 30) return String(188743997 + (index - 11));
+    return "";
+  }
+  if (family === "number") {
+    if (index <= 5) return String(188743767 + (index - 1));
+    if (index <= 20) return String(188743982 + (index - 6));
+    return "";
+  }
+  if (family === "cost") {
+    if (index <= 3) return String(188743786 + (index - 1));
+    if (index <= 10) return String(188743938 + (index - 4));
+    return "";
+  }
+  if (family === "date") {
+    if (index <= 10) return String(188743945 + (index - 1));
+    return "";
+  }
+  if (family === "duration") {
+    if (index <= 3) return String(188743783 + (index - 1));
+    if (index <= 10) return String(188743955 + (index - 4));
+    return "";
+  }
+  if (family === "flag") {
+    if (index <= 10) return String(188743752 + (index - 1));
+    if (index <= 20) return String(188743972 + (index - 11));
+    return "";
+  }
+  if (family === "start") {
+    if (index <= 5) return String(188743732 + (index - 1) * 3);
+    if (index <= 10) return String(188743962 + (index - 6) * 2);
+    return "";
+  }
+  if (family === "finish") {
+    if (index <= 5) return String(188743733 + (index - 1) * 3);
+    if (index <= 10) return String(188743963 + (index - 6) * 2);
+    return "";
+  }
+  return "";
+}
+
+/** MSPDI ConstraintType numeric codes (same mapping as the server). */
+function mspBrowserConstraintCode(type?: string | null): number {
+  switch ((type || "ASAP").trim().toUpperCase()) {
+    case "ALAP": return 1;
+    case "MSO":  return 2;
+    case "MFO":  return 3;
+    case "SNET": return 4;
+    case "SNLT": return 5;
+    case "FNET": return 6;
+    case "FNLT": return 7;
+    default:     return 0; // ASAP
+  }
+}
+
+/** Emit <Manual>, <ConstraintType>, and optionally <ConstraintDate>. */
+function renderMspScheduleMetaXml(
+  task: any,
+  isSummary: boolean,
+): string {
+  // Summaries are always auto-scheduled so MS Project rolls up children.
+  if (isSummary) {
+    return `      <Manual>0</Manual>\n      <ConstraintType>0</ConstraintType>\n`;
+  }
+  const mode = (task?.mspTaskMode || "").trim().toLowerCase();
+  const manual = mode === "auto" ? 0 : 1;
+  const constraintType = (task?.mspConstraintType || "ASAP");
+  const code = mspBrowserConstraintCode(constraintType);
+  const needsDate = code >= 2; // not ASAP / ALAP
+  const constraintDate =
+    needsDate && task?.mspConstraintDate
+      ? toMppDateTime(task.mspConstraintDate)
+      : "";
+  return (
+    `      <Manual>${manual}</Manual>\n` +
+    `      <ConstraintType>${code}</ConstraintType>\n` +
+    (constraintDate ? `      <ConstraintDate>${constraintDate}</ConstraintDate>\n` : "")
+  );
+}
+
+/** Emit <ExtendedAttribute> entries for mspCustomFields stored on a task. */
+function renderMspCustomFieldsXml(
+  task: any,
+  defs?: Array<{ fieldName: string; index?: number; type?: string; alias?: string; fieldId?: string }> | null,
+): string {
+  const raw = task?.mspCustomFields;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  const aliasToSlot = new Map<string, { name: string; fieldId?: string; alias?: string }>(
+    (defs ?? [])
+      .filter((d) => d.alias?.trim() && d.fieldName?.trim())
+      .map((d) => [
+        d.alias!.trim().toLowerCase(),
+        { name: d.fieldName.trim(), fieldId: d.fieldId, alias: d.alias?.trim() },
+      ]),
+  );
+  const nameToDef = new Map<string, { name: string; fieldId?: string; alias?: string }>(
+    (defs ?? []).map((d) => [
+      d.fieldName.trim().toLowerCase(),
+      { name: d.fieldName.trim(), fieldId: d.fieldId, alias: d.alias?.trim() },
+    ]),
+  );
+  let block = "";
+  const seenFieldIdsInTask = new Set<string>();
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key?.trim()) continue;
+    const text =
+      value == null
+        ? ""
+        : typeof value === "string"
+          ? value.trim()
+          : String(value).trim();
+    if (!text) continue;
+    const slot =
+      aliasToSlot.get(key.trim().toLowerCase()) ??
+      nameToDef.get(key.trim().toLowerCase());
+    const resolvedName = slot?.name || key.trim();
+    // Skip empty/default unaliased slots like Number1="0" or Cost1="0"
+    if (!slot?.alias && (text === "0" || text === "0.00")) continue;
+    const fallbackId = slot?.fieldId;
+    const fieldId = mspBrowserCustomFieldId(resolvedName, fallbackId);
+    if (!fieldId || seenFieldIdsInTask.has(fieldId)) continue;
+    seenFieldIdsInTask.add(fieldId);
+    block += `      <ExtendedAttribute>\n        <FieldID>${escMppXml(fieldId)}</FieldID>\n        <Value>${escMppXml(text)}</Value>\n      </ExtendedAttribute>\n`;
+  }
+  return block;
+}
+
+function mspBrowserCfTypeCode(type?: string, fieldName?: string): string {
+  const t = (type || fieldName || "").toUpperCase();
+  if (t.startsWith("COST")) return "0";
+  if (t.startsWith("DATE")) return "1";
+  if (t.startsWith("DURATION")) return "2";
+  if (t.startsWith("FINISH")) return "3";
+  if (t.startsWith("FLAG")) return "4";
+  if (t.startsWith("NUMBER")) return "5";
+  if (t.startsWith("START")) return "6";
+  return "7"; // Text
+}
+
+/** Emit <ExtendedAttributes> schema block for project-level custom field slots. */
+function renderMspExtendedAttributesDefsXml(
+  defs?: Array<{ fieldName: string; index?: number; type?: string; alias?: string; fieldId?: string }> | null,
+): string {
+  if (!defs?.length) return "";
+  const seenFieldIds = new Set<string>();
+  let block = `  <ExtendedAttributes>\n`;
+  let count = 0;
+  for (const def of defs) {
+    // Only emit definitions for customized fields that have an Alias
+    if (!def.alias?.trim()) continue;
+    const fieldId = mspBrowserCustomFieldId(def.fieldName, def.fieldId);
+    if (!fieldId || seenFieldIds.has(fieldId)) continue;
+    seenFieldIds.add(fieldId);
+    count++;
+    block += `    <ExtendedAttribute>\n      <FieldID>${escMppXml(fieldId)}</FieldID>\n      <FieldName>${escMppXml(def.fieldName)}</FieldName>\n      <CFType>${mspBrowserCfTypeCode(def.type, def.fieldName)}</CFType>\n      <ElemType>20</ElemType>\n      <Alias>${escMppXml(def.alias.trim())}</Alias>\n    </ExtendedAttribute>\n`;
+  }
+  if (count === 0) return "";
+  block += `  </ExtendedAttributes>\n`;
+  return block;
 }
 
 function renderMppTaskXml(opts: {
@@ -2809,24 +3348,22 @@ function renderMppTaskXml(opts: {
   summary: boolean;
   task?: any;
   predecessorXml?: string;
+  /** Per-project MSP custom field definitions for ExtendedAttribute round-trip. */
+  customFieldDefs?: Array<{ fieldName: string; index?: number; type?: string; alias?: string; fieldId?: string }> | null;
 }): string {
-  const { uid, wbs, outlineLevel, name, summary, task, predecessorXml = "" } = opts;
+  const { uid, wbs, outlineLevel, name, summary, task, predecessorXml = "", customFieldDefs } = opts;
   const milestone = task ? isMspdiMilestone(task) : false;
   const start = task ? toMppDateTime(task.startDate) : "";
   const finish = task
     ? toMppDateTime(milestone ? task.startDate || task.endDate : task.endDate, true)
     : "";
+  // Never invent baseline from current dates (summary/project drift).
   const baselineStart = task
-    ? toMppDateTime(
-        task.baselineStart || task.baselineStartDate || task.startDate,
-      )
+    ? toMppDateTime(task.baselineStart || task.baselineStartDate)
     : "";
   const baselineFinish = task
     ? toMppDateTime(
-        task.baselineEnd ||
-          task.baselineFinish ||
-          task.baselineFinishDate ||
-          task.endDate,
+        task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
         true,
       )
     : "";
@@ -2843,13 +3380,20 @@ function renderMppTaskXml(opts: {
       ? toMppDateTime(task.actualEnd || task.endDate, true)
       : "";
 
-  // Flat Baseline* fields + nested <Baseline> so Project populates Baseline / Tracking tables.
+  // Flat Baseline* + nested <Baseline Number=0> (required) so Project shows Baseline columns.
   let baselineBlock = "";
   if (baselineStart || baselineFinish || baselineHours != null) {
     baselineBlock = `      <Baseline>
-${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFinish ? `        <Finish>${baselineFinish}</Finish>\n` : ""}${baselineHours != null ? `        <Duration>PT${baselineHours}H0M0S</Duration>\n` : ""}      </Baseline>
+        <Number>0</Number>
+${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFinish ? `        <Finish>${baselineFinish}</Finish>\n` : ""}${baselineHours != null ? `        <Duration>PT${baselineHours}H0M0S</Duration>\n        <DurationFormat>7</DurationFormat>\n` : ""}      </Baseline>
 `;
   }
+
+  // Summaries: Auto-scheduled so MS Project rolls up children (avoids stuck "1 day").
+  // Leaves: Manual or Auto depending on stored mspTaskMode (renderMspScheduleMetaXml handles it).
+  const resolvedDuration =
+    durationXml ||
+    (summary ? `<Duration>PT0H0M0S</Duration>` : `<Duration>PT8H0M0S</Duration>`);
 
   return `    <Task>
       <UID>${uid}</UID>
@@ -2861,11 +3405,12 @@ ${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFin
       <Type>1</Type>
       <Name>${escMppXml(name)}</Name>
       <Summary>${summary ? 1 : 0}</Summary>
-      <Manual>1</Manual>
+${renderMspScheduleMetaXml(task, summary)}      <Estimated>0</Estimated>
+      <Active>1</Active>
       <Milestone>${milestone ? 1 : 0}</Milestone>
       ${start ? `<Start>${start}</Start>` : ""}
       ${finish ? `<Finish>${finish}</Finish>` : ""}
-      ${durationXml}
+      ${resolvedDuration}
       ${workXml}
       ${baselineStart ? `<BaselineStart>${baselineStart}</BaselineStart>` : ""}
       ${baselineFinish ? `<BaselineFinish>${baselineFinish}</BaselineFinish>` : ""}
@@ -2874,18 +3419,50 @@ ${baselineBlock}${task ? mspdiVarianceXml(task) : ""}      <PercentComplete>${pe
       <PercentWorkComplete>${percent}</PercentWorkComplete>
       ${actualStart ? `<ActualStart>${actualStart}</ActualStart>` : ""}
       ${actualFinish ? `<ActualFinish>${actualFinish}</ActualFinish>` : ""}
+      <CalendarUID>1</CalendarUID>
       <Priority>${task ? mapMppPriority(task.priority) : 500}</Priority>
       <Notes>${escMppXml(task?.description || "")}</Notes>
-${predecessorXml}    </Task>
+${renderMspCustomFieldsXml(task, opts.customFieldDefs)}${predecessorXml}    </Task>
 `;
 }
 
-/** Close Tasks and append Resources + Assignments so Project shows Resource Names. */
-function appendMspdiResourcesAndAssignments(
+function isPlaceholderMspdiResource(name: string) {
+  const n = name.trim().toLowerCase();
+  return (
+    !n ||
+    n === "unassigned" ||
+    n === "none" ||
+    n === "n/a" ||
+    n === "na" ||
+    n === "demo"
+  );
+}
+
+function personOrgForMspdi(
+  person: any,
+  projectOrganization?: string | null,
+): string {
+  if (person?.organization?.trim()) return person.organization.trim();
+  const dept =
+    person?.employees?.[0]?.department?.name ||
+    person?.employees?.department?.name ||
+    person?.department?.name ||
+    "";
+  if (person?.isExternal && projectOrganization?.trim()) {
+    return projectOrganization.trim();
+  }
+  return dept.trim() || projectOrganization?.trim() || "";
+}
+
+/** Collect named resources before Calendars so each gets a full derived calendar. */
+function collectMspdiExportResources(
   tasks: any[],
   idToUid: Map<string, number>,
   projectOrganization?: string | null,
-): string {
+): {
+  resources: { uid: number; name: string }[];
+  assignmentRows: { taskUid: number; resourceUid: number; task: any }[];
+} {
   const resourcesByKey = new Map<string, { uid: number; name: string }>();
   const assignmentRows: { taskUid: number; resourceUid: number; task: any }[] =
     [];
@@ -2900,48 +3477,28 @@ function appendMspdiResourcesAndAssignments(
     return uid;
   };
 
-  const isPlaceholderResource = (name: string) => {
-    const n = name.trim().toLowerCase();
-    return (
-      !n ||
-      n === "unassigned" ||
-      n === "none" ||
-      n === "n/a" ||
-      n === "na" ||
-      n === "demo"
-    );
-  };
-
-  const personOrg = (person: any): string => {
-    if (person?.organization?.trim()) return person.organization.trim();
-    const dept =
-      person?.employees?.[0]?.department?.name ||
-      person?.employees?.department?.name ||
-      person?.department?.name ||
-      "";
-    if (person?.isExternal && projectOrganization?.trim()) {
-      return projectOrganization.trim();
-    }
-    return dept.trim() || projectOrganization?.trim() || "";
-  };
-
   for (const task of tasks) {
     const taskUid = idToUid.get(task.id);
     if (taskUid == null) continue;
     const ownerName = task.owner?.displayName?.trim() || "";
     const backupName = task.backupOwner?.displayName?.trim() || "";
     const merged = mergeExportResourceNames(
-      ownerName && !isPlaceholderResource(ownerName)
-        ? formatResourceName(ownerName, personOrg(task.owner)) || ownerName
+      ownerName && !isPlaceholderMspdiResource(ownerName)
+        ? formatResourceName(
+            ownerName,
+            personOrgForMspdi(task.owner, projectOrganization),
+          ) || ownerName
         : "",
-      backupName && !isPlaceholderResource(backupName)
-        ? formatResourceName(backupName, personOrg(task.backupOwner)) ||
-          backupName
+      backupName && !isPlaceholderMspdiResource(backupName)
+        ? formatResourceName(
+            backupName,
+            personOrgForMspdi(task.backupOwner, projectOrganization),
+          ) || backupName
         : "",
       task.resourceNames,
     );
     for (const name of splitResourceNames(merged)) {
-      if (isPlaceholderResource(name)) continue;
+      if (isPlaceholderMspdiResource(name)) continue;
       assignmentRows.push({
         taskUid,
         resourceUid: ensureResource(name),
@@ -2950,6 +3507,17 @@ function appendMspdiResourcesAndAssignments(
     }
   }
 
+  return {
+    resources: [...resourcesByKey.values()].sort((a, b) => a.uid - b.uid),
+    assignmentRows,
+  };
+}
+
+/** Close Tasks and append Resources + Assignments so Project shows Resource Names. */
+function appendMspdiResourcesAndAssignments(
+  resources: { uid: number; name: string }[],
+  assignmentRows: { taskUid: number; resourceUid: number; task: any }[],
+): string {
   let xml = `  </Tasks>
   <Resources>
     <Resource>
@@ -2961,9 +3529,7 @@ function appendMspdiResourcesAndAssignments(
       <CalendarUID>1</CalendarUID>
     </Resource>
 `;
-  for (const resource of [...resourcesByKey.values()].sort(
-    (a, b) => a.uid - b.uid,
-  )) {
+  for (const resource of resources) {
     xml += `    <Resource>
       <UID>${resource.uid}</UID>
       <ID>${resource.uid}</ID>
@@ -2971,24 +3537,37 @@ function appendMspdiResourcesAndAssignments(
       <Type>1</Type>
       <IsNull>0</IsNull>
       <MaxUnits>1.00</MaxUnits>
-      <CalendarUID>1</CalendarUID>
+      <CalendarUID>${mspdiResourceCalendarUid(resource.uid)}</CalendarUID>
     </Resource>
 `;
   }
   xml += `  </Resources>
   <Assignments>
 `;
+  // Split Units across co-assignees on the same task so Project does not
+  // treat every person as 100% (which inflates to 200%/400% overallocation).
+  const assigneesPerTask = new Map<number, number>();
+  for (const row of assignmentRows) {
+    assigneesPerTask.set(
+      row.taskUid,
+      (assigneesPerTask.get(row.taskUid) || 0) + 1,
+    );
+  }
+
   let assignmentUid = 1_048_577;
   for (const row of assignmentRows) {
     const start = toMppDateTime(row.task.startDate);
     const finish = toMppDateTime(row.task.endDate, true);
     const workXml = mspdiWorkXml(row.task);
     const work = workXml.replace("<Work>", "").replace("</Work>", "");
+    const share = assigneesPerTask.get(row.taskUid) || 1;
+    const units = Math.round((1 / share) * 100) / 100;
+    const unitsAttr = units.toFixed(2);
     xml += `    <Assignment>
       <UID>${assignmentUid++}</UID>
       <ResourceUID>${row.resourceUid}</ResourceUID>
       <TaskUID>${row.taskUid}</TaskUID>
-      <Units>1</Units>
+      <Units>${unitsAttr}</Units>
       ${work ? `<Work>${work}</Work>
       <RegularWork>${work}</RegularWork>
       <RemainingWork>${work}</RemainingWork>` : ""}
@@ -3004,7 +3583,7 @@ function appendMspdiResourcesAndAssignments(
 
 /**
  * Export project schedule as MSPDI XML (opens in MS Project).
- * Phases → outline L1 summaries; tasks keep plan order, % complete, baselines, predecessors.
+ * Outline: OL0 file → L1 project → L2 phase twins → L3+ work.
  */
 export function exportTasksToMspdi(
   tasks: any[],
@@ -3014,17 +3593,42 @@ export function exportTasksToMspdi(
   dependencies: MspdiExportDependency[] = [],
   holidays: { date: string; name?: string }[] = [],
   milestones: any[] = [],
+  projectMeta?: {
+    startDate?: string;
+    endDate?: string;
+    durationDays?: number | null;
+    baselineDurationDays?: number | null;
+    baselineStartDate?: string;
+    baselineEndDate?: string;
+    percentComplete?: number | null;
+    mspCustomFieldDefs?: Array<{ fieldName: string; index?: number; type?: string; alias?: string; fieldId?: string }> | null;
+  },
 ): Blob {
   const idToUid = new Map<string, number>();
+  const { tasks: markedAll, standaloneMilestones } =
+    prepareMilestonesForMspdiExport(tasks || [], milestones || []);
+
+  const twinByPhaseId = new Map<string, any>();
+  for (const t of markedAll) {
+    if (t.isPhaseScheduleTask && (t.phaseId || t.phase?.id)) {
+      twinByPhaseId.set(t.phaseId || t.phase.id, t);
+    }
+  }
+  const twinIds = new Set(
+    [...twinByPhaseId.values()].map((t) => t.id as string),
+  );
+  const markedTasks = markedAll.filter((t) => !t.isPhaseScheduleTask);
 
   const phaseList = [...(phases || [])].sort(
     (a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0),
   );
 
-  const topLevelTasks = tasks.filter((t) => !t.parentTaskId);
+  const topLevelTasks = markedTasks.filter(
+    (t) => !t.parentTaskId || twinIds.has(t.parentTaskId),
+  );
   const subTasksByParent: Record<string, any[]> = {};
-  for (const t of tasks) {
-    if (!t.parentTaskId) continue;
+  for (const t of markedTasks) {
+    if (!t.parentTaskId || twinIds.has(t.parentTaskId)) continue;
     if (!subTasksByParent[t.parentTaskId]) subTasksByParent[t.parentTaskId] = [];
     subTasksByParent[t.parentTaskId].push(t);
   }
@@ -3050,7 +3654,7 @@ export function exportTasksToMspdi(
 
   const milestonesByPhaseId = new Map<string, any[]>();
   const unphasedMilestones: any[] = [];
-  for (const ms of milestones || []) {
+  for (const ms of standaloneMilestones) {
     const phaseId = ms.phaseId || ms.phase?.id;
     if (phaseId) {
       if (!milestonesByPhaseId.has(phaseId)) milestonesByPhaseId.set(phaseId, []);
@@ -3075,24 +3679,40 @@ export function exportTasksToMspdi(
     }
   }
   if (unphased.length > 0 || unphasedMilestones.length > 0) {
-    orderedPhases.push({ id: "__unphased__", name: "Imported Schedule" });
+    orderedPhases.push({ id: "__unphased__", name: "Unphased" });
   }
 
   const projectStart =
+    projectMeta?.startDate ||
     [
-      ...tasks.map((t) => t.startDate),
-      ...(milestones || []).map((m) => m.targetDate),
+      ...markedTasks.map((t) => t.startDate),
+      ...standaloneMilestones.map((m) => m.targetDate),
     ]
       .filter(Boolean)
-      .sort()[0] || phaseList[0]?.startDate;
+      .sort()[0] ||
+    phaseList[0]?.startDate;
   const projectFinish =
+    projectMeta?.endDate ||
     [
-      ...tasks.map((t) => t.endDate),
-      ...(milestones || []).map((m) => m.targetDate),
+      ...markedTasks.map((t) => t.endDate),
+      ...standaloneMilestones.map((m) => m.targetDate),
     ]
       .filter(Boolean)
       .sort()
-      .reverse()[0] || phaseList[phaseList.length - 1]?.endDate;
+      .reverse()[0] ||
+    phaseList[phaseList.length - 1]?.endDate;
+  const rootSchedule = projectScheduleExportFields(
+    {
+      startDate: projectStart,
+      endDate: projectFinish,
+      durationDays: projectMeta?.durationDays,
+      baselineDurationDays: projectMeta?.baselineDurationDays,
+      baselineStart: projectMeta?.baselineStartDate,
+      baselineEnd: projectMeta?.baselineEndDate,
+      percentComplete: projectMeta?.percentComplete,
+    },
+    markedTasks,
+  );
 
   type EmitItem =
     | { kind: "phase"; phaseEntry: (typeof orderedPhases)[0]; phaseIndex: number }
@@ -3141,8 +3761,8 @@ export function exportTasksToMspdi(
       pushTaskTreeToPlan(
         emitPlan,
         t,
-        `${phaseIndex}.${taskIndex}`,
-        2,
+        `1.${phaseIndex}.${taskIndex}`,
+        3,
         subTasksByParent,
       );
     }
@@ -3151,30 +3771,46 @@ export function exportTasksToMspdi(
       emitPlan.push({
         kind: "task",
         task: toMilestoneExportTask(ms),
-        wbs: `${phaseIndex}.${taskIndex}`,
-        outlineLevel: 2,
+        wbs: `1.${phaseIndex}.${taskIndex}`,
+        outlineLevel: 3,
       });
     }
   }
 
-  // Assign UIDs in outline order first so PredecessorLink can resolve any direction.
-  let uid = 1;
+  // UIDs: 1 = L1 project; 2.. = phases then work (so PredecessorLink resolves).
+  const phaseCount = emitPlan.filter((item) => item.kind === "phase").length;
+  let uid = 2 + phaseCount;
   for (const item of emitPlan) {
     if (item.kind === "task") {
       idToUid.set(item.task.id, uid);
+      // Alias linked ProjectMilestone id → same UID for any stray dep keys.
+      if (item.task._linkedMilestoneId) {
+        idToUid.set(`milestone:${item.task._linkedMilestoneId}`, uid);
+      }
+      uid += 1;
     }
-    uid += 1;
   }
+
+  const exportTasks = emitPlan
+    .filter(
+      (item): item is { kind: "task"; task: any; wbs: string; outlineLevel: number } =>
+        item.kind === "task",
+    )
+    .map((item) => item.task);
+  const { resources, assignmentRows } = collectMspdiExportResources(
+    exportTasks,
+    idToUid,
+  );
 
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
-  <SaveVersion>12</SaveVersion>
+  <SaveVersion>14</SaveVersion>
   <Name>${escMppXml(projectName)}</Name>
   <Title>${escMppXml(projectName)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
-  <NewTasksAreManual>1</NewTasksAreManual>
-  ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
-  ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
+  <NewTasksAreManual>0</NewTasksAreManual>
+  ${rootSchedule.startDate ? `<StartDate>${toMppDateTime(rootSchedule.startDate)}</StartDate>` : ""}
+  ${rootSchedule.endDate ? `<FinishDate>${toMppDateTime(rootSchedule.endDate, true)}</FinishDate>` : ""}
   <CalendarUID>1</CalendarUID>
   <DefaultStartTime>08:00:00</DefaultStartTime>
   <DefaultFinishTime>17:00:00</DefaultFinishTime>
@@ -3184,7 +3820,7 @@ export function exportTasksToMspdi(
   <DurationFormat>7</DurationFormat>
   <WorkFormat>2</WorkFormat>
   <TaskUpdatesResource>1</TaskUpdatesResource>
-${renderMppCalendarsXml(holidays)}
+${renderMspExtendedAttributesDefsXml(projectMeta?.mspCustomFieldDefs)}${renderMppCalendarsXml(holidays, resources)}
   <Tasks>
 `;
 
@@ -3194,36 +3830,57 @@ ${renderMppCalendarsXml(holidays)}
     outlineLevel: 0,
     name: projectName,
     summary: true,
+    task: rootSchedule,
+    customFieldDefs: projectMeta?.mspCustomFieldDefs,
   });
 
-  uid = 1;
+  // L1 visible project / plan name (phases sit under it at L2).
+  const projectUid = 1;
+  idToUid.set(`project:${projectName}`, projectUid);
+  xml += renderMppTaskXml({
+    uid: projectUid,
+    wbs: "1",
+    outlineLevel: 1,
+    name: projectName,
+    summary: true,
+    task: rootSchedule,
+    customFieldDefs: projectMeta?.mspCustomFieldDefs,
+  });
+
+  uid = 2;
   for (const item of emitPlan) {
     if (item.kind === "phase") {
       const phaseUid = uid++;
       const phaseObj = item.phaseEntry.phase;
+      const twin =
+        item.phaseEntry.id !== "__unphased__"
+          ? twinByPhaseId.get(item.phaseEntry.id)
+          : undefined;
+      if (twin?.id) {
+        idToUid.set(twin.id, phaseUid);
+      }
       const phaseTasks =
         item.phaseEntry.id === "__unphased__"
           ? unphased
           : tasksByPhaseId.get(item.phaseEntry.id) || [];
+      const phaseMs =
+        item.phaseEntry.id === "__unphased__"
+          ? unphasedMilestones
+          : milestonesByPhaseId.get(item.phaseEntry.id) || [];
+      const phaseTaskPayload = twin
+        ? twin
+        : phaseScheduleExportFields(phaseObj || {}, phaseTasks, phaseMs);
       xml += renderMppTaskXml({
         uid: phaseUid,
-        wbs: String(item.phaseIndex),
-        outlineLevel: 1,
+        wbs: `1.${item.phaseIndex}`,
+        outlineLevel: 2,
         name: item.phaseEntry.name,
         summary: true,
-        task: phaseObj
-          ? {
-              startDate: phaseObj.startDate,
-              endDate: phaseObj.endDate,
-              baselineStart: phaseObj.startDate,
-              baselineEnd: phaseObj.endDate,
-              progressApproved: avgTopLevelProgress(phaseTasks),
-              priority: "Medium",
-              description: phaseObj.description,
-            }
-          : {
-              progressApproved: avgTopLevelProgress(phaseTasks),
-            },
+        task: phaseTaskPayload,
+        predecessorXml: twin
+          ? buildPredecessorLinksXml(twin.id, dependencies, idToUid)
+          : "",
+        customFieldDefs: projectMeta?.mspCustomFieldDefs,
       });
       continue;
     }
@@ -3244,18 +3901,11 @@ ${renderMppCalendarsXml(holidays)}
         dependencies,
         idToUid,
       ),
+      customFieldDefs: projectMeta?.mspCustomFieldDefs,
     });
   }
 
-  xml += appendMspdiResourcesAndAssignments(
-    emitPlan
-      .filter(
-        (item): item is { kind: "task"; task: any; wbs: string; outlineLevel: number } =>
-          item.kind === "task",
-      )
-      .map((item) => item.task),
-    idToUid,
-  );
+  xml += appendMspdiResourcesAndAssignments(resources, assignmentRows);
 
   return new Blob([xml], { type: "application/xml;charset=utf-8" });
 }
@@ -3270,31 +3920,51 @@ export function exportProjectsToMspdi(
   holidays: { date: string; name?: string }[] = [],
   phasesByProjectId: Record<string, any[]> = {},
   milestonesByProjectId: Record<string, any[]> = {},
+  /** Per-project MSP custom field slot definitions (mspCustomFieldDefs from each project). */
+  customFieldDefsByProjectId: Record<string, Array<{ fieldName: string; index?: number; type?: string; alias?: string; fieldId?: string }>> = {},
 ): Blob {
   // Multi-project portfolio: one MSPDI file with each project as an L1 summary.
   // Prefer per-project export from the workspace for full fidelity.
   let uid = 1;
   const idToUid = new Map<string, number>();
 
-  const projectStart = projects
-    .map((p) => p.startDate)
-    .filter(Boolean)
-    .sort()[0];
-  const projectFinish = projects
-    .map((p) => p.endDate)
-    .filter(Boolean)
-    .sort()
-    .reverse()[0];
+  const exportTitle =
+    projects.length === 1
+      ? projects[0]?.name || "Portfolio Export"
+      : "Portfolio Export";
+  const primaryProject = projects.length === 1 ? projects[0] : null;
+  const projectStart =
+    primaryProject?.startDate ||
+    projects
+      .map((p) => p.startDate)
+      .filter(Boolean)
+      .sort()[0];
+  const projectFinish =
+    primaryProject?.endDate ||
+    projects
+      .map((p) => p.endDate)
+      .filter(Boolean)
+      .sort()
+      .reverse()[0];
+  const allTasksForRoot = tasks || [];
+  const rootSchedule = projectScheduleExportFields(
+    primaryProject || {
+      startDate: projectStart,
+      endDate: projectFinish,
+    },
+    allTasksForRoot,
+  );
 
+  // Placeholder until resources are known — Project Save As .mpp needs full calendars.
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
-  <SaveVersion>12</SaveVersion>
-  <Name>Portfolio Export</Name>
-  <Title>Portfolio Export</Title>
+  <SaveVersion>14</SaveVersion>
+  <Name>${escMppXml(exportTitle)}</Name>
+  <Title>${escMppXml(exportTitle)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
-  <NewTasksAreManual>1</NewTasksAreManual>
-  ${projectStart ? `<StartDate>${toMppDateTime(projectStart)}</StartDate>` : ""}
-  ${projectFinish ? `<FinishDate>${toMppDateTime(projectFinish, true)}</FinishDate>` : ""}
+  <NewTasksAreManual>0</NewTasksAreManual>
+  ${rootSchedule.startDate ? `<StartDate>${toMppDateTime(rootSchedule.startDate)}</StartDate>` : ""}
+  ${rootSchedule.endDate ? `<FinishDate>${toMppDateTime(rootSchedule.endDate, true)}</FinishDate>` : ""}
   <CalendarUID>1</CalendarUID>
   <DefaultStartTime>08:00:00</DefaultStartTime>
   <DefaultFinishTime>17:00:00</DefaultFinishTime>
@@ -3304,7 +3974,7 @@ export function exportProjectsToMspdi(
   <DurationFormat>7</DurationFormat>
   <WorkFormat>2</WorkFormat>
   <TaskUpdatesResource>1</TaskUpdatesResource>
-${renderMppCalendarsXml(holidays)}
+__MSPDI_CALENDARS__
   <Tasks>
 `;
 
@@ -3312,10 +3982,13 @@ ${renderMppCalendarsXml(holidays)}
     uid: 0,
     wbs: "0",
     outlineLevel: 0,
-    name: "Portfolio Export",
+    name: exportTitle,
     summary: true,
+    task: rootSchedule,
   });
 
+  // Always emit an L1 project summary (visible name above phases). Phases stay
+  // siblings at L2 under that row — same shape as the original MPP.
   // Pre-assign task UIDs across the whole portfolio for dependency links.
   const emitPlan: Array<
     | { kind: "project"; project: any; projIndex: number }
@@ -3325,9 +3998,42 @@ ${renderMppCalendarsXml(holidays)}
         wbs: string;
         phase?: any;
         phaseTasks: any[];
+        phaseMilestones?: any[];
+        outlineLevel: number;
+        projectId?: string;
       }
     | { kind: "task"; task: any; wbs: string; outlineLevel: number }
   > = [];
+
+  const fieldDefsMap: Record<
+    string,
+    Array<{ fieldName: string; index?: number; type?: string; alias?: string; fieldId?: string }>
+  > = {
+    ...customFieldDefsByProjectId,
+  };
+  for (const p of projects || []) {
+    if (p?.id && p?.mspCustomFieldDefs && !fieldDefsMap[p.id]) {
+      fieldDefsMap[p.id] = p.mspCustomFieldDefs;
+    }
+  }
+
+  const allPortfolioFieldDefs: Array<{
+    fieldName: string;
+    index?: number;
+    type?: string;
+    alias?: string;
+    fieldId?: string;
+  }> = [];
+  const seenSlotKeys = new Set<string>();
+  for (const defs of Object.values(fieldDefsMap)) {
+    for (const d of defs || []) {
+      const key = `${d.fieldName}:${d.alias || ""}`.toLowerCase();
+      if (!seenSlotKeys.has(key)) {
+        seenSlotKeys.add(key);
+        allPortfolioFieldDefs.push(d);
+      }
+    }
+  }
 
   // Build children map once; reused when emitting nested summaries.
   const childrenByParentAll: Record<string, any[]> = {};
@@ -3345,18 +4051,35 @@ ${renderMppCalendarsXml(holidays)}
     projIndex += 1;
     emitPlan.push({ kind: "project", project: proj, projIndex });
 
-    const projTasks = (tasks || []).filter(
+    const rawProjTasks = (tasks || []).filter(
       (t) => t.projectId === proj.id || t.projectName === proj.name,
     );
+    const projectMilestonesRaw = [
+      ...(milestonesByProjectId[proj.id] ?? []),
+    ].sort(compareMilestoneOrder);
+    const { tasks: projTasksAll, standaloneMilestones: projectMilestones } =
+      prepareMilestonesForMspdiExport(rawProjTasks, projectMilestonesRaw);
+
+    // Filter out phase-schedule "twin" tasks so the phase name is not emitted
+    // twice — once as the phase summary row and once as a child work task.
+    // This mirrors the same twin-filtering in exportTasksToMspdi.
+    const projTwinByPhaseId = new Map<string, any>();
+    for (const t of projTasksAll) {
+      if (t.isPhaseScheduleTask && (t.phaseId || t.phase?.id)) {
+        projTwinByPhaseId.set(t.phaseId || t.phase.id, t);
+      }
+    }
+    const projTwinIds = new Set(
+      [...projTwinByPhaseId.values()].map((t) => t.id as string),
+    );
+    const projTasks = projTasksAll.filter((t) => !t.isPhaseScheduleTask);
+
     const topLevel = projTasks
-      .filter((t) => !t.parentTaskId)
+      .filter((t) => !t.parentTaskId || projTwinIds.has(t.parentTaskId))
       .sort(comparePlanOrder);
 
     const projectPhases = [...(phasesByProjectId[proj.id] ?? [])].sort(
       (a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0),
-    );
-    const projectMilestones = [...(milestonesByProjectId[proj.id] ?? [])].sort(
-      compareMilestoneOrder,
     );
 
     const tasksByPhaseId = new Map<string, any[]>();
@@ -3479,6 +4202,9 @@ ${renderMppCalendarsXml(holidays)}
     }
 
     let phaseIndex = 0;
+    // Project (L1) → Phase (L2) → tasks (L3+). Phases are siblings under the project.
+    const phaseOutline = 2;
+    const taskOutline = 3;
     for (const group of phaseGroups) {
       // Keep real empty phases (completeness); skip empty synthetic unphased.
       if (
@@ -3490,12 +4216,16 @@ ${renderMppCalendarsXml(holidays)}
       }
 
       phaseIndex += 1;
+      const phaseWbs = `${projIndex}.${phaseIndex}`;
       emitPlan.push({
         kind: "phase",
         name: group.name,
-        wbs: `${projIndex}.${phaseIndex}`,
+        wbs: phaseWbs,
         phase: group.phase,
         phaseTasks: group.phaseTasks,
+        phaseMilestones: group.phaseMilestones,
+        outlineLevel: phaseOutline,
+        projectId: proj.id,
       });
 
       let taskIndex = 0;
@@ -3514,8 +4244,8 @@ ${renderMppCalendarsXml(holidays)}
         pushTaskTreeToPlan(
           emitPlan,
           t,
-          `${projIndex}.${phaseIndex}.${taskIndex}`,
-          3,
+          `${phaseWbs}.${taskIndex}`,
+          taskOutline,
           childrenByParent,
         );
       }
@@ -3524,21 +4254,51 @@ ${renderMppCalendarsXml(holidays)}
         emitPlan.push({
           kind: "task",
           task: toMilestoneExportTask(ms),
-          wbs: `${projIndex}.${phaseIndex}.${taskIndex}`,
-          outlineLevel: 3,
+          wbs: `${phaseWbs}.${taskIndex}`,
+          outlineLevel: taskOutline,
         });
       }
     }
   }
 
   for (const item of emitPlan) {
-    if (item.kind === "task") idToUid.set(item.task.id, uid);
+    if (item.kind === "task") {
+      idToUid.set(item.task.id, uid);
+      if (item.task._linkedMilestoneId) {
+        idToUid.set(`milestone:${item.task._linkedMilestoneId}`, uid);
+      }
+    }
     uid += 1;
   }
+
+  const portfolioTasks = emitPlan
+    .filter(
+      (item): item is { kind: "task"; task: any; wbs: string; outlineLevel: number } =>
+        item.kind === "task",
+    )
+    .map((item) => item.task);
+  const primaryOrg =
+    primaryProject?.organization ||
+    primaryProject?.customer?.name ||
+    primaryProject?.department?.name ||
+    null;
+  const { resources, assignmentRows } = collectMspdiExportResources(
+    portfolioTasks,
+    idToUid,
+    primaryOrg,
+  );
+  xml = xml.replace(
+    "__MSPDI_CALENDARS__",
+    `${renderMspExtendedAttributesDefsXml(allPortfolioFieldDefs)}${renderMppCalendarsXml(holidays, resources)}`,
+  );
 
   uid = 1;
   for (const item of emitPlan) {
     if (item.kind === "project") {
+      const projMemberTasks = (tasks || []).filter(
+        (t) =>
+          t.projectId === item.project.id || t.projectName === item.project.name,
+      );
       xml += renderMppTaskXml({
         uid: uid++,
         wbs: String(item.projIndex),
@@ -3546,11 +4306,10 @@ ${renderMppCalendarsXml(holidays)}
         name: item.project.name || "",
         summary: true,
         task: {
-          startDate: item.project.startDate,
-          endDate: item.project.endDate,
-          progressApproved: 0,
+          ...projectScheduleExportFields(item.project, projMemberTasks),
           description: item.project.objective,
         },
+        customFieldDefs: fieldDefsMap[item.project.id],
       });
       continue;
     }
@@ -3558,20 +4317,24 @@ ${renderMppCalendarsXml(holidays)}
       xml += renderMppTaskXml({
         uid: uid++,
         wbs: item.wbs,
-        outlineLevel: 2,
+        outlineLevel: item.outlineLevel,
         name: item.name,
         summary: true,
         task: item.phase
-          ? {
-              startDate: item.phase.startDate,
-              endDate: item.phase.endDate,
-              baselineStart: item.phase.startDate,
-              baselineEnd: item.phase.endDate,
-              progressApproved: avgTopLevelProgress(item.phaseTasks),
-            }
+          ? phaseScheduleExportFields(
+              item.phase,
+              item.phaseTasks,
+              item.phaseMilestones || [],
+            )
           : {
+              ...phaseScheduleExportFields(
+                {},
+                item.phaseTasks,
+                item.phaseMilestones || [],
+              ),
               progressApproved: avgTopLevelProgress(item.phaseTasks),
             },
+        customFieldDefs: item.projectId ? fieldDefsMap[item.projectId] : undefined,
       });
       continue;
     }
@@ -3591,18 +4354,11 @@ ${renderMppCalendarsXml(holidays)}
         dependencies,
         idToUid,
       ),
+      customFieldDefs: item.task.projectId ? fieldDefsMap[item.task.projectId] : undefined,
     });
   }
 
-  xml += appendMspdiResourcesAndAssignments(
-    emitPlan
-      .filter(
-        (item): item is { kind: "task"; task: any; wbs: string; outlineLevel: number } =>
-          item.kind === "task",
-      )
-      .map((item) => item.task),
-    idToUid,
-  );
+  xml += appendMspdiResourcesAndAssignments(resources, assignmentRows);
 
   return new Blob([xml], { type: "application/xml;charset=utf-8" });
 }

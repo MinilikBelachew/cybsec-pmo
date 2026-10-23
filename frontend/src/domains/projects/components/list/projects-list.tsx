@@ -523,7 +523,13 @@ export function ProjectsList() {
         id: exportToast,
       });
       const tasksPromises = projectsToExport.map((proj) =>
-        triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
+        triggerExportTasks({
+          projectId: proj.id,
+          topLevelOnly: false,
+          // MPP schedule milestones (Kickoff, Sign-Off, GO-Live) live as tasks
+          // with scheduleMilestone; omit them and Phase 1 exports empty.
+          includeScheduleMilestones: true,
+        }).unwrap()
       );
       const depPromises = projectsToExport.map((proj) =>
         triggerExportDependencies({ projectId: proj.id })
@@ -607,6 +613,12 @@ export function ProjectsList() {
         );
         filename = `projects_export_${new Date().toISOString().split("T")[0]}.doc`;
       } else if (format === "mspdi") {
+        const customFieldDefsByProjectId: Record<string, any[]> = {};
+        for (const p of projectsToExport) {
+          if (p.mspCustomFieldDefs && p.mspCustomFieldDefs.length > 0) {
+            customFieldDefsByProjectId[p.id] = p.mspCustomFieldDefs;
+          }
+        }
         blob = exportProjectsToMspdi(
           projectsToExport,
           departments,
@@ -617,6 +629,7 @@ export function ProjectsList() {
           [],
           phasesByProjectId,
           milestonesByProjectId,
+          customFieldDefsByProjectId,
         );
         filename = `projects_export_${new Date().toISOString().split("T")[0]}.xml`;
       } else {

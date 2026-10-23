@@ -1,17 +1,32 @@
 package com.cybsec.mpxj.service;
 
 import com.cybsec.mpxj.dto.ParsedAssignmentDto;
+import com.cybsec.mpxj.dto.ParsedCustomFieldDefDto;
+import com.cybsec.mpxj.dto.ParsedCustomFieldValueDto;
 import com.cybsec.mpxj.dto.ParsedPredecessorDto;
 import com.cybsec.mpxj.dto.ParsedProjectDto;
 import com.cybsec.mpxj.dto.ParsedProjectPropertiesDto;
 import com.cybsec.mpxj.dto.ParsedResourceDto;
 import com.cybsec.mpxj.dto.ParsedTaskDto;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.mpxj.ConstraintType;
+import org.mpxj.CustomField;
+import org.mpxj.CustomFieldContainer;
 import org.mpxj.Duration;
+import org.mpxj.FieldType;
+import org.mpxj.FieldTypeClass;
+import org.mpxj.Priority;
 import org.mpxj.ProjectCalendar;
-import org.mpxj.ProjectCalendarException;
 import org.mpxj.ProjectFile;
 import org.mpxj.ProjectProperties;
 import org.mpxj.Relation;
@@ -19,6 +34,7 @@ import org.mpxj.RelationType;
 import org.mpxj.Resource;
 import org.mpxj.ResourceAssignment;
 import org.mpxj.Task;
+import org.mpxj.TaskMode;
 import org.mpxj.TimeUnit;
 import org.mpxj.mpp.MPPReader;
 import org.mpxj.mspdi.MSPDIReader;
@@ -30,31 +46,45 @@ import org.springframework.web.multipart.MultipartFile;
 public class MppParseService {
   private static final DateTimeFormatter ISO_DATE_TIME =
       DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+  private static final Pattern CUSTOM_SLOT =
+      Pattern.compile(
+          "^(TEXT|NUMBER|FLAG|DATE|COST|DURATION|START|FINISH)(\\d+)$",
+          Pattern.CASE_INSENSITIVE);
 
   public ParsedProjectDto parse(MultipartFile file) throws Exception {
     if (file == null || file.isEmpty()) {
       throw new IllegalArgumentException("File is required");
     }
 
-    String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
-    if (!filename.endsWith(".mpp") && !filename.endsWith(".mpx") && !filename.endsWith(".xml")) {
-      throw new IllegalArgumentException("Unsupported file type. Use .mpp, .mpx, or MSPDI .xml");
+    String filename =
+        file.getOriginalFilename() == null
+            ? ""
+            : file.getOriginalFilename().toLowerCase(Locale.ROOT);
+    if (!filename.endsWith(".mpp")
+        && !filename.endsWith(".mpx")
+        && !filename.endsWith(".xml")) {
+      throw new IllegalArgumentException(
+          "Unsupported file type. Use .mpp, .mpx, or MSPDI .xml");
+    }
+
+    byte[] bytes;
+    try (InputStream inputStream = file.getInputStream()) {
+      bytes = inputStream.readAllBytes();
     }
 
     ProjectFile project;
-    try (InputStream inputStream = file.getInputStream()) {
+    try {
       if (filename.endsWith(".mpp")) {
-        MPPReader reader = new MPPReader();
-        reader.setReadPresentationData(false);
-        project = reader.read(inputStream);
+        project = readMppResilient(bytes);
       } else if (filename.endsWith(".xml")) {
         // UniversalProjectReader returns null for MSPDI streams (no path sniffing).
-        project = new MSPDIReader().read(inputStream);
+        project = new MSPDIReader().read(new ByteArrayInputStream(bytes));
       } else {
-        project = new UniversalProjectReader().read(inputStream);
+        project = new UniversalProjectReader().read(new ByteArrayInputStream(bytes));
       }
     } catch (Exception error) {
-      String detail = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+      String detail =
+          error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
       throw new IllegalArgumentException(
           "Unable to parse project file ("
               + detail
@@ -67,7 +97,64 @@ public class MppParseService {
       throw new IllegalArgumentException("Unable to parse project file: " + filename);
     }
 
+    ensureUsableDefaultCalendar(project);
     return toDto(project);
+  }
+
+  /**
+   * Prefer a lean MPPReader (no presentation data). On calendar NPEs common with
+   * newer Project binaries, fall back to UniversalProjectReader.
+   */
+  private ProjectFile readMppResilient(byte[] bytes) throws Exception {
+    List<Exception> failures = new ArrayList<>();
+
+    try {
+      MPPReader reader = new MPPReader();
+      reader.setReadPresentationData(false);
+      return reader.read(new ByteArrayInputStream(bytes));
+    } catch (Exception first) {
+      failures.add(first);
+    }
+
+    try {
+      MPPReader reader = new MPPReader();
+      reader.setReadPresentationData(true);
+      return reader.read(new ByteArrayInputStream(bytes));
+    } catch (Exception second) {
+      failures.add(second);
+    }
+
+    try {
+      return new UniversalProjectReader().read(new ByteArrayInputStream(bytes));
+    } catch (Exception third) {
+      failures.add(third);
+    }
+
+    Exception primary = failures.get(0);
+    for (int i = 1; i < failures.size(); i++) {
+      primary.addSuppressed(failures.get(i));
+    }
+    throw primary;
+  }
+
+  /** Avoid null default calendars that break duration/work conversion later. */
+  private void ensureUsableDefaultCalendar(ProjectFile project) {
+    try {
+      if (project.getDefaultCalendar() != null) {
+        return;
+      }
+      if (project.getCalendars() != null) {
+        for (ProjectCalendar calendar : project.getCalendars()) {
+          if (calendar != null) {
+            project.setDefaultCalendar(calendar);
+            return;
+          }
+        }
+      }
+      project.addDefaultBaseCalendar();
+    } catch (Exception ignored) {
+      // Best-effort — schedule rows may still import without calendar math.
+    }
   }
 
   private ParsedProjectDto toDto(ProjectFile project) {
@@ -86,11 +173,10 @@ public class MppParseService {
       }
 
       Double rowCost = toPositiveCost(task.getCost());
-      if (
-          Boolean.TRUE.equals(task.getSummary())
-              && task.getOutlineLevel() != null
-              && task.getOutlineLevel() == 0
-              && rowCost != null) {
+      if (Boolean.TRUE.equals(task.getSummary())
+          && task.getOutlineLevel() != null
+          && task.getOutlineLevel() == 0
+          && rowCost != null) {
         properties.setCost(rowCost);
       }
 
@@ -127,6 +213,18 @@ public class MppParseService {
       parsedTask.setActualFinishDate(formatDate(task.getActualFinish()));
       parsedTask.setPercentComplete(toPercent(task.getPercentageComplete()));
       parsedTask.setCost(rowCost);
+      parsedTask.setPriority(toPriorityValue(task.getPriority()));
+      parsedTask.setTaskMode(toTaskMode(task.getTaskMode()));
+      parsedTask.setConstraintType(toConstraintTypeCode(task.getConstraintType()));
+      // ASAP/ALAP typically have no meaningful constraint date (Project shows NA).
+      if (needsConstraintDate(parsedTask.getConstraintType())) {
+        parsedTask.setConstraintDate(formatDate(task.getConstraintDate()));
+      }
+      String notes = task.getNotes();
+      if (notes != null && !notes.isBlank()) {
+        parsedTask.setNotes(notes.trim());
+      }
+      parsedTask.setCustomFields(readTaskCustomValues(task, projectProperties));
 
       Task parent = task.getParentTask();
       if (parent != null && parent.getUniqueID() != null) {
@@ -152,6 +250,8 @@ public class MppParseService {
 
       dto.getTasks().add(parsedTask);
     }
+
+    dto.setCustomFieldDefs(buildCustomFieldDefs(project, dto.getTasks()));
 
     // Prefer outline-0 project summary for schedule/baseline at project level.
     ParsedTaskDto projectSummary = null;
@@ -218,11 +318,17 @@ public class MppParseService {
     }
 
     int exceptionDays = 0;
-    for (org.mpxj.ProjectCalendar calendar : project.getCalendars()) {
-      if (calendar == null || calendar.getCalendarExceptions() == null) {
-        continue;
+    try {
+      if (project.getCalendars() != null) {
+        for (ProjectCalendar calendar : project.getCalendars()) {
+          if (calendar == null || calendar.getCalendarExceptions() == null) {
+            continue;
+          }
+          exceptionDays += calendar.getCalendarExceptions().size();
+        }
       }
-      exceptionDays += calendar.getCalendarExceptions().size();
+    } catch (Exception ignored) {
+      // Newer MPP calendars can NPE on hours/ranges; skip holiday warning only.
     }
     if (exceptionDays > 0) {
       dto.getWarnings()
@@ -235,11 +341,245 @@ public class MppParseService {
     return dto;
   }
 
-  private String formatDate(java.time.LocalDateTime value) {
+  private String formatDate(LocalDateTime value) {
     if (value == null) {
       return null;
     }
     return value.format(ISO_DATE_TIME);
+  }
+
+  /**
+   * Catalog = aliased task custom fields ∪ any slot that has a non-empty value on at least one
+   * task. Values themselves are only the non-empty ones (see {@link #readTaskCustomValues}).
+   */
+  private List<ParsedCustomFieldDefDto> buildCustomFieldDefs(
+      ProjectFile project, List<ParsedTaskDto> tasks) {
+    Map<String, ParsedCustomFieldDefDto> defs = new LinkedHashMap<>();
+
+    CustomFieldContainer container = project.getCustomFields();
+    if (container != null) {
+      for (CustomField field : container) {
+        if (field == null || field.getFieldType() == null) {
+          continue;
+        }
+        FieldType type = field.getFieldType();
+        if (type.getFieldTypeClass() != FieldTypeClass.TASK) {
+          continue;
+        }
+        ParsedCustomFieldDefDto def = toCustomFieldDef(type, field.getAlias());
+        if (def == null) {
+          continue;
+        }
+        // Keep aliased fields even with no values yet.
+        String alias = field.getAlias();
+        if (alias != null && !alias.isBlank()) {
+          def.setAlias(alias.trim());
+          defs.put(def.getFieldName(), def);
+        } else if (!defs.containsKey(def.getFieldName())) {
+          defs.put(def.getFieldName(), def);
+        }
+      }
+    }
+
+    for (ParsedTaskDto task : tasks) {
+      if (task.getCustomFields() == null) {
+        continue;
+      }
+      for (ParsedCustomFieldValueDto value : task.getCustomFields()) {
+        if (value == null || value.getFieldName() == null || value.getFieldName().isBlank()) {
+          continue;
+        }
+        String name = value.getFieldName().trim();
+        if (defs.containsKey(name)) {
+          continue;
+        }
+        ParsedCustomFieldDefDto inferred = inferDefFromFieldName(name);
+        if (inferred != null) {
+          defs.put(name, inferred);
+        }
+      }
+    }
+
+    // Drop defs that have neither alias nor any task value.
+    Map<String, Boolean> used = new LinkedHashMap<>();
+    for (ParsedTaskDto task : tasks) {
+      if (task.getCustomFields() == null) {
+        continue;
+      }
+      for (ParsedCustomFieldValueDto value : task.getCustomFields()) {
+        if (value != null && value.getFieldName() != null) {
+          used.put(value.getFieldName().trim(), Boolean.TRUE);
+        }
+      }
+    }
+
+    List<ParsedCustomFieldDefDto> result = new ArrayList<>();
+    for (ParsedCustomFieldDefDto def : defs.values()) {
+      boolean hasAlias = def.getAlias() != null && !def.getAlias().isBlank();
+      boolean hasValue = Boolean.TRUE.equals(used.get(def.getFieldName()));
+      if (hasAlias || hasValue) {
+        result.add(def);
+      }
+    }
+    return result;
+  }
+
+  private ParsedCustomFieldDefDto toCustomFieldDef(FieldType type, String alias) {
+    String raw = type.name();
+    if (raw == null) {
+      return null;
+    }
+    Matcher matcher = CUSTOM_SLOT.matcher(raw);
+    if (!matcher.matches()) {
+      return null;
+    }
+    String family = matcher.group(1).toUpperCase(Locale.ROOT);
+    int index = Integer.parseInt(matcher.group(2));
+    if (!isSupportedIndex(family, index)) {
+      return null;
+    }
+    ParsedCustomFieldDefDto def = new ParsedCustomFieldDefDto();
+    def.setType(family);
+    def.setIndex(index);
+    def.setFieldName(toFieldName(family, index));
+    if (alias != null && !alias.isBlank()) {
+      def.setAlias(alias.trim());
+    }
+    try {
+      def.setFieldId(String.valueOf(type.getValue()));
+    } catch (Exception ignored) {
+      // optional
+    }
+    return def;
+  }
+
+  private ParsedCustomFieldDefDto inferDefFromFieldName(String fieldName) {
+    Matcher m =
+        Pattern.compile(
+                "^(Text|Number|Flag|Date|Cost|Duration|Start|Finish)(\\d+)$",
+                Pattern.CASE_INSENSITIVE)
+            .matcher(fieldName);
+    if (!m.matches()) {
+      return null;
+    }
+    String family = m.group(1).toUpperCase(Locale.ROOT);
+    int index = Integer.parseInt(m.group(2));
+    if (!isSupportedIndex(family, index)) {
+      return null;
+    }
+    ParsedCustomFieldDefDto def = new ParsedCustomFieldDefDto();
+    def.setType(family);
+    def.setIndex(index);
+    def.setFieldName(toFieldName(family, index));
+    def.setFieldId(String.valueOf(mspFieldId(family, index)));
+    return def;
+  }
+
+  private boolean isSupportedIndex(String family, int index) {
+    return switch (family) {
+      case "TEXT" -> index >= 1 && index <= 30;
+      case "NUMBER", "FLAG" -> index >= 1 && index <= 20;
+      case "DATE", "COST", "DURATION", "START", "FINISH" -> index >= 1 && index <= 10;
+      default -> false;
+    };
+  }
+
+  private String toFieldName(String family, int index) {
+    String label =
+        switch (family) {
+          case "TEXT" -> "Text";
+          case "NUMBER" -> "Number";
+          case "FLAG" -> "Flag";
+          case "DATE" -> "Date";
+          case "COST" -> "Cost";
+          case "DURATION" -> "Duration";
+          case "START" -> "Start";
+          case "FINISH" -> "Finish";
+          default -> family;
+        };
+    return label + index;
+  }
+
+  /** Local MSP custom field PIDs (pjCustomTask*). */
+  private int mspFieldId(String family, int index) {
+    int base =
+        switch (family) {
+          case "TEXT" -> 188743731;
+          case "FLAG" -> 188743752;
+          case "NUMBER" -> 188743767;
+          case "DURATION" -> 188743783;
+          case "COST" -> 188743786;
+          case "DATE" -> 188743945;
+          case "START" -> 188743971;
+          case "FINISH" -> 188743973;
+          default -> 188743731;
+        };
+    return base + (index - 1);
+  }
+
+  private List<ParsedCustomFieldValueDto> readTaskCustomValues(
+      Task task, ProjectProperties properties) {
+    List<ParsedCustomFieldValueDto> values = new ArrayList<>();
+
+    for (int i = 1; i <= 30; i++) {
+      String text = task.getText(i);
+      if (text != null && !text.isBlank()) {
+        values.add(new ParsedCustomFieldValueDto("Text" + i, text.trim()));
+      }
+    }
+    for (int i = 1; i <= 20; i++) {
+      Number number = task.getNumber(i);
+      if (number != null && Double.isFinite(number.doubleValue())) {
+        values.add(new ParsedCustomFieldValueDto("Number" + i, stripNumber(number)));
+      }
+    }
+    for (int i = 1; i <= 20; i++) {
+      // Flags default to false; only preserve true so empty slots stay empty.
+      if (Boolean.TRUE.equals(task.getFlag(i))) {
+        values.add(new ParsedCustomFieldValueDto("Flag" + i, "true"));
+      }
+    }
+    for (int i = 1; i <= 10; i++) {
+      LocalDateTime date = task.getDate(i);
+      if (date != null) {
+        values.add(new ParsedCustomFieldValueDto("Date" + i, formatDate(date)));
+      }
+    }
+    for (int i = 1; i <= 10; i++) {
+      Number cost = task.getCost(i);
+      if (cost != null && Double.isFinite(cost.doubleValue())) {
+        values.add(new ParsedCustomFieldValueDto("Cost" + i, stripNumber(cost)));
+      }
+    }
+    for (int i = 1; i <= 10; i++) {
+      Duration duration = task.getDuration(i);
+      Double days = toDurationDays(duration, properties);
+      if (days != null) {
+        values.add(new ParsedCustomFieldValueDto("Duration" + i, stripNumber(days)));
+      }
+    }
+    for (int i = 1; i <= 10; i++) {
+      LocalDateTime start = task.getStart(i);
+      if (start != null) {
+        values.add(new ParsedCustomFieldValueDto("Start" + i, formatDate(start)));
+      }
+    }
+    for (int i = 1; i <= 10; i++) {
+      LocalDateTime finish = task.getFinish(i);
+      if (finish != null) {
+        values.add(new ParsedCustomFieldValueDto("Finish" + i, formatDate(finish)));
+      }
+    }
+
+    return values;
+  }
+
+  private String stripNumber(Number value) {
+    double d = value.doubleValue();
+    if (Math.rint(d) == d) {
+      return String.valueOf((long) d);
+    }
+    return String.valueOf(d);
   }
 
   private Double toDurationDays(Duration duration, ProjectProperties properties) {
@@ -247,14 +587,20 @@ public class MppParseService {
       return null;
     }
 
-    double days = Duration.convertUnits(
-            duration.getDuration(), duration.getUnits(), TimeUnit.DAYS, properties)
-        .getDuration();
-    if (days <= 0) {
+    try {
+      double days =
+          Duration.convertUnits(
+                  duration.getDuration(), duration.getUnits(), TimeUnit.DAYS, properties)
+              .getDuration();
+      // Keep 0 days (valid MSP value for milestones / some summaries); reject negatives only.
+      if (days < 0 || !Double.isFinite(days)) {
+        return null;
+      }
+      // One decimal place matches MSP display (e.g. 66.1 / 115.1).
+      return Math.round(days * 10.0) / 10.0;
+    } catch (Exception ignored) {
       return null;
     }
-    // One decimal place matches MSP display (e.g. 66.1 / 115.1).
-    return Math.round(days * 10.0) / 10.0;
   }
 
   private Double toWorkHours(Duration work, ProjectProperties properties) {
@@ -262,13 +608,17 @@ public class MppParseService {
       return null;
     }
 
-    double hours = Duration.convertUnits(
-            work.getDuration(), work.getUnits(), TimeUnit.HOURS, properties)
-        .getDuration();
-    if (hours <= 0) {
+    try {
+      double hours =
+          Duration.convertUnits(work.getDuration(), work.getUnits(), TimeUnit.HOURS, properties)
+              .getDuration();
+      if (hours <= 0) {
+        return null;
+      }
+      return Math.round(hours * 10.0) / 10.0;
+    } catch (Exception ignored) {
       return null;
     }
-    return Math.round(hours * 10.0) / 10.0;
   }
 
   private Double toPositiveCost(Number value) {
@@ -289,13 +639,71 @@ public class MppParseService {
     return (int) Math.round(value.doubleValue());
   }
 
+  /** MSP Priority value 0–1000 (null → omit; Nest defaults to Medium). */
+  private Integer toPriorityValue(Priority priority) {
+    if (priority == null) {
+      return null;
+    }
+    try {
+      int value = priority.getValue();
+      if (value < 0) {
+        return 0;
+      }
+      if (value > 1000) {
+        return 1000;
+      }
+      return value;
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  private String toTaskMode(TaskMode mode) {
+    if (mode == null) {
+      return "Manual";
+    }
+    return mode == TaskMode.AUTO_SCHEDULED ? "Auto" : "Manual";
+  }
+
+  private String toConstraintTypeCode(ConstraintType type) {
+    if (type == null) {
+      return "ASAP";
+    }
+    return switch (type) {
+      case AS_SOON_AS_POSSIBLE -> "ASAP";
+      case AS_LATE_AS_POSSIBLE -> "ALAP";
+      case MUST_START_ON -> "MSO";
+      case MUST_FINISH_ON -> "MFO";
+      case START_NO_EARLIER_THAN -> "SNET";
+      case START_NO_LATER_THAN -> "SNLT";
+      case FINISH_NO_EARLIER_THAN -> "FNET";
+      case FINISH_NO_LATER_THAN -> "FNLT";
+      default -> "ASAP";
+    };
+  }
+
+  private boolean needsConstraintDate(String code) {
+    if (code == null || code.isBlank()) {
+      return false;
+    }
+    return switch (code.trim().toUpperCase(Locale.ROOT)) {
+      case "ASAP", "ALAP" -> false;
+      default -> true;
+    };
+  }
+
   private Integer toLagDays(Duration lag, ProjectProperties properties) {
     if (lag == null) {
       return 0;
     }
-    return (int) Math.round(
-        Duration.convertUnits(lag.getDuration(), lag.getUnits(), TimeUnit.DAYS, properties)
-            .getDuration());
+    try {
+      return (int)
+          Math.round(
+              Duration.convertUnits(lag.getDuration(), lag.getUnits(), TimeUnit.DAYS, properties)
+                  .getDuration());
+    } catch (Exception ignored) {
+      return 0;
+    }
   }
 
   private Integer toUnitsPercent(Number units) {

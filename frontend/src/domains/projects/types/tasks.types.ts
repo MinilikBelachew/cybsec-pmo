@@ -87,6 +87,8 @@ export interface TaskSubTask {
   /** Nested children from MPP / import (any depth). */
   subTasks?: TaskSubTask[];
   isScheduleMilestone?: boolean;
+  isPhaseScheduleTask?: boolean;
+  planRowId?: number | null;
 }
 
 export interface Task {
@@ -116,11 +118,20 @@ export interface Task {
   phaseId: string | null;
   isPhaseGate?: boolean;
   isScheduleMilestone?: boolean;
+  isPhaseScheduleTask?: boolean;
+  planRowId?: number | null;
   isOnCriticalPath?: boolean;
   backupOwnerId?: string | null;
   backupOwner?: TaskUserSummary;
   /** Original MPP Resource Names cell (matched + unmatched) for export round-trip. */
   resourceNames?: string | null;
+  /** MSP local custom field values keyed by slot (Text1, Flag2, …). */
+  mspCustomFields?: Record<string, string> | null;
+  /** Manual | Auto — preserved for MSP round-trip (read-only in Schedule). */
+  mspTaskMode?: string | null;
+  /** ASAP | ALAP | SNET | FNET | SNLT | FNLT | MSO | MFO */
+  mspConstraintType?: string | null;
+  mspConstraintDate?: string | null;
   scheduleImpact?: TaskScheduleImpact | null;
   createdAt: string;
   updatedAt: string;
@@ -312,6 +323,8 @@ export interface TaskDependencyTaskSummary {
   ownerId: string | null;
   owner?: TaskUserSummary | null;
   isScheduleMilestone?: boolean;
+  isPhaseScheduleTask?: boolean;
+  planRowId?: number | null;
 }
 
 export interface TaskDependency {

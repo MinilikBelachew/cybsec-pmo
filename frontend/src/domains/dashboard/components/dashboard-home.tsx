@@ -205,7 +205,12 @@ export function DashboardHome() {
           id: exportToast,
         });
         const tasksPromises = projectsToExport.map((proj) =>
-          triggerExportTasks({ projectId: proj.id, topLevelOnly: false }).unwrap()
+          triggerExportTasks({
+            projectId: proj.id,
+            topLevelOnly: false,
+            // Include MPP schedule-milestone tasks so phases (e.g. Phase 1) are not empty.
+            includeScheduleMilestones: true,
+          }).unwrap()
         );
         const depPromises = projectsToExport.map((proj) =>
           triggerExportDependencies({ projectId: proj.id })

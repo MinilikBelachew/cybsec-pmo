@@ -7,6 +7,8 @@ import com.cybsec.mpxj.dto.MspdiExportProjectPropertiesDto;
 import com.cybsec.mpxj.dto.MspdiExportRequest;
 import com.cybsec.mpxj.dto.MspdiExportResourceDto;
 import com.cybsec.mpxj.dto.MspdiExportTaskDto;
+import com.cybsec.mpxj.dto.ParsedCustomFieldDefDto;
+import com.cybsec.mpxj.dto.ParsedCustomFieldValueDto;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -17,8 +19,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.mpxj.ConstraintType;
+import org.mpxj.CustomField;
 import org.mpxj.Duration;
 import org.mpxj.Priority;
 import org.mpxj.ProjectCalendar;
@@ -29,6 +36,7 @@ import org.mpxj.RelationType;
 import org.mpxj.Resource;
 import org.mpxj.ResourceAssignment;
 import org.mpxj.Task;
+import org.mpxj.TaskField;
 import org.mpxj.TaskMode;
 import org.mpxj.TaskType;
 import org.mpxj.TimeUnit;
@@ -43,6 +51,11 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class MspdiExportService {
+  private static final Pattern CUSTOM_SLOT =
+      Pattern.compile(
+          "^(Text|Number|Flag|Date|Cost|Duration|Start|Finish)(\\d+)$",
+          Pattern.CASE_INSENSITIVE);
+
   public byte[] exportMspdi(MspdiExportRequest request) throws Exception {
     if (request == null || request.getTasks() == null || request.getTasks().isEmpty()) {
       throw new IllegalArgumentException("Export requires at least one task");
@@ -75,6 +88,12 @@ public class MspdiExportService {
     projectProperties.setName(name);
     projectProperties.setNewTasksAreManual(true);
 
+    List<ParsedCustomFieldDefDto> customFieldDefs =
+        request.getCustomFieldDefs() != null
+            ? request.getCustomFieldDefs()
+            : List.of();
+    applyCustomFieldDefs(project, customFieldDefs);
+
     LocalDateTime projectStart = parseDateTime(props != null ? props.getStartDate() : null, false);
     LocalDateTime projectFinish = parseDateTime(props != null ? props.getFinishDate() : null, true);
     if (projectStart != null) {
@@ -104,11 +123,11 @@ public class MspdiExportService {
       if (baselineFinish != null) {
         projectSummary.setBaselineFinish(baselineFinish);
       }
-      if (props.getDurationDays() != null && props.getDurationDays() > 0) {
+      if (props.getDurationDays() != null && props.getDurationDays() >= 0) {
         projectSummary.setDuration(
             Duration.getInstance(props.getDurationDays(), TimeUnit.DAYS));
       }
-      if (props.getBaselineDurationDays() != null && props.getBaselineDurationDays() > 0) {
+      if (props.getBaselineDurationDays() != null && props.getBaselineDurationDays() >= 0) {
         projectSummary.setBaselineDuration(
             Duration.getInstance(props.getBaselineDurationDays(), TimeUnit.DAYS));
       }
@@ -147,7 +166,7 @@ public class MspdiExportService {
                 ? byId.get(dto.getParentId())
                 : projectSummary;
         Task task = parent != null ? parent.addTask() : project.addTask();
-        applyTask(task, dto);
+        applyTask(task, dto, customFieldDefs);
         byId.put(dto.getId(), task);
         created.add(dto.getId());
         progress = true;
@@ -191,6 +210,12 @@ public class MspdiExportService {
         if (resourceDto.getEmail() != null && !resourceDto.getEmail().isBlank()) {
           resource.setEmailAddress(resourceDto.getEmail().trim());
         }
+        // Full derived calendar (not bare BaseCalendarUID) so Project Save As .mpp
+        // keeps working hours readable by MPXJ.
+        ProjectCalendar resourceCalendar = project.addDefaultDerivedCalendar();
+        resourceCalendar.setName(resourceDto.getName().trim());
+        resourceCalendar.setParent(calendar);
+        resource.setCalendar(resourceCalendar);
         resourcesById.put(resourceDto.getId(), resource);
       }
     }
@@ -222,17 +247,29 @@ public class MspdiExportService {
     return output.toByteArray();
   }
 
-  private void applyTask(Task task, MspdiExportTaskDto dto) {
+  private void applyTask(
+      Task task, MspdiExportTaskDto dto, List<ParsedCustomFieldDefDto> customFieldDefs) {
     task.setName(dto.getName() == null ? "Task" : dto.getName().trim());
     if (dto.getOutlineLevel() != null) {
       task.setOutlineLevel(dto.getOutlineLevel());
     }
     task.setSummary(dto.isSummary());
-    task.setTaskMode(TaskMode.MANUALLY_SCHEDULED);
+    task.setTaskMode(resolveTaskMode(dto.getTaskMode()));
     task.setType(TaskType.FIXED_DURATION);
 
     if (dto.isMilestone()) {
       task.setMilestone(true);
+    }
+
+    ConstraintType constraintType = resolveConstraintType(dto.getConstraintType());
+    if (constraintType != null) {
+      task.setConstraintType(constraintType);
+    }
+    if (needsConstraintDate(dto.getConstraintType())) {
+      LocalDateTime constraintDate = parseDateTime(dto.getConstraintDate(), false);
+      if (constraintDate != null) {
+        task.setConstraintDate(constraintDate);
+      }
     }
 
     LocalDateTime start = parseDateTime(dto.getStartDate(), false);
@@ -256,7 +293,7 @@ public class MspdiExportService {
     if (dto.isMilestone()) {
       task.setDuration(Duration.getInstance(0, TimeUnit.DAYS));
       task.setWork(Duration.getInstance(0, TimeUnit.HOURS));
-    } else if (dto.getDurationDays() != null && dto.getDurationDays() > 0) {
+    } else if (dto.getDurationDays() != null && dto.getDurationDays() >= 0) {
       task.setDuration(Duration.getInstance(dto.getDurationDays(), TimeUnit.DAYS));
     }
 
@@ -264,7 +301,7 @@ public class MspdiExportService {
       task.setWork(Duration.getInstance(dto.getWorkHours(), TimeUnit.HOURS));
     }
 
-    if (dto.getBaselineDurationDays() != null && dto.getBaselineDurationDays() > 0) {
+    if (dto.getBaselineDurationDays() != null && dto.getBaselineDurationDays() >= 0) {
       task.setBaselineDuration(
           Duration.getInstance(dto.getBaselineDurationDays(), TimeUnit.DAYS));
     }
@@ -287,6 +324,173 @@ public class MspdiExportService {
 
     if (dto.getNotes() != null && !dto.getNotes().isBlank()) {
       task.setNotes(dto.getNotes());
+    }
+
+    applyCustomFieldValues(task, dto.getCustomFields(), customFieldDefs);
+  }
+
+  private void applyCustomFieldDefs(ProjectFile project, List<ParsedCustomFieldDefDto> defs) {
+    if (defs == null || defs.isEmpty()) {
+      return;
+    }
+    for (ParsedCustomFieldDefDto def : defs) {
+      if (def == null || def.getFieldName() == null) {
+        continue;
+      }
+      TaskField field = resolveTaskField(def.getFieldName());
+      if (field == null) {
+        continue;
+      }
+      try {
+        CustomField custom = project.getCustomFields().getOrCreate(field);
+        if (def.getAlias() != null && !def.getAlias().isBlank()) {
+          custom.setAlias(def.getAlias().trim());
+        }
+      } catch (Exception ignored) {
+        // Best-effort — values can still export without alias metadata.
+      }
+    }
+  }
+
+  private String resolveCustomSlotName(
+      String rawName, List<ParsedCustomFieldDefDto> defs) {
+    if (rawName == null || rawName.isBlank()) {
+      return null;
+    }
+    String trimmed = rawName.trim();
+    if (CUSTOM_SLOT.matcher(trimmed).matches()) {
+      return trimmed;
+    }
+    if (defs == null) {
+      return null;
+    }
+    String key = trimmed.toLowerCase(Locale.ROOT);
+    for (ParsedCustomFieldDefDto def : defs) {
+      if (def == null || def.getFieldName() == null) {
+        continue;
+      }
+      if (def.getFieldName().trim().equalsIgnoreCase(trimmed)) {
+        return def.getFieldName().trim();
+      }
+      if (def.getAlias() != null && def.getAlias().trim().equalsIgnoreCase(key)) {
+        return def.getFieldName().trim();
+      }
+    }
+    return null;
+  }
+
+  private void applyCustomFieldValues(
+      Task task,
+      List<ParsedCustomFieldValueDto> values,
+      List<ParsedCustomFieldDefDto> defs) {
+    if (values == null || values.isEmpty()) {
+      return;
+    }
+    for (ParsedCustomFieldValueDto entry : values) {
+      if (entry == null
+          || entry.getFieldName() == null
+          || entry.getValue() == null
+          || entry.getValue().isBlank()) {
+        continue;
+      }
+      String slotName = resolveCustomSlotName(entry.getFieldName(), defs);
+      if (slotName == null) {
+        continue;
+      }
+      Matcher matcher = CUSTOM_SLOT.matcher(slotName);
+      if (!matcher.matches()) {
+        continue;
+      }
+      String family = matcher.group(1).toUpperCase(Locale.ROOT);
+      int index = Integer.parseInt(matcher.group(2));
+      String raw = entry.getValue().trim();
+      try {
+        switch (family) {
+          case "TEXT" -> task.setText(index, raw);
+          case "NUMBER" -> task.setNumber(index, Double.parseDouble(raw));
+          case "FLAG" ->
+              task.setFlag(
+                  index,
+                  "true".equalsIgnoreCase(raw)
+                      || "1".equals(raw)
+                      || "yes".equalsIgnoreCase(raw));
+          case "DATE" -> {
+            LocalDateTime date = parseDateTime(raw, false);
+            if (date != null) {
+              task.setDate(index, date);
+            }
+          }
+          case "COST" -> task.setCost(index, Double.parseDouble(raw));
+          case "DURATION" ->
+              task.setDuration(index, Duration.getInstance(Double.parseDouble(raw), TimeUnit.DAYS));
+          case "START" -> {
+            LocalDateTime start = parseDateTime(raw, false);
+            if (start != null) {
+              task.setStart(index, start);
+            }
+          }
+          case "FINISH" -> {
+            LocalDateTime finish = parseDateTime(raw, true);
+            if (finish != null) {
+              task.setFinish(index, finish);
+            }
+          }
+          default -> {
+            // ignore unsupported
+          }
+        }
+      } catch (Exception ignored) {
+        // Skip malformed custom values rather than failing the whole export.
+      }
+    }
+  }
+
+  private TaskMode resolveTaskMode(String mode) {
+    if (mode != null && mode.trim().equalsIgnoreCase("Auto")) {
+      return TaskMode.AUTO_SCHEDULED;
+    }
+    return TaskMode.MANUALLY_SCHEDULED;
+  }
+
+  private ConstraintType resolveConstraintType(String code) {
+    if (code == null || code.isBlank()) {
+      return ConstraintType.AS_SOON_AS_POSSIBLE;
+    }
+    return switch (code.trim().toUpperCase(Locale.ROOT)) {
+      case "ALAP" -> ConstraintType.AS_LATE_AS_POSSIBLE;
+      case "MSO" -> ConstraintType.MUST_START_ON;
+      case "MFO" -> ConstraintType.MUST_FINISH_ON;
+      case "SNET" -> ConstraintType.START_NO_EARLIER_THAN;
+      case "SNLT" -> ConstraintType.START_NO_LATER_THAN;
+      case "FNET" -> ConstraintType.FINISH_NO_EARLIER_THAN;
+      case "FNLT" -> ConstraintType.FINISH_NO_LATER_THAN;
+      case "ASAP" -> ConstraintType.AS_SOON_AS_POSSIBLE;
+      default -> ConstraintType.AS_SOON_AS_POSSIBLE;
+    };
+  }
+
+  private boolean needsConstraintDate(String code) {
+    if (code == null || code.isBlank()) {
+      return false;
+    }
+    return switch (code.trim().toUpperCase(Locale.ROOT)) {
+      case "ASAP", "ALAP" -> false;
+      default -> true;
+    };
+  }
+
+  private TaskField resolveTaskField(String fieldName) {
+    Matcher matcher = CUSTOM_SLOT.matcher(fieldName.trim());
+    if (!matcher.matches()) {
+      return null;
+    }
+    String family = matcher.group(1).toUpperCase(Locale.ROOT);
+    int index = Integer.parseInt(matcher.group(2));
+    String enumName = family + index;
+    try {
+      return TaskField.valueOf(enumName);
+    } catch (Exception ignored) {
+      return null;
     }
   }
 
