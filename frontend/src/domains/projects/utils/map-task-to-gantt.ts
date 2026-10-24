@@ -151,17 +151,17 @@ function mapSubTaskToGanttRow(
 ): GanttTaskRow {
   const subInitials = sub.owner?.displayName
     ? sub.owner.displayName
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
     : "UA";
 
   const nested =
     sub.subTasks?.length
       ? [...sub.subTasks]
-          .sort(comparePlanOrderAsc)
-          .map((child) => mapSubTaskToGanttRow(child, sub.id, depth + 1, phase))
+        .sort(comparePlanOrderAsc)
+        .map((child) => mapSubTaskToGanttRow(child, sub.id, depth + 1, phase))
       : undefined;
 
   return {
@@ -206,10 +206,10 @@ export function mapTaskToGanttRow(
 ): GanttTaskRow {
   const initials = task.owner?.displayName
     ? task.owner.displayName
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
     : "UA";
 
   const phase = {
@@ -220,8 +220,8 @@ export function mapTaskToGanttRow(
 
   const children: GanttTaskRow[] | undefined = task.subTasks?.length
     ? [...task.subTasks]
-        .sort(comparePlanOrderAsc)
-        .map((sub) => mapSubTaskToGanttRow(sub, task.id, 1, phase))
+      .sort(comparePlanOrderAsc)
+      .map((sub) => mapSubTaskToGanttRow(sub, task.id, 1, phase))
     : undefined;
 
   return {

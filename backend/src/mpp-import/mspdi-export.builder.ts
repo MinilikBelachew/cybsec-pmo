@@ -44,6 +44,7 @@ type TaskRow = {
   baselineDurationDays: unknown;
   effortHours: number | null;
   progressApproved: number;
+  status?: string | null;
   priority: string;
   createdAt: Date;
   ownerId: string | null;
@@ -63,7 +64,7 @@ type TaskRow = {
 export class MspdiExportBuilder {
   private readonly logger = new Logger(MspdiExportBuilder.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   /**
    * Load project schedule and map to the payload expected by mpxj-service /export/mspdi.
@@ -137,6 +138,7 @@ export class MspdiExportBuilder {
         baselineDurationDays: true,
         effortHours: true,
         progressApproved: true,
+        status: true,
         priority: true,
         createdAt: true,
         ownerId: true,
@@ -251,12 +253,12 @@ export class MspdiExportBuilder {
       ),
       durationVarianceDays:
         projectRollup.durationDays != null &&
-        projectRollup.baselineDurationDays != null
+          projectRollup.baselineDurationDays != null
           ? Math.round(
-              (Number(projectRollup.durationDays) -
-                Number(projectRollup.baselineDurationDays)) *
-                10,
-            ) / 10
+            (Number(projectRollup.durationDays) -
+              Number(projectRollup.baselineDurationDays)) *
+            10,
+          ) / 10
           : undefined,
       percentComplete: projectRollup.percentComplete,
       priority: 500,
@@ -299,8 +301,8 @@ export class MspdiExportBuilder {
           durationVarianceDays:
             durationDays != null && baselineDurationDays != null
               ? Math.round(
-                  (Number(durationDays) - Number(baselineDurationDays)) * 10,
-                ) / 10
+                (Number(durationDays) - Number(baselineDurationDays)) * 10,
+              ) / 10
               : undefined,
           percentComplete: Math.max(
             0,
@@ -344,10 +346,10 @@ export class MspdiExportBuilder {
           durationVarianceDays:
             rollup.durationDays != null && rollup.baselineDurationDays != null
               ? Math.round(
-                  (Number(rollup.durationDays) -
-                    Number(rollup.baselineDurationDays)) *
-                    10,
-                ) / 10
+                (Number(rollup.durationDays) -
+                  Number(rollup.baselineDurationDays)) *
+                10,
+              ) / 10
               : undefined,
           percentComplete: rollup.percentComplete,
           priority: 500,
@@ -393,10 +395,10 @@ export class MspdiExportBuilder {
         durationVarianceDays:
           rollup.durationDays != null && rollup.baselineDurationDays != null
             ? Math.round(
-                (Number(rollup.durationDays) -
-                  Number(rollup.baselineDurationDays)) *
-                  10,
-              ) / 10
+              (Number(rollup.durationDays) -
+                Number(rollup.baselineDurationDays)) *
+              10,
+            ) / 10
             : undefined,
         percentComplete: rollup.percentComplete,
         priority: 500,
@@ -427,9 +429,6 @@ export class MspdiExportBuilder {
         this.decimalToNumber(task.durationDays) ??
         this.inclusiveDays(task.startDate, task.endDate);
       const workHours = this.decimalToNumber(task.effortHours);
-      const baselineDurationDays =
-        this.decimalToNumber(task.baselineDurationDays) ??
-        this.inclusiveDays(task.baselineStart, task.baselineEnd);
 
       const isMilestone = Boolean(task.isScheduleMilestone);
       const storedDuration = this.decimalToNumber(task.durationDays);
@@ -446,6 +445,16 @@ export class MspdiExportBuilder {
         : explicitDurationDays;
       const isZeroMilestone = isMilestone && resolvedDurationDays === 0;
 
+      const storedBaselineDuration = this.decimalToNumber(
+        task.baselineDurationDays,
+      );
+      const baselineDurationDays = isMilestone
+        ? storedBaselineDuration != null && storedBaselineDuration > 0
+          ? storedBaselineDuration
+          : 0
+        : storedBaselineDuration ??
+        this.inclusiveDays(task.baselineStart, task.baselineEnd);
+
       exportTasks.push({
         id: task.id,
         name: task.title,
@@ -456,7 +465,9 @@ export class MspdiExportBuilder {
         startDate: start,
         finishDate: isZeroMilestone ? start : finish,
         baselineStart,
-        baselineFinish,
+        baselineFinish: isZeroMilestone
+          ? baselineStart || baselineFinish
+          : baselineFinish,
         durationDays: resolvedDurationDays,
         workHours: isZeroMilestone ? 0 : workHours,
         baselineDurationDays,
@@ -465,11 +476,20 @@ export class MspdiExportBuilder {
         durationVarianceDays:
           resolvedDurationDays != null && baselineDurationDays != null
             ? Math.round(
-                (Number(resolvedDurationDays) - Number(baselineDurationDays)) *
-                  10,
-              ) / 10
+              (Number(resolvedDurationDays) - Number(baselineDurationDays)) *
+              10,
+            ) / 10
             : undefined,
-        percentComplete: Math.max(0, Math.min(100, task.progressApproved ?? 0)),
+        percentComplete: (() => {
+          const lower = String(task.status || '').toLowerCase().trim();
+          if (lower === 'done' || lower === 'approved' || lower === 'completed') return 100;
+          if (lower === 'to_do' || lower === 'to do') return 0;
+          if (typeof task.progressApproved === 'number') {
+            return Math.max(0, Math.min(100, Math.round(task.progressApproved)));
+          }
+          if (lower === 'in_progress' || lower === 'in progress') return 50;
+          return 0;
+        })(),
         priority: this.mapPriority(task.priority),
         notes: task.description ?? undefined,
         resourceNames: this.mergedResourceNames(task, projectOrganization),
@@ -504,9 +524,14 @@ export class MspdiExportBuilder {
           milestone: true,
           outlineLevel: 3,
           startDate: start,
-          finishDate: toMspdiDateTime(ms.targetDate, true, tz),
-          percentComplete:
-            String(ms.status).toLowerCase() === 'completed' ? 100 : 0,
+          finishDate: start,
+          durationDays: 0,
+          baselineDurationDays: 0,
+          percentComplete: ['completed', 'done', 'approved'].includes(
+            String(ms.status || '').toLowerCase().trim(),
+          )
+            ? 100
+            : 0,
           priority: 500,
         });
       }
@@ -528,9 +553,14 @@ export class MspdiExportBuilder {
           milestone: true,
           outlineLevel: 3,
           startDate: start,
-          finishDate: toMspdiDateTime(ms.targetDate, true, tz),
-          percentComplete:
-            String(ms.status).toLowerCase() === 'completed' ? 100 : 0,
+          finishDate: start,
+          durationDays: 0,
+          baselineDurationDays: 0,
+          percentComplete: ['completed', 'done', 'approved'].includes(
+            String(ms.status || '').toLowerCase().trim(),
+          )
+            ? 100
+            : 0,
           priority: 500,
         });
       }
@@ -580,7 +610,7 @@ export class MspdiExportBuilder {
         : undefined);
     const percentComplete =
       project.percentComplete != null &&
-      Number.isFinite(Number(project.percentComplete))
+        Number.isFinite(Number(project.percentComplete))
         ? Math.max(0, Math.min(100, Math.round(Number(project.percentComplete))))
         : this.averageProgress(tasks);
 
@@ -633,7 +663,7 @@ export class MspdiExportBuilder {
       constraintDate:
         needsDate && task.mspConstraintDate
           ? toMspdiDateTime(task.mspConstraintDate, false, timeZone) ||
-            undefined
+          undefined
           : undefined,
     };
   }
@@ -674,12 +704,12 @@ export class MspdiExportBuilder {
 
   private toCustomFieldDefsPayload(raw: unknown):
     | {
-        fieldName: string;
-        index?: number;
-        type?: string;
-        alias?: string;
-        fieldId?: string;
-      }[]
+      fieldName: string;
+      index?: number;
+      type?: string;
+      alias?: string;
+      fieldId?: string;
+    }[]
     | undefined {
     if (!Array.isArray(raw) || raw.length === 0) return undefined;
     const out: {
@@ -780,15 +810,15 @@ export class MspdiExportBuilder {
   ): string | undefined {
     const owner = task.owner?.displayName?.trim()
       ? this.formatResourceName(
-          task.owner.displayName,
-          this.resolvePersonOrganization(task.owner, projectOrganization),
-        )
+        task.owner.displayName,
+        this.resolvePersonOrganization(task.owner, projectOrganization),
+      )
       : '';
     const backup = task.backupOwner?.displayName?.trim()
       ? this.formatResourceName(
-          task.backupOwner.displayName,
-          this.resolvePersonOrganization(task.backupOwner, projectOrganization),
-        )
+        task.backupOwner.displayName,
+        this.resolvePersonOrganization(task.backupOwner, projectOrganization),
+      )
       : '';
     const merged = mergeExportResourceNames(owner, backup, task.resourceNames);
     return merged || undefined;
@@ -891,12 +921,26 @@ export class MspdiExportBuilder {
     return Math.max(1, count);
   }
 
-  private averageProgress(members: { progressApproved?: number | null }[]): number {
+  private averageProgress(
+    members: { progressApproved?: number | null; status?: string | null }[],
+  ): number {
     if (members.length === 0) return 0;
-    const sum = members.reduce(
-      (acc, t) => acc + Math.max(0, Math.min(100, t.progressApproved ?? 0)),
-      0,
-    );
+    const sum = members.reduce((acc, t) => {
+      const lower = String(t.status || '').toLowerCase().trim();
+      if (lower === 'done' || lower === 'approved' || lower === 'completed') {
+        return acc + 100;
+      }
+      if (lower === 'to_do' || lower === 'to do') {
+        return acc;
+      }
+      if (typeof t.progressApproved === 'number') {
+        return acc + Math.max(0, Math.min(100, Math.round(t.progressApproved)));
+      }
+      if (lower === 'in_progress' || lower === 'in progress') {
+        return acc + 50;
+      }
+      return acc;
+    }, 0);
     return Math.round(sum / members.length);
   }
 

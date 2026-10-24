@@ -282,7 +282,11 @@ public class MspdiExportService {
     }
 
     LocalDateTime baselineStart = parseDateTime(dto.getBaselineStart(), false);
-    LocalDateTime baselineFinish = parseDateTime(dto.getBaselineFinish(), true);
+    LocalDateTime baselineFinish = parseDateTime(
+        dto.isMilestone()
+            ? (dto.getBaselineStart() != null ? dto.getBaselineStart() : dto.getBaselineFinish())
+            : dto.getBaselineFinish(),
+        !dto.isMilestone());
     if (baselineStart != null) {
       task.setBaselineStart(baselineStart);
     }
@@ -293,6 +297,7 @@ public class MspdiExportService {
     if (dto.isMilestone()) {
       task.setDuration(Duration.getInstance(0, TimeUnit.DAYS));
       task.setWork(Duration.getInstance(0, TimeUnit.HOURS));
+      task.setBaselineDuration(Duration.getInstance(0, TimeUnit.DAYS));
     } else if (dto.getDurationDays() != null && dto.getDurationDays() >= 0) {
       task.setDuration(Duration.getInstance(dto.getDurationDays(), TimeUnit.DAYS));
     }
@@ -301,7 +306,7 @@ public class MspdiExportService {
       task.setWork(Duration.getInstance(dto.getWorkHours(), TimeUnit.HOURS));
     }
 
-    if (dto.getBaselineDurationDays() != null && dto.getBaselineDurationDays() >= 0) {
+    if (!dto.isMilestone() && dto.getBaselineDurationDays() != null && dto.getBaselineDurationDays() >= 0) {
       task.setBaselineDuration(
           Duration.getInstance(dto.getBaselineDurationDays(), TimeUnit.DAYS));
     }

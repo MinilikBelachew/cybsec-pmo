@@ -151,14 +151,20 @@ function pushTaskTree(
     baselineFinish,
     baselineDurationDays:
       task.baselineDurationDays != null &&
-      Number.isFinite(Number(task.baselineDurationDays)) &&
-      Number(task.baselineDurationDays) > 0
+        Number.isFinite(Number(task.baselineDurationDays)) &&
+        Number(task.baselineDurationDays) > 0
         ? Math.round(Number(task.baselineDurationDays) * 10) / 10
         : inclusiveDurationDays(baselineStart, baselineFinish),
-    percentComplete:
-      typeof task.progressApproved === "number"
-        ? Math.max(0, Math.min(100, Math.round(task.progressApproved)))
-        : 0,
+    percentComplete: (() => {
+      const lower = String(task.status || "").toLowerCase().trim();
+      if (lower === "done" || lower === "approved" || lower === "completed") return 100;
+      if (lower === "to_do" || lower === "to do") return 0;
+      if (typeof task.progressApproved === "number") {
+        return Math.max(0, Math.min(100, Math.round(task.progressApproved)));
+      }
+      if (lower === "in_progress" || lower === "in progress") return 50;
+      return 0;
+    })(),
     resourceNames: taskResourceNames(task, projectOrganization),
     notes: task.description || "",
     milestone: isMilestone && children.length === 0,
@@ -183,7 +189,11 @@ function pushMilestone(
     start,
     finish: start,
     durationDays: 0,
-    percentComplete: String(milestone.status).toLowerCase() === "completed" ? 100 : 0,
+    percentComplete: ["completed", "done", "approved"].includes(
+      String(milestone.status || "").toLowerCase().trim(),
+    )
+      ? 100
+      : 0,
     notes: "",
     milestone: true,
   });
@@ -352,9 +362,9 @@ function buildOutline(options: BuildMspExcelOptions): OutlineNode[] {
         options.project.baselineDurationDays != null
           ? Number(options.project.baselineDurationDays)
           : inclusiveDurationDays(
-              options.project.baselineStartDate,
-              options.project.baselineEndDate,
-            ),
+            options.project.baselineStartDate,
+            options.project.baselineEndDate,
+          ),
       percentComplete:
         typeof options.project.percentComplete === "number"
           ? Math.max(0, Math.min(100, Math.round(options.project.percentComplete)))

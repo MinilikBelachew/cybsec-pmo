@@ -698,12 +698,12 @@ export function processRawPhaseRows(
   const getIdx = (aliases: string[]) =>
     headers.findIndex((h) => aliases.includes(h));
 
-  const nameIdx   = getIdx(["name", "phase name", "phase"]);
-  const descIdx   = getIdx(["description", "desc", "details"]);
-  const orderIdx  = getIdx(["order", "order index", "orderindex", "sequence"]);
+  const nameIdx = getIdx(["name", "phase name", "phase"]);
+  const descIdx = getIdx(["description", "desc", "details"]);
+  const orderIdx = getIdx(["order", "order index", "orderindex", "sequence"]);
   const statusIdx = getIdx(["status", "phase status"]);
-  const startIdx  = getIdx(["start date", "start"]);
-  const endIdx    = getIdx(["end date", "end"]);
+  const startIdx = getIdx(["start date", "start"]);
+  const endIdx = getIdx(["end date", "end"]);
 
   // TC-M1.8-02 — skip blank / junk phase name rows from trailing Excel cells.
   const dataRows = rawRows.filter((row) =>
@@ -714,14 +714,14 @@ export function processRawPhaseRows(
     const getVal = (idx: number, fallback = "") =>
       idx !== -1 && row[idx] ? normalizeImportCell(row[idx]) || fallback : fallback;
 
-    const name        = getVal(nameIdx);
+    const name = getVal(nameIdx);
     const description = getVal(descIdx);
-    const rawOrder    = getVal(orderIdx, String(i + 1));
-    const orderIndex  = parseInt(rawOrder, 10) || i + 1;
-    const rawStatus   = getVal(statusIdx, "Planned");
-    const status      = normalizePhaseStatus(rawStatus);
-    const startDate   = getVal(startIdx);
-    const endDate     = getVal(endIdx);
+    const rawOrder = getVal(orderIdx, String(i + 1));
+    const orderIndex = parseInt(rawOrder, 10) || i + 1;
+    const rawStatus = getVal(statusIdx, "Planned");
+    const status = normalizePhaseStatus(rawStatus);
+    const startDate = getVal(startIdx);
+    const endDate = getVal(endIdx);
 
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -806,11 +806,11 @@ export function processRawMilestoneRows(
   const getIdx = (aliases: string[]) =>
     headers.findIndex((h) => aliases.includes(h));
 
-  const titleIdx      = getIdx(["title", "milestone", "milestone name"]);
+  const titleIdx = getIdx(["title", "milestone", "milestone name"]);
   const targetDateIdx = getIdx(["target date", "due date", "date"]);
-  const weightIdx     = getIdx(["weight", "weight (%)", "percent"]);
-  const statusIdx     = getIdx(["status", "milestone status"]);
-  const phaseIdx      = getIdx(["phase", "phase name"]);
+  const weightIdx = getIdx(["weight", "weight (%)", "percent"]);
+  const statusIdx = getIdx(["status", "milestone status"]);
+  const phaseIdx = getIdx(["phase", "phase name"]);
 
   // TC-M1.8-02 — skip blank / junk milestone title rows from trailing Excel cells.
   const dataRows = rawRows.filter((row) =>
@@ -821,13 +821,13 @@ export function processRawMilestoneRows(
     const getVal = (idx: number, fallback = "") =>
       idx !== -1 && row[idx] ? normalizeImportCell(row[idx]) || fallback : fallback;
 
-    const title      = getVal(titleIdx);
+    const title = getVal(titleIdx);
     const targetDate = getVal(targetDateIdx);
-    const rawWeight  = getVal(weightIdx, "0");
-    const weight     = parseFloat(rawWeight.replace(/[^0-9.-]/g, "")) || 0;
-    const rawStatus  = getVal(statusIdx, "Pending");
-    const status     = normalizeMilestoneStatus(rawStatus);
-    const phaseName  = getVal(phaseIdx);
+    const rawWeight = getVal(weightIdx, "0");
+    const weight = parseFloat(rawWeight.replace(/[^0-9.-]/g, "")) || 0;
+    const rawStatus = getVal(statusIdx, "Pending");
+    const status = normalizeMilestoneStatus(rawStatus);
+    const phaseName = getVal(phaseIdx);
 
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -875,10 +875,10 @@ export function generateProjectsXLSXTemplate(
 ): ArrayBuffer {
   const wb = XLSX.utils.book_new();
 
-  const deptName = departments[0]?.name            || "Security";
-  const custName = customers[0]?.displayName        || "Acme Corp";
-  const pm1Name  = managers[0]?.displayName         || "John Doe";
-  const pm2Name  = managers[1]?.displayName         || "";
+  const deptName = departments[0]?.name || "Security";
+  const custName = customers[0]?.displayName || "Acme Corp";
+  const pm1Name = managers[0]?.displayName || "John Doe";
+  const pm2Name = managers[1]?.displayName || "";
   const projectHeaders = [
     "Name", "Objective", "Department", "Customer",
     "Engagement Type", "Billing Model", "Priority",
@@ -909,9 +909,9 @@ export function generateProjectsXLSXTemplate(
     "Name", "Description", "Order", "Status", "Start Date", "End Date",
   ];
   const phaseRows = [
-    ["Discovery & Planning", "Kick-off, scoping and requirement gathering.", "1", "Active",  "2026-07-01", "2026-07-31"],
+    ["Discovery & Planning", "Kick-off, scoping and requirement gathering.", "1", "Active", "2026-07-01", "2026-07-31"],
     ["Assessment Execution", "Run vulnerability scans and penetration tests.", "2", "Planned", "2026-08-01", "2026-09-15"],
-    ["Reporting & Closure",  "Compile findings and present final report.",     "3", "Planned", "2026-09-16", "2026-09-30"],
+    ["Reporting & Closure", "Compile findings and present final report.", "3", "Planned", "2026-09-16", "2026-09-30"],
   ];
   const phaseWS = XLSX.utils.aoa_to_sheet([phaseHeaders, ...phaseRows]);
   XLSX.utils.book_append_sheet(wb, phaseWS, "Security Assessment Phases");
@@ -953,8 +953,8 @@ export function generateProjectsXLSXTemplate(
   ];
   const milestoneRows = [
     ["Scope Document Approved", "2026-07-10", "20", "Pending", "Discovery & Planning"],
-    ["Assessment Complete",     "2026-09-15", "50", "Pending", "Assessment Execution"],
-    ["Final Report Delivered",  "2026-09-30", "30", "Pending", "Reporting & Closure"],
+    ["Assessment Complete", "2026-09-15", "50", "Pending", "Assessment Execution"],
+    ["Final Report Delivered", "2026-09-30", "30", "Pending", "Reporting & Closure"],
   ];
   const milestoneWS = XLSX.utils.aoa_to_sheet([milestoneHeaders, ...milestoneRows]);
   XLSX.utils.book_append_sheet(wb, milestoneWS, "Security Assessment Milestones");
@@ -972,7 +972,7 @@ export function generateTasksXLSXTemplate(
   const wb = XLSX.utils.book_new();
 
   const defaultAssignee = assignees[0]?.displayName || "Team Member";
-  const defaultPhase    = phases[0]?.name            || "Phase 1";
+  const defaultPhase = phases[0]?.name || "Phase 1";
 
   const headers = [
     "Title",
@@ -1080,7 +1080,7 @@ export interface ParsedProjectRow {
   resolvedCustomerId?: string;
   resolvedPrimaryPmId?: string;
   resolvedSecondaryPmId?: string | null;
-  
+
   errors: string[];
   warnings: string[];
 }
@@ -1626,11 +1626,11 @@ export function revalidateParsedTaskRow(
 
   const { importMode, resolvedTaskId } = existingTasks
     ? resolveTaskImportMatch(
-        updated.title,
-        updated.parentTaskTitle,
-        existingTasks,
-        claimedExistingIds,
-      )
+      updated.title,
+      updated.parentTaskTitle,
+      existingTasks,
+      claimedExistingIds,
+    )
     : { importMode: updated.importMode, resolvedTaskId: updated.resolvedTaskId };
 
   let isStartValid = false;
@@ -1849,7 +1849,7 @@ export function revalidateParsedTaskRow(
         : undefined,
     baselineDurationDays:
       updated.baselineDurationDays != null &&
-      Number.isFinite(Number(updated.baselineDurationDays))
+        Number.isFinite(Number(updated.baselineDurationDays))
         ? Math.round(Number(updated.baselineDurationDays) * 10) / 10
         : undefined,
     progressApproved:
@@ -2358,14 +2358,14 @@ export function exportProjectsToWord(
       <table class="kv">
         <tbody>
           ${headers
-            .map(
-              (field) => `
+        .map(
+          (field) => `
             <tr>
               <th>${escapeHtml(field)}</th>
               <td>${escapeHtml(allData[field] !== undefined ? allData[field] : "")}</td>
             </tr>`,
-            )
-            .join("")}
+        )
+        .join("")}
         </tbody>
       </table>
     `;
@@ -2386,10 +2386,10 @@ export function exportProjectsToWord(
           </thead>
           <tbody>
             ${phases
-              .slice()
-              .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
-              .map(
-                (phase) => `
+          .slice()
+          .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+          .map(
+            (phase) => `
               <tr>
                 <td>${escapeHtml(phase.name)}</td>
                 <td>${escapeHtml(phase.description ?? "")}</td>
@@ -2398,8 +2398,8 @@ export function exportProjectsToWord(
                 <td>${escapeHtml(toExportDay(phase.startDate))}</td>
                 <td>${escapeHtml(toExportDay(phase.endDate))}</td>
               </tr>`,
-              )
-              .join("")}
+          )
+          .join("")}
           </tbody>
         </table>
       `;
@@ -2420,12 +2420,12 @@ export function exportProjectsToWord(
           </thead>
           <tbody>
             ${milestones
-              .map((ms) => {
-                const phaseLabel =
-                  ms.phase?.name ||
-                  (ms.phaseId ? phaseNameById.get(ms.phaseId) ?? "" : "") ||
-                  "";
-                return `
+          .map((ms) => {
+            const phaseLabel =
+              ms.phase?.name ||
+              (ms.phaseId ? phaseNameById.get(ms.phaseId) ?? "" : "") ||
+              "";
+            return `
               <tr>
                 <td>${escapeHtml(ms.title)}</td>
                 <td>${escapeHtml(toExportDay(ms.targetDate))}</td>
@@ -2433,8 +2433,8 @@ export function exportProjectsToWord(
                 <td>${escapeHtml(ms.status ?? "")}</td>
                 <td>${escapeHtml(phaseLabel)}</td>
               </tr>`;
-              })
-              .join("")}
+          })
+          .join("")}
           </tbody>
         </table>
       `;
@@ -2577,12 +2577,19 @@ function mapMppPriority(p: string) {
 }
 
 function mapMppPercent(task: any): number {
+  const lower = String(task.status || "").toLowerCase().trim();
+  if (lower === "done" || lower === "approved" || lower === "completed") {
+    return 100;
+  }
+  if (lower === "to_do" || lower === "to do") {
+    return 0;
+  }
   if (typeof task.progressApproved === "number") {
     return Math.max(0, Math.min(100, Math.round(task.progressApproved)));
   }
-  const lower = String(task.status || "").toLowerCase();
-  if (lower === "done" || lower === "approved") return 100;
-  if (lower === "in_progress") return 50;
+  if (lower === "in_progress" || lower === "in progress") {
+    return 50;
+  }
   return 0;
 }
 
@@ -2708,7 +2715,8 @@ function toMilestoneExportTask(ms: {
   taskId?: string | null;
 }): any {
   const day = String(ms.targetDate).split("T")[0];
-  const completed = String(ms.status || "").toLowerCase() === "completed";
+  const st = String(ms.status || "").toLowerCase().trim();
+  const completed = st === "completed" || st === "done" || st === "approved";
   return {
     // Prefer linked task id so predecessor links resolve on round-trip.
     id: ms.taskId || `milestone:${ms.id}`,
@@ -2718,6 +2726,7 @@ function toMilestoneExportTask(ms: {
     durationDays: 0,
     _milestoneExport: true,
     milestone: true,
+    status: completed ? "Done" : (ms.status || "Pending"),
     progressApproved: completed ? 100 : 0,
     priority: "Medium",
   };
@@ -2780,7 +2789,7 @@ function comparePlanOrder(a: any, b: any): number {
 function avgTopLevelProgress(tasks: any[]): number {
   if (!tasks.length) return 0;
   const sum = tasks.reduce(
-    (acc, t) => acc + Math.max(0, Math.min(100, t.progressApproved ?? 0)),
+    (acc, t) => acc + mapMppPercent(t),
     0,
   );
   return Math.round(sum / tasks.length);
@@ -2840,12 +2849,20 @@ function buildPredecessorLinksXml(
 }
 
 function mspdiBaselineDurationHours(task: any): number | null {
+  const isMs = isMspdiMilestone(task);
+  const durHours = mspdiDurationHours(task);
+  if (isMs && durHours === 0) {
+    return 0;
+  }
   if (
     task.baselineDurationDays != null &&
     Number.isFinite(Number(task.baselineDurationDays)) &&
     Number(task.baselineDurationDays) > 0
   ) {
     return Math.round(Number(task.baselineDurationDays) * 8 * 10) / 10;
+  }
+  if (isMs) {
+    return 0;
   }
   const working = workingDaysMonFri(
     task.baselineStart || task.baselineStartDate,
@@ -2919,12 +2936,20 @@ function rollupMemberBaselineRange(members: any[] = []) {
 }
 
 function resolveBaselineDurationDays(task: any): number | undefined {
+  const isMs = isMspdiMilestone(task);
+  const durHours = mspdiDurationHours(task);
+  if (isMs && durHours === 0) {
+    return 0;
+  }
   if (
     task?.baselineDurationDays != null &&
     Number.isFinite(Number(task.baselineDurationDays)) &&
     Number(task.baselineDurationDays) > 0
   ) {
     return Math.round(Number(task.baselineDurationDays) * 10) / 10;
+  }
+  if (isMs) {
+    return 0;
   }
   const working = workingDaysMonFri(
     task?.baselineStart || task?.baselineStartDate,
@@ -2963,8 +2988,8 @@ function projectScheduleExportFields(project: any, memberTasks: any[] = []) {
     project?.durationDays != null && Number(project.durationDays) > 0
       ? Number(project.durationDays)
       : workingDaysMonFri(startDate, endDate) ||
-        inclusiveDurationDays(startDate, endDate) ||
-        undefined;
+      inclusiveDurationDays(startDate, endDate) ||
+      undefined;
   const baselineStart =
     project?.baselineStartDate ||
     project?.baselineStart ||
@@ -2975,14 +3000,14 @@ function projectScheduleExportFields(project: any, memberTasks: any[] = []) {
     rolledBaseline.baselineEnd;
   const baselineDurationDays =
     project?.baselineDurationDays != null &&
-    Number(project.baselineDurationDays) > 0
+      Number(project.baselineDurationDays) > 0
       ? Number(project.baselineDurationDays)
       : workingDaysMonFri(baselineStart, baselineEnd) ||
-        inclusiveDurationDays(baselineStart, baselineEnd) ||
-        undefined;
+      inclusiveDurationDays(baselineStart, baselineEnd) ||
+      undefined;
   const durationVarianceDays =
     project?.durationVarianceDays != null &&
-    Number.isFinite(Number(project.durationVarianceDays))
+      Number.isFinite(Number(project.durationVarianceDays))
       ? Number(project.durationVarianceDays)
       : durationDays != null && baselineDurationDays != null
         ? Math.round((Number(durationDays) - Number(baselineDurationDays)) * 10) / 10
@@ -3028,8 +3053,8 @@ function phaseScheduleExportFields(
     undefined;
   const durationVarianceDays =
     durationDays != null &&
-    baselineDurationDays != null &&
-    Number(baselineDurationDays) > 0
+      baselineDurationDays != null &&
+      Number(baselineDurationDays) > 0
       ? Math.round((Number(durationDays) - Number(baselineDurationDays)) * 10) / 10
       : undefined;
   return {
@@ -3248,13 +3273,13 @@ function mspBrowserCustomFieldId(
 function mspBrowserConstraintCode(type?: string | null): number {
   switch ((type || "ASAP").trim().toUpperCase()) {
     case "ALAP": return 1;
-    case "MSO":  return 2;
-    case "MFO":  return 3;
+    case "MSO": return 2;
+    case "MFO": return 3;
     case "SNET": return 4;
     case "SNLT": return 5;
     case "FNET": return 6;
     case "FNLT": return 7;
-    default:     return 0; // ASAP
+    default: return 0; // ASAP
   }
 }
 
@@ -3364,6 +3389,22 @@ function renderMspExtendedAttributesDefsXml(
   return block;
 }
 
+function parseMspdiIsoDurationMinutes(isoStr?: string): number {
+  if (!isoStr) return 0;
+  const match = isoStr.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  const hours = parseInt(match[1] || "0", 10);
+  const minutes = parseInt(match[2] || "0", 10);
+  return hours * 60 + minutes;
+}
+
+function toMspdiIsoDurationFromMinutes(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  const wholeH = Math.floor(m / 60);
+  const remM = m % 60;
+  return remM > 0 ? `PT${wholeH}H${remM}M0S` : `PT${wholeH}H0M0S`;
+}
+
 function renderMppTaskXml(opts: {
   uid: number;
   wbs: string;
@@ -3378,12 +3419,13 @@ function renderMppTaskXml(opts: {
   const { uid, wbs, outlineLevel, name, summary, task, predecessorXml = "", customFieldDefs } = opts;
   const milestone = task ? isMspdiMilestone(task) : false;
   const durHours = task ? mspdiDurationHours(task) : 8;
+  const isZeroMs = milestone && durHours === 0;
   const start = task ? toMppDateTime(task.startDate) : "";
   const finish = task
     ? toMppDateTime(
-        milestone && durHours === 0 ? task.startDate || task.endDate : task.endDate,
-        !(milestone && durHours === 0),
-      )
+      isZeroMs ? task.startDate || task.endDate : task.endDate,
+      !isZeroMs,
+    )
     : "";
   // Never invent baseline from current dates (summary/project drift).
   const baselineStart = task
@@ -3391,9 +3433,15 @@ function renderMppTaskXml(opts: {
     : "";
   const baselineFinish = task
     ? toMppDateTime(
-        task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
-        true,
-      )
+      isZeroMs
+        ? task.baselineStart ||
+        task.baselineStartDate ||
+        task.baselineEnd ||
+        task.baselineFinish ||
+        task.baselineFinishDate
+        : task.baselineEnd || task.baselineFinish || task.baselineFinishDate,
+      !isZeroMs,
+    )
     : "";
   const percent = task ? mapMppPercent(task) : 0;
   const durationXml = task ? mspdiDurationXml(task) : "";
@@ -3405,8 +3453,8 @@ function renderMppTaskXml(opts: {
       : "";
   const actualFinish =
     task && percent >= 100
-      ? milestone && durHours === 0
-        ? actualStart || toMppDateTime(task.actualEnd || task.endDate)
+      ? isZeroMs
+        ? actualStart || toMppDateTime(task.actualEnd || task.endDate, false)
         : toMppDateTime(task.actualEnd || task.endDate, true)
       : "";
 
@@ -3424,6 +3472,25 @@ ${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFin
   const resolvedDuration =
     durationXml ||
     (summary ? `<Duration>PT0H0M0S</Duration>` : `<Duration>PT8H0M0S</Duration>`);
+
+  let progressXml = `      <PercentComplete>${percent}</PercentComplete>\n      <PercentWorkComplete>${percent}</PercentWorkComplete>\n`;
+  if (percent > 0) {
+    const rawDur = resolvedDuration.replace("<Duration>", "").replace("</Duration>", "").trim();
+    const durMinutes = parseMspdiIsoDurationMinutes(rawDur);
+    const actDurMinutes = Math.min(durMinutes, Math.round((durMinutes * percent) / 100));
+    const remDurMinutes = Math.max(0, durMinutes - actDurMinutes);
+    progressXml += `      <ActualDuration>${toMspdiIsoDurationFromMinutes(actDurMinutes)}</ActualDuration>\n`;
+    progressXml += `      <RemainingDuration>${toMspdiIsoDurationFromMinutes(remDurMinutes)}</RemainingDuration>\n`;
+
+    if (workXml) {
+      const rawWork = workXml.replace("<Work>", "").replace("</Work>", "").trim();
+      const workMinutes = parseMspdiIsoDurationMinutes(rawWork);
+      const actWorkMinutes = Math.min(workMinutes, Math.round((workMinutes * percent) / 100));
+      const remWorkMinutes = Math.max(0, workMinutes - actWorkMinutes);
+      progressXml += `      <ActualWork>${toMspdiIsoDurationFromMinutes(actWorkMinutes)}</ActualWork>\n`;
+      progressXml += `      <RemainingWork>${toMspdiIsoDurationFromMinutes(remWorkMinutes)}</RemainingWork>\n`;
+    }
+  }
 
   return `    <Task>
       <UID>${uid}</UID>
@@ -3445,9 +3512,7 @@ ${renderMspScheduleMetaXml(task, summary)}      <Estimated>0</Estimated>
       ${baselineStart ? `<BaselineStart>${baselineStart}</BaselineStart>` : ""}
       ${baselineFinish ? `<BaselineFinish>${baselineFinish}</BaselineFinish>` : ""}
       ${baselineHours != null ? `<BaselineDuration>PT${baselineHours}H0M0S</BaselineDuration>` : ""}
-${baselineBlock}${task ? mspdiVarianceXml(task) : ""}      <PercentComplete>${percent}</PercentComplete>
-      <PercentWorkComplete>${percent}</PercentWorkComplete>
-      ${actualStart ? `<ActualStart>${actualStart}</ActualStart>` : ""}
+${baselineBlock}${task ? mspdiVarianceXml(task) : ""}${progressXml}      ${actualStart ? `<ActualStart>${actualStart}</ActualStart>` : ""}
       ${actualFinish ? `<ActualFinish>${actualFinish}</ActualFinish>` : ""}
       <CalendarUID>1</CalendarUID>
       <Priority>${task ? mapMppPriority(task.priority) : 500}</Priority>
@@ -3518,15 +3583,15 @@ function collectMspdiExportResources(
     const merged = mergeExportResourceNames(
       ownerName && !isPlaceholderMspdiResource(ownerName)
         ? formatResourceName(
-            ownerName,
-            personOrgForMspdi(task.owner, projectOrganization),
-          ) || ownerName
+          ownerName,
+          personOrgForMspdi(task.owner, projectOrganization),
+        ) || ownerName
         : "",
       backupName && !isPlaceholderMspdiResource(backupName)
         ? formatResourceName(
-            backupName,
-            personOrgForMspdi(task.backupOwner, projectOrganization),
-          ) || backupName
+          backupName,
+          personOrgForMspdi(task.backupOwner, projectOrganization),
+        ) || backupName
         : "",
       task.resourceNames,
     );
@@ -3578,23 +3643,48 @@ function appendMspdiResourcesAndAssignments(
   <Assignments>
 `;
 
+  const countByTaskUid = new Map<number, number>();
+  for (const row of assignmentRows) {
+    countByTaskUid.set(row.taskUid, (countByTaskUid.get(row.taskUid) ?? 0) + 1);
+  }
+
   let assignmentUid = 1_048_577;
   for (const row of assignmentRows) {
     const start = toMppDateTime(row.task.startDate);
     const finish = toMppDateTime(row.task.endDate, true);
     const workXml = mspdiWorkXml(row.task);
     const work = workXml.replace("<Work>", "").replace("</Work>", "");
+    const percent = mapMppPercent(row.task);
+
+    let workLines = "";
+    if (work) {
+      const assignCount = countByTaskUid.get(row.taskUid) || 1;
+      const totalTaskMinutes = parseMspdiIsoDurationMinutes(work);
+      const totalMinutes = Math.max(0, Math.round(totalTaskMinutes / assignCount));
+      const actualMinutes = Math.min(totalMinutes, Math.round((totalMinutes * percent) / 100));
+      const remainingMinutes = Math.max(0, totalMinutes - actualMinutes);
+      const assignWork = toMspdiIsoDurationFromMinutes(totalMinutes);
+      const actualWork = toMspdiIsoDurationFromMinutes(actualMinutes);
+      const remainingWork = toMspdiIsoDurationFromMinutes(remainingMinutes);
+      workLines = `      <Work>${assignWork}</Work>
+      <RegularWork>${assignWork}</RegularWork>
+      <RemainingWork>${remainingWork}</RemainingWork>
+      <ActualWork>${actualWork}</ActualWork>
+      <PercentWorkComplete>${percent}</PercentWorkComplete>`;
+    } else {
+      workLines = `      <PercentWorkComplete>${percent}</PercentWorkComplete>`;
+    }
+
+    const actualStart = percent > 0 ? toMppDateTime(row.task.actualStart || row.task.startDate) : "";
+    const actualFinish = percent >= 100 ? toMppDateTime(row.task.actualEnd || row.task.endDate, true) : "";
+
     xml += `    <Assignment>
       <UID>${assignmentUid++}</UID>
       <ResourceUID>${row.resourceUid}</ResourceUID>
       <TaskUID>${row.taskUid}</TaskUID>
       <Units>1.00</Units>
-      ${work ? `<Work>${work}</Work>
-      <RegularWork>${work}</RegularWork>
-      <RemainingWork>${work}</RemainingWork>` : ""}
-      ${start ? `<Start>${start}</Start>` : ""}
-      ${finish ? `<Finish>${finish}</Finish>` : ""}
-    </Assignment>
+${workLines}
+      ${start ? `      <Start>${start}</Start>\n` : ""}${finish ? `      <Finish>${finish}</Finish>\n` : ""}${actualStart ? `      <ActualStart>${actualStart}</ActualStart>\n` : ""}${actualFinish ? `      <ActualFinish>${actualFinish}</ActualFinish>\n` : ""}    </Assignment>
 `;
   }
   xml += `  </Assignments>
@@ -3738,11 +3828,11 @@ export function exportTasksToMspdi(
   type EmitItem =
     | { kind: "phase"; phaseEntry: (typeof orderedPhases)[0]; phaseIndex: number }
     | {
-        kind: "task";
-        task: any;
-        wbs: string;
-        outlineLevel: number;
-      };
+      kind: "task";
+      task: any;
+      wbs: string;
+      outlineLevel: number;
+    };
 
   const emitPlan: EmitItem[] = [];
   let phaseIndex = 0;
@@ -4014,15 +4104,15 @@ __MSPDI_CALENDARS__
   const emitPlan: Array<
     | { kind: "project"; project: any; projIndex: number }
     | {
-        kind: "phase";
-        name: string;
-        wbs: string;
-        phase?: any;
-        phaseTasks: any[];
-        phaseMilestones?: any[];
-        outlineLevel: number;
-        projectId?: string;
-      }
+      kind: "phase";
+      name: string;
+      wbs: string;
+      phase?: any;
+      phaseTasks: any[];
+      phaseMilestones?: any[];
+      outlineLevel: number;
+      projectId?: string;
+    }
     | { kind: "task"; task: any; wbs: string; outlineLevel: number }
   > = [];
 
@@ -4343,18 +4433,18 @@ __MSPDI_CALENDARS__
         summary: true,
         task: item.phase
           ? phaseScheduleExportFields(
-              item.phase,
+            item.phase,
+            item.phaseTasks,
+            item.phaseMilestones || [],
+          )
+          : {
+            ...phaseScheduleExportFields(
+              {},
               item.phaseTasks,
               item.phaseMilestones || [],
-            )
-          : {
-              ...phaseScheduleExportFields(
-                {},
-                item.phaseTasks,
-                item.phaseMilestones || [],
-              ),
-              progressApproved: avgTopLevelProgress(item.phaseTasks),
-            },
+            ),
+            progressApproved: avgTopLevelProgress(item.phaseTasks),
+          },
         customFieldDefs: item.projectId ? fieldDefsMap[item.projectId] : undefined,
       });
       continue;

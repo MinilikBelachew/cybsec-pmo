@@ -771,9 +771,9 @@ export function ScheduleView({
               ? planIdToId.get(p.planId)
               : p.title
                 ? flatUnique.find(
-                    (t) =>
-                      taskTitle(t).toLowerCase() === p.title!.toLowerCase(),
-                  )?.id
+                  (t) =>
+                    taskTitle(t).toLowerCase() === p.title!.toLowerCase(),
+                )?.id
                 : undefined;
           if (!successorId) {
             errors.push(
@@ -960,7 +960,7 @@ export function ScheduleView({
                       "group relative border-r border-border px-2 py-1 font-semibold select-none",
                       sticky,
                       key === "id" &&
-                        "text-center text-emerald-900 dark:text-emerald-100",
+                      "text-center text-emerald-900 dark:text-emerald-100",
                       !pinned && "cursor-grab active:cursor-grabbing",
                       draggingCol === key && "opacity-50",
                       isColDragOver && "border-l-2 border-l-primary",

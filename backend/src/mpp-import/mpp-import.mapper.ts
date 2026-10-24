@@ -30,7 +30,7 @@ const DEFAULT_PHASE_NAME = 'Imported Schedule';
 
 @Injectable()
 export class MppImportMapper {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   /**
    * Compute a non-destructive preview of what an import would create.
@@ -158,12 +158,12 @@ export class MppImportMapper {
             cost: root.cost ?? parsed.project?.cost,
             durationVarianceDays:
               root.durationDays != null &&
-              root.baselineDurationDays != null
+                root.baselineDurationDays != null
                 ? Math.round(
-                    (Number(root.durationDays) -
-                      Number(root.baselineDurationDays)) *
-                      10,
-                  ) / 10
+                  (Number(root.durationDays) -
+                    Number(root.baselineDurationDays)) *
+                  10,
+                ) / 10
                 : parsed.project?.durationVarianceDays,
           },
           tasks: remappedTasks,
@@ -339,7 +339,7 @@ export class MppImportMapper {
         task.outlineLevel !== 0,
     ).length;
     const importableUids = new Set(importableTasks.map((task) => task.uid));
-    const resourceNamesByUid = this.resourceNamesByTaskUid(parsed);
+    const resourceNamesByUid = await this.resourceNamesByTaskUid(parsed);
 
     let dependencies = 0;
     for (const task of importableTasks) {
@@ -516,20 +516,25 @@ export class MppImportMapper {
     });
   }
 
-  /** MSP Resource Names per task UID (preview assignees). */
-  private resourceNamesByTaskUid(
+  /** MSP Resource Names per task UID (preview assignees). Only matched DB users are returned. */
+  private async resourceNamesByTaskUid(
     parsed: ParsedMppProject,
-  ): Map<number, string[]> {
-    const resourcesByUid = new Map(
-      (parsed.resources ?? []).map((r) => [r.uid, r]),
-    );
+  ): Promise<Map<number, string[]>> {
+    const matchedUserByResourceUid = new Map<number, string>();
+    for (const resource of parsed.resources ?? []) {
+      if (!resource.name?.trim() && !resource.email?.trim()) continue;
+      const user = await this.findUserForResource(resource);
+      if (user?.displayName) {
+        matchedUserByResourceUid.set(resource.uid, user.displayName);
+      }
+    }
+
     const namesByTask = new Map<number, string[]>();
     for (const assignment of parsed.assignments ?? []) {
-      const resource = resourcesByUid.get(assignment.resourceUid);
-      const name = resource?.name?.trim();
-      if (!name) continue;
+      const matchedName = matchedUserByResourceUid.get(assignment.resourceUid);
+      if (!matchedName) continue;
       const list = namesByTask.get(assignment.taskUid) ?? [];
-      if (!list.includes(name)) list.push(name);
+      if (!list.includes(matchedName)) list.push(matchedName);
       namesByTask.set(assignment.taskUid, list);
     }
     return namesByTask;
@@ -645,7 +650,7 @@ export class MppImportMapper {
       if (
         phase.percentComplete != null &&
         Number(existing.task?.progressApproved ?? 0) !==
-          Math.round(phase.percentComplete)
+        Math.round(phase.percentComplete)
       ) {
         details.push('% complete');
       }
@@ -723,7 +728,7 @@ export class MppImportMapper {
       if (
         task.percentComplete != null &&
         Number(existing.progressApproved ?? 0) !==
-          Math.round(task.percentComplete)
+        Math.round(task.percentComplete)
       ) {
         details.push(`${Math.round(task.percentComplete)}%`);
       }
@@ -944,427 +949,427 @@ export class MppImportMapper {
 
     await this.prisma.$transaction(
       async (tx) => {
-      const baselineTaskCount = importableTasks.filter(
-        (task) => !!task.baselineStartDate,
-      ).length;
-      if (baselineTaskCount === 0) {
-        warnings.push(
-          'No baseline start dates on importable tasks after parse. Nested MSPDI <Baseline> may not have been applied.',
-        );
-      } else {
-        warnings.push(
-          `Persisting baselines for ${baselineTaskCount}/${importableTasks.length} tasks` +
+        const baselineTaskCount = importableTasks.filter(
+          (task) => !!task.baselineStartDate,
+        ).length;
+        if (baselineTaskCount === 0) {
+          warnings.push(
+            'No baseline start dates on importable tasks after parse. Nested MSPDI <Baseline> may not have been applied.',
+          );
+        } else {
+          warnings.push(
+            `Persisting baselines for ${baselineTaskCount}/${importableTasks.length} tasks` +
             (parsed.project?.baselineStartDate
               ? `; project baseline ${parsed.project.baselineStartDate}→${parsed.project.baselineFinishDate}`
               : ''),
-        );
-      }
-
-      await this.applyProjectScheduleFromParsed(tx, projectId, parsed, tz);
-
-      const summaryUidToPhaseId = new Map<number, string>();
-      const phaseTwinIds = new Set<string>();
-      const phaseByName = new Map(
-        project.phases.map((phase) => [
-          phase.name.trim().toLowerCase(),
-          phase,
-        ]),
-      );
-      let nextOrderIndex =
-        project.phases.reduce(
-          (max, phase) => Math.max(max, phase.orderIndex),
-          -1,
-        ) + 1;
-
-      for (const summary of phaseSummaries) {
-        const phaseName = summary.name.trim().slice(0, 255);
-        const startDate =
-          this.parseDate(summary.startDate, tz) ??
-          this.parseDate(parsed.project?.startDate, tz) ??
-          project.startDate;
-        const endDate =
-          this.parseDate(summary.finishDate, tz) ??
-          this.parseDate(parsed.project?.finishDate, tz) ??
-          project.endDate;
-        const scheduleFields = this.taskScheduleFields(summary, tz);
-
-        const existingPhase = phaseByName.get(phaseName.toLowerCase());
-        let phaseId: string;
-        let twinTaskId: string | null | undefined =
-          existingPhase && 'taskId' in existingPhase
-            ? (existingPhase as { taskId?: string | null }).taskId
-            : undefined;
-
-        if (existingPhase) {
-          await tx.projectPhase.update({
-            where: { id: existingPhase.id },
-            data: {
-              startDate,
-              endDate,
-              ...(scheduleFields.description
-                ? { description: scheduleFields.description }
-                : {}),
-            },
-          });
-          phaseId = existingPhase.id;
-          summaryUidToPhaseId.set(summary.uid, existingPhase.id);
-          phasesUpdated += 1;
-          twinTaskId =
-            (
-              await tx.projectPhase.findUnique({
-                where: { id: existingPhase.id },
-                select: { taskId: true },
-              })
-            )?.taskId ?? twinTaskId;
-        } else {
-          const phase = await tx.projectPhase.create({
-            data: {
-              projectId: project.id,
-              name: phaseName,
-              orderIndex: nextOrderIndex++,
-              startDate,
-              endDate,
-              status: PhaseStatus.Planned,
-              description: scheduleFields.description,
-            },
-          });
-          phaseId = phase.id;
-          summaryUidToPhaseId.set(summary.uid, phase.id);
-          phaseByName.set(phaseName.toLowerCase(), {
-            id: phase.id,
-            orderIndex: phase.orderIndex,
-            name: phase.name,
-            taskId: null,
-          });
-          phasesCreated += 1;
-          twinTaskId = null;
-        }
-
-        // Upsert schedule twin (holds duration, %, phase→phase deps, assignees).
-        if (twinTaskId) {
-          await tx.task.update({
-            where: { id: twinTaskId },
-            data: {
-              title: scheduleFields.title,
-              description: scheduleFields.description,
-              startDate: scheduleFields.startDate ?? startDate,
-              endDate: scheduleFields.endDate ?? endDate,
-              baselineStart: scheduleFields.baselineStart ?? null,
-              baselineEnd: scheduleFields.baselineEnd ?? null,
-              durationDays: scheduleFields.durationDays ?? null,
-              baselineDurationDays: scheduleFields.baselineDurationDays ?? null,
-              effortHours: scheduleFields.effortHours ?? null,
-              progressApproved: scheduleFields.progressApproved,
-              status: scheduleFields.status,
-              priority: scheduleFields.priority,
-              mspTaskMode: scheduleFields.mspTaskMode ?? null,
-              mspConstraintType: scheduleFields.mspConstraintType ?? null,
-              mspConstraintDate: scheduleFields.mspConstraintDate ?? null,
-              mspCustomFields:
-                scheduleFields.mspCustomFields != null
-                  ? (scheduleFields.mspCustomFields as unknown as Prisma.InputJsonValue)
-                  : Prisma.JsonNull,
-              phase: { connect: { id: phaseId } },
-              parentTask: { disconnect: true },
-            },
-          });
-          uidToTaskId.set(summary.uid, twinTaskId);
-          phaseTwinIds.add(twinTaskId);
-        } else {
-          const twin = await tx.task.create({
-            data: {
-              project: { connect: { id: project.id } },
-              phase: { connect: { id: phaseId } },
-              title: scheduleFields.title,
-              description: scheduleFields.description,
-              startDate: scheduleFields.startDate ?? startDate,
-              endDate: scheduleFields.endDate ?? endDate,
-              baselineStart: scheduleFields.baselineStart ?? null,
-              baselineEnd: scheduleFields.baselineEnd ?? null,
-              durationDays: scheduleFields.durationDays ?? null,
-              baselineDurationDays: scheduleFields.baselineDurationDays ?? null,
-              effortHours: scheduleFields.effortHours ?? null,
-              progressApproved: scheduleFields.progressApproved,
-              status: scheduleFields.status,
-              mspCustomFields:
-                scheduleFields.mspCustomFields != null
-                  ? (scheduleFields.mspCustomFields as unknown as Prisma.InputJsonValue)
-                  : Prisma.JsonNull,
-              priority: scheduleFields.priority,
-              mspTaskMode: scheduleFields.mspTaskMode ?? null,
-              mspConstraintType: scheduleFields.mspConstraintType ?? null,
-              mspConstraintDate: scheduleFields.mspConstraintDate ?? null,
-            },
-          });
-          await tx.projectPhase.update({
-            where: { id: phaseId },
-            data: { taskId: twin.id },
-          });
-          uidToTaskId.set(summary.uid, twin.id);
-          phaseTwinIds.add(twin.id);
-          const entry = phaseByName.get(phaseName.toLowerCase());
-          if (entry) {
-            (entry as { taskId?: string | null }).taskId = twin.id;
-          }
-          tasksCreated += 1;
-        }
-      }
-
-      if (phasesCreated > 0 || phasesUpdated > 0) {
-        warnings.push(
-          `Phases from summary rows: ${phasesCreated} created, ${phasesUpdated} updated (with schedule twins).`,
-        );
-      }
-
-      let defaultPhaseId: string | undefined;
-      if (needsDefaultPhase || phaseSummaries.length === 0) {
-        const defaultPhase = await this.resolveDefaultPhaseId(
-          tx,
-          project,
-          parsed,
-          nextOrderIndex,
-          phaseSummaries.length,
-          warnings,
-          tz,
-        );
-        defaultPhaseId = defaultPhase.id;
-        if (defaultPhase.created) {
-          phasesCreated += 1;
-        }
-      }
-
-      const existingTasks = await tx.task.findMany({
-        where: { projectId },
-        select: {
-          id: true,
-          title: true,
-          phaseId: true,
-          parentTaskId: true,
-          status: true,
-          progressApproved: true,
-        },
-      });
-      // Match by title + phase + parent; consume each match once so duplicates
-      // under different parents (e.g. two "Defining Schema") create/update correctly.
-      // Exclude phase schedule twins so they are not treated as work tasks.
-      const existingTaskByKey = new Map<
-        string,
-        {
-          id: string;
-          status: TaskStatus;
-          progressApproved: number | null;
-        }
-      >();
-      for (const existing of existingTasks) {
-        if (!existing.phaseId || phaseTwinIds.has(existing.id)) {
-          continue;
-        }
-        const parentKey = this.normalizeMatchParentId(
-          existing.parentTaskId,
-          phaseTwinIds,
-        );
-        const key = this.taskMatchKey(
-          existing.title,
-          existing.phaseId,
-          parentKey,
-        );
-        if (!existingTaskByKey.has(key)) {
-          existingTaskByKey.set(key, {
-            id: existing.id,
-            status: existing.status,
-            progressApproved: existing.progressApproved,
-          });
-        }
-      }
-
-      const pendingParents = [...importableTasks];
-      // Stagger timestamps so order stays stable even when creates share a ms.
-      let createdAtCursor = Date.now();
-
-      while (pendingParents.length > 0) {
-        const batch = pendingParents
-          .filter((task) =>
-            this.isTaskReadyToCreate(task, uidToTaskId, allTasks),
-          )
-          // Later plan tasks first → earlier plan tasks get newer createdAt.
-          .sort(
-            (a, b) =>
-              (planIndexByUid.get(b.uid) ?? 0) - (planIndexByUid.get(a.uid) ?? 0),
           );
-
-        if (batch.length === 0) {
-          throw new Error('Unable to resolve task hierarchy from MPP file');
         }
 
-        for (const task of batch) {
-          const parentTaskId =
-            task.parentUid && uidToTaskId.has(task.parentUid)
-              ? uidToTaskId.get(task.parentUid)
+        await this.applyProjectScheduleFromParsed(tx, projectId, parsed, tz);
+
+        const summaryUidToPhaseId = new Map<number, string>();
+        const phaseTwinIds = new Set<string>();
+        const phaseByName = new Map(
+          project.phases.map((phase) => [
+            phase.name.trim().toLowerCase(),
+            phase,
+          ]),
+        );
+        let nextOrderIndex =
+          project.phases.reduce(
+            (max, phase) => Math.max(max, phase.orderIndex),
+            -1,
+          ) + 1;
+
+        for (const summary of phaseSummaries) {
+          const phaseName = summary.name.trim().slice(0, 255);
+          const startDate =
+            this.parseDate(summary.startDate, tz) ??
+            this.parseDate(parsed.project?.startDate, tz) ??
+            project.startDate;
+          const endDate =
+            this.parseDate(summary.finishDate, tz) ??
+            this.parseDate(parsed.project?.finishDate, tz) ??
+            project.endDate;
+          const scheduleFields = this.taskScheduleFields(summary, tz);
+
+          const existingPhase = phaseByName.get(phaseName.toLowerCase());
+          let phaseId: string;
+          let twinTaskId: string | null | undefined =
+            existingPhase && 'taskId' in existingPhase
+              ? (existingPhase as { taskId?: string | null }).taskId
               : undefined;
 
-          const phaseSummaryUid = this.resolvePhaseSummaryUid(task, byUid);
-          const phaseId =
-            (phaseSummaryUid != null
-              ? summaryUidToPhaseId.get(phaseSummaryUid)
-              : undefined) ?? defaultPhaseId;
-
-          if (!phaseId) {
-            throw new Error(
-              `Unable to resolve phase for imported task "${task.name}"`,
-            );
+          if (existingPhase) {
+            await tx.projectPhase.update({
+              where: { id: existingPhase.id },
+              data: {
+                startDate,
+                endDate,
+                ...(scheduleFields.description
+                  ? { description: scheduleFields.description }
+                  : {}),
+              },
+            });
+            phaseId = existingPhase.id;
+            summaryUidToPhaseId.set(summary.uid, existingPhase.id);
+            phasesUpdated += 1;
+            twinTaskId =
+              (
+                await tx.projectPhase.findUnique({
+                  where: { id: existingPhase.id },
+                  select: { taskId: true },
+                })
+              )?.taskId ?? twinTaskId;
+          } else {
+            const phase = await tx.projectPhase.create({
+              data: {
+                projectId: project.id,
+                name: phaseName,
+                orderIndex: nextOrderIndex++,
+                startDate,
+                endDate,
+                status: PhaseStatus.Planned,
+                description: scheduleFields.description,
+              },
+            });
+            phaseId = phase.id;
+            summaryUidToPhaseId.set(summary.uid, phase.id);
+            phaseByName.set(phaseName.toLowerCase(), {
+              id: phase.id,
+              orderIndex: phase.orderIndex,
+              name: phase.name,
+              taskId: null,
+            });
+            phasesCreated += 1;
+            twinTaskId = null;
           }
 
-          const parentKey = this.normalizeMatchParentId(
-            parentTaskId,
-            phaseTwinIds,
-          );
-          const matchKey = this.taskMatchKey(task.name, phaseId, parentKey);
-          const existingMatch = existingTaskByKey.get(matchKey);
-
-          if (existingMatch) {
+          // Upsert schedule twin (holds duration, %, phase→phase deps, assignees).
+          if (twinTaskId) {
             await tx.task.update({
-              where: { id: existingMatch.id },
-              data: this.toTaskUpdateInput(
-                phaseId,
-                task,
-                parentTaskId,
-                tz,
-                existingMatch,
-              ),
+              where: { id: twinTaskId },
+              data: {
+                title: scheduleFields.title,
+                description: scheduleFields.description,
+                startDate: scheduleFields.startDate ?? startDate,
+                endDate: scheduleFields.endDate ?? endDate,
+                baselineStart: scheduleFields.baselineStart ?? null,
+                baselineEnd: scheduleFields.baselineEnd ?? null,
+                durationDays: scheduleFields.durationDays ?? null,
+                baselineDurationDays: scheduleFields.baselineDurationDays ?? null,
+                effortHours: scheduleFields.effortHours ?? null,
+                progressApproved: scheduleFields.progressApproved,
+                status: scheduleFields.status,
+                priority: scheduleFields.priority,
+                mspTaskMode: scheduleFields.mspTaskMode ?? null,
+                mspConstraintType: scheduleFields.mspConstraintType ?? null,
+                mspConstraintDate: scheduleFields.mspConstraintDate ?? null,
+                mspCustomFields:
+                  scheduleFields.mspCustomFields != null
+                    ? (scheduleFields.mspCustomFields as unknown as Prisma.InputJsonValue)
+                    : Prisma.JsonNull,
+                phase: { connect: { id: phaseId } },
+                parentTask: { disconnect: true },
+              },
             });
-            uidToTaskId.set(task.uid, existingMatch.id);
-            existingTaskByKey.delete(matchKey);
-            tasksUpdated += 1;
+            uidToTaskId.set(summary.uid, twinTaskId);
+            phaseTwinIds.add(twinTaskId);
           } else {
-            const created = await tx.task.create({
-              data: this.toTaskCreateInput(
-                projectId,
-                phaseId,
-                task,
-                parentTaskId,
-                new Date(createdAtCursor++),
-                tz,
-              ),
+            const twin = await tx.task.create({
+              data: {
+                project: { connect: { id: project.id } },
+                phase: { connect: { id: phaseId } },
+                title: scheduleFields.title,
+                description: scheduleFields.description,
+                startDate: scheduleFields.startDate ?? startDate,
+                endDate: scheduleFields.endDate ?? endDate,
+                baselineStart: scheduleFields.baselineStart ?? null,
+                baselineEnd: scheduleFields.baselineEnd ?? null,
+                durationDays: scheduleFields.durationDays ?? null,
+                baselineDurationDays: scheduleFields.baselineDurationDays ?? null,
+                effortHours: scheduleFields.effortHours ?? null,
+                progressApproved: scheduleFields.progressApproved,
+                status: scheduleFields.status,
+                mspCustomFields:
+                  scheduleFields.mspCustomFields != null
+                    ? (scheduleFields.mspCustomFields as unknown as Prisma.InputJsonValue)
+                    : Prisma.JsonNull,
+                priority: scheduleFields.priority,
+                mspTaskMode: scheduleFields.mspTaskMode ?? null,
+                mspConstraintType: scheduleFields.mspConstraintType ?? null,
+                mspConstraintDate: scheduleFields.mspConstraintDate ?? null,
+              },
             });
-            uidToTaskId.set(task.uid, created.id);
+            await tx.projectPhase.update({
+              where: { id: phaseId },
+              data: { taskId: twin.id },
+            });
+            uidToTaskId.set(summary.uid, twin.id);
+            phaseTwinIds.add(twin.id);
+            const entry = phaseByName.get(phaseName.toLowerCase());
+            if (entry) {
+              (entry as { taskId?: string | null }).taskId = twin.id;
+            }
             tasksCreated += 1;
           }
         }
 
-        for (const task of batch) {
-          const index = pendingParents.findIndex((item) => item.uid === task.uid);
-          if (index >= 0) {
-            pendingParents.splice(index, 1);
+        if (phasesCreated > 0 || phasesUpdated > 0) {
+          warnings.push(
+            `Phases from summary rows: ${phasesCreated} created, ${phasesUpdated} updated (with schedule twins).`,
+          );
+        }
+
+        let defaultPhaseId: string | undefined;
+        if (needsDefaultPhase || phaseSummaries.length === 0) {
+          const defaultPhase = await this.resolveDefaultPhaseId(
+            tx,
+            project,
+            parsed,
+            nextOrderIndex,
+            phaseSummaries.length,
+            warnings,
+            tz,
+          );
+          defaultPhaseId = defaultPhase.id;
+          if (defaultPhase.created) {
+            phasesCreated += 1;
           }
         }
-      }
 
-      const milestoneResult = await this.importMppMilestones(
-        tx,
-        projectId,
-        milestoneTasks,
-        summaryUidToPhaseId,
-        defaultPhaseId,
-        byUid,
-        uidToTaskId,
-        tz,
-      );
-      milestonesCreated += milestoneResult.created;
-      milestonesUpdated += milestoneResult.updated;
-      warnings.push(...milestoneResult.warnings);
-      if (milestonesCreated > 0 || milestonesUpdated > 0) {
-        warnings.push(
-          `Milestones from MPP: ${milestonesCreated} created, ${milestonesUpdated} updated.`,
-        );
-      }
-
-      // Replace predecessors from the file: upsert file links, then remove stale
-      // deps whose successor was part of this import (keeps PMO aligned with MPP).
-      const desiredDepKeys = new Set<string>();
-      const importedTaskIds = new Set(uidToTaskId.values());
-      const linkRows = [...importableTasks, ...phaseSummaries];
-      for (const task of linkRows) {
-        const successorId = uidToTaskId.get(task.uid);
-        if (!successorId) {
-          continue;
+        const existingTasks = await tx.task.findMany({
+          where: { projectId },
+          select: {
+            id: true,
+            title: true,
+            phaseId: true,
+            parentTaskId: true,
+            status: true,
+            progressApproved: true,
+          },
+        });
+        // Match by title + phase + parent; consume each match once so duplicates
+        // under different parents (e.g. two "Defining Schema") create/update correctly.
+        // Exclude phase schedule twins so they are not treated as work tasks.
+        const existingTaskByKey = new Map<
+          string,
+          {
+            id: string;
+            status: TaskStatus;
+            progressApproved: number | null;
+          }
+        >();
+        for (const existing of existingTasks) {
+          if (!existing.phaseId || phaseTwinIds.has(existing.id)) {
+            continue;
+          }
+          const parentKey = this.normalizeMatchParentId(
+            existing.parentTaskId,
+            phaseTwinIds,
+          );
+          const key = this.taskMatchKey(
+            existing.title,
+            existing.phaseId,
+            parentKey,
+          );
+          if (!existingTaskByKey.has(key)) {
+            existingTaskByKey.set(key, {
+              id: existing.id,
+              status: existing.status,
+              progressApproved: existing.progressApproved,
+            });
+          }
         }
 
-        for (const predecessor of task.predecessors ?? []) {
-          const predecessorId = uidToTaskId.get(predecessor.predecessorUid);
-          if (!predecessorId) {
-            warnings.push(
-              `Skipped dependency: predecessor UID ${predecessor.predecessorUid} not found for task "${task.name}"`,
+        const pendingParents = [...importableTasks];
+        // Stagger timestamps so order stays stable even when creates share a ms.
+        let createdAtCursor = Date.now();
+
+        while (pendingParents.length > 0) {
+          const batch = pendingParents
+            .filter((task) =>
+              this.isTaskReadyToCreate(task, uidToTaskId, allTasks),
+            )
+            // Later plan tasks first → earlier plan tasks get newer createdAt.
+            .sort(
+              (a, b) =>
+                (planIndexByUid.get(b.uid) ?? 0) - (planIndexByUid.get(a.uid) ?? 0),
             );
+
+          if (batch.length === 0) {
+            throw new Error('Unable to resolve task hierarchy from MPP file');
+          }
+
+          for (const task of batch) {
+            const parentTaskId =
+              task.parentUid && uidToTaskId.has(task.parentUid)
+                ? uidToTaskId.get(task.parentUid)
+                : undefined;
+
+            const phaseSummaryUid = this.resolvePhaseSummaryUid(task, byUid);
+            const phaseId =
+              (phaseSummaryUid != null
+                ? summaryUidToPhaseId.get(phaseSummaryUid)
+                : undefined) ?? defaultPhaseId;
+
+            if (!phaseId) {
+              throw new Error(
+                `Unable to resolve phase for imported task "${task.name}"`,
+              );
+            }
+
+            const parentKey = this.normalizeMatchParentId(
+              parentTaskId,
+              phaseTwinIds,
+            );
+            const matchKey = this.taskMatchKey(task.name, phaseId, parentKey);
+            const existingMatch = existingTaskByKey.get(matchKey);
+
+            if (existingMatch) {
+              await tx.task.update({
+                where: { id: existingMatch.id },
+                data: this.toTaskUpdateInput(
+                  phaseId,
+                  task,
+                  parentTaskId,
+                  tz,
+                  existingMatch,
+                ),
+              });
+              uidToTaskId.set(task.uid, existingMatch.id);
+              existingTaskByKey.delete(matchKey);
+              tasksUpdated += 1;
+            } else {
+              const created = await tx.task.create({
+                data: this.toTaskCreateInput(
+                  projectId,
+                  phaseId,
+                  task,
+                  parentTaskId,
+                  new Date(createdAtCursor++),
+                  tz,
+                ),
+              });
+              uidToTaskId.set(task.uid, created.id);
+              tasksCreated += 1;
+            }
+          }
+
+          for (const task of batch) {
+            const index = pendingParents.findIndex((item) => item.uid === task.uid);
+            if (index >= 0) {
+              pendingParents.splice(index, 1);
+            }
+          }
+        }
+
+        const milestoneResult = await this.importMppMilestones(
+          tx,
+          projectId,
+          milestoneTasks,
+          summaryUidToPhaseId,
+          defaultPhaseId,
+          byUid,
+          uidToTaskId,
+          tz,
+        );
+        milestonesCreated += milestoneResult.created;
+        milestonesUpdated += milestoneResult.updated;
+        warnings.push(...milestoneResult.warnings);
+        if (milestonesCreated > 0 || milestonesUpdated > 0) {
+          warnings.push(
+            `Milestones from MPP: ${milestonesCreated} created, ${milestonesUpdated} updated.`,
+          );
+        }
+
+        // Replace predecessors from the file: upsert file links, then remove stale
+        // deps whose successor was part of this import (keeps PMO aligned with MPP).
+        const desiredDepKeys = new Set<string>();
+        const importedTaskIds = new Set(uidToTaskId.values());
+        const linkRows = [...importableTasks, ...phaseSummaries];
+        for (const task of linkRows) {
+          const successorId = uidToTaskId.get(task.uid);
+          if (!successorId) {
             continue;
           }
 
-          const depType = predecessor.type || 'FS';
-          const lagDays = predecessor.lagDays ?? 0;
-          desiredDepKeys.add(`${predecessorId}|${successorId}`);
-          const existingDep = await tx.taskDependency.findUnique({
-            where: {
-              predecessorId_successorId: { predecessorId, successorId },
-            },
-            select: { id: true },
-          });
+          for (const predecessor of task.predecessors ?? []) {
+            const predecessorId = uidToTaskId.get(predecessor.predecessorUid);
+            if (!predecessorId) {
+              warnings.push(
+                `Skipped dependency: predecessor UID ${predecessor.predecessorUid} not found for task "${task.name}"`,
+              );
+              continue;
+            }
 
-          if (existingDep) {
-            await tx.taskDependency.update({
-              where: { id: existingDep.id },
-              data: { depType, lagDays },
-            });
-            dependenciesUpdated += 1;
-          } else {
-            await tx.taskDependency.create({
-              data: {
-                predecessorId,
-                successorId,
-                depType,
-                lagDays,
+            const depType = predecessor.type || 'FS';
+            const lagDays = predecessor.lagDays ?? 0;
+            desiredDepKeys.add(`${predecessorId}|${successorId}`);
+            const existingDep = await tx.taskDependency.findUnique({
+              where: {
+                predecessorId_successorId: { predecessorId, successorId },
               },
+              select: { id: true },
             });
-            dependenciesCreated += 1;
+
+            if (existingDep) {
+              await tx.taskDependency.update({
+                where: { id: existingDep.id },
+                data: { depType, lagDays },
+              });
+              dependenciesUpdated += 1;
+            } else {
+              await tx.taskDependency.create({
+                data: {
+                  predecessorId,
+                  successorId,
+                  depType,
+                  lagDays,
+                },
+              });
+              dependenciesCreated += 1;
+            }
           }
         }
-      }
 
-      if (importedTaskIds.size > 0) {
-        const staleDeps = await tx.taskDependency.findMany({
-          where: {
-            successorId: { in: [...importedTaskIds] },
-          },
-          select: { id: true, predecessorId: true, successorId: true },
-        });
-        let dependenciesRemoved = 0;
-        for (const dep of staleDeps) {
-          const key = `${dep.predecessorId}|${dep.successorId}`;
-          if (desiredDepKeys.has(key)) continue;
-          await tx.taskDependency.delete({ where: { id: dep.id } });
-          dependenciesRemoved += 1;
+        if (importedTaskIds.size > 0) {
+          const staleDeps = await tx.taskDependency.findMany({
+            where: {
+              successorId: { in: [...importedTaskIds] },
+            },
+            select: { id: true, predecessorId: true, successorId: true },
+          });
+          let dependenciesRemoved = 0;
+          for (const dep of staleDeps) {
+            const key = `${dep.predecessorId}|${dep.successorId}`;
+            if (desiredDepKeys.has(key)) continue;
+            await tx.taskDependency.delete({ where: { id: dep.id } });
+            dependenciesRemoved += 1;
+          }
+          if (dependenciesRemoved > 0) {
+            warnings.push(
+              `Removed ${dependenciesRemoved} predecessor link(s) not present in the import file.`,
+            );
+          }
         }
-        if (dependenciesRemoved > 0) {
-          warnings.push(
-            `Removed ${dependenciesRemoved} predecessor link(s) not present in the import file.`,
-          );
-        }
-      }
 
-      const assignmentApply = await this.applyResourceAssignments(
-        tx,
-        parsed,
-        uidToTaskId,
-        new Set(milestoneTasks.map((task) => task.uid)),
-      );
-      warnings.push(...assignmentApply.warnings);
-      resourceMatchForResult = {
-        matched: assignmentApply.resourcesMatched,
-        unmatched: assignmentApply.resourcesUnmatched,
-        warnings: assignmentApply.warnings,
-      };
-      assignmentsApplied = assignmentApply.assignmentsApplied;
-      assignmentsSkipped = assignmentApply.assignmentsSkipped;
+        const assignmentApply = await this.applyResourceAssignments(
+          tx,
+          parsed,
+          uidToTaskId,
+          new Set(milestoneTasks.map((task) => task.uid)),
+        );
+        warnings.push(...assignmentApply.warnings);
+        resourceMatchForResult = {
+          matched: assignmentApply.resourcesMatched,
+          unmatched: assignmentApply.resourcesUnmatched,
+          warnings: assignmentApply.warnings,
+        };
+        assignmentsApplied = assignmentApply.assignmentsApplied;
+        assignmentsSkipped = assignmentApply.assignmentsSkipped;
 
-      await renumberProjectPlanRows(tx, projectId);
+        await renumberProjectPlanRows(tx, projectId);
       },
       {
         // Large MSPDI/MPP files (1000+ tasks) exceed Prisma's default 5s interactive timeout.
@@ -2166,7 +2171,7 @@ export class MppImportMapper {
       const baselineDays =
         Math.round(
           (baselineEndDate.getTime() - baselineStartDate.getTime()) /
-            86_400_000,
+          86_400_000,
         ) + 1;
       return Math.round((currentDays - baselineDays) * 10) / 10;
     }
@@ -2465,12 +2470,12 @@ export class MppImportMapper {
           // Keep a Cybsec assignee (e.g. Emily) when the file has no matched users.
           ...(ownerId
             ? {
-                ownerId,
-                backupOwnerId:
-                  backupOwnerId && backupOwnerId !== ownerId
-                    ? backupOwnerId
-                    : null,
-              }
+              ownerId,
+              backupOwnerId:
+                backupOwnerId && backupOwnerId !== ownerId
+                  ? backupOwnerId
+                  : null,
+            }
             : {}),
         },
       });
@@ -2489,12 +2494,12 @@ export class MppImportMapper {
   private async findUserForResource(resource: {
     name?: string;
     email?: string;
-  }): Promise<{ id: string } | null> {
+  }): Promise<{ id: string; displayName?: string } | null> {
     const email = resource.email?.trim().toLowerCase();
     if (email) {
       const byEmail = await this.prisma.user.findFirst({
         where: { email },
-        select: { id: true },
+        select: { id: true, displayName: true },
       });
       if (byEmail) return byEmail;
     }
@@ -2510,7 +2515,7 @@ export class MppImportMapper {
           { displayName: { equals: bareName, mode: 'insensitive' } },
         ],
       },
-      select: { id: true },
+      select: { id: true, displayName: true },
     });
     return byName;
   }

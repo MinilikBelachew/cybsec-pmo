@@ -579,19 +579,34 @@ function renderScheduleFields(
     !isZeroDurationMilestone,
   );
   const baselineStart = toDateTime(task.baselineStart);
-  const baselineFinish = toDateTime(task.baselineFinish, true);
+  const baselineFinish = toDateTime(
+    isZeroDurationMilestone
+      ? task.baselineStart || task.baselineFinish
+      : task.baselineFinish,
+    !isZeroDurationMilestone,
+  );
   const duration =
     toIsoDuration(durationDays, Boolean(task.milestone)) ||
     (task.milestone ? 'PT0H0M0S' : 'PT8H0M0S');
   const work = toIsoWork(task.workHours);
-  const baselineDuration = toIsoDuration(task.baselineDurationDays);
+  const baselineDurationDays = isZeroDurationMilestone
+    ? 0
+    : task.milestone
+      ? task.baselineDurationDays != null && Number(task.baselineDurationDays) > 0
+        ? Number(task.baselineDurationDays)
+        : 0
+      : task.baselineDurationDays;
+  const baselineDuration = toIsoDuration(
+    baselineDurationDays,
+    Boolean(task.milestone),
+  );
   const durationVariance =
     task.durationVarianceDays != null
       ? task.durationVarianceDays
-      : durationDays != null && task.baselineDurationDays != null
+      : durationDays != null && baselineDurationDays != null
         ? Math.round(
-            (Number(durationDays) - Number(task.baselineDurationDays)) * 10,
-          ) / 10
+          (Number(durationDays) - Number(baselineDurationDays)) * 10,
+        ) / 10
         : undefined;
 
   const parts: string[] = [];
@@ -608,7 +623,12 @@ function renderScheduleFields(
         : 1;
   parts.push(`      <Manual>${manual}</Manual>`);
   if (work) parts.push(`      <Work>${work}</Work>`);
-  if (baselineStart || baselineFinish || task.baselineDurationDays) {
+  if (
+    baselineStart ||
+    baselineFinish ||
+    baselineDurationDays != null ||
+    (task.milestone && baselineDuration)
+  ) {
     // Flat fields help some Project views; nested Baseline Number=0 is required for Baseline columns.
     if (baselineStart) {
       parts.push(`      <BaselineStart>${baselineStart}</BaselineStart>`);
@@ -639,9 +659,32 @@ function renderScheduleFields(
   if (durVar) {
     parts.push(`      <DurationVariance>${durVar}</DurationVariance>`);
   }
-  parts.push(
-    `      <PercentComplete>${Math.max(0, Math.min(100, task.percentComplete ?? 0))}</PercentComplete>`,
-  );
+  const percent = Math.max(0, Math.min(100, task.percentComplete ?? 0));
+  parts.push(`      <PercentComplete>${percent}</PercentComplete>`);
+  parts.push(`      <PercentWorkComplete>${percent}</PercentWorkComplete>`);
+  if (percent > 0) {
+    const durDays = durationDays ?? calendarDurationDays(task) ?? (task.milestone ? 0 : 1);
+    const actDays = Math.round((durDays * percent) / 100 * 10) / 10;
+    const remDays = Math.max(0, Math.round((durDays - actDays) * 10) / 10);
+    parts.push(`      <ActualDuration>${toIsoDuration(actDays, Boolean(task.milestone))}</ActualDuration>`);
+    parts.push(`      <RemainingDuration>${toIsoDuration(remDays, Boolean(task.milestone))}</RemainingDuration>`);
+
+    if (task.workHours != null && Number(task.workHours) > 0) {
+      const actHours = Math.round((Number(task.workHours) * percent) / 100 * 10) / 10;
+      const remHours = Math.max(0, Math.round((Number(task.workHours) - actHours) * 10) / 10);
+      parts.push(`      <ActualWork>${toIsoWork(actHours) || 'PT0H0M0S'}</ActualWork>`);
+      parts.push(`      <RemainingWork>${toIsoWork(remHours) || 'PT0H0M0S'}</RemainingWork>`);
+    }
+    if (task.startDate) {
+      parts.push(`      <ActualStart>${toDateTime(task.startDate)}</ActualStart>`);
+    }
+    if (percent >= 100 && (task.finishDate || task.startDate)) {
+      const isZeroMs = Boolean(task.milestone && durationDays === 0);
+      parts.push(
+        `      <ActualFinish>${toDateTime(task.finishDate || task.startDate, !isZeroMs)}</ActualFinish>`,
+      );
+    }
+  }
   return parts.join('\n');
 }
 
@@ -828,9 +871,9 @@ ${projectSchedule}
       durationVarianceDays:
         task.durationDays != null && task.baselineDurationDays != null
           ? Math.round(
-              (Number(task.durationDays) - Number(task.baselineDurationDays)) *
-                10,
-            ) / 10
+            (Number(task.durationDays) - Number(task.baselineDurationDays)) *
+            10,
+          ) / 10
           : undefined,
     });
 
@@ -906,6 +949,14 @@ ${task.milestone ? `      <ExtendedAttribute>
 
   xml += `  <Assignments>
 `;
+  const assignmentCountByTaskId = new Map<string, number>();
+  for (const row of assignmentRows) {
+    assignmentCountByTaskId.set(
+      row.taskId,
+      (assignmentCountByTaskId.get(row.taskId) ?? 0) + 1,
+    );
+  }
+
   // Project often uses large UIDs for assignments; start above task UIDs.
   let assignmentUid = 1_048_577;
   for (const row of assignmentRows) {
@@ -919,17 +970,34 @@ ${task.milestone ? `      <ExtendedAttribute>
       toDateTime(task?.finishDate, true) ||
       toDateTime(payload.project.finishDate, true);
     const work = toIsoWork(task?.workHours);
+    const percent = Math.max(0, Math.min(100, task?.percentComplete ?? 0));
+    const assignCount = assignmentCountByTaskId.get(row.taskId) || 1;
+    let workLines = '';
+    if (work) {
+      const totalHours = task?.workHours ? Number(task.workHours) / assignCount : 0;
+      const actHours = Math.round((totalHours * percent) / 100 * 10) / 10;
+      const remHours = Math.max(0, Math.round((totalHours - actHours) * 10) / 10);
+      const assignWork = toIsoWork(totalHours) || 'PT0H0M0S';
+      const actualWork = toIsoWork(actHours) || 'PT0H0M0S';
+      const remainingWork = toIsoWork(remHours) || 'PT0H0M0S';
+      workLines = `      <Work>${assignWork}</Work>
+      <RegularWork>${assignWork}</RegularWork>
+      <RemainingWork>${remainingWork}</RemainingWork>
+      <ActualWork>${actualWork}</ActualWork>
+      <PercentWorkComplete>${percent}</PercentWorkComplete>`;
+    } else {
+      workLines = `      <PercentWorkComplete>${percent}</PercentWorkComplete>`;
+    }
+    const actualStart = percent > 0 ? (toDateTime(task?.startDate) || start) : '';
+    const actualFinish = percent >= 100 ? (toDateTime(task?.finishDate, true) || finish) : '';
+
     xml += `    <Assignment>
       <UID>${assignmentUid}</UID>
       <ResourceUID>${resource.uid}</ResourceUID>
       <TaskUID>${taskUid}</TaskUID>
       <Units>1</Units>
-      ${work ? `<Work>${work}</Work>
-      <RegularWork>${work}</RegularWork>
-      <RemainingWork>${work}</RemainingWork>` : ''}
-      ${start ? `<Start>${start}</Start>` : ''}
-      ${finish ? `<Finish>${finish}</Finish>` : ''}
-      <FinishVariance>0</FinishVariance>
+${workLines}
+      ${start ? `      <Start>${start}</Start>\n` : ''}${finish ? `      <Finish>${finish}</Finish>\n` : ''}${actualStart ? `      <ActualStart>${actualStart}</ActualStart>\n` : ''}${actualFinish ? `      <ActualFinish>${actualFinish}</ActualFinish>\n` : ''}      <FinishVariance>0</FinishVariance>
       <WorkContour>0</WorkContour>
     </Assignment>
 `;
