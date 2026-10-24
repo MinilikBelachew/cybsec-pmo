@@ -646,6 +646,7 @@ export class TasksService {
     ownerId?: string | null,
     parentTaskId?: string | null,
     phaseId?: string | null,
+    validateNesting = true,
   ) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
@@ -730,34 +731,52 @@ export class TasksService {
           errors: { parentTask: 'parentTaskMustBeInSameProject' },
         });
       }
-      // Max 3 levels: top → sub → sub-sub. Reject when parent is already a sub-sub.
-      if (parent.parentTaskId) {
-        const grandparent = await this.prisma.task.findUnique({
-          where: { id: parent.parentTaskId },
-          select: { parentTaskId: true },
-        });
-        if (grandparent?.parentTaskId) {
+      // Allow up to 10 levels of hierarchy (root -> sub -> ... -> sub^9).
+      // If parent is already at depth >= 10, adding a child would exceed 10 levels.
+      if (validateNesting) {
+        const parentDepth = await this.getTaskDepth(parentTaskId);
+        if (parentDepth >= 10) {
           throw new UnprocessableEntityException({
             status: HttpStatus.UNPROCESSABLE_ENTITY,
-            errors: { parentTask: 'subTasksCannotBeNestedDeeperThanThreeLevels' },
+            errors: { parentTask: 'subTasksCannotBeNestedDeeperThanTenLevels' },
           });
         }
       }
     }
   }
 
-  /** True when a task at this parent position may still own child tasks (depth < 3). */
+  /**
+   * Traverses up parentTaskId to compute the 1-based hierarchy depth.
+   * Root task (no parentTaskId) = depth 1.
+   * Direct child of root = depth 2.
+   */
+  private async getTaskDepth(taskId: string): Promise<number> {
+    let depth = 1;
+    let currentId: string | null = taskId;
+    const visited = new Set<string>();
+
+    while (currentId && depth <= 20) {
+      if (visited.has(currentId)) break;
+      visited.add(currentId);
+      const task: { parentTaskId: string | null } | null =
+        await this.prisma.task.findUnique({
+          where: { id: currentId },
+          select: { parentTaskId: true },
+        });
+      if (!task?.parentTaskId) break;
+      depth += 1;
+      currentId = task.parentTaskId;
+    }
+    return depth;
+  }
+
+  /** True when a task at this parent position may still own child tasks (depth < 10). */
   private async canAttachChildTasks(parentTaskId?: string | null): Promise<boolean> {
     if (!parentTaskId) {
       return true;
     }
-    const parent = await this.prisma.task.findUnique({
-      where: { id: parentTaskId },
-      select: { parentTaskId: true },
-    });
-    // Parent is top-level → new task is depth 2 → may have children.
-    // Parent is already a sub → new task is depth 3 → may not have children.
-    return !parent?.parentTaskId;
+    const parentDepth = await this.getTaskDepth(parentTaskId);
+    return parentDepth < 10;
   }
 
   
@@ -1232,7 +1251,8 @@ export class TasksService {
     const phaseId = dto.phaseId !== undefined ? dto.phaseId : existing.phaseId;
 
     if (dto.projectId || dto.ownerId !== undefined || dto.parentTaskId !== undefined || dto.phaseId !== undefined) {
-      await this.validateReferences(projectId, ownerId, parentTaskId, phaseId);
+      const isChangingParent = dto.parentTaskId !== undefined && dto.parentTaskId !== existing.parentTaskId;
+      await this.validateReferences(projectId, ownerId, parentTaskId, phaseId, isChangingParent);
     }
 
     const resolvedPhaseId =
@@ -1858,8 +1878,9 @@ export class TasksService {
       dto.parentTaskId !== undefined ? dto.parentTaskId : existing.parentTaskId;
     const phaseId = dto.phaseId !== undefined ? dto.phaseId : existing.phaseId;
 
-    if (dto.projectId || dto.ownerId || dto.parentTaskId || dto.phaseId !== undefined) {
-      await this.validateReferences(projectId, ownerId, parentTaskId, phaseId);
+    if (dto.projectId || dto.ownerId !== undefined || dto.parentTaskId !== undefined || dto.phaseId !== undefined) {
+      const isChangingParent = dto.parentTaskId !== undefined && dto.parentTaskId !== existing.parentTaskId;
+      await this.validateReferences(projectId, ownerId, parentTaskId, phaseId, isChangingParent);
     }
 
     const resolvedStartDate =

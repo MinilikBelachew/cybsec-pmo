@@ -2795,6 +2795,49 @@ function avgTopLevelProgress(tasks: any[]): number {
   return Math.round(sum / tasks.length);
 }
 
+function computeMspdiStatusDate(
+  tasks: any[],
+  projectStart?: string | Date | null,
+  projectFinish?: string | Date | null,
+): string {
+  let latestProgressDate: string | null = null;
+  for (const t of tasks || []) {
+    const pct = mapMppPercent(t);
+    if (pct > 0) {
+      const d = pct >= 100
+        ? (t.actualEnd || t.actualFinish || t.endDate || t.finishDate || t.startDate)
+        : (t.actualStart || t.startDate);
+      if (d) {
+        const str = d instanceof Date ? d.toISOString().split("T")[0] : String(d).split("T")[0];
+        if (!latestProgressDate || str > latestProgressDate) {
+          latestProgressDate = str;
+        }
+      }
+    }
+  }
+  const todayStr = new Date().toISOString().split("T")[0];
+  const finishStr = projectFinish instanceof Date
+    ? projectFinish.toISOString().split("T")[0]
+    : (projectFinish ? String(projectFinish).split("T")[0] : null);
+  const targetDate = latestProgressDate
+    ? (todayStr > latestProgressDate ? todayStr : latestProgressDate)
+    : (finishStr || todayStr);
+  return `${targetDate}T17:00:00`;
+}
+
+function addMinutesToMspdiDateTime(dtStr?: string | null, minutes = 0): string {
+  if (!dtStr || !minutes) return dtStr || "";
+  const parts = String(dtStr).split("T");
+  if (parts.length !== 2) return String(dtStr);
+  const [d, t] = parts;
+  const [y, m, day] = d.split("-").map(Number);
+  const [h, min, s] = t.split(":").map(Number);
+  const date = new Date(y, m - 1, day, h, min, s || 0);
+  date.setMinutes(date.getMinutes() + minutes);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 /** Emit a task and all descendants (nested summaries) in plan order. */
 function pushTaskTreeToPlan(
   emitPlan: Array<{
@@ -3443,20 +3486,30 @@ function renderMppTaskXml(opts: {
       !isZeroMs,
     )
     : "";
+  const startStr = start;
+  const endStr = finish;
   const percent = task ? mapMppPercent(task) : 0;
   const durationXml = task ? mspdiDurationXml(task) : "";
   const workXml = task ? mspdiWorkXml(task) : "";
   const baselineHours = task ? mspdiBaselineDurationHours(task) : null;
-  const actualStart =
+  let actualStart =
     task && percent > 0
       ? toMppDateTime(task.actualStart || task.startDate)
       : "";
-  const actualFinish =
+  if (actualStart && startStr) {
+    if (actualStart.slice(0, 10) === startStr.slice(0, 10) || actualStart < startStr) {
+      actualStart = startStr;
+    }
+  }
+  let actualFinish =
     task && percent >= 100
       ? isZeroMs
         ? actualStart || toMppDateTime(task.actualEnd || task.endDate, false)
         : toMppDateTime(task.actualEnd || task.endDate, true)
       : "";
+  if (actualFinish && endStr && (actualFinish.slice(0, 10) === endStr.slice(0, 10) || actualFinish > endStr)) {
+    actualFinish = endStr;
+  }
 
   // Flat Baseline* + nested <Baseline Number=0> (required) so Project shows Baseline columns.
   let baselineBlock = "";
@@ -3489,6 +3542,13 @@ ${baselineStart ? `        <Start>${baselineStart}</Start>\n` : ""}${baselineFin
       const remWorkMinutes = Math.max(0, workMinutes - actWorkMinutes);
       progressXml += `      <ActualWork>${toMspdiIsoDurationFromMinutes(actWorkMinutes)}</ActualWork>\n`;
       progressXml += `      <RemainingWork>${toMspdiIsoDurationFromMinutes(remWorkMinutes)}</RemainingWork>\n`;
+    }
+    if (percent < 100 && actualStart) {
+      const stopDate = addMinutesToMspdiDateTime(actualStart, actDurMinutes);
+      if (stopDate) {
+        progressXml += `      <Stop>${stopDate}</Stop>\n`;
+        progressXml += `      <Resume>${stopDate}</Resume>\n`;
+      }
     }
   }
 
@@ -3675,8 +3735,24 @@ function appendMspdiResourcesAndAssignments(
       workLines = `      <PercentWorkComplete>${percent}</PercentWorkComplete>`;
     }
 
-    const actualStart = percent > 0 ? toMppDateTime(row.task.actualStart || row.task.startDate) : "";
-    const actualFinish = percent >= 100 ? toMppDateTime(row.task.actualEnd || row.task.endDate, true) : "";
+    let actualStart = percent > 0 ? toMppDateTime(row.task.actualStart || row.task.startDate) : "";
+    if (actualStart && start && (actualStart.slice(0, 10) === start.slice(0, 10) || actualStart < start)) {
+      actualStart = start;
+    }
+    let actualFinish = percent >= 100 ? toMppDateTime(row.task.actualEnd || row.task.endDate, true) : "";
+    if (actualFinish && finish && (actualFinish.slice(0, 10) === finish.slice(0, 10) || actualFinish > finish)) {
+      actualFinish = finish;
+    }
+
+    let stopLines = "";
+    if (percent > 0 && percent < 100 && actualStart) {
+      const durationHours = mspdiDurationHours(row.task);
+      const actDurMin = Math.round((durationHours * 60 * percent) / 100);
+      const stopDate = addMinutesToMspdiDateTime(actualStart, actDurMin);
+      if (stopDate) {
+        stopLines = `      <Stop>${stopDate}</Stop>\n      <Resume>${stopDate}</Resume>\n`;
+      }
+    }
 
     xml += `    <Assignment>
       <UID>${assignmentUid++}</UID>
@@ -3684,7 +3760,7 @@ function appendMspdiResourcesAndAssignments(
       <TaskUID>${row.taskUid}</TaskUID>
       <Units>1.00</Units>
 ${workLines}
-      ${start ? `      <Start>${start}</Start>\n` : ""}${finish ? `      <Finish>${finish}</Finish>\n` : ""}${actualStart ? `      <ActualStart>${actualStart}</ActualStart>\n` : ""}${actualFinish ? `      <ActualFinish>${actualFinish}</ActualFinish>\n` : ""}    </Assignment>
+      ${start ? `      <Start>${start}</Start>\n` : ""}${finish ? `      <Finish>${finish}</Finish>\n` : ""}${actualStart ? `      <ActualStart>${actualStart}</ActualStart>\n` : ""}${actualFinish ? `      <ActualFinish>${actualFinish}</ActualFinish>\n` : ""}${stopLines}    </Assignment>
 `;
   }
   xml += `  </Assignments>
@@ -3824,6 +3900,12 @@ export function exportTasksToMspdi(
     },
     markedTasks,
   );
+  const statusDate = computeMspdiStatusDate(
+    markedTasks,
+    rootSchedule.startDate,
+    rootSchedule.endDate,
+  );
+  const currentDate = `${new Date().toISOString().split("T")[0]}T12:00:00`;
 
   type EmitItem =
     | { kind: "phase"; phaseEntry: (typeof orderedPhases)[0]; phaseIndex: number }
@@ -3920,8 +4002,12 @@ export function exportTasksToMspdi(
   <Title>${escMppXml(projectName)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
   <NewTasksAreManual>0</NewTasksAreManual>
+  <HonorConstraints>0</HonorConstraints>
+  <SplitsInProgressTasks>1</SplitsInProgressTasks>
   ${rootSchedule.startDate ? `<StartDate>${toMppDateTime(rootSchedule.startDate)}</StartDate>` : ""}
   ${rootSchedule.endDate ? `<FinishDate>${toMppDateTime(rootSchedule.endDate, true)}</FinishDate>` : ""}
+  <CurrentDate>${currentDate}</CurrentDate>
+  <StatusDate>${statusDate}</StatusDate>
   <CalendarUID>1</CalendarUID>
   <DefaultStartTime>08:00:00</DefaultStartTime>
   <DefaultFinishTime>17:00:00</DefaultFinishTime>
@@ -4065,6 +4151,12 @@ export function exportProjectsToMspdi(
     },
     allTasksForRoot,
   );
+  const statusDate = computeMspdiStatusDate(
+    allTasksForRoot,
+    rootSchedule.startDate,
+    rootSchedule.endDate,
+  );
+  const currentDate = `${new Date().toISOString().split("T")[0]}T12:00:00`;
 
   // Placeholder until resources are known — Project Save As .mpp needs full calendars.
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -4074,8 +4166,12 @@ export function exportProjectsToMspdi(
   <Title>${escMppXml(exportTitle)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
   <NewTasksAreManual>0</NewTasksAreManual>
+  <HonorConstraints>0</HonorConstraints>
+  <SplitsInProgressTasks>1</SplitsInProgressTasks>
   ${rootSchedule.startDate ? `<StartDate>${toMppDateTime(rootSchedule.startDate)}</StartDate>` : ""}
   ${rootSchedule.endDate ? `<FinishDate>${toMppDateTime(rootSchedule.endDate, true)}</FinishDate>` : ""}
+  <CurrentDate>${currentDate}</CurrentDate>
+  <StatusDate>${statusDate}</StatusDate>
   <CalendarUID>1</CalendarUID>
   <DefaultStartTime>08:00:00</DefaultStartTime>
   <DefaultFinishTime>17:00:00</DefaultFinishTime>

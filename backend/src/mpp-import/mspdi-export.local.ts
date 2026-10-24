@@ -189,6 +189,19 @@ function toDateTime(value?: string, end = false) {
   return `${d}T${end ? '17:00:00' : '08:00:00'}`;
 }
 
+function addMinutesToMspdiDateTime(dtStr?: string | null, minutes = 0): string {
+  if (!dtStr || !minutes) return dtStr || '';
+  const parts = String(dtStr).split('T');
+  if (parts.length !== 2) return String(dtStr);
+  const [d, t] = parts;
+  const [y, m, day] = d.split('-').map(Number);
+  const [h, min, s] = t.split(':').map(Number);
+  const date = new Date(y, m - 1, day, h, min, s || 0);
+  date.setMinutes(date.getMinutes() + minutes);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 /** MSPDI duration: working days → PT hours (8h day). Supports fractions. */
 function toIsoDuration(days?: number | null, milestone = false): string {
   if (milestone && (days == null || Number(days) === 0)) {
@@ -675,8 +688,17 @@ function renderScheduleFields(
       parts.push(`      <ActualWork>${toIsoWork(actHours) || 'PT0H0M0S'}</ActualWork>`);
       parts.push(`      <RemainingWork>${toIsoWork(remHours) || 'PT0H0M0S'}</RemainingWork>`);
     }
-    if (task.startDate) {
-      parts.push(`      <ActualStart>${toDateTime(task.startDate)}</ActualStart>`);
+    const actStart = task.startDate ? toDateTime(task.startDate) : '';
+    if (actStart) {
+      parts.push(`      <ActualStart>${actStart}</ActualStart>`);
+      if (percent < 100) {
+        const actMinutes = Math.round(actDays * 480);
+        const stopDate = addMinutesToMspdiDateTime(actStart, actMinutes);
+        if (stopDate) {
+          parts.push(`      <Stop>${stopDate}</Stop>`);
+          parts.push(`      <Resume>${stopDate}</Resume>`);
+        }
+      }
     }
     if (percent >= 100 && (task.finishDate || task.startDate)) {
       const isZeroMs = Boolean(task.milestone && durationDays === 0);
@@ -823,6 +845,26 @@ export function buildLocalMspdiXml(payload: MspdiExportRequestPayload): Buffer {
     (a, b) => a.uid - b.uid,
   );
 
+  let latestProgressDate: string | null = null;
+  for (const t of working.tasks) {
+    const pct = Math.max(0, Math.min(100, t.percentComplete ?? 0));
+    if (pct > 0) {
+      const d = pct >= 100 ? (t.finishDate || t.startDate) : t.startDate;
+      if (d) {
+        const str = String(d).split('T')[0];
+        if (!latestProgressDate || str > latestProgressDate) {
+          latestProgressDate = str;
+        }
+      }
+    }
+  }
+  const todayStr = new Date().toISOString().split('T')[0];
+  const targetDate = latestProgressDate
+    ? (todayStr > latestProgressDate ? todayStr : latestProgressDate)
+    : (payload.project.finishDate ? String(payload.project.finishDate).split('T')[0] : todayStr);
+  const statusDate = `${targetDate}T17:00:00`;
+  const currentDate = `${todayStr}T12:00:00`;
+
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
   <SaveVersion>14</SaveVersion>
@@ -830,8 +872,12 @@ export function buildLocalMspdiXml(payload: MspdiExportRequestPayload): Buffer {
   <Title>${esc(name)}</Title>
   <ScheduleFromStart>1</ScheduleFromStart>
   <NewTasksAreManual>0</NewTasksAreManual>
+  <HonorConstraints>0</HonorConstraints>
+  <SplitsInProgressTasks>1</SplitsInProgressTasks>
   ${payload.project.startDate ? `<StartDate>${toDateTime(payload.project.startDate)}</StartDate>` : ''}
   ${payload.project.finishDate ? `<FinishDate>${toDateTime(payload.project.finishDate, true)}</FinishDate>` : ''}
+  <CurrentDate>${currentDate}</CurrentDate>
+  <StatusDate>${statusDate}</StatusDate>
   <CalendarUID>1</CalendarUID>
   <DefaultStartTime>08:00:00</DefaultStartTime>
   <DefaultFinishTime>17:00:00</DefaultFinishTime>
@@ -990,6 +1036,15 @@ ${task.milestone ? `      <ExtendedAttribute>
     }
     const actualStart = percent > 0 ? (toDateTime(task?.startDate) || start) : '';
     const actualFinish = percent >= 100 ? (toDateTime(task?.finishDate, true) || finish) : '';
+    let stopLines = '';
+    if (percent > 0 && percent < 100 && actualStart) {
+      const durDays = task?.durationDays ?? (task?.milestone ? 0 : 1);
+      const actMinutes = Math.round(((durDays * percent) / 100) * 480);
+      const stopDate = addMinutesToMspdiDateTime(actualStart, actMinutes);
+      if (stopDate) {
+        stopLines = `      <Stop>${stopDate}</Stop>\n      <Resume>${stopDate}</Resume>\n`;
+      }
+    }
 
     xml += `    <Assignment>
       <UID>${assignmentUid}</UID>
@@ -997,7 +1052,7 @@ ${task.milestone ? `      <ExtendedAttribute>
       <TaskUID>${taskUid}</TaskUID>
       <Units>1</Units>
 ${workLines}
-      ${start ? `      <Start>${start}</Start>\n` : ''}${finish ? `      <Finish>${finish}</Finish>\n` : ''}${actualStart ? `      <ActualStart>${actualStart}</ActualStart>\n` : ''}${actualFinish ? `      <ActualFinish>${actualFinish}</ActualFinish>\n` : ''}      <FinishVariance>0</FinishVariance>
+      ${start ? `      <Start>${start}</Start>\n` : ''}${finish ? `      <Finish>${finish}</Finish>\n` : ''}${actualStart ? `      <ActualStart>${actualStart}</ActualStart>\n` : ''}${actualFinish ? `      <ActualFinish>${actualFinish}</ActualFinish>\n` : ''}${stopLines}      <FinishVariance>0</FinishVariance>
       <WorkContour>0</WorkContour>
     </Assignment>
 `;
