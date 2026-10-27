@@ -51,7 +51,7 @@ services:
     container_name: cybersec-backend-stage
     restart: always
     ports:
-      - "6040:3000"
+      - "127.0.0.1:6040:3000"
     depends_on:
       - postgres
       - redis
@@ -93,7 +93,7 @@ services:
     container_name: cybersec-frontend-stage
     restart: always
     ports:
-      - "3040:3000"
+      - "127.0.0.1:3040:3000"
     env_file:
       - ./frontend/.env
     environment:
