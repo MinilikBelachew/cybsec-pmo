@@ -62,6 +62,8 @@ jobs:
       - name: Build & Push Backend Image
         uses: docker/build-push-action@v5
         with:
+          pull: true
+          no-cache: true
           context: ./backend
           file: ./backend/Dockerfile
           push: true
@@ -127,6 +129,8 @@ jobs:
       - name: Build & Push Frontend Image
         uses: docker/build-push-action@v5
         with:
+          pull: true
+          no-cache: true
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
@@ -179,6 +183,8 @@ jobs:
       - name: Build & Push MPXJ Service Image
         uses: docker/build-push-action@v5
         with:
+          pull: true
+          no-cache: true
           context: ./mpxj-service
           file: ./mpxj-service/Dockerfile
           push: true

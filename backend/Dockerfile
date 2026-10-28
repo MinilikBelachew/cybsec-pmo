@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22.18.0-slim
+FROM node:22-slim
 
 # openssl: required by Prisma engine binaries.
 # procps: provides `ps`, which `nest start --watch` (tsc-watch/ps-tree) needs to kill
