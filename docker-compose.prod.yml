@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17.6-alpine
+    image: postgres:17-alpine
     container_name: cybersec-postgres-stage
     restart: always
     ports:

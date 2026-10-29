@@ -1,4 +1,4 @@
-FROM node:22.18.0-slim AS base
+FROM node:22-slim AS base
 
 # ── deps stage ──────────────────────────────────────────────────────────────
 FROM base AS deps
