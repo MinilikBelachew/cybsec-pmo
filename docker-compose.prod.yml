@@ -28,6 +28,8 @@ services:
     build:
       context: ./mpxj-service
       dockerfile: Dockerfile
+      pull: true
+      no_cache: true
     # image: aynuayex/cybersec-pmo:mpxj-service
     container_name: cybersec-mpxj-service-stage
     restart: always
@@ -41,6 +43,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      pull: true
+      no_cache: true
 
     # --------------------------------------------------------------------------
     # OPTION 2: Pull from Docker Hub (Uncomment if using Docker Hub registry)
@@ -79,6 +83,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      pull: true
+      no_cache: true
       args:
         - NEXT_PUBLIC_API_URL=https://cybsec-stage.learnica.net/api/v1
         - NEXT_PUBLIC_WS_URL=https://cybsec-stage.learnica.net
