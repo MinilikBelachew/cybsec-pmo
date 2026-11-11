@@ -9,7 +9,6 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
-import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
 import { ProjectPhase } from "../../types/projects.types";
 import { Calendar } from "@/shared/ui/calendar";
@@ -144,7 +143,8 @@ export function PhaseForm({
       onSubmit={handleSubmit((values) => onSubmit(values, draftFiles))}
       className="flex-1 flex flex-col justify-between overflow-hidden"
     >
-      <ScrollArea className="flex-1">
+      {/* DEF-P1-92: Native overflow-y-auto ensures visible scrollbar at any screen resolution */}
+      <div className="flex-1 overflow-y-auto">
         <div className="space-y-4 px-4 py-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold">
@@ -336,7 +336,7 @@ export function PhaseForm({
             }
           />
         </div>
-      </ScrollArea>
+      </div>
 
       <div className="p-4 border-t border-border flex justify-end gap-2 bg-muted/30">
         <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>

@@ -26,7 +26,6 @@ import type { WorkspaceDocumentCategory } from "../../types/project-documents.ty
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/shared/ui/sheet";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
-import { ScrollArea } from "@/shared/ui/scroll-area";
 import {
   Plus,
   Trash2,
@@ -97,6 +96,18 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
     type: "add-phase" | "edit-phase" | "add-milestone" | "edit-milestone" | null;
     id?: string;
   }>({ type: null });
+
+  // DEF-P1-93: Ensure panel always resets to default roadmap view when closed
+  React.useEffect(() => {
+    if (!isOpen) {
+      setActiveForm({ type: null });
+    }
+  }, [isOpen]);
+
+  const handleClose = () => {
+    setActiveForm({ type: null });
+    onClose();
+  };
 
   const editingPhaseId =
     activeForm.type === "edit-phase" && activeForm.id ? activeForm.id : undefined;
@@ -491,7 +502,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
 
   return (
     <>
-      <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <Sheet open={isOpen} onOpenChange={(open) => !open && handleClose()}>
         <SheetContent className="w-full !max-w-[700px] flex flex-col p-0">
           <SheetHeader className="px-6 pt-6 pb-4 border-b border-border">
             <SheetTitle className="flex items-center gap-2 text-foreground">
@@ -566,7 +577,8 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                   )}
                 </div>
 
-                <ScrollArea className="flex-1">
+                {/* DEF-P1-92: Native overflow-y-auto ensures visible scrollbar at any screen resolution */}
+                <div className="flex-1 overflow-y-auto">
                   <div className="p-4 space-y-4">
                     {/* PHASES & THEIR MILESTONES */}
                     <div className="space-y-2">
@@ -831,7 +843,7 @@ export function PhaseMilestonePanel({ projectId, isOpen, onClose }: PhaseMilesto
                       </div>
                     )}
                   </div>
-                </ScrollArea>
+                </div>
               </div>
             )}
           </div>
