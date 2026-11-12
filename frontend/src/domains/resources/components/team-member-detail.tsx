@@ -107,6 +107,12 @@ export function TeamMemberDetail({
                   <User className="size-3.5 shrink-0" />
                   {member.kekaEmployeeId}
                 </span>
+                {member.manager && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground/80">
+                    <User className="size-3.5 shrink-0 text-primary" />
+                    Reports to: <span className="font-semibold text-foreground">{member.manager}</span>
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -202,6 +208,28 @@ function ProfileTab({
         <StatCard label="Remaining" value={`${member.remainingHours}h/wk`} />
         <StatCard label="Active projects" value={String(activeProjects)} />
       </div>
+
+      <section className="rounded-2xl border border-border/60 bg-card p-5">
+        <h2 className="text-sm font-semibold">Organization & Reporting</h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+          <div>
+            <span className="text-xs text-muted-foreground block">Department</span>
+            <span className="font-medium text-foreground">{member.department}</span>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground block">Designation</span>
+            <span className="font-medium text-foreground">{member.designation}</span>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground block">Reports To</span>
+            <span className="font-medium text-foreground">{member.manager || "—"}</span>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground block">Keka Employee ID</span>
+            <span className="font-mono text-xs font-medium text-foreground">{member.kekaEmployeeId || "—"}</span>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-border/60 bg-card p-5">
         <h2 className="text-sm font-semibold">Capacity overview</h2>

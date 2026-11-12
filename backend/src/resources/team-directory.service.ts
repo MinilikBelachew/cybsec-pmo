@@ -41,6 +41,7 @@ import {
 
 const EMPLOYEE_INCLUDE = {
   department: { select: { id: true, code: true, name: true } },
+  manager: { select: { id: true, name: true, email: true, designation: true } },
   allocations: {
     where: { status: 'Active' },
     include: {
@@ -361,6 +362,14 @@ export class TeamDirectoryService {
       name: employee.name,
       email: employee.email,
       designation: employee.designation,
+      manager: employee.manager
+        ? {
+            id: employee.manager.id,
+            name: employee.manager.name,
+            email: employee.manager.email,
+            designation: employee.manager.designation,
+          }
+        : null,
       kekaEmployeeId: employee.kekaEmployeeId,
       profileImageUrl: employee.profileImageUrl,
       department: employee.department,

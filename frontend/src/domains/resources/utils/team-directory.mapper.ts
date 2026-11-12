@@ -34,6 +34,7 @@ export function mapTeamDirectoryMember(member: ApiTeamDirectoryMember): TeamDire
     kekaEmployeeId: member.kekaEmployeeId,
     kekaSyncStatus: "synced",
     utilStatus: resolveUtilizationStatus(member),
+    manager: member.manager?.name ?? undefined,
     assignments: member.assignments.map((assignment) => ({
       project: assignment.project,
       role: assignment.role,

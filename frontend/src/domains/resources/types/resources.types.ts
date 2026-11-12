@@ -45,6 +45,12 @@ export interface ApiTeamDirectoryMember {
   name: string;
   email: string;
   designation: string;
+  manager?: {
+    id: string;
+    name: string;
+    email: string;
+    designation?: string | null;
+  } | null;
   kekaEmployeeId: string;
   profileImageUrl: string | null;
   department: {

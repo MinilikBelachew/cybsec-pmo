@@ -47,6 +47,20 @@ export class TeamDirectoryAssignmentDto {
   status: string;
 }
 
+export class TeamDirectoryManagerDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty()
+  email: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  designation?: string | null;
+}
+
 export class TeamDirectoryMemberDto {
   @ApiProperty()
   id: string;
@@ -59,6 +73,9 @@ export class TeamDirectoryMemberDto {
 
   @ApiProperty()
   designation: string;
+
+  @ApiPropertyOptional({ type: TeamDirectoryManagerDto, nullable: true })
+  manager?: TeamDirectoryManagerDto | null;
 
   @ApiProperty()
   kekaEmployeeId: string;

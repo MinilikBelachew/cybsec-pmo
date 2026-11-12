@@ -360,7 +360,7 @@ export function TeamDirectoryPage() {
             onSortingChange={setDirectorySorting}
             isLoading={isDirectoryLoading}
             emptyMessage="No team members match your filters."
-            minTableWidth="min-w-[960px]"
+            minTableWidth="min-w-[1150px]"
             onRowClick={handleSelectMember}
             enableColumnReorder
             columnOrderStorageKey="cybsec-team-directory-column-order-v3"

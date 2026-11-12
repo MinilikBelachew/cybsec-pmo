@@ -50,7 +50,7 @@ export function createTeamDirectoryColumns({
           </button>
         );
       },
-      meta: { className: "w-[22%] max-w-0 overflow-hidden", label: "Name" },
+      meta: { className: "min-w-[190px] max-w-[280px]", label: "Name" },
     },
     {
       id: "department",
@@ -64,7 +64,7 @@ export function createTeamDirectoryColumns({
           {row.original.department}
         </span>
       ),
-      meta: { className: "w-[12%] max-w-0 overflow-hidden", label: "Department" },
+      meta: { className: "min-w-[120px] max-w-[200px]", label: "Department" },
     },
     {
       id: "designation",
@@ -78,7 +78,21 @@ export function createTeamDirectoryColumns({
           {row.original.designation}
         </span>
       ),
-      meta: { className: "w-[16%] max-w-0 overflow-hidden", label: "Designation" },
+      meta: { className: "min-w-[140px] max-w-[220px]", label: "Designation" },
+    },
+    {
+      id: "manager",
+      accessorKey: "manager",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Reports To" />,
+      cell: ({ row }) => (
+        <span
+          className="block truncate text-sm text-muted-foreground"
+          title={row.original.manager || "—"}
+        >
+          {row.original.manager || "—"}
+        </span>
+      ),
+      meta: { className: "min-w-[140px] max-w-[220px]", label: "Reports To" },
     },
     {
       id: "utilization",
@@ -109,7 +123,7 @@ export function createTeamDirectoryColumns({
           </div>
         );
       },
-      meta: { className: "overflow-hidden", label: "Utilization" },
+      meta: { className: "min-w-[120px]", label: "Utilization" },
     },
     {
       id: "allocatedHours",
@@ -118,7 +132,7 @@ export function createTeamDirectoryColumns({
       cell: ({ row }) => (
         <span className="text-sm">{row.original.allocatedHours}h/wk</span>
       ),
-      meta: { label: "Allocated" },
+      meta: { className: "min-w-[95px]", label: "Allocated" },
     },
     {
       id: "remainingHours",
@@ -127,7 +141,7 @@ export function createTeamDirectoryColumns({
       cell: ({ row }) => (
         <span className="text-sm">{row.original.remainingHours}h/wk</span>
       ),
-      meta: { label: "Remaining" },
+      meta: { className: "min-w-[95px]", label: "Remaining" },
     },
     {
       id: "upcomingLeave",
@@ -148,7 +162,7 @@ export function createTeamDirectoryColumns({
           </span>
         );
       },
-      meta: { label: "Leave" },
+      meta: { className: "min-w-[110px]", label: "Leave" },
     },
     {
       id: "projects",
@@ -158,7 +172,7 @@ export function createTeamDirectoryColumns({
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">{row.original.projects.length}</span>
       ),
-      meta: { label: "Projects" },
+      meta: { className: "min-w-[80px]", label: "Projects" },
     },
     {
       id: "assignments",
@@ -187,7 +201,7 @@ export function createTeamDirectoryColumns({
           </div>
         );
       },
-      meta: { label: "Allocations" },
+      meta: { className: "min-w-[220px]", label: "Allocations" },
     },
   ];
 }
