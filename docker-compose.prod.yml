@@ -73,6 +73,35 @@ services:
       MPP_IMPORT_STORAGE_DIR: /tmp/mpp-imports
       MPP_IMPORT_MAX_FILE_SIZE_BYTES: 52428800
 
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: cybersec-backend-stage:${IMAGE_TAG:-latest}
+    container_name: cybersec-worker-stage
+    restart: always
+    command: ["node", "dist/src/main-worker"]
+    depends_on:
+      - postgres
+      - redis
+      - mpxj-service
+    volumes:
+      - mpp_import_stage_data:/tmp/mpp-imports
+      - backend_uploads_stage_data:/usr/src/app/files
+    env_file:
+      - ./backend/.env.prod
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_URL: postgresql://${DATABASE_USERNAME:-root}:${DATABASE_PASSWORD:-secret}@postgres:5432/${DATABASE_NAME:-api}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      WORKER_HOST: redis://redis:6379/1
+      MPXJ_SERVICE_URL: http://mpxj-service:8080
+      MPP_IMPORT_STORAGE_DIR: /tmp/mpp-imports
+      MPP_IMPORT_MAX_FILE_SIZE_BYTES: 52428800
+
   frontend:
     # --------------------------------------------------------------------------
     # Option to build locally on VPS or run pre-built CI/CD image

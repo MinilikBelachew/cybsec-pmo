@@ -58,6 +58,30 @@ services:
       - MPXJ_SERVICE_URL=http://mpxj-service:8080
       - MPP_IMPORT_STORAGE_DIR=/tmp/mpp-imports
       - MPP_IMPORT_MAX_FILE_SIZE_BYTES=52428800
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "/opt/wait-for-it.sh postgres:5432 -- /opt/wait-for-it.sh redis:6379 -- node -r ts-node/register -r tsconfig-paths/register src/main-worker.ts"
+    volumes:
+      - ./backend:/usr/src/app
+      - /usr/src/app/node_modules
+      - /usr/src/app/dist
+      - mpp_import_data:/tmp/mpp-imports
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_URL=postgresql://postgres:m123@postgres:5432/cybsec_pmo?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKER_HOST=redis://redis:6379/1
+      - MPXJ_SERVICE_URL=http://mpxj-service:8080
+      - MPP_IMPORT_STORAGE_DIR=/tmp/mpp-imports
+      - MPP_IMPORT_MAX_FILE_SIZE_BYTES=52428800
       - KEKA_MOCK_ENABLED=false
       - KEKA_SYNC_ENABLED=true
     depends_on:
