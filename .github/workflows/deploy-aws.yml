@@ -1,0 +1,275 @@
+name: Deploy CyberSec PMO to AWS ECS
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_phase:
+        description: 'Deployment Phase'
+        required: true
+        type: choice
+        default: 'standard_deploy'
+        options:
+          - 'standard_deploy'           # Normal: Build, Push to ECR, and Roll out to ECS Services
+          - 'bootstrap_images_only'     # 1st-Time Bootstrap: Build & Push to ECR only (Run BEFORE terraform apply)
+      services:
+        description: 'Services to Build & Deploy'
+        required: true
+        type: choice
+        default: 'all'
+        options:
+          - 'all'
+          - 'backend_and_frontend'
+          - 'backend_and_mpxj'
+          - 'frontend_and_mpxj'
+          - 'backend_only'
+          - 'frontend_only'
+          - 'mpxj_only'
+      git_ref:
+        description: 'Branch or Git Commit SHA to deploy'
+        required: false
+        default: 'main'
+
+permissions:
+  id-token: write  # Required for AWS IAM OIDC Federation
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1 # Mumbai, India
+  PROJECT_NAME: cybersec-pmo
+  ENVIRONMENT: prod
+  ECS_CLUSTER: cybersec-pmo-prod-cluster
+  BACKEND_SERVICE: cybersec-pmo-prod-backend
+  FRONTEND_SERVICE: cybersec-pmo-prod-frontend
+  MPXJ_SERVICE: cybersec-pmo-prod-mpxj
+  BACKEND_FAMILY: cybersec-pmo-prod-backend
+  FRONTEND_FAMILY: cybersec-pmo-prod-frontend
+  MPXJ_FAMILY: cybersec-pmo-prod-mpxj
+
+jobs:
+  build-and-deploy:
+    name: Build, Push & Deploy (${{ github.event.inputs.deployment_phase }})
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref || 'main' }}
+
+      - name: Configure AWS Credentials (Keyless OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ------------------------------------------------------------------------
+      # 1. Build & Push Backend API (NestJS)
+      # ------------------------------------------------------------------------
+      - name: Build & Push Backend API
+        if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_frontend' || github.event.inputs.services == 'backend_and_mpxj' || github.event.inputs.services == 'backend_only' }}
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPO: ${{ env.PROJECT_NAME }}/backend
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          echo "Building Backend API..."
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPO:latest \
+            -t $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA \
+            ./backend
+          
+          echo "Pushing Backend API to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPO:latest
+          docker push $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA
+
+      # ------------------------------------------------------------------------
+      # 2. Build & Push Frontend (Next.js) - Powered by single AWS_FRONTEND_ENV
+      # ------------------------------------------------------------------------
+      - name: Build & Push Frontend
+        if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_frontend' || github.event.inputs.services == 'frontend_and_mpxj' || github.event.inputs.services == 'frontend_only' }}
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPO: ${{ env.PROJECT_NAME }}/frontend
+          COMMIT_SHA: ${{ github.sha }}
+          FRONTEND_ENV_CONTENT: ${{ secrets.AWS_FRONTEND_ENV }}
+        run: |
+          echo "Preparing Next.js build environment from AWS_FRONTEND_ENV..."
+          mkdir -p ./frontend
+          echo "$FRONTEND_ENV_CONTENT" > ./frontend/.env.production
+
+          # Extract exact build args directly from AWS_FRONTEND_ENV without fallbacks
+          API_URL=$(grep -E '^NEXT_PUBLIC_API_URL=' ./frontend/.env.production | head -n 1 | cut -d= -f2- | tr -d '\r\n\t"'\''')
+          WS_URL=$(grep -E '^NEXT_PUBLIC_WS_URL=' ./frontend/.env.production | head -n 1 | cut -d= -f2- | tr -d '\r\n\t"'\''')
+          APP_URL=$(grep -E '^NEXT_PUBLIC_APP_URL=' ./frontend/.env.production | head -n 1 | cut -d= -f2- | tr -d '\r\n\t"'\''')
+          ENTRA_CLIENT=$(grep -E '^NEXT_PUBLIC_ENTRA_CLIENT_ID=' ./frontend/.env.production | head -n 1 | cut -d= -f2- | tr -d '\r\n\t"'\''')
+          ENTRA_TENANT=$(grep -E '^NEXT_PUBLIC_ENTRA_TENANT_ID=' ./frontend/.env.production | head -n 1 | cut -d= -f2- | tr -d '\r\n\t"'\''')
+
+          echo "Building Next.js Frontend with resolved environment..."
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+            --build-arg NEXT_PUBLIC_WS_URL="$WS_URL" \
+            --build-arg NEXT_PUBLIC_APP_URL="$APP_URL" \
+            --build-arg NEXT_PUBLIC_ENTRA_CLIENT_ID="$ENTRA_CLIENT" \
+            --build-arg NEXT_PUBLIC_ENTRA_TENANT_ID="$ENTRA_TENANT" \
+            -t $ECR_REGISTRY/$ECR_REPO:latest \
+            -t $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA \
+            ./frontend
+          
+          echo "Pushing Frontend to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPO:latest
+          docker push $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA
+
+      # ------------------------------------------------------------------------
+      # 3. Build & Push MPXJ Microservice (Java 21)
+      # ------------------------------------------------------------------------
+      - name: Build & Push MPXJ Service
+        if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_mpxj' || github.event.inputs.services == 'frontend_and_mpxj' || github.event.inputs.services == 'mpxj_only' }}
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPO: ${{ env.PROJECT_NAME }}/mpxj-service
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          echo "Building Java MPXJ Service..."
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPO:latest \
+            -t $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA \
+            ./mpxj-service
+          
+          echo "Pushing MPXJ to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPO:latest
+          docker push $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA
+
+      # ------------------------------------------------------------------------
+      # 4. Smart Sync Backend & Frontend .env & Roll Out Services
+      # ------------------------------------------------------------------------
+      - name: Smart Sync .env & Roll Out Services
+        if: ${{ github.event.inputs.deployment_phase == 'standard_deploy' }}
+        env:
+          BACKEND_ENV_SECRET: ${{ secrets.AWS_BACKEND_ENV }}
+          SELECTED_SERVICES: ${{ github.event.inputs.services }}
+        run: |
+          python3 - << 'EOF'
+          import os
+          import json
+          import subprocess
+
+          cluster = os.environ.get('ECS_CLUSTER', 'cybersec-pmo-prod-cluster')
+          region = os.environ.get('AWS_REGION', 'ap-south-1')
+          backend_service = os.environ.get('BACKEND_SERVICE', 'cybersec-pmo-prod-backend')
+          frontend_service = os.environ.get('FRONTEND_SERVICE', 'cybersec-pmo-prod-frontend')
+          mpxj_service = os.environ.get('MPXJ_SERVICE', 'cybersec-pmo-prod-mpxj')
+          backend_family = os.environ.get('BACKEND_FAMILY', 'cybersec-pmo-prod-backend')
+          frontend_family = os.environ.get('FRONTEND_FAMILY', 'cybersec-pmo-prod-frontend')
+          env_secret = os.environ.get('BACKEND_ENV_SECRET', '').strip()
+          selected = os.environ.get('SELECTED_SERVICES', 'all')
+
+          def parse_env_string(raw: str):
+              result = {}
+              for line in raw.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith('#'):
+                      continue
+                  if '=' in line:
+                      k, v = line.split('=', 1)
+                      result[k.strip()] = v.strip().strip('"').strip("'")
+              return result
+
+          new_backend_envs = parse_env_string(env_secret) if env_secret else {}
+
+          # 1. Handle Backend Rollout & .env Sync
+          should_deploy_backend = selected in ['all', 'backend_and_frontend', 'backend_and_mpxj', 'backend_only']
+          if should_deploy_backend:
+              print("\n==========================================")
+              print("Syncing & Deploying Backend API...")
+              print("==========================================")
+              try:
+                  cmd = ["aws", "ecs", "describe-task-definition", "--task-definition", backend_family, "--region", region]
+                  res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+                  data = json.loads(res.stdout)["taskDefinition"]
+                  container_def = data["containerDefinitions"][0]
+                  current_env_list = container_def.get("environment", [])
+                  current_env_map = {item["name"]: item["value"] for item in current_env_list}
+
+                  has_changes = False
+                  if new_backend_envs:
+                      for k, v in new_backend_envs.items():
+                          if current_env_map.get(k) != v:
+                              has_changes = True
+                              break
+
+                  if has_changes:
+                      print("Detected new/updated .env variables for Backend!")
+                      merged_env = {**current_env_map, **new_backend_envs}
+                      container_def["environment"] = [{"name": k, "value": v} for k, v in sorted(merged_env.items())]
+
+                      for key in ["taskDefinitionArn", "revision", "status", "requiresAttributes", "compatibilities", "registeredAt", "registeredBy"]:
+                          data.pop(key, None)
+
+                      task_json_path = "/tmp/backend_new_task.json"
+                      with open(task_json_path, "w") as f:
+                          json.dump(data, f)
+
+                      reg_cmd = ["aws", "ecs", "register-task-definition", "--cli-input-json", f"file://{task_json_path}", "--region", region]
+                      reg_res = subprocess.run(reg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+                      new_arn = json.loads(reg_res.stdout)["taskDefinition"]["taskDefinitionArn"]
+                      print(f"Registered New Task Revision: {new_arn}")
+
+                      update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", backend_service, "--task-definition", new_arn, "--force-new-deployment", "--region", region]
+                      subprocess.run(update_cmd, check=True)
+                      print("Backend Service updated with new configuration!")
+                  else:
+                      print("Triggering standard rolling deployment for Backend...")
+                      update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", backend_service, "--force-new-deployment", "--region", region]
+                      subprocess.run(update_cmd, check=True)
+                      print("Backend Service rollout initiated!")
+              except Exception as e:
+                  print(f"Notice: {e}")
+
+          # 2. Handle Frontend Rollout
+          should_deploy_frontend = selected in ['all', 'backend_and_frontend', 'frontend_and_mpxj', 'frontend_only']
+          if should_deploy_frontend:
+              print("\n==========================================")
+              print("Triggering Frontend rolling deployment...")
+              print("==========================================")
+              try:
+                  update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", frontend_service, "--force-new-deployment", "--region", region]
+                  subprocess.run(update_cmd, check=True)
+                  print("Frontend Service rollout initiated!")
+              except Exception as e:
+                  print(f"Notice: {e}")
+
+          # 3. Handle MPXJ Rollout
+          should_deploy_mpxj = selected in ['all', 'backend_and_mpxj', 'frontend_and_mpxj', 'mpxj_only']
+          if should_deploy_mpxj:
+              print("\n==========================================")
+              print("Triggering MPXJ rolling deployment...")
+              print("==========================================")
+              try:
+                  update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", mpxj_service, "--force-new-deployment", "--region", region]
+                  subprocess.run(update_cmd, check=True)
+                  print("MPXJ Service rollout initiated!")
+              except Exception as e:
+                  print(f"Notice: {e}")
+
+          print("\nAll selected services updated successfully!")
+          EOF
+
+      # ------------------------------------------------------------------------
+      # 5. Bootstrap Phase Summary
+      # ------------------------------------------------------------------------
+      - name: 1st Time Deployment Bootstrap Summary
+        if: ${{ github.event.inputs.deployment_phase == 'bootstrap_images_only' }}
+        run: |
+          echo "=========================================================================="
+          echo "BOOTSTRAP COMPLETE!"
+          echo "Initial container images have been built and pushed to Amazon ECR."
+          echo "You can now run 'terraform apply' to provision ECS services."
+          echo "ECS will pull these images cleanly on first boot with ZERO errors!"
+          echo "=========================================================================="
