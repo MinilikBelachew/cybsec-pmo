@@ -78,6 +78,13 @@ export class ProjectLinkService {
         .filter((project) => project.name?.trim())
         .map((project) => [project.name!.trim().toLowerCase(), project]),
     );
+    const claimedByLocalId = new Map<string, string>();
+    for (const project of localProjects) {
+      const existingKekaId = project.kekaProjectId?.trim();
+      if (existingKekaId) {
+        claimedByLocalId.set(existingKekaId, project.id);
+      }
+    }
 
     for (const local of localProjects) {
       try {
@@ -97,10 +104,20 @@ export class ProjectLinkService {
           continue;
         }
 
+        const matchedId = matched.id.trim();
+        const existingOwner = claimedByLocalId.get(matchedId);
+        if (existingOwner && existingOwner !== local.id) {
+          this.logger.warn(
+            `Skipping project link for ${local.id} ("${local.name}"): Keka project ${matchedId} is already linked to local project ${existingOwner}`,
+          );
+          continue;
+        }
+        claimedByLocalId.set(matchedId, local.id);
+
         await this.prisma.project.update({
           where: { id: local.id },
           data: {
-            kekaProjectId: matched.id.trim(),
+            kekaProjectId: matchedId,
             kekaClientId: matched.clientId?.trim() || null,
             kekaProjectCode: matched.code?.trim() || local.kekaProjectCode,
             kekaSyncedAt: syncedAt,

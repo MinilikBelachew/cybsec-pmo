@@ -294,6 +294,10 @@ export function KekaIntegrationPanel() {
       search: debouncedSearch || undefined,
       integration: "keka",
       entityType: entityTypeFilter === "all" ? undefined : entityTypeFilter,
+      direction:
+        directionFilter === "all"
+          ? undefined
+          : (directionFilter as "inbound" | "outbound"),
       // Always send an explicit boolean so unresolved (false) is not dropped.
       isResolved:
         resolvedFilter === "all" ? undefined : resolvedFilter === "resolved",
@@ -446,6 +450,12 @@ export function KekaIntegrationPanel() {
         </>
       ) : (
         <>
+          <FilterDropdown
+            label="Direction"
+            value={directionFilter}
+            options={DIRECTION_OPTIONS}
+            onChange={setDirectionFilter}
+          />
           <FilterDropdown
             label="Resolution"
             value={resolvedFilter}
@@ -727,6 +737,15 @@ export function KekaIntegrationPanel() {
         ),
       },
       {
+        accessorKey: "direction",
+        header: "Direction",
+        cell: ({ row }) => (
+          <span className="text-xs capitalize text-muted-foreground">
+            {row.original.direction}
+          </span>
+        ),
+      },
+      {
         accessorKey: "retryCount",
         header: "Retries",
         cell: ({ row }) => (
@@ -985,6 +1004,31 @@ export function KekaIntegrationPanel() {
           ) : null}
         </div>
 
+        {(syncStatus?.unresolvedFailures ?? 0) > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-900/20">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="size-4 shrink-0 text-amber-600" />
+              <p className="text-sm text-amber-800 dark:text-amber-400">
+                <span className="font-bold">
+                  {syncStatus?.unresolvedFailures} unresolved
+                </span>{" "}
+                Keka sync failure
+                {syncStatus?.unresolvedFailures === 1 ? "" : "s"} need attention.
+              </p>
+            </div>
+            {subTab !== "failures" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 border-amber-300 bg-white/80 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                onClick={() => setSubTab("failures")}
+              >
+                View failed records
+              </Button>
+            )}
+          </div>
+        )}
+
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {(syncStatus?.entities ?? []).map((entity) => {
             const tone = entityStatusTone(entity);
@@ -1029,7 +1073,9 @@ export function KekaIntegrationPanel() {
         </div>
       </div>
 
-      {subTab === "failures" && unresolvedCount > 0 && (
+      {subTab === "failures" &&
+        unresolvedCount > 0 &&
+        unresolvedCount !== (syncStatus?.unresolvedFailures ?? 0) && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
           <AlertCircle className="size-4 shrink-0 text-amber-600" />
           <p className="text-sm text-amber-800 dark:text-amber-400">

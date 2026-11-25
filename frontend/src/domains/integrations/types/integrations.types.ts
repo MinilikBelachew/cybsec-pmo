@@ -67,6 +67,7 @@ export type FailedSyncRecordsQuery = {
   limit?: number;
   integration?: string;
   entityType?: string;
+  direction?: "inbound" | "outbound";
   isResolved?: boolean;
   search?: string;
   disposition?: "all" | "pending" | "dead_letter";

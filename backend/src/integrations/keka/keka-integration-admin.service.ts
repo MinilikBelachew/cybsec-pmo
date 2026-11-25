@@ -663,6 +663,7 @@ export class KekaIntegrationAdminService {
     return {
       ...(query.integration ? { integration: query.integration } : {}),
       ...(query.entityType ? { entityType: query.entityType } : {}),
+      ...(query.direction ? { direction: query.direction } : {}),
       ...(query.isResolved !== undefined ? { isResolved: query.isResolved } : {}),
       ...(and.length > 0 ? { AND: and } : {}),
     };

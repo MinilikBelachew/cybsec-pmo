@@ -43,10 +43,19 @@ export async function upsertFailedSyncRecord(
   });
 
   if (existing) {
-    const retryCount = input.retryCount ?? existing.retryCount + 1;
+    const alreadyStopped =
+      existing.deadLetteredAt != null ||
+      existing.failureClass === KEKA_FAILURE_CLASS.PERMANENT ||
+      existing.retryCount >= maxRetries;
+    const retryCount =
+      input.retryCount !== undefined
+        ? Math.min(input.retryCount, maxRetries)
+        : alreadyStopped
+          ? existing.retryCount
+          : Math.min(existing.retryCount + 1, maxRetries);
     const deadLetteredAt =
       failureClass === KEKA_FAILURE_CLASS.PERMANENT || retryCount >= maxRetries
-        ? now
+        ? (existing.deadLetteredAt ?? now)
         : null;
 
     await prisma.failedSyncRecord.update({

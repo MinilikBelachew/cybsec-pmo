@@ -147,6 +147,11 @@ export class QueryFailedSyncRecordsDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsIn(['inbound', 'outbound'])
+  direction?: 'inbound' | 'outbound';
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   isResolved?: boolean;

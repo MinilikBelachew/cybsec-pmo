@@ -93,6 +93,7 @@ export const integrationsApi = api.injectEndpoints({
           limit: params.limit,
           integration: params.integration,
           entityType: params.entityType,
+          direction: params.direction,
           search: params.search,
           disposition: params.disposition,
           // Explicit string keeps `false` in the query string for unresolved.
