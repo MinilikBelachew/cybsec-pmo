@@ -96,12 +96,13 @@ export class TimesheetsService {
       orderBy: { project: { name: 'asc' } },
     });
 
-    // Also allow logging against projects where the user owns a top-level task
-    // (task assignment alone should expose the project in Log Hours).
+    // Only expose real work tasks assigned to this user (exclude hidden phase/milestone schedule twins).
     const ownedTasks = await this.prisma.task.findMany({
       where: {
         ownerId: userId,
         parentTaskId: null,
+        schedulePhase: null,
+        scheduleMilestone: null,
         status: { notIn: [...BLOCKED_TASK_STATUSES] },
         project: {
           status: { in: [...LOGGABLE_PROJECT_STATUSES] },
@@ -144,28 +145,6 @@ export class TimesheetsService {
         projectMap.set(task.projectId, entry);
       }
       if (!entry.taskIds.has(task.id)) {
-        entry.taskIds.add(task.id);
-        entry.tasks.push({ id: task.id, title: task.title });
-      }
-    }
-
-    const projectIds = [...projectMap.keys()];
-    if (projectIds.length) {
-      const projectTasks = await this.prisma.task.findMany({
-        where: {
-          projectId: { in: projectIds },
-          parentTaskId: null,
-          status: { notIn: [...BLOCKED_TASK_STATUSES] },
-        },
-        select: { id: true, title: true, projectId: true },
-        orderBy: { title: 'asc' },
-      });
-
-      for (const task of projectTasks) {
-        const entry = projectMap.get(task.projectId);
-        if (!entry || entry.taskIds.has(task.id)) {
-          continue;
-        }
         entry.taskIds.add(task.id);
         entry.tasks.push({ id: task.id, title: task.title });
       }
@@ -252,7 +231,7 @@ export class TimesheetsService {
       workDate,
       userId,
     );
-    await this.assertTaskBelongsToProject(dto.taskId, dto.projectId);
+    await this.assertTaskBelongsToProject(dto.taskId, dto.projectId, userId);
     await this.assertProjectAndTaskLoggable(dto.projectId, dto.taskId);
     await this.assertDailyCapacity(
       employee.id,
@@ -583,15 +562,31 @@ export class TimesheetsService {
     }
   }
 
-  private async assertTaskBelongsToProject(taskId: string, projectId: string) {
+  private async assertTaskBelongsToProject(
+    taskId: string,
+    projectId: string,
+    userId: string,
+  ) {
     const task = await this.prisma.task.findFirst({
-      where: { id: taskId, projectId, parentTaskId: null },
-      select: { id: true },
+      where: {
+        id: taskId,
+        projectId,
+        parentTaskId: null,
+        schedulePhase: null,
+        scheduleMilestone: null,
+      },
+      select: { id: true, ownerId: true },
     });
 
     if (!task) {
       throw new UnprocessableEntityException(
         'The selected task does not belong to this project.',
+      );
+    }
+
+    if (task.ownerId !== userId) {
+      throw new ForbiddenException(
+        'You can only log hours on tasks assigned to you.',
       );
     }
   }

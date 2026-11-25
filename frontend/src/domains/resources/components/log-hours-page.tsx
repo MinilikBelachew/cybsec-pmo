@@ -469,7 +469,6 @@ export function LogHoursPage() {
                       toast.error(
                         getApiErrorMessage(error, "Could not update entry."),
                       );
-                      toast.error(getApiErrorMessage(error, "Could not update entry."));
                     }
                   }}
                 />
@@ -889,18 +888,27 @@ function AddEntryForm({
           <Select
             value={taskId}
             onValueChange={(value) => setTaskId(value ?? "")}
-            disabled={!selectedProject}
+            disabled={!selectedProject || selectedProject.tasks.length === 0}
           >
             <SelectTrigger
               className={cn(
                 "h-9 w-full rounded-xl",
                 inputClass,
-                !selectedProject && "cursor-not-allowed opacity-50",
+                (!selectedProject || selectedProject.tasks.length === 0) &&
+                  "cursor-not-allowed opacity-50",
               )}
             >
-              <SelectValue placeholder="Select task...">
+              <SelectValue
+                placeholder={
+                  selectedProject && selectedProject.tasks.length === 0
+                    ? "No tasks assigned to you"
+                    : "Select task..."
+                }
+              >
                 {selectedProject?.tasks.find((task) => task.id === taskId)?.title ??
-                  "Select task..."}
+                  (selectedProject && selectedProject.tasks.length === 0
+                    ? "No tasks assigned to you"
+                    : "Select task...")}
               </SelectValue>
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false} className="max-h-64">
