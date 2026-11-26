@@ -211,6 +211,7 @@ jobs:
         if: ${{ github.event.inputs.deployment_phase == 'standard_deploy' }}
         env:
           BACKEND_ENV_SECRET: ${{ secrets.AWS_BACKEND_ENV }}
+          FRONTEND_ENV_SECRET: ${{ secrets.AWS_FRONTEND_ENV }}
           SELECTED_SERVICES: ${{ github.event.inputs.services }}
         run: |
           python3 - << 'EOF'
@@ -226,7 +227,9 @@ jobs:
           mpxj_service = os.environ.get('MPXJ_SERVICE', 'cybersec-pmo-prod-mpxj')
           backend_family = os.environ.get('BACKEND_FAMILY', 'cybersec-pmo-prod-backend')
           worker_family = os.environ.get('WORKER_FAMILY', 'cybersec-pmo-prod-worker')
-          env_secret = os.environ.get('BACKEND_ENV_SECRET', '').strip()
+          frontend_family = os.environ.get('FRONTEND_FAMILY', 'cybersec-pmo-prod-frontend')
+          backend_secret = os.environ.get('BACKEND_ENV_SECRET', '').strip()
+          frontend_secret = os.environ.get('FRONTEND_ENV_SECRET', '').strip()
           selected = os.environ.get('SELECTED_SERVICES', 'all')
 
           def parse_env_string(raw: str):
@@ -240,38 +243,35 @@ jobs:
                       result[k.strip()] = v.strip().strip('"').strip("'")
               return result
 
-          new_backend_envs = parse_env_string(env_secret) if env_secret else {}
-
-          # 1. Handle Backend Rollout & .env Sync
-          should_deploy_backend = selected in ['all', 'backend_and_frontend', 'backend_and_mpxj', 'backend_only']
-          if should_deploy_backend:
-              print("\n==========================================")
-              print("Syncing & Deploying Backend API...")
+          def sync_and_deploy_service(service_name: str, family_name: str, new_envs: dict, label: str, optional: bool = False):
+              print(f"\n==========================================")
+              print(f"Syncing & Deploying {label}...")
               print("==========================================")
               try:
-                  cmd = ["aws", "ecs", "describe-task-definition", "--task-definition", backend_family, "--region", region]
-                  res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+                  cmd = ["aws", "ecs", "describe-task-definition", "--task-definition", family_name, "--region", region]
+                  res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                  if res.returncode != 0:
+                      if optional:
+                          print(f"{label} task definition not provisioned; skipping.")
+                          return
+                      raise RuntimeError(res.stderr.strip())
+
                   data = json.loads(res.stdout)["taskDefinition"]
                   container_def = data["containerDefinitions"][0]
                   current_env_list = container_def.get("environment", [])
                   current_env_map = {item["name"]: item["value"] for item in current_env_list}
 
-                  has_changes = False
-                  if new_backend_envs:
-                      for k, v in new_backend_envs.items():
-                          if current_env_map.get(k) != v:
-                              has_changes = True
-                              break
+                  has_changes = any(current_env_map.get(k) != v for k, v in new_envs.items()) if new_envs else False
 
                   if has_changes:
-                      print("Detected new/updated .env variables for Backend!")
-                      merged_env = {**current_env_map, **new_backend_envs}
+                      print(f"Detected new/updated .env variables for {label}!")
+                      merged_env = {**current_env_map, **new_envs}
                       container_def["environment"] = [{"name": k, "value": v} for k, v in sorted(merged_env.items())]
 
                       for key in ["taskDefinitionArn", "revision", "status", "requiresAttributes", "compatibilities", "registeredAt", "registeredBy"]:
                           data.pop(key, None)
 
-                      task_json_path = "/tmp/backend_new_task.json"
+                      task_json_path = f"/tmp/{service_name}_new_task.json"
                       with open(task_json_path, "w") as f:
                           json.dump(data, f)
 
@@ -280,57 +280,28 @@ jobs:
                       new_arn = json.loads(reg_res.stdout)["taskDefinition"]["taskDefinitionArn"]
                       print(f"Registered New Task Revision: {new_arn}")
 
-                      update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", backend_service, "--task-definition", new_arn, "--force-new-deployment", "--region", region]
+                      update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", service_name, "--task-definition", new_arn, "--force-new-deployment", "--region", region]
                       subprocess.run(update_cmd, check=True)
-                      print("Backend Service updated with new configuration!")
+                      print(f"{label} Service updated with new configuration!")
                   else:
-                      print("Triggering standard rolling deployment for Backend...")
-                      update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", backend_service, "--force-new-deployment", "--region", region]
+                      print(f"Triggering standard rolling deployment for {label}...")
+                      update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", service_name, "--force-new-deployment", "--region", region]
                       subprocess.run(update_cmd, check=True)
-                      print("Backend Service rollout initiated!")
+                      print(f"{label} Service rollout initiated!")
               except Exception as e:
-                  print(f"Backend deployment notice: {e}")
+                  print(f"{label} deployment notice: {e}")
 
-              # Also update Background Queue Worker if provisioned
-              try:
-                  w_cmd = ["aws", "ecs", "describe-task-definition", "--task-definition", worker_family, "--region", region]
-                  w_res = subprocess.run(w_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                  if w_res.returncode == 0:
-                      print("\nSyncing & Deploying Background Worker...")
-                      w_data = json.loads(w_res.stdout)["taskDefinition"]
-                      w_container = w_data["containerDefinitions"][0]
-                      w_env_list = w_container.get("environment", [])
-                      w_env_map = {item["name"]: item["value"] for item in w_env_list}
-                      if has_changes:
-                          w_merged = {**w_env_map, **new_backend_envs}
-                          w_container["environment"] = [{"name": k, "value": v} for k, v in sorted(w_merged.items())]
-                          for key in ["taskDefinitionArn", "revision", "status", "requiresAttributes", "compatibilities", "registeredAt", "registeredBy"]:
-                              w_data.pop(key, None)
-                          w_path = "/tmp/worker_new_task.json"
-                          with open(w_path, "w") as f:
-                              json.dump(w_data, f)
-                          w_reg = subprocess.run(["aws", "ecs", "register-task-definition", "--cli-input-json", f"file://{w_path}", "--region", region], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-                          w_arn = json.loads(w_reg.stdout)["taskDefinition"]["taskDefinitionArn"]
-                          subprocess.run(["aws", "ecs", "update-service", "--cluster", cluster, "--service", worker_service, "--task-definition", w_arn, "--force-new-deployment", "--region", region], check=True)
-                          print("Worker Service updated with new configuration!")
-                      else:
-                          subprocess.run(["aws", "ecs", "update-service", "--cluster", cluster, "--service", worker_service, "--force-new-deployment", "--region", region], check=True)
-                          print("Worker Service rollout initiated!")
-              except Exception as e:
-                  print(f"Worker deployment notice: {e}")
+          new_backend_envs = parse_env_string(backend_secret) if backend_secret else {}
+          new_frontend_envs = parse_env_string(frontend_secret) if frontend_secret else {}
 
-          # 2. Handle Frontend Rollout
-          should_deploy_frontend = selected in ['all', 'backend_and_frontend', 'frontend_and_mpxj', 'frontend_only']
-          if should_deploy_frontend:
-              print("\n==========================================")
-              print("Triggering Frontend rolling deployment...")
-              print("==========================================")
-              try:
-                  update_cmd = ["aws", "ecs", "update-service", "--cluster", cluster, "--service", frontend_service, "--force-new-deployment", "--region", region]
-                  subprocess.run(update_cmd, check=True)
-                  print("Frontend Service rollout initiated!")
-              except Exception as e:
-                  print(f"Notice: {e}")
+          # 1. Handle Backend & Worker Rollout + .env Sync
+          if selected in ['all', 'backend_and_frontend', 'backend_and_mpxj', 'backend_only']:
+              sync_and_deploy_service(backend_service, backend_family, new_backend_envs, "Backend API")
+              sync_and_deploy_service(worker_service, worker_family, new_backend_envs, "Background Worker", optional=True)
+
+          # 2. Handle Frontend Rollout + .env Sync
+          if selected in ['all', 'backend_and_frontend', 'frontend_and_mpxj', 'frontend_only']:
+              sync_and_deploy_service(frontend_service, frontend_family, new_frontend_envs, "Frontend")
 
           # 3. Handle MPXJ Rollout
           should_deploy_mpxj = selected in ['all', 'backend_and_mpxj', 'frontend_and_mpxj', 'mpxj_only']
