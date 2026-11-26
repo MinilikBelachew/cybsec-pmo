@@ -250,13 +250,9 @@ jobs:
                 for (const [key, val] of incomingMap.entries()) {
                   if (!updatedKeys.has(key)) newLines.push(`${key}=${val}`);
                 }
-                try {
-                  fs.mkdirSync("./backend", { recursive: true });
-                  fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
-                  console.log("Successfully merged " + incomingMap.size + " backend environment variables into " + path);
-                } catch (err) {
-                  console.warn("Notice: Could not write to " + path + " (" + err.message + "). Proceeding with existing manual server file.");
-                }
+                fs.mkdirSync("./backend", { recursive: true });
+                fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
+                console.log("Successfully merged " + incomingMap.size + " backend environment variables into " + path);
               '
             fi
 
@@ -291,13 +287,9 @@ jobs:
                 for (const [key, val] of incomingMap.entries()) {
                   if (!updatedKeys.has(key)) newLines.push(`${key}=${val}`);
                 }
-                try {
-                  fs.mkdirSync("./frontend", { recursive: true });
-                  fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
-                  console.log("Successfully merged " + incomingMap.size + " frontend environment variables into " + path);
-                } catch (err) {
-                  console.warn("Notice: Could not write to " + path + " (" + err.message + "). Proceeding with existing manual server file.");
-                }
+                fs.mkdirSync("./frontend", { recursive: true });
+                fs.writeFileSync(path, newLines.join("\n").trim() + "\n", { mode: 0o600 });
+                console.log("Successfully merged " + incomingMap.size + " frontend environment variables into " + path);
               '
             fi
 
