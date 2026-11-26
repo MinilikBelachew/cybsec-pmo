@@ -162,7 +162,14 @@ export class ReportSectionsService {
             ) / phaseTasks.length
           : null;
 
-      const varianceDays = daysBetween(baselineDate, expectedDate);
+      const scheduleVarianceDays = daysBetween(baselineDate, expectedDate);
+      const overdueDays =
+        !isComplete && period.end > baselineDate
+          ? daysBetween(baselineDate, period.end)
+          : 0;
+      const varianceDays = isComplete
+        ? scheduleVarianceDays
+        : Math.max(scheduleVarianceDays, overdueDays);
       const lengthDays = milestone.phase
         ? daysBetween(milestone.phase.startDate, milestone.phase.endDate)
         : null;
