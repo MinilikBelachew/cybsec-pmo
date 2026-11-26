@@ -48,10 +48,13 @@ env:
   WORKER_FAMILY: cybersec-pmo-prod-worker
 
 jobs:
-  build-and-deploy:
-    name: Build, Push & Deploy (${{ github.event.inputs.deployment_phase }})
+  # ============================================================================
+  # 1. Parallel Build & Push: Backend API (NestJS)
+  # ============================================================================
+  build-backend:
+    name: Build & Push Backend API
+    if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_frontend' || github.event.inputs.services == 'backend_and_mpxj' || github.event.inputs.services == 'backend_only' }}
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -71,11 +74,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ------------------------------------------------------------------------
-      # 1. Build & Push Backend API (NestJS)
-      # ------------------------------------------------------------------------
       - name: Build & Push Backend API
-        if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_frontend' || github.event.inputs.services == 'backend_and_mpxj' || github.event.inputs.services == 'backend_only' }}
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPO: ${{ env.PROJECT_NAME }}/backend
@@ -86,16 +85,38 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPO:latest \
             -t $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA \
             ./backend
-          
+
           echo "Pushing Backend API to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPO:latest
           docker push $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA
 
-      # ------------------------------------------------------------------------
-      # 2. Build & Push Frontend (Next.js) - Powered by single AWS_FRONTEND_ENV
-      # ------------------------------------------------------------------------
+  # ============================================================================
+  # 2. Parallel Build & Push: Frontend (Next.js)
+  # ============================================================================
+  build-frontend:
+    name: Build & Push Frontend
+    if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_frontend' || github.event.inputs.services == 'frontend_and_mpxj' || github.event.inputs.services == 'frontend_only' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref || 'main' }}
+
+      - name: Configure AWS Credentials (Keyless OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build & Push Frontend
-        if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_frontend' || github.event.inputs.services == 'frontend_and_mpxj' || github.event.inputs.services == 'frontend_only' }}
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPO: ${{ env.PROJECT_NAME }}/frontend
@@ -123,16 +144,38 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPO:latest \
             -t $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA \
             ./frontend
-          
+
           echo "Pushing Frontend to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPO:latest
           docker push $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA
 
-      # ------------------------------------------------------------------------
-      # 3. Build & Push MPXJ Microservice (Java 21)
-      # ------------------------------------------------------------------------
+  # ============================================================================
+  # 3. Parallel Build & Push: MPXJ Microservice (Java 21)
+  # ============================================================================
+  build-mpxj:
+    name: Build & Push MPXJ Service
+    if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_mpxj' || github.event.inputs.services == 'frontend_and_mpxj' || github.event.inputs.services == 'mpxj_only' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref || 'main' }}
+
+      - name: Configure AWS Credentials (Keyless OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build & Push MPXJ Service
-        if: ${{ github.event.inputs.services == 'all' || github.event.inputs.services == 'backend_and_mpxj' || github.event.inputs.services == 'frontend_and_mpxj' || github.event.inputs.services == 'mpxj_only' }}
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPO: ${{ env.PROJECT_NAME }}/mpxj-service
@@ -143,14 +186,27 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPO:latest \
             -t $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA \
             ./mpxj-service
-          
+
           echo "Pushing MPXJ to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPO:latest
           docker push $ECR_REGISTRY/$ECR_REPO:$COMMIT_SHA
 
-      # ------------------------------------------------------------------------
-      # 4. Smart Sync Backend & Frontend .env & Roll Out Services
-      # ------------------------------------------------------------------------
+  # ============================================================================
+  # 4. Smart Sync .env & Roll Out Selected ECS Services (or Bootstrap Summary)
+  # ============================================================================
+  deploy:
+    name: Deploy / Bootstrap (${{ github.event.inputs.deployment_phase }})
+    needs: [build-backend, build-frontend, build-mpxj]
+    if: ${{ always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials (Keyless OIDC)
+        if: ${{ github.event.inputs.deployment_phase == 'standard_deploy' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Smart Sync .env & Roll Out Services
         if: ${{ github.event.inputs.deployment_phase == 'standard_deploy' }}
         env:
@@ -170,7 +226,6 @@ jobs:
           mpxj_service = os.environ.get('MPXJ_SERVICE', 'cybersec-pmo-prod-mpxj')
           backend_family = os.environ.get('BACKEND_FAMILY', 'cybersec-pmo-prod-backend')
           worker_family = os.environ.get('WORKER_FAMILY', 'cybersec-pmo-prod-worker')
-          frontend_family = os.environ.get('FRONTEND_FAMILY', 'cybersec-pmo-prod-frontend')
           env_secret = os.environ.get('BACKEND_ENV_SECRET', '').strip()
           selected = os.environ.get('SELECTED_SERVICES', 'all')
 
@@ -236,12 +291,12 @@ jobs:
               except Exception as e:
                   print(f"Backend deployment notice: {e}")
 
-              # Also update Background Queue Worker (shares Backend image and DB/Redis config)
+              # Also update Background Queue Worker if provisioned
               try:
-                  print("\nSyncing & Deploying Background Worker...")
                   w_cmd = ["aws", "ecs", "describe-task-definition", "--task-definition", worker_family, "--region", region]
                   w_res = subprocess.run(w_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                   if w_res.returncode == 0:
+                      print("\nSyncing & Deploying Background Worker...")
                       w_data = json.loads(w_res.stdout)["taskDefinition"]
                       w_container = w_data["containerDefinitions"][0]
                       w_env_list = w_container.get("environment", [])
