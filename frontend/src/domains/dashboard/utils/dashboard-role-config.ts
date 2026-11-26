@@ -12,7 +12,6 @@ export type DashboardLayout = {
   showBurnRate: boolean;
   showAuditFeed: boolean;
   showRiskMatrix: boolean;
-  showSimulation: boolean;
   /** Portfolio filters (department / status / PM). Hidden for engineer-style roles. */
   showFilters: boolean;
   /** When false, hide the primary-PM filter (e.g. own_projects PM scope). */
@@ -35,7 +34,6 @@ function buildLayout(
     showBurnRate: false,
     showAuditFeed: false,
     showRiskMatrix: false,
-    showSimulation: false,
     showFilters: false,
     showPmFilter: false,
     canLoadStats: true,
@@ -92,7 +90,6 @@ export function resolveDashboardLayout(
       canLoadMilestones: canViewMilestones,
       canLoadResources: false,
       showRiskMatrix: false,
-      showSimulation: false,
       showFilters: false,
       showPmFilter: false,
     });
@@ -127,7 +124,6 @@ export function resolveDashboardLayout(
       canLoadProjectHealth,
       canLoadMilestones,
       showRiskMatrix: true,
-      showSimulation: false,
       showFilters: false,
       showPmFilter: false,
     });
@@ -144,7 +140,6 @@ export function resolveDashboardLayout(
       canLoadMilestones,
       canLoadResources,
       showRiskMatrix: false,
-      showSimulation: false,
       showFilters: canLoadProjectHealth,
       showPmFilter: canLoadProjectHealth && !isOwnProjectsScope,
     });
@@ -160,7 +155,6 @@ export function resolveDashboardLayout(
       canLoadProjectHealth,
       canLoadMilestones,
       showRiskMatrix: false,
-      showSimulation: false,
       showFilters: false,
       showPmFilter: false,
     });
@@ -199,7 +193,6 @@ export function resolveDashboardLayout(
       canLoadResources,
       canLoadBurnRate,
       showRiskMatrix: true,
-      showSimulation: true,
     });
   }
 
@@ -221,7 +214,6 @@ export function resolveDashboardLayout(
       canLoadResources,
       canLoadBurnRate,
       showRiskMatrix: true,
-      showSimulation: roleCode === "pm",
     });
   }
 
@@ -235,7 +227,6 @@ export function resolveDashboardLayout(
       showBurnRate: canLoadBurnRate,
       showAuditFeed: canLoadAuditFeed,
       showRiskMatrix: true,
-      showSimulation: true,
       showFilters: canLoadProjectHealth,
       showPmFilter: canLoadProjectHealth,
       canLoadStats,

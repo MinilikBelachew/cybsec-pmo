@@ -64,7 +64,6 @@ import { MilestoneTimeline } from "./dashboard-milestone-timeline";
 import { AuditFeed } from "./dashboard-audit-feed";
 import { ResourceUtilization } from "./dashboard-resource-utilization";
 import { PortfolioStrip } from "./dashboard-portfolio-strip";
-import { ProjectSimulationPanel } from "./dashboard-simulation-panel";
 
 const TAB_LABELS: Record<DashboardTab, string> = {
   portfolio: "Portfolio Overview",
@@ -607,7 +606,12 @@ export function DashboardHome() {
         <div className="space-y-4">
           <KpiRow variant="execution" stats={stats} />
           <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-5">
-            <div className="space-y-4 lg:col-span-3">
+            <div
+              className={cn(
+                "space-y-4",
+                layout.showRiskMatrix ? "lg:col-span-3" : "lg:col-span-5",
+              )}
+            >
               {layout.canLoadProjectHealth && (
                 <ProjectHealthTable data={health || []} />
               )}
@@ -616,12 +620,11 @@ export function DashboardHome() {
               )}
               {layout.showAuditFeed && <AuditFeed data={auditFeed || []} />}
             </div>
-            <div className="space-y-4 lg:col-span-2">
-              {layout.showRiskMatrix && <RiskMatrix risks={dashboardRisks} />}
-              {layout.showSimulation && (
-                <ProjectSimulationPanel projects={health || []} />
-              )}
-            </div>
+            {layout.showRiskMatrix && (
+              <div className="space-y-4 lg:col-span-2">
+                <RiskMatrix risks={dashboardRisks} />
+              </div>
+            )}
           </div>
         </div>
       )}
