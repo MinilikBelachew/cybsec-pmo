@@ -116,4 +116,35 @@ describe('MailerService', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(sendMailMock).toHaveBeenCalledTimes(1);
   });
+
+  it('forwards PDF buffer attachments via SendGrid in base64', async () => {
+    const { service, send } = createService({ sendgridConfigured: true });
+    const pdf = Buffer.from('%PDF-1.4 test');
+
+    await service.sendMail({
+      ...baseOptions,
+      attachments: [
+        {
+          filename: 'report.pdf',
+          content: pdf,
+          contentType: 'application/pdf',
+        },
+      ],
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          {
+            filename: 'report.pdf',
+            content: pdf.toString('base64'),
+            type: 'application/pdf',
+            disposition: 'attachment',
+          },
+        ],
+      }),
+    );
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
 });

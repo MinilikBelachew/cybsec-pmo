@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
 import Handlebars from 'handlebars';
 import { AllConfigType } from '../config/config.type';
-import { SendgridClient } from './sendgrid.client';
+import { SendgridAttachment, SendgridClient } from './sendgrid.client';
 
 @Injectable()
 export class MailerService {
@@ -59,13 +59,9 @@ export class MailerService {
       html: resolvedHtml,
     };
 
-    const hasAttachments = Array.isArray(payload.attachments)
-      ? payload.attachments.length > 0
-      : Boolean(payload.attachments);
-
-    // SendGrid helper path does not forward attachments — use SMTP when present.
-    if (this.sendgridClient.isConfigured() && !hasAttachments) {
+    if (this.sendgridClient.isConfigured()) {
       try {
+        const attachments = await this.normalizeAttachments(payload.attachments);
         await this.sendgridClient.send({
           to: this.normalizeRecipients(payload.to),
           from: this.normalizeFrom(from),
@@ -74,6 +70,7 @@ export class MailerService {
             typeof payload.text === 'string' ? payload.text : undefined,
           html:
             typeof resolvedHtml === 'string' ? resolvedHtml : undefined,
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
         this.logger.debug('Email sent via SendGrid');
         return;
@@ -88,6 +85,55 @@ export class MailerService {
 
     await this.transporter.sendMail(payload);
     this.logger.debug('Email sent via SMTP');
+  }
+
+  private async normalizeAttachments(
+    attachments?: nodemailer.SendMailOptions['attachments'],
+  ): Promise<SendgridAttachment[]> {
+    if (!Array.isArray(attachments) || attachments.length === 0) {
+      return [];
+    }
+
+    const result: SendgridAttachment[] = [];
+
+    for (const item of attachments) {
+      let base64Content: string | null = null;
+
+      if (Buffer.isBuffer(item.content)) {
+        base64Content = item.content.toString('base64');
+      } else if (item.content instanceof Uint8Array) {
+        base64Content = Buffer.from(item.content).toString('base64');
+      } else if (typeof item.content === 'string') {
+        const encoding =
+          item.encoding && Buffer.isEncoding(item.encoding)
+            ? item.encoding
+            : 'utf8';
+        base64Content = Buffer.from(item.content, encoding).toString('base64');
+      } else if (typeof item.path === 'string' && item.path.trim()) {
+        const fileBuffer = await fs.readFile(item.path);
+        base64Content = fileBuffer.toString('base64');
+      }
+
+      if (!base64Content) {
+        continue;
+      }
+
+      const filename =
+        typeof item.filename === 'string' && item.filename.trim()
+          ? item.filename.trim()
+          : 'attachment';
+
+      result.push({
+        content: base64Content,
+        filename,
+        ...(typeof item.contentType === 'string' && item.contentType
+          ? { type: item.contentType }
+          : {}),
+        disposition: item.contentDisposition === 'inline' ? 'inline' : 'attachment',
+      });
+    }
+
+    return result;
   }
 
   private normalizeRecipients(

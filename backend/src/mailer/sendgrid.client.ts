@@ -3,12 +3,20 @@ import { ConfigService } from '@nestjs/config';
 import sgMail from '@sendgrid/mail';
 import { AllConfigType } from '../config/config.type';
 
+export type SendgridAttachment = {
+  content: string;
+  filename: string;
+  type?: string;
+  disposition?: 'attachment' | 'inline';
+};
+
 export type SendgridMailPayload = {
   to: string | string[];
   from: string;
   subject: string;
   text?: string;
   html?: string;
+  attachments?: SendgridAttachment[];
 };
 
 @Injectable()
@@ -50,6 +58,9 @@ export class SendgridClient {
         subject: payload.subject,
         ...(payload.text ? { text: payload.text } : {}),
         ...(payload.html ? { html: payload.html } : {}),
+        ...(payload.attachments?.length
+          ? { attachments: payload.attachments }
+          : {}),
       } as sgMail.MailDataRequired);
     } catch (error) {
       throw new Error(this.formatSendgridError(error, payload.from));
