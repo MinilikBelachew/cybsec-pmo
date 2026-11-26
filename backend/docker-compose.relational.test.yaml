@@ -7,6 +7,8 @@ services:
       POSTGRES_USER: ${DATABASE_USERNAME}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
       POSTGRES_DB: ${DATABASE_NAME}
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   maildev:
     build:
@@ -21,6 +23,8 @@ services:
   #   image: redis:7-alpine
   #   expose:
   #     - 6379
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   api:
     build:
@@ -31,3 +35,5 @@ services:
     volumes:
       - ./src:/usr/src/app/src
       - ./test:/usr/src/app/test
+    labels:
+      - io.portainer.accesscontrol.teams=readers
