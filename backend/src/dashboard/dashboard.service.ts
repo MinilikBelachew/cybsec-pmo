@@ -11,6 +11,8 @@ import {
 } from './dashboard-permissions.util';
 import { RECORD_SCOPE_ALL } from '../casl/record-scope.registry';
 import { FxService } from '../fx/fx.service';
+import { UtilisationService } from '../reports/utilisation.service';
+import { roundHours } from '../reports/utils/utilisation-period.util';
 
 export type DashboardFilters = {
   departmentId?: string;
@@ -27,6 +29,7 @@ export class DashboardService {
     private readonly recordScopeWhere: RecordScopeWhereService,
     private readonly permissionsCache: PermissionsCacheService,
     private readonly fx: FxService,
+    private readonly utilisationService: UtilisationService,
   ) {}
 
   private permissionsFor(user: CaslUserContext) {
@@ -409,116 +412,82 @@ export class DashboardService {
   }
 
   async getResources(caslUser: CaslUserContext, filters: DashboardFilters = {}) {
-    const taskScope = this.recordScopeWhere.taskWhere(caslUser, 'read');
-    const projectIds = await this.scopedProjectIds(caslUser, filters);
+    const permissions = this.permissionsFor(caslUser);
+    const hasReportsView = permissions.some(
+      (permission) =>
+        permission.module === 'reports' && permission.action === 'view',
+    );
+    const hasProjectFilter = Boolean(filters.status || filters.primaryPmId);
+    const projectIds = hasProjectFilter
+      ? await this.scopedProjectIds(caslUser, filters)
+      : undefined;
 
-    const allocations = projectIds.length
-      ? await this.prisma.allocation.findMany({
-          where: { projectId: { in: projectIds }, status: 'Active' },
-          select: { employeeId: true, projectId: true, percent: true, hours: true },
-        })
-      : [];
-
-    const scopedEmployeeIds = [
-      ...new Set(allocations.map((row) => row.employeeId)),
-    ] as string[];
-
-    const [departments, taskOwners] = await Promise.all([
-      this.prisma.department.findMany({
-        where: { isActive: true },
-        select: { name: true },
-      }),
-      this.prisma.task.groupBy({
-        by: ['ownerId'],
-        where: {
-          AND: [taskScope, { status: { not: TaskStatus.Done } }],
-        },
-        _count: { _all: true },
-      }),
-    ]);
-
-    const employees = scopedEmployeeIds.length
-      ? await this.prisma.employee.findMany({
-          where: { isActive: true, id: { in: scopedEmployeeIds } },
-          include: {
-            department: { select: { name: true } },
-            allocations: {
-              where: {
-                status: 'Active',
-                ...(projectIds.length ? { projectId: { in: projectIds } } : {}),
-              },
-            },
-          },
-        })
-      : [];
-
-    const activeTasksMap = new Map(
-      taskOwners.map((o) => [o.ownerId, o._count._all]),
+    const snapshot = await this.utilisationService.getDashboardResourceSnapshot(
+      caslUser,
+      {
+        departmentId: filters.departmentId,
+        startDate: filters.from,
+        endDate: filters.to,
+        projectIds,
+        useTeamDirectoryScope: !hasReportsView,
+      },
     );
 
-    const team = employees.map((emp) => {
-      let util = emp.allocations.reduce((sum, a) => sum + Number(a.percent ?? 0), 0);
-      const activeTasks = emp.userId ? (activeTasksMap.get(emp.userId) ?? 0) : 0;
-
-      if (util === 0) {
-        util = Math.min(100, activeTasks * 15);
+    const sortedRows = [...snapshot.rows].sort((left, right) => {
+      if (right.billableUtilisationPercent !== left.billableUtilisationPercent) {
+        return right.billableUtilisationPercent - left.billableUtilisationPercent;
       }
-
-      let status: 'over' | 'ok' | 'under' = 'ok';
-      if (util > 90) {
-        status = 'over';
-      } else if (util < 50) {
-        status = 'under';
+      if (right.approvedHours !== left.approvedHours) {
+        return right.approvedHours - left.approvedHours;
       }
-
-      const projectCount = new Set(emp.allocations.map((a) => a.projectId)).size;
-
-      return {
-        name: emp.name,
-        role: emp.designation,
-        dept: emp.department.name,
-        util,
-        billable: Math.round(util * 0.8),
-        projects: projectCount || (activeTasks > 0 ? 1 : 0),
-        status,
-      };
+      return left.name.localeCompare(right.name);
     });
 
-    const scopedDeptNames = new Set(employees.map((emp) => emp.department.name));
+    const team = sortedRows.slice(0, 8).map((row) => ({
+      name: row.name,
+      role: row.designation,
+      dept: row.departmentName,
+      util: row.totalUtilisationPercent,
+      billable: row.billableUtilisationPercent,
+      projects: snapshot.projectCountByEmployeeId.get(row.employeeId) ?? 0,
+      status: (row.status === 'optimal' ? 'ok' : row.status) as
+        | 'over'
+        | 'ok'
+        | 'under',
+    }));
 
-    const deptBreakdown = departments
-      .filter((dept) => scopedDeptNames.has(dept.name))
+    const departments = snapshot.departments
       .map((dept) => {
-        const deptEmployees = employees.filter((e) => e.department.name === dept.name);
-
-        let billable = 0;
-        let nonBillable = 0;
-
-        for (const emp of deptEmployees) {
-          const activeTasks = emp.userId ? (activeTasksMap.get(emp.userId) ?? 0) : 0;
-          const totalAllocatedHours = emp.allocations.reduce(
-            (sum, a) => sum + Number(a.hours ?? 0),
-            0,
-          );
-
-          const hours = totalAllocatedHours > 0 ? totalAllocatedHours : activeTasks * 24;
-
-          billable += Math.round(hours * 0.8);
-          nonBillable += Math.round(hours * 0.2);
-        }
-
+        const total = roundHours(dept.billableHours + dept.nonBillableHours);
         return {
-          dept: dept.name,
-          billable,
-          nonBillable,
-          total: billable + nonBillable,
+          dept: dept.departmentName,
+          billable: dept.billableHours,
+          nonBillable: dept.nonBillableHours,
+          total,
         };
       })
-      .filter((d) => d.total > 0);
+      .filter((dept) => dept.total > 0)
+      .sort((a, b) => b.total - a.total);
+
+    const optimalCount = Math.max(
+      0,
+      snapshot.summary.employeeCount -
+        snapshot.summary.overCount -
+        snapshot.summary.underCount,
+    );
 
     return {
-      team: team.slice(0, 8),
-      departments: deptBreakdown,
+      team,
+      departments,
+      summary: {
+        employeeCount: snapshot.summary.employeeCount,
+        avgUtilization: snapshot.summary.avgBillableUtilisation,
+        overallocatedCount: snapshot.summary.overCount,
+        optimalCount,
+        underutilizedCount: snapshot.summary.underCount,
+        totalBillableHours: snapshot.summary.totalBillableHours,
+        totalNonBillableHours: snapshot.summary.totalNonBillableHours,
+      },
     };
   }
 

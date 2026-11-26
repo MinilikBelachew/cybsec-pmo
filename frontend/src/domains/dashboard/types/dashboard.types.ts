@@ -68,9 +68,20 @@ export interface DeptHourBreakdown {
   total: number;
 }
 
+export interface ResourceUtilizationSummary {
+  employeeCount: number;
+  avgUtilization: number;
+  overallocatedCount: number;
+  optimalCount: number;
+  underutilizedCount: number;
+  totalBillableHours: number;
+  totalNonBillableHours: number;
+}
+
 export interface ResourceUtilizationResponse {
   team: TeamMemberUtilization[];
   departments: DeptHourBreakdown[];
+  summary?: ResourceUtilizationSummary;
 }
 
 export interface BurnRateResponse {

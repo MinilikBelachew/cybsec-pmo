@@ -169,6 +169,135 @@ export class UtilisationService {
     };
   }
 
+  /**
+   * Dashboard People & Resources snapshot powered by the exact same
+   * cybsec-2026-v1 utilisation math as Reports -> Utilization.
+   */
+  async getDashboardResourceSnapshot(
+    caslUser: CaslUserContext,
+    options: {
+      departmentId?: string;
+      startDate?: string;
+      endDate?: string;
+      projectIds?: string[];
+      useTeamDirectoryScope?: boolean;
+    } = {},
+  ): Promise<{
+    rows: UtilisationEmployeeRowDto[];
+    summary: UtilisationSummaryDto;
+    departments: UtilisationDepartmentBreakdownDto[];
+    projectCountByEmployeeId: Map<string, number>;
+  }> {
+    const { start, end } = this.resolvePeriod(options.startDate, options.endDate);
+    const employeeScope = options.useTeamDirectoryScope
+      ? this.recordScopeWhere.teamDirectoryEmployeeWhere(caslUser)
+      : this.recordScopeWhere.reportsEmployeeWhere(caslUser);
+
+    const projectFilter = options.projectIds;
+    const projectIdsSet = projectFilter ? new Set(projectFilter) : null;
+
+    if (projectFilter && projectFilter.length === 0) {
+      const emptySummary = this.buildSummary([]);
+      return {
+        rows: [],
+        summary: emptySummary,
+        departments: [],
+        projectCountByEmployeeId: new Map(),
+      };
+    }
+
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        AND: [
+          { isActive: true },
+          employeeScope,
+          ...(options.departmentId ? [{ departmentId: options.departmentId }] : []),
+          ...(projectFilter
+            ? [
+                {
+                  OR: [
+                    {
+                      allocations: {
+                        some: {
+                          status: 'Active',
+                          projectId: { in: projectFilter },
+                        },
+                      },
+                    },
+                    {
+                      timesheets: {
+                        some: {
+                          workDate: { gte: start, lte: end },
+                          projectId: { in: projectFilter },
+                        },
+                      },
+                    },
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      include: {
+        department: { select: { id: true, name: true } },
+        allocations: {
+          where: {
+            status: 'Active',
+            ...(projectFilter ? { projectId: { in: projectFilter } } : {}),
+          },
+        },
+        leaveRecords: {
+          where: {
+            isApproved: true,
+            fromDate: { lte: end },
+            toDate: { gte: start },
+          },
+        },
+        timesheets: {
+          where: {
+            workDate: { gte: start, lte: end },
+            ...(projectFilter ? { projectId: { in: projectFilter } } : {}),
+          },
+          include: {
+            approvals: {
+              orderBy: { decidedAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const projectCountByEmployeeId = new Map<string, number>();
+    const rows = employees.map((employee) => {
+      const scopedAllocs = projectIdsSet
+        ? employee.allocations.filter((row) => projectIdsSet.has(row.projectId))
+        : employee.allocations;
+      projectCountByEmployeeId.set(
+        employee.id,
+        new Set(scopedAllocs.map((row) => row.projectId)).size,
+      );
+
+      return this.buildEmployeeRow(
+        employee,
+        start,
+        end,
+        undefined,
+        'local-push-ack',
+        0,
+        Boolean(employee.kekaEmployeeId),
+      );
+    });
+
+    return {
+      rows,
+      summary: this.buildSummary(rows),
+      departments: this.buildDepartmentBreakdown(rows),
+      projectCountByEmployeeId,
+    };
+  }
+
   private buildEmployeeRow(
     employee: {
       id: string;

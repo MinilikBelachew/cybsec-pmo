@@ -62,13 +62,24 @@ export function KpiRow({
 
   const team = resources?.team ?? [];
   const deptHours = resources?.departments ?? [];
+  const resourceSummary = resources?.summary;
   const avgUtilization =
-    team.length > 0
+    resourceSummary?.avgUtilization ??
+    (team.length > 0
       ? Math.round(team.reduce((sum, member) => sum + member.util, 0) / team.length)
-      : 0;
-  const overallocatedCount = team.filter((member) => member.status === "over").length;
-  const underutilizedCount = team.filter((member) => member.status === "under").length;
-  const totalBillableHours = deptHours.reduce((sum, dept) => sum + dept.billable, 0);
+      : 0);
+  const overallocatedCount =
+    resourceSummary?.overallocatedCount ??
+    team.filter((member) => member.status === "over").length;
+  const underutilizedCount =
+    resourceSummary?.underutilizedCount ??
+    team.filter((member) => member.status === "under").length;
+  const teamMemberCount = resourceSummary?.employeeCount ?? team.length;
+  const totalBillableHours =
+    resourceSummary?.totalBillableHours ??
+    deptHours.reduce((sum, dept) => sum + dept.billable, 0);
+  const formatHours = (hours: number) =>
+    Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
 
   const sparkFrom = (value?: number, fallback = 0) => {
     const v = value || fallback;
@@ -127,16 +138,16 @@ export function KpiRow({
           {
             id: "h4",
             labelKey: "teamMembers",
-            value: `${team.length}`,
+            value: `${teamMemberCount}`,
             subKey: "acrossProjects",
-            spark: sparkFrom(team.length),
+            spark: sparkFrom(teamMemberCount),
             icon: Users,
             theme: CARD_THEMES.sky,
           },
           {
             id: "h5",
             labelKey: "billableHours",
-            value: `${totalBillableHours}h`,
+            value: formatHours(totalBillableHours),
             subKey: "thisMonth",
             spark: sparkFrom(totalBillableHours),
             icon: TrendingUp,

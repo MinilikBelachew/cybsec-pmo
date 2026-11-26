@@ -27,10 +27,24 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
 
   const team = data?.team || [];
   const deptData = data?.departments || [];
+  const summary = data?.summary;
 
-  const over  = team.filter((x) => x.status === "over").length;
-  const under = team.filter((x) => x.status === "under").length;
-  const ok    = team.filter((x) => x.status === "ok").length;
+  const over = summary?.overallocatedCount ?? team.filter((x) => x.status === "over").length;
+  const under = summary?.underutilizedCount ?? team.filter((x) => x.status === "under").length;
+  const ok = summary?.optimalCount ?? team.filter((x) => x.status === "ok").length;
+  const avgUtil =
+    summary?.avgUtilization ??
+    (team.length > 0
+      ? Math.round(team.reduce((s: number, x) => s + x.util, 0) / team.length)
+      : 0);
+  const totalBillable =
+    summary?.totalBillableHours ??
+    deptData.reduce((s: number, d) => s + d.billable, 0);
+  const totalNonBillable =
+    summary?.totalNonBillableHours ??
+    deptData.reduce((s: number, d) => s + d.nonBillable, 0);
+  const formatHours = (hours: number) =>
+    Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
 
   const STATUS_CONFIG = {
     over:  { labelKey: "overStatus",  bar: "bg-rose-500",    text: "text-rose-600 dark:text-rose-400",     bg: "bg-rose-50 dark:bg-rose-900/20" },
@@ -55,7 +69,7 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
         ))}
         <div className="ms-auto text-xs text-muted-foreground whitespace-nowrap">
           Avg Utilization: <span className="font-bold text-foreground">
-            {team.length > 0 ? Math.round(team.reduce((s: number, x: any) => s + x.util, 0) / team.length) : 0}%
+            {avgUtil}%
           </span>
         </div>
       </div>
@@ -90,7 +104,7 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
                           <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
                             <div
                               className={cn("h-full rounded-full", s.bar)}
-                              style={{ width: `${member.util}%` }}
+                              style={{ width: `${Math.min(100, member.util)}%` }}
                             />
                           </div>
                           <span className={cn("font-bold w-7 text-end", s.text)}>{member.util}%</span>
@@ -118,55 +132,65 @@ export function ResourceUtilization({ data }: { data: ResourceUtilizationRespons
           </div>
 
           <div className="flex-1 space-y-4 overflow-auto scrollbar-none">
-            {deptData.map((d: any) => (
-              <div key={d.dept} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-foreground">{d.dept}</span>
-                  <span className="text-muted-foreground">{d.total}h total</span>
-                </div>
-                <div className="flex h-5 rounded-lg overflow-hidden bg-muted gap-px">
-                  <div
-                    className="bg-primary flex items-center justify-center transition-all duration-500 opacity-80"
-                    style={{ width: `${(d.billable / maxTotal) * 100}%` }}
-                  >
-                    {d.billable > 20 && (
-                      <span className="text-[9px] font-bold text-primary-foreground">{d.billable}h</span>
-                    )}
+            {deptData.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-6 text-center">
+                No approved hours logged this month.
+              </p>
+            ) : (
+              deptData.map((d) => {
+                const billablePct = d.total > 0 ? Math.round((d.billable / d.total) * 100) : 0;
+                const nonBillablePct = d.total > 0 ? Math.round((d.nonBillable / d.total) * 100) : 0;
+                return (
+                  <div key={d.dept} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-foreground">{d.dept}</span>
+                      <span className="text-muted-foreground">{formatHours(d.total)} total</span>
+                    </div>
+                    <div className="flex h-5 rounded-lg overflow-hidden bg-muted gap-px">
+                      <div
+                        className="bg-primary flex items-center justify-center transition-all duration-500 opacity-80"
+                        style={{ width: `${(d.billable / maxTotal) * 100}%` }}
+                      >
+                        {d.billable > 0 && (d.billable / maxTotal) >= 0.2 && (
+                          <span className="text-[9px] font-bold text-primary-foreground">{formatHours(d.billable)}</span>
+                        )}
+                      </div>
+                      <div
+                        className="bg-muted-foreground/20 flex items-center justify-center transition-all duration-500"
+                        style={{ width: `${(d.nonBillable / maxTotal) * 100}%` }}
+                      >
+                        {d.nonBillable > 0 && (d.nonBillable / maxTotal) >= 0.2 && (
+                          <span className="text-[9px] font-semibold text-muted-foreground">{formatHours(d.nonBillable)}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <span className="size-1.5 rounded-full bg-primary" />
+                        Billable ({billablePct}%)
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="size-1.5 rounded-full bg-muted-foreground/40" />
+                        Non-Billable ({nonBillablePct}%)
+                      </span>
+                    </div>
                   </div>
-                  <div
-                    className="bg-muted-foreground/20 flex items-center justify-center transition-all duration-500"
-                    style={{ width: `${(d.nonBillable / maxTotal) * 100}%` }}
-                  >
-                    {d.nonBillable > 20 && (
-                      <span className="text-[9px] font-semibold text-muted-foreground">{d.nonBillable}h</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <span className="size-1.5 rounded-full bg-primary" />
-                    Billable ({Math.round((d.billable / d.total) * 100)}%)
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="size-1.5 rounded-full bg-muted-foreground/40" />
-                    Non-Billable ({Math.round((d.nonBillable / d.total) * 100)}%)
-                  </span>
-                </div>
-              </div>
-            ))}
+                );
+              })
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border/40 shrink-0">
             <div>
               <p className="text-[10px] text-muted-foreground">Total Billable</p>
               <p className="text-base font-bold mt-0.5">
-                {deptData.reduce((s: number, d: any) => s + d.billable, 0)}h
+                {formatHours(totalBillable)}
               </p>
             </div>
             <div>
               <p className="text-[10px] text-muted-foreground">Total Non-Billable</p>
               <p className="text-base font-bold mt-0.5">
-                {deptData.reduce((s: number, d: any) => s + d.nonBillable, 0)}h
+                {formatHours(totalNonBillable)}
               </p>
             </div>
           </div>
