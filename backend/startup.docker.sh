@@ -2,7 +2,7 @@
 set -e
 
 /opt/wait-for-it.sh "${DATABASE_HOST:-postgres}:${DATABASE_PORT:-5432}"
-npm run migration:run
+npx prisma migrate deploy
 npm run prisma:seed
 node dist/src/main
 
