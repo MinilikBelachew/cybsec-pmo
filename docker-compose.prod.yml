@@ -12,6 +12,8 @@ services:
       POSTGRES_USER: ${DATABASE_USERNAME:-root}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret123}
       POSTGRES_DB: ${DATABASE_NAME:-cybersec}
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   redis:
     image: redis:7-alpine
@@ -23,6 +25,8 @@ services:
       - "127.0.0.1:6378:6379"
     volumes:
       - redis_data:/data
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   mpxj-service:
     image: aynuayex/cybersec-pmo:mpxj-service
@@ -30,6 +34,8 @@ services:
     restart: always
     expose:
       - "8080"
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   backend:
     # --------------------------------------------------------------------------
@@ -69,6 +75,8 @@ services:
       MPXJ_SERVICE_URL: http://mpxj-service:8080
       MPP_IMPORT_STORAGE_DIR: /tmp/mpp-imports
       MPP_IMPORT_MAX_FILE_SIZE_BYTES: 52428800
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   frontend:
     # --------------------------------------------------------------------------
@@ -95,6 +103,8 @@ services:
       NODE_ENV: production
     depends_on:
       - backend
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
 volumes:
   postgres_data:
