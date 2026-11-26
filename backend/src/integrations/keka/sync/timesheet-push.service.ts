@@ -153,7 +153,10 @@ export class TimesheetPushService {
           // OpenAPI: date-time. GET samples are date-only; both work when the
           // employee is allocated — use noon UTC to avoid TZ edge cases.
           date: `${formatDateOnly(timesheet.workDate)}T00:00:00Z`,
-          comment: timesheet.notes,
+          // Keka projects can enforce mandatory comments; fall back to task/project title when notes are blank.
+          comment:
+            timesheet.notes?.trim() ||
+            `${timesheet.task.title} (${timesheet.project.name})`,
         },
       ];
 

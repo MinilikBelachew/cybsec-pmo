@@ -219,7 +219,8 @@ export class ProjectLinkService {
       startDate: project.startDate.toISOString(),
       endDate: project.endDate.toISOString(),
       isBillable: true,
-      status: 1,
+      // Keka ProjectStatus enum: 0 = InProgress, 1 = Completed, 2 = Cancelled.
+      status: 0,
     });
 
     const kekaProjectId = response.data?.trim();
