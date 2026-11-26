@@ -10,12 +10,16 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: m123
       POSTGRES_DB: cybsec_pmo
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   redis:
     image: redis:7-alpine
     ports:
       # Host-only — avoid exposing Redis on the public interface
       - "127.0.0.1:6378:6379"
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   maildev:
     image: maildev/maildev:2.1.0
@@ -23,6 +27,8 @@ services:
       # Host ports outside Windows Hyper-V excluded ranges (1069-1268, etc.)
       - "8025:1080"
       - "1026:1025"
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   mpxj-service:
     build:
@@ -33,6 +39,8 @@ services:
     expose:
       - "8080"
     restart: unless-stopped
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   backend:
     build:
@@ -69,6 +77,8 @@ services:
       - postgres
       - redis
       - mpxj-service
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
   frontend:
     build:
@@ -84,6 +94,8 @@ services:
       - ./frontend/.env
     depends_on:
       - backend
+    labels:
+      - io.portainer.accesscontrol.teams=readers
 
 volumes:
   postgres_dev_data:
