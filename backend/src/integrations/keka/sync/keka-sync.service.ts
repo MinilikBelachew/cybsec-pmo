@@ -22,6 +22,10 @@ import { LeaveSyncService } from './leave-sync.service';
 import { ProjectLinkService } from './project-link.service';
 import { ClientSyncService } from './client-sync.service';
 import { SalarySyncService } from './salary-sync.service';
+import {
+  LEAVE_BACKUP_QUEUE,
+  LEAVE_CONFLICT_CHECK_JOB,
+} from '../../../resources/leave-backup.constants';
 
 /** Keep finished jobs briefly so the UI can poll status after completion. */
 const KEKA_SYNC_JOB_OPTIONS: JobOptions = {
@@ -60,6 +64,7 @@ export class KekaSyncService {
     private readonly clientSyncService: ClientSyncService,
     private readonly projectLinkService: ProjectLinkService,
     @InjectQueue(KEKA_SYNC_QUEUE) private readonly syncQueue: Queue,
+    @InjectQueue(LEAVE_BACKUP_QUEUE) private readonly leaveBackupQueue: Queue,
   ) {}
 
   async syncDepartmentsNow() {
@@ -327,6 +332,21 @@ export class KekaSyncService {
         )
         .join(', ');
       this.logger.log(`Scheduled Keka sync completed: ${summary}`);
+
+      const leaveResult = result.results.find(
+        (entry) => entry.entityType === 'leave',
+      );
+      if (leaveResult && 'employeeIds' in leaveResult) {
+        await this.leaveBackupQueue.add(
+          LEAVE_CONFLICT_CHECK_JOB,
+          { employeeIds: leaveResult.employeeIds },
+          {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+            removeOnComplete: true,
+          },
+        );
+      }
     } catch (error) {
       this.logger.error('Scheduled Keka sync failed', error);
     }

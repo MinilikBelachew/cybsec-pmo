@@ -83,9 +83,54 @@ export async function notifyLeaveCriticalConflict(
   });
 }
 
+export async function notifyLeaveBackupApplied(
+  notificationsService: NotificationsService,
+  options: {
+    recipientUserIds: string[];
+    projectId: string;
+    projectName: string;
+    taskId: string;
+    taskTitle: string;
+    previousOwnerName: string;
+    backupOwnerName: string;
+    actorName: string;
+    actorId: string;
+  },
+): Promise<void> {
+  if (options.recipientUserIds.length === 0) {
+    return;
+  }
+
+  await notificationsService.notify({
+    eventType: NOTIFICATION_EVENT_TYPE.LEAVE_BACKUP_APPLIED,
+    recipientUserIds: options.recipientUserIds,
+    title: 'Backup owner assigned for leave coverage',
+    body: `${options.actorName} reassigned task "${options.taskTitle}" on ${options.projectName} from ${options.previousOwnerName} to backup ${options.backupOwnerName}.`,
+    payload: {
+      link: `/dashboard/projects/${options.projectId}?taskId=${options.taskId}`,
+      projectId: options.projectId,
+      projectName: options.projectName,
+      taskId: options.taskId,
+      taskTitle: options.taskTitle,
+      previousOwnerName: options.previousOwnerName,
+      backupOwnerName: options.backupOwnerName,
+    },
+    sourceObjectType: 'Task',
+    sourceObjectId: options.taskId,
+    actorId: options.actorId,
+  });
+}
+
 export async function resolveProjectPmUserIds(
   notificationsService: NotificationsService,
   projectId: string,
 ): Promise<string[]> {
   return notificationsService.resolveProjectPmUserIds(projectId);
+}
+
+export async function resolveProjectLeaveAlertUserIds(
+  notificationsService: NotificationsService,
+  projectId: string,
+): Promise<string[]> {
+  return notificationsService.resolveProjectPmAndSdmUserIds(projectId);
 }

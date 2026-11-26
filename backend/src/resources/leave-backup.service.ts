@@ -20,8 +20,9 @@ import {
   TaskScheduleImpactDto,
 } from './dto/leave-impact.dto';
 import {
+  notifyLeaveBackupApplied,
   notifyLeaveCriticalConflict,
-  resolveProjectPmUserIds,
+  resolveProjectLeaveAlertUserIds,
 } from './leave-backup-notifications.util';
 import {
   countOverlapDays,
@@ -177,36 +178,45 @@ export class LeaveBackupService {
           continue;
         }
 
+        const recipientUserIds = await resolveProjectLeaveAlertUserIds(
+          this.notificationsService,
+          project.id,
+        );
+
+        if (recipientUserIds.length === 0) {
+          continue;
+        }
+
         const sourceObjectId = leaveImpactSourceObjectId(
           impact.task.id,
           impact.leave.from,
           impact.leave.to,
         );
-        const alreadySent = await this.prisma.notification.findFirst({
+        const alreadySent = await this.prisma.notification.findMany({
           where: {
             eventType: NOTIFICATION_EVENT_TYPE.LEAVE_CRITICAL_CONFLICT,
             sourceObjectId,
+            userId: { in: recipientUserIds },
             createdAt: { gte: dedupeSince },
           },
+          select: { userId: true },
         });
 
-        if (alreadySent) {
-          continue;
-        }
-
-        const pmIds = await resolveProjectPmUserIds(
-          this.notificationsService,
-          project.id,
+        const alreadyNotifiedUserIds = new Set(
+          alreadySent.map((row) => row.userId),
+        );
+        const pendingRecipientUserIds = recipientUserIds.filter(
+          (id) => !alreadyNotifiedUserIds.has(id),
         );
 
-        if (pmIds.length === 0) {
+        if (pendingRecipientUserIds.length === 0) {
           continue;
         }
 
         const backup = await this.resolveBackupForImpact(impact);
 
         await notifyLeaveCriticalConflict(this.notificationsService, {
-          recipientUserIds: pmIds,
+          recipientUserIds: pendingRecipientUserIds,
           employeeName: impact.employee.name,
           projectId: project.id,
           projectName: project.name,
@@ -247,6 +257,7 @@ export class LeaveBackupService {
     const task = await this.prisma.task.findFirst({
       where: { id: taskId, projectId },
       include: {
+        project: { select: { name: true } },
         owner: {
           select: {
             id: true,
@@ -286,6 +297,34 @@ export class LeaveBackupService {
       include: {
         owner: { select: { id: true, displayName: true, email: true } },
       },
+    });
+
+    const [alertRecipientIds, actor] = await Promise.all([
+      resolveProjectLeaveAlertUserIds(this.notificationsService, projectId),
+      this.prisma.user.findUnique({
+        where: { id: caslUser.id },
+        select: { displayName: true },
+      }),
+    ]);
+
+    const recipientUserIds = [
+      ...new Set(
+        [...alertRecipientIds, backup.userId, task.ownerId].filter(
+          (id): id is string => Boolean(id),
+        ),
+      ),
+    ];
+
+    await notifyLeaveBackupApplied(this.notificationsService, {
+      recipientUserIds,
+      projectId,
+      projectName: task.project.name,
+      taskId: updated.id,
+      taskTitle: task.title,
+      previousOwnerName: task.owner?.displayName ?? 'previous owner',
+      backupOwnerName: updated.owner?.displayName ?? backup.name ?? 'backup owner',
+      actorName: actor?.displayName ?? 'A team member',
+      actorId: caslUser.id,
     });
 
     return {

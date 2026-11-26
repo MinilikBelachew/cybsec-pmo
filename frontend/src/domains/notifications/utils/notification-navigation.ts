@@ -33,6 +33,13 @@ export function notificationIcon(eventType: string) {
       return Bell;
     case "LEAVE_CRITICAL_CONFLICT":
       return AlertTriangle;
+    case "LEAVE_REQUESTED":
+      return Clock;
+    case "LEAVE_APPROVED":
+    case "LEAVE_BACKUP_APPLIED":
+      return CheckCircle2;
+    case "LEAVE_STATUS_CHANGED":
+      return Bell;
     case "MOM_ACKNOWLEDGE_REQUIRED":
       return CheckCircle2;
     default:
@@ -66,6 +73,14 @@ export function notificationIconClass(eventType: string): string {
       return "text-amber-600";
     case "LEAVE_CRITICAL_CONFLICT":
       return "text-rose-500";
+    case "LEAVE_REQUESTED":
+      return "text-amber-500";
+    case "LEAVE_APPROVED":
+      return "text-sky-600";
+    case "LEAVE_STATUS_CHANGED":
+      return "text-muted-foreground";
+    case "LEAVE_BACKUP_APPLIED":
+      return "text-emerald-500";
     case "MOM_ACKNOWLEDGE_REQUIRED":
       return "text-sky-600";
     default:

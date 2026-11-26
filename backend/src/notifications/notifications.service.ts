@@ -147,6 +147,34 @@ export class NotificationsService {
     );
   }
 
+  async resolveActiveUserIdsByRoleCodes(roleCodes: string[]): Promise<string[]> {
+    const normalized = [
+      ...new Set(roleCodes.map((code) => code.trim()).filter(Boolean)),
+    ];
+    if (normalized.length === 0) {
+      return [];
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { code: { in: normalized } },
+      },
+      select: { id: true },
+    });
+
+    return users.map((user) => user.id);
+  }
+
+  async resolveProjectPmAndSdmUserIds(projectId: string): Promise<string[]> {
+    const [pmIds, sdmIds] = await Promise.all([
+      this.resolveProjectPmUserIds(projectId),
+      this.resolveActiveUserIdsByRoleCodes(['sdm']),
+    ]);
+
+    return [...new Set([...pmIds, ...sdmIds])];
+  }
+
   private async createForRecipient(
     userId: string,
     email: string,
