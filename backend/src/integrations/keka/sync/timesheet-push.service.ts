@@ -29,7 +29,12 @@ type KekaTimeEntryDto = {
 
 type KekaTimeEntryPushResponse = {
   succeeded?: boolean;
-  data?: string | { id?: string } | Array<string | { id?: string }> | null;
+  data?:
+    | boolean
+    | string
+    | { id?: string }
+    | Array<string | { id?: string }>
+    | null;
   message?: string | null;
   errors?: string[] | null;
 };
@@ -61,6 +66,166 @@ export class TimesheetPushService {
     timesheetId: string,
     approvalId: string,
   ): Promise<string | null> {
+    const result = await this.pushTimesheetEntriesBatch([
+      { timesheetId, approvalId },
+    ]);
+    return result.kekaSyncRefs[0] ?? null;
+  }
+
+  /**
+   * Push a batch of approved timesheet entries grouped per employee in a single
+   * POST /psa/employees/{id}/timeentries request so Keka's auto-submit doesn't
+   * lock the day/week after the first task entry.
+   */
+  async pushTimesheetEntriesBatch(
+    items: Array<{ timesheetId: string; approvalId: string }>,
+  ): Promise<{ kekaSyncRefs: string[]; syncFailures: string[] }> {
+    const kekaSyncRefs: string[] = [];
+    const syncFailures: string[] = [];
+
+    if (items.length === 0) {
+      return { kekaSyncRefs, syncFailures };
+    }
+
+    type PreparedItem = {
+      timesheetId: string;
+      approvalId: string;
+      kekaEmployeeId: string;
+      entry: KekaTimeEntryDto;
+    };
+
+    const batchesByEmployee = new Map<string, PreparedItem[]>();
+
+    for (const item of items) {
+      const prepared = await this.prepareTimesheetEntry(
+        item.timesheetId,
+        item.approvalId,
+      );
+      if (prepared.status === 'alreadySynced') {
+        kekaSyncRefs.push(prepared.ref);
+      } else if (prepared.status === 'skipped') {
+        continue;
+      } else if (prepared.status === 'failed') {
+        syncFailures.push(item.timesheetId);
+      } else {
+        const list = batchesByEmployee.get(prepared.kekaEmployeeId) ?? [];
+        list.push(prepared);
+        batchesByEmployee.set(prepared.kekaEmployeeId, list);
+      }
+    }
+
+    for (const [kekaEmployeeId, batch] of batchesByEmployee.entries()) {
+      const payload = batch.map((item) => item.entry);
+      let kekaResponse: KekaTimeEntryPushResponse | null = null;
+
+      try {
+        const response = await this.kekaClient.post<KekaTimeEntryPushResponse>(
+          `/psa/employees/${encodeURIComponent(kekaEmployeeId)}/timeentries`,
+          payload,
+        );
+        kekaResponse = response;
+
+        if (response?.succeeded === false) {
+          const errDetail = [
+            response.message?.trim(),
+            ...(Array.isArray(response.errors)
+              ? response.errors.filter(
+                  (entry): entry is string =>
+                    typeof entry === 'string' && entry.trim().length > 0,
+                )
+              : []),
+          ]
+            .filter(Boolean)
+            .join(': ');
+          throw new Error(
+            errDetail || 'Keka rejected time entry push (succeeded=false)',
+          );
+        }
+
+        const syncedAt = new Date();
+
+        for (let i = 0; i < batch.length; i += 1) {
+          const item = batch[i];
+          const matchedData = Array.isArray(response?.data)
+            ? response.data[i]
+            : response?.data;
+          const ref =
+            (typeof matchedData === 'string'
+              ? matchedData
+              : matchedData &&
+                  typeof matchedData === 'object' &&
+                  'id' in matchedData &&
+                  typeof matchedData.id === 'string'
+                ? matchedData.id
+                : undefined) ?? `keka-ts-${item.timesheetId.slice(0, 8)}`;
+
+          await this.prisma.timesheetApproval.update({
+            where: { id: item.approvalId },
+            data: {
+              kekaSyncRef: ref,
+              kekaSyncedAt: syncedAt,
+            },
+          });
+
+          await this.prisma.kekaSyncLog.create({
+            data: {
+              entityType: KEKA_ENTITY_TYPE.TIMESHEET,
+              entityId: item.timesheetId,
+              direction: KEKA_SYNC_DIRECTION.OUTBOUND,
+              status: KEKA_SYNC_STATUS.SUCCESS,
+              payload: {
+                request: [item.entry],
+                batchSize: batch.length,
+                response,
+              } as unknown as Prisma.InputJsonValue,
+            },
+          });
+
+          await this.resolveFailedSyncRecord(item.timesheetId);
+          kekaSyncRefs.push(ref);
+        }
+      } catch (error) {
+        const message = this.clarifyKekaTimesheetError(
+          error instanceof Error ? error.message : 'Keka timesheet push failed',
+        );
+        this.logger.error(
+          `Timesheet batch push failed for Keka employee ${kekaEmployeeId} (${batch.length} entries): ${message}`,
+        );
+        for (const item of batch) {
+          await this.logFailure(
+            item.timesheetId,
+            kekaResponse
+              ? {
+                  request: [item.entry],
+                  batchSize: batch.length,
+                  response: kekaResponse,
+                }
+              : [item.entry],
+            message,
+          );
+          syncFailures.push(item.timesheetId);
+        }
+      }
+    }
+
+    return { kekaSyncRefs, syncFailures };
+  }
+
+  private async prepareTimesheetEntry(
+    timesheetId: string,
+    approvalId: string,
+  ): Promise<
+    | { status: 'skipped' }
+    | { status: 'alreadySynced'; ref: string }
+    | { status: 'failed' }
+    | {
+        status: 'ready';
+        timesheetId: string;
+        approvalId: string;
+        kekaEmployeeId: string;
+        entry: KekaTimeEntryDto;
+      }
+  > {
     const timesheet = await this.prisma.timesheet.findUnique({
       where: { id: timesheetId },
       include: {
@@ -85,12 +250,12 @@ export class TimesheetPushService {
     });
 
     if (!timesheet || timesheet.status !== 'Approved') {
-      return null;
+      return { status: 'skipped' };
     }
 
     const existingRef = timesheet.approvals[0]?.kekaSyncRef;
     if (existingRef) {
-      return existingRef;
+      return { status: 'alreadySynced', ref: existingRef };
     }
 
     const kekaEmployeeId = timesheet.employee.kekaEmployeeId?.trim();
@@ -100,11 +265,8 @@ export class TimesheetPushService {
         { timesheetId },
         `Employee ${timesheet.employee.name} has no Keka ID`,
       );
-      return null;
+      return { status: 'failed' };
     }
-
-    let payload: KekaTimeEntryDto[] | { timesheetId: string } = { timesheetId };
-    let kekaResponse: KekaTimeEntryPushResponse | null = null;
 
     try {
       const kekaProjectId =
@@ -147,8 +309,13 @@ export class TimesheetPushService {
 
       const hours =
         Number(timesheet.regularHours) + Number(timesheet.overtimeHours);
-      payload = [
-        {
+
+      return {
+        status: 'ready',
+        timesheetId,
+        approvalId,
+        kekaEmployeeId,
+        entry: {
           projectId: kekaProjectId,
           taskId: kekaTaskId,
           numberOfMinutes: Math.max(1, Math.round(hours * 60)),
@@ -160,75 +327,14 @@ export class TimesheetPushService {
             timesheet.notes?.trim() ||
             `${timesheet.task.title} (${timesheet.project.name})`,
         },
-      ];
-
-      const response = await this.kekaClient.post<KekaTimeEntryPushResponse>(
-        `/psa/employees/${encodeURIComponent(kekaEmployeeId)}/timeentries`,
-        payload,
-      );
-      kekaResponse = response;
-
-      if (response?.succeeded === false) {
-        const errDetail = [
-          response.message?.trim(),
-          ...(Array.isArray(response.errors)
-            ? response.errors.filter(
-                (entry): entry is string =>
-                  typeof entry === 'string' && entry.trim().length > 0,
-              )
-            : []),
-        ]
-          .filter(Boolean)
-          .join(': ');
-        throw new Error(
-          errDetail || 'Keka rejected time entry push (succeeded=false)',
-        );
-      }
-
-      const firstDataItem = Array.isArray(response?.data)
-        ? response.data[0]
-        : response?.data;
-      const ref =
-        (typeof firstDataItem === 'string'
-          ? firstDataItem
-          : firstDataItem?.id) ?? `keka-ts-${timesheetId.slice(0, 8)}`;
-      const syncedAt = new Date();
-
-      await this.prisma.timesheetApproval.update({
-        where: { id: approvalId },
-        data: {
-          kekaSyncRef: ref,
-          kekaSyncedAt: syncedAt,
-        },
-      });
-
-      await this.prisma.kekaSyncLog.create({
-        data: {
-          entityType: KEKA_ENTITY_TYPE.TIMESHEET,
-          entityId: timesheetId,
-          direction: KEKA_SYNC_DIRECTION.OUTBOUND,
-          status: KEKA_SYNC_STATUS.SUCCESS,
-          payload: {
-            request: payload,
-            response,
-          } as unknown as Prisma.InputJsonValue,
-        },
-      });
-
-      await this.resolveFailedSyncRecord(timesheetId);
-
-      return ref;
+      };
     } catch (error) {
       const message = this.clarifyKekaTimesheetError(
         error instanceof Error ? error.message : 'Keka timesheet push failed',
       );
       this.logger.error(`Timesheet push failed for ${timesheetId}: ${message}`);
-      await this.logFailure(
-        timesheetId,
-        kekaResponse ? { request: payload, response: kekaResponse } : payload,
-        message,
-      );
-      return null;
+      await this.logFailure(timesheetId, { timesheetId }, message);
+      return { status: 'failed' };
     }
   }
 

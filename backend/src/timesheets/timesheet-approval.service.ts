@@ -144,8 +144,6 @@ export class TimesheetApprovalService {
     }
 
     const approveComment = dto.comment?.trim() || null;
-    const kekaSyncRefs: string[] = [];
-    const syncFailures: string[] = [];
     const approvalsToPush: { timesheetId: string; approvalId: string }[] = [];
 
     await this.prisma.$transaction(async (tx) => {
@@ -171,17 +169,10 @@ export class TimesheetApprovalService {
       }
     });
 
-    for (const item of approvalsToPush) {
-      const ref = await this.timesheetPushService.pushTimesheetEntry(
-        item.timesheetId,
-        item.approvalId,
+    const { kekaSyncRefs, syncFailures } =
+      await this.timesheetPushService.pushTimesheetEntriesBatch(
+        approvalsToPush,
       );
-      if (ref) {
-        kekaSyncRefs.push(ref);
-      } else {
-        syncFailures.push(item.timesheetId);
-      }
-    }
 
     const employeeUserId = entries[0].employee.userId;
     if (employeeUserId) {
