@@ -29,8 +29,9 @@ type KekaTimeEntryDto = {
 
 type KekaTimeEntryPushResponse = {
   succeeded?: boolean;
-  data?: string | { id?: string } | null;
+  data?: string | { id?: string } | Array<string | { id?: string }> | null;
   message?: string | null;
+  errors?: string[] | null;
 };
 
 export type TimesheetSyncFailureRow = {
@@ -103,6 +104,7 @@ export class TimesheetPushService {
     }
 
     let payload: KekaTimeEntryDto[] | { timesheetId: string } = { timesheetId };
+    let kekaResponse: KekaTimeEntryPushResponse | null = null;
 
     try {
       const kekaProjectId =
@@ -150,9 +152,9 @@ export class TimesheetPushService {
           projectId: kekaProjectId,
           taskId: kekaTaskId,
           numberOfMinutes: Math.max(1, Math.round(hours * 60)),
-          // OpenAPI: date-time. GET samples are date-only; both work when the
-          // employee is allocated — use noon UTC to avoid TZ edge cases.
-          date: `${formatDateOnly(timesheet.workDate)}T00:00:00Z`,
+          // OpenAPI: date-time. Use noon UTC so negative-UTC Keka tenants never
+          // shift the workDate back onto the previous calendar day.
+          date: `${formatDateOnly(timesheet.workDate)}T12:00:00Z`,
           // Keka projects can enforce mandatory comments; fall back to task/project title when notes are blank.
           comment:
             timesheet.notes?.trim() ||
@@ -164,11 +166,32 @@ export class TimesheetPushService {
         `/psa/employees/${encodeURIComponent(kekaEmployeeId)}/timeentries`,
         payload,
       );
+      kekaResponse = response;
 
+      if (response?.succeeded === false) {
+        const errDetail = [
+          response.message?.trim(),
+          ...(Array.isArray(response.errors)
+            ? response.errors.filter(
+                (entry): entry is string =>
+                  typeof entry === 'string' && entry.trim().length > 0,
+              )
+            : []),
+        ]
+          .filter(Boolean)
+          .join(': ');
+        throw new Error(
+          errDetail || 'Keka rejected time entry push (succeeded=false)',
+        );
+      }
+
+      const firstDataItem = Array.isArray(response?.data)
+        ? response.data[0]
+        : response?.data;
       const ref =
-        (typeof response.data === 'string'
-          ? response.data
-          : response.data?.id) ?? `keka-ts-${timesheetId.slice(0, 8)}`;
+        (typeof firstDataItem === 'string'
+          ? firstDataItem
+          : firstDataItem?.id) ?? `keka-ts-${timesheetId.slice(0, 8)}`;
       const syncedAt = new Date();
 
       await this.prisma.timesheetApproval.update({
@@ -185,7 +208,10 @@ export class TimesheetPushService {
           entityId: timesheetId,
           direction: KEKA_SYNC_DIRECTION.OUTBOUND,
           status: KEKA_SYNC_STATUS.SUCCESS,
-          payload: payload as unknown as Prisma.InputJsonValue,
+          payload: {
+            request: payload,
+            response,
+          } as unknown as Prisma.InputJsonValue,
         },
       });
 
@@ -197,7 +223,11 @@ export class TimesheetPushService {
         error instanceof Error ? error.message : 'Keka timesheet push failed',
       );
       this.logger.error(`Timesheet push failed for ${timesheetId}: ${message}`);
-      await this.logFailure(timesheetId, payload, message);
+      await this.logFailure(
+        timesheetId,
+        kekaResponse ? { request: payload, response: kekaResponse } : payload,
+        message,
+      );
       return null;
     }
   }
