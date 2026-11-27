@@ -13,5 +13,6 @@ export type AuthConfig = {
   entraClientId?: string;
   entraClientSecret?: string;
   entraRedirectUri?: string;
+  setupWizardSecret?: string;
 };
 

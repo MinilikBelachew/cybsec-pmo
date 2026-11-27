@@ -148,7 +148,9 @@ model User {
   approvedBudgets           ProjectBudget[]
   approvedRevisions         BudgetRevision[]
   resolvedSyncs             FailedSyncRecord[]
-  updatedKekaConnections    KekaConnectionSettings[] @relation("KekaConnectionUpdatedBy")
+  updatedKekaConnections    KekaConnectionSettings[]  @relation("KekaConnectionUpdatedBy")
+  updatedEntraConnections   EntraConnectionSettings[] @relation("EntraConnectionUpdatedBy")
+  updatedMailConnections    MailConnectionSettings[]  @relation("MailConnectionUpdatedBy")
   ownedRisks                Risk[]
   ownedIssues               Issue[]
   raisedIssues              Issue[]              @relation("IssueRaiser")
@@ -327,6 +329,8 @@ model AppSetting {
   sessionWarningBeforeSec       Int       @default(300) @map("session_warning_before_sec")
   dataQualityRules              Json      @default("{}") @map("data_quality_rules")
   timesheetEscalationDays       Int       @default(3) @map("timesheet_escalation_days")
+  setupCompleted                Boolean   @default(false) @map("setup_completed")
+  setupCompletedAt              DateTime? @map("setup_completed_at") @db.Timestamptz
   updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   updatedById                   String?   @map("updated_by_id") @db.Uuid
 
@@ -1182,6 +1186,47 @@ model KekaConnectionSettings {
   updatedBy User? @relation("KekaConnectionUpdatedBy", fields: [updatedById], references: [id])
 
   @@map("keka_connection_settings")
+}
+
+model EntraConnectionSettings {
+  id                    String    @id @default("default") @db.VarChar(32)
+  tenantId              String?   @map("tenant_id") @db.VarChar(128)
+  clientIdEncrypted     String?   @map("client_id_encrypted")
+  clientSecretEncrypted String?   @map("client_secret_encrypted")
+  redirectUri           String?   @map("redirect_uri") @db.VarChar(500)
+  lastTestedAt          DateTime? @map("last_tested_at") @db.Timestamptz
+  lastTestStatus        String?   @map("last_test_status") @db.VarChar(20)
+  lastTestError         String?   @map("last_test_error")
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  updatedById           String?   @map("updated_by_id") @db.Uuid
+
+  updatedBy User? @relation("EntraConnectionUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("entra_connection_settings")
+}
+
+model MailConnectionSettings {
+  id                      String    @id @default("default") @db.VarChar(32)
+  sendgridEnabled         Boolean   @default(false) @map("sendgrid_enabled")
+  sendgridApiKeyEncrypted String?   @map("sendgrid_api_key_encrypted")
+  smtpHost                String?   @map("smtp_host") @db.VarChar(255)
+  smtpPort                Int?      @map("smtp_port")
+  smtpUser                String?   @map("smtp_user") @db.VarChar(255)
+  smtpPasswordEncrypted   String?   @map("smtp_password_encrypted")
+  smtpSecure              Boolean   @default(false) @map("smtp_secure")
+  smtpIgnoreTls           Boolean   @default(false) @map("smtp_ignore_tls")
+  smtpRequireTls          Boolean   @default(false) @map("smtp_require_tls")
+  defaultEmail            String?   @map("default_email") @db.VarChar(255)
+  defaultName             String?   @map("default_name") @db.VarChar(255)
+  lastTestedAt            DateTime? @map("last_tested_at") @db.Timestamptz
+  lastTestStatus          String?   @map("last_test_status") @db.VarChar(20)
+  lastTestError           String?   @map("last_test_error")
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  updatedById             String?   @map("updated_by_id") @db.Uuid
+
+  updatedBy User? @relation("MailConnectionUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("mail_connection_settings")
 }
 
 // ─────────────────────────────────────────

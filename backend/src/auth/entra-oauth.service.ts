@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { AllConfigType } from '../config/config.type';
 import { RedisService } from '../redis/redis.service';
 import { httpsFormPost } from './utils/https-form-post.util';
+import { EntraConnectionService } from './entra-connection.service';
 
 const OAUTH_STATE_TTL_SECONDS = 600;
 const OAUTH_STATE_PREFIX = 'entra:oauth:';
@@ -36,19 +37,20 @@ export class EntraOauthService {
   constructor(
     private readonly configService: ConfigService<AllConfigType>,
     private readonly redisService: RedisService,
+    private readonly entraConnectionService: EntraConnectionService,
   ) {}
 
   async createAuthorizationRequest(returnTo?: string): Promise<{
     authorizationUrl: string;
     state: string;
   }> {
-    const tenantId = this.configService.getOrThrow('auth.entraTenantId', {
-      infer: true,
-    });
-    const clientId = this.configService.getOrThrow('auth.entraClientId', {
-      infer: true,
-    });
-    const redirectUri = this.getRedirectUri();
+    const { tenantId, clientId, redirectUri } =
+      await this.entraConnectionService.getEffectiveConfig();
+    if (!tenantId || !clientId) {
+      throw new BadRequestException(
+        'Microsoft Entra ID is not configured. Complete initial setup first.',
+      );
+    }
 
     const state = this.base64UrlEncode(crypto.randomBytes(32));
     const nonce = this.base64UrlEncode(crypto.randomBytes(32));
@@ -112,16 +114,13 @@ export class EntraOauthService {
       throw new BadRequestException('Invalid or expired OAuth state');
     }
 
-    const tenantId = this.configService.getOrThrow('auth.entraTenantId', {
-      infer: true,
-    });
-    const clientId = this.configService.getOrThrow('auth.entraClientId', {
-      infer: true,
-    });
-    const clientSecret = this.configService.getOrThrow('auth.entraClientSecret', {
-      infer: true,
-    });
-    const redirectUri = this.getRedirectUri();
+    const { tenantId, clientId, clientSecret, redirectUri } =
+      await this.entraConnectionService.getEffectiveConfig();
+    if (!tenantId || !clientId || !clientSecret) {
+      throw new UnauthorizedException(
+        'Microsoft Entra ID is not configured.',
+      );
+    }
 
     const body = new URLSearchParams({
       client_id: clientId,

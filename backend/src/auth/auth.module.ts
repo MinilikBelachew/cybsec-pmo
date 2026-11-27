@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { EntraOauthService } from './entra-oauth.service';
+import { EntraConnectionService } from './entra-connection.service';
 import { AuthFailureService } from './auth-failure.service';
 import { SessionActivityService } from './session-activity.service';
 import { SecurityAlertService } from './security-alert.service';
@@ -33,6 +34,7 @@ import { SettingsModule } from '../settings/settings.module';
   providers: [
     AuthService,
     EntraOauthService,
+    EntraConnectionService,
     AuthFailureService,
     SessionActivityService,
     SecurityAlertService,
@@ -45,6 +47,6 @@ import { SettingsModule } from '../settings/settings.module';
     JwtRefreshStrategy,
     AnonymousStrategy,
   ],
-  exports: [AuthService, SessionActivityService],
+  exports: [AuthService, SessionActivityService, EntraConnectionService],
 })
 export class AuthModule {}

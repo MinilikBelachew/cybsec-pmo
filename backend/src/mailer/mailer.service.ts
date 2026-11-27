@@ -1,31 +1,27 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import fs from 'node:fs/promises';
 import { ConfigService } from '@nestjs/config';
 import nodemailer from 'nodemailer';
 import Handlebars from 'handlebars';
 import { AllConfigType } from '../config/config.type';
+import { MailConfig } from '../mail/config/mail-config.type';
 import { SendgridAttachment, SendgridClient } from './sendgrid.client';
+import { MailConnectionService } from './mail-connection.service';
 
 @Injectable()
 export class MailerService {
   private readonly logger = new Logger(MailerService.name);
-  private readonly transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter;
+  private transporterSignature: string;
 
   constructor(
     private readonly configService: ConfigService<AllConfigType>,
     private readonly sendgridClient: SendgridClient,
+    @Optional() private readonly mailConnectionService?: MailConnectionService,
   ) {
-    this.transporter = nodemailer.createTransport({
-      host: configService.get('mail.host', { infer: true }),
-      port: configService.get('mail.port', { infer: true }),
-      ignoreTLS: configService.get('mail.ignoreTLS', { infer: true }),
-      secure: configService.get('mail.secure', { infer: true }),
-      requireTLS: configService.get('mail.requireTLS', { infer: true }),
-      auth: {
-        user: configService.get('mail.user', { infer: true }),
-        pass: configService.get('mail.password', { infer: true }),
-      },
-    });
+    const initialConfig = this.readEnvMailConfig();
+    this.transporterSignature = this.buildSmtpSignature(initialConfig);
+    this.transporter = this.createTransporter(initialConfig);
   }
 
   async sendMail({
@@ -44,13 +40,13 @@ export class MailerService {
       })(context);
     }
 
+    const effective = this.mailConnectionService
+      ? await this.mailConnectionService.getEffectiveConfig()
+      : this.readEnvMailConfig();
+
     const from =
       mailOptions.from ??
-      `"${this.configService.get('mail.defaultName', {
-        infer: true,
-      })}" <${this.configService.get('mail.defaultEmail', {
-        infer: true,
-      })}>`;
+      `"${effective.defaultName ?? ''}" <${effective.defaultEmail ?? ''}>`;
 
     const resolvedHtml = mailOptions.html ? mailOptions.html : html;
     const payload = {
@@ -59,10 +55,18 @@ export class MailerService {
       html: resolvedHtml,
     };
 
-    if (this.sendgridClient.isConfigured()) {
+    const useDynamicSendgrid = Boolean(
+      this.mailConnectionService &&
+        effective.sendgridEnabled &&
+        effective.sendgridApiKey?.trim(),
+    );
+    const useStaticSendgrid =
+      !this.mailConnectionService && this.sendgridClient.isConfigured();
+
+    if (useDynamicSendgrid || useStaticSendgrid) {
       try {
         const attachments = await this.normalizeAttachments(payload.attachments);
-        await this.sendgridClient.send({
+        const sgPayload = {
           to: this.normalizeRecipients(payload.to),
           from: this.normalizeFrom(from),
           subject: String(payload.subject ?? ''),
@@ -71,7 +75,12 @@ export class MailerService {
           html:
             typeof resolvedHtml === 'string' ? resolvedHtml : undefined,
           ...(attachments.length > 0 ? { attachments } : {}),
-        });
+        };
+        if (useDynamicSendgrid) {
+          await this.sendgridClient.send(sgPayload, effective.sendgridApiKey);
+        } else {
+          await this.sendgridClient.send(sgPayload);
+        }
         this.logger.debug('Email sent via SendGrid');
         return;
       } catch (error) {
@@ -83,8 +92,67 @@ export class MailerService {
       }
     }
 
-    await this.transporter.sendMail(payload);
+    const transporter = this.getOrRefreshTransporter(effective);
+    await transporter.sendMail(payload);
     this.logger.debug('Email sent via SMTP');
+  }
+
+  private readEnvMailConfig(): MailConfig {
+    return {
+      host: this.configService.get('mail.host', { infer: true }),
+      port: this.configService.get('mail.port', { infer: true }) ?? 587,
+      ignoreTLS:
+        this.configService.get('mail.ignoreTLS', { infer: true }) ?? false,
+      secure: this.configService.get('mail.secure', { infer: true }) ?? false,
+      requireTLS:
+        this.configService.get('mail.requireTLS', { infer: true }) ?? false,
+      user: this.configService.get('mail.user', { infer: true }),
+      password: this.configService.get('mail.password', { infer: true }),
+      defaultName: this.configService.get('mail.defaultName', { infer: true }),
+      defaultEmail: this.configService.get('mail.defaultEmail', {
+        infer: true,
+      }),
+      sendgridApiKey: this.configService.get('mail.sendgridApiKey', {
+        infer: true,
+      }),
+      sendgridEnabled:
+        this.configService.get('mail.sendgridEnabled', { infer: true }) ?? true,
+    };
+  }
+
+  private buildSmtpSignature(cfg: MailConfig): string {
+    return JSON.stringify([
+      cfg.host ?? '',
+      cfg.port ?? 587,
+      Boolean(cfg.ignoreTLS),
+      Boolean(cfg.secure),
+      Boolean(cfg.requireTLS),
+      cfg.user ?? '',
+      cfg.password ?? '',
+    ]);
+  }
+
+  private createTransporter(cfg: MailConfig): nodemailer.Transporter {
+    return nodemailer.createTransport({
+      host: cfg.host,
+      port: cfg.port,
+      ignoreTLS: cfg.ignoreTLS,
+      secure: cfg.secure,
+      requireTLS: cfg.requireTLS,
+      auth: {
+        user: cfg.user,
+        pass: cfg.password,
+      },
+    });
+  }
+
+  private getOrRefreshTransporter(cfg: MailConfig): nodemailer.Transporter {
+    const signature = this.buildSmtpSignature(cfg);
+    if (signature !== this.transporterSignature) {
+      this.transporter = this.createTransporter(cfg);
+      this.transporterSignature = signature;
+    }
+    return this.transporter;
   }
 
   private async normalizeAttachments(

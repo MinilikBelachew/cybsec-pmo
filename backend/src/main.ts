@@ -46,7 +46,13 @@ async function bootstrap() {
     origin: process.env.FRONTEND_DOMAIN || 'http://localhost:3000',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-custom-lang', 'x-user-id'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-custom-lang',
+      'x-user-id',
+      'x-setup-token',
+    ],
     exposedHeaders: ['Content-Disposition'],
   });
 

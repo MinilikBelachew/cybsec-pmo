@@ -33,6 +33,7 @@ import { AuditLogsService } from '../audit/audit-logs.service';
 import { resolveUserIsExternal } from './utils/user-external.util';
 import { formatIpWithUserAgent } from './utils/request-context.util';
 import { EmployeeUserLinkService } from '../integrations/keka/employee-user-link.service';
+import { EntraConnectionService } from './entra-connection.service';
 
 type CreateSessionOptions = {
   isBreakGlass?: boolean;
@@ -60,6 +61,7 @@ export class AuthService {
     private permissionsCache: PermissionsCacheService,
     private auditLogsService: AuditLogsService,
     private employeeUserLinkService: EmployeeUserLinkService,
+    private entraConnectionService: EntraConnectionService,
   ) {}
 
   async validateEntraLogin(
@@ -72,12 +74,12 @@ export class AuthService {
     await this.authFailureService.assertLoginAllowed(context, emailHint);
 
     try {
-      const tenantId = this.configService.getOrThrow('auth.entraTenantId', {
-        infer: true,
-      });
-      const clientId = this.configService.getOrThrow('auth.entraClientId', {
-        infer: true,
-      });
+      const entraConfig = await this.entraConnectionService.getEffectiveConfig();
+      const tenantId = entraConfig.tenantId;
+      const clientId = entraConfig.clientId;
+      if (!tenantId || !clientId) {
+        throw new UnauthorizedException('Microsoft Entra ID is not configured');
+      }
 
       const decoded = await this.verifyEntraIdToken(
         idToken,

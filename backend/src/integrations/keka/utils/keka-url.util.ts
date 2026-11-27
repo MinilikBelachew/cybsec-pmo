@@ -88,12 +88,17 @@ export function envKekaConfigBase(): Omit<
 
   return {
     mockEnabled,
-    companySubdomain: normalizeCompanySubdomain(
-      process.env.KEKA_COMPANY_SUBDOMAIN ?? 'kekademo',
-    ),
-    clientId: process.env.KEKA_CLIENT_ID ?? 'mock-client-id',
-    clientSecret: process.env.KEKA_CLIENT_SECRET ?? 'mock-client-secret',
-    apiKey: process.env.KEKA_API_KEY ?? 'mock-api-key',
+    companySubdomain: process.env.KEKA_COMPANY_SUBDOMAIN?.trim()
+      ? normalizeCompanySubdomain(process.env.KEKA_COMPANY_SUBDOMAIN)
+      : mockEnabled
+        ? 'kekademo'
+        : '',
+    clientId:
+      process.env.KEKA_CLIENT_ID ?? (mockEnabled ? 'mock-client-id' : ''),
+    clientSecret:
+      process.env.KEKA_CLIENT_SECRET ??
+      (mockEnabled ? 'mock-client-secret' : ''),
+    apiKey: process.env.KEKA_API_KEY ?? (mockEnabled ? 'mock-api-key' : ''),
     sandbox: parseBoolean(process.env.KEKA_SANDBOX, true),
     syncCron: process.env.KEKA_SYNC_CRON ?? '0 2 * * *',
     syncEnabled: parseBoolean(process.env.KEKA_SYNC_ENABLED, true),

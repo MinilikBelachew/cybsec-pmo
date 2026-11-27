@@ -9,6 +9,15 @@ import type {
   TimesheetEscalationSettings,
   UpdateTimesheetEscalationPayload,
 } from "../types/settings.types";
+import type {
+  EntraConnectionView,
+  EntraTestResult,
+  MailConnectionView,
+  MailTestResult,
+  TestMailConnectionPayload,
+  UpdateEntraConnectionPayload,
+  UpdateMailConnectionPayload,
+} from "@/domains/setup/types/setup.types";
 
 export const settingsApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -87,6 +96,64 @@ export const settingsApi = api.injectEndpoints({
       }),
       invalidatesTags: ["Settings", "Timesheets", "TimesheetApprovals"],
     }),
+
+    getEntraConnection: builder.query<EntraConnectionView, void>({
+      query: () => ({ url: "/settings/entra" }),
+      providesTags: ["Settings"],
+    }),
+
+    updateEntraConnection: builder.mutation<
+      EntraConnectionView,
+      UpdateEntraConnectionPayload
+    >({
+      query: (body) => ({
+        url: "/settings/entra",
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
+
+    testEntraConnection: builder.mutation<
+      EntraTestResult,
+      UpdateEntraConnectionPayload
+    >({
+      query: (body) => ({
+        url: "/settings/entra/test",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
+
+    getMailConnection: builder.query<MailConnectionView, void>({
+      query: () => ({ url: "/settings/mail" }),
+      providesTags: ["Settings"],
+    }),
+
+    updateMailConnection: builder.mutation<
+      MailConnectionView,
+      UpdateMailConnectionPayload
+    >({
+      query: (body) => ({
+        url: "/settings/mail",
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
+
+    testMailConnection: builder.mutation<
+      MailTestResult,
+      TestMailConnectionPayload
+    >({
+      query: (body) => ({
+        url: "/settings/mail/test",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
   }),
 });
 
@@ -100,4 +167,10 @@ export const {
   useUpdateSessionSecuritySettingsMutation,
   useGetTimesheetEscalationSettingsQuery,
   useUpdateTimesheetEscalationSettingsMutation,
+  useGetEntraConnectionQuery,
+  useUpdateEntraConnectionMutation,
+  useTestEntraConnectionMutation,
+  useGetMailConnectionQuery,
+  useUpdateMailConnectionMutation,
+  useTestMailConnectionMutation,
 } = settingsApi;

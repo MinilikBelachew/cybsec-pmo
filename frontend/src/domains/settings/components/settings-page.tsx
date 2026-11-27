@@ -6,7 +6,7 @@ import { toast } from "react-hot-toast";
 import { PageHeader } from "@/shared/components/page-header";
 import { useAppAbility } from "@/domains/auth/casl/ability-context";
 import { useAuth } from "@/domains/auth";
-import { Users, Settings, ShieldAlert, Archive, Briefcase, Activity, Palette } from "lucide-react";
+import { Users, Settings, ShieldAlert, Archive, Briefcase, Activity, Palette, Plug } from "lucide-react";
 import { cn } from "@/shared/utils/cn";
 import { ProfileSection } from "./profile-section";
 import { UserDirectorySection } from "./user-directory-section";
@@ -17,10 +17,13 @@ import { AuditComplianceSection } from "./audit-compliance-section";
 import { AllocationPoliciesSection } from "./allocation-policies-section";
 import { HealthRulesSection } from "./health-rules-section";
 import { BrandingProfilesSection } from "./branding-profiles-section";
+import { EntraConnectionSection } from "./entra-connection-section";
+import { MailConnectionSection } from "./mail-connection-section";
 
 type SettingsTab =
   | "profile"
   | "users"
+  | "connections"
   | "security"
   | "audit"
   | "allocation"
@@ -50,6 +53,8 @@ export function SettingsPage() {
     const tab = searchParams.get("tab");
     if (tab === "security" && canManageSecurity) {
       setActiveTab("security");
+    } else if (tab === "connections" && canManageSecurity) {
+      setActiveTab("connections");
     }
   }, [searchParams, canManageSecurity]);
 
@@ -160,6 +165,21 @@ export function SettingsPage() {
         {canManageSecurity && (
           <button
             type="button"
+            onClick={() => setActiveTab("connections")}
+            className={cn(
+              "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex shrink-0 items-center gap-2",
+              activeTab === "connections"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Plug className="size-4" />
+            Connections
+          </button>
+        )}
+        {canManageSecurity && (
+          <button
+            type="button"
             onClick={() => setActiveTab("security")}
             className={cn(
               "px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px flex items-center gap-2",
@@ -202,6 +222,19 @@ export function SettingsPage() {
           onSuccess={notifySuccess}
           onError={notifyError}
         />
+      )}
+
+      {activeTab === "connections" && canManageSecurity && (
+        <div className="space-y-6">
+          <EntraConnectionSection
+            onSuccess={notifySuccess}
+            onError={notifyError}
+          />
+          <MailConnectionSection
+            onSuccess={notifySuccess}
+            onError={notifyError}
+          />
+        </div>
       )}
 
       {activeTab === "security" && canManageSecurity && (

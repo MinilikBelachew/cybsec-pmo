@@ -10,11 +10,12 @@ import {
   buildPermissionCatalog,
   buildRolePermissionRows,
 } from './rbac-seed-data';
-import {
-  KEKA_MOCK_DEPARTMENTS,
-  KEKA_MOCK_EMPLOYEE_IDS,
-  KEKA_MOCK_JOB_TITLE_IDS,
-} from '../src/integrations/keka/mock/keka-mock.ids';
+// Demo/mock Keka IDs — uncomment only if re-enabling the demo seed block below.
+// import {
+//   KEKA_MOCK_DEPARTMENTS,
+//   KEKA_MOCK_EMPLOYEE_IDS,
+//   KEKA_MOCK_JOB_TITLE_IDS,
+// } from '../src/integrations/keka/mock/keka-mock.ids';
 import {
   DEFAULT_HEALTH_RULES,
   HEALTH_RULE_VERSION,
@@ -144,6 +145,12 @@ async function main() {
   }
   console.log(`Removed ${authPermissions.length} auth permission definition(s).`);
 
+  /*
+   * Demo users, mock departments/employees, and sample customers are commented
+   * out so `npm run prisma:seed` is production-safe. The first Super Admin is
+   * created through the First-Time Setup Wizard (`/setup`), and real employees
+   * & departments sync from Keka.
+   *
   console.log('Seeding initial Super Admin user...');
   const adminEmail = 'bminilik12@gmail.com';
 
@@ -446,6 +453,7 @@ async function main() {
     });
   }
   console.log('Customers seeded successfully.');
+  */
 
   console.log('Seeding app settings...');
   await prisma.appSetting.upsert({

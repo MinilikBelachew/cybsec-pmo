@@ -24,16 +24,16 @@ export class SendgridClient {
   private readonly logger = new Logger(SendgridClient.name);
   private readonly apiKey?: string;
   private readonly enabled: boolean;
-  private initialized = false;
+  private lastAppliedApiKey?: string;
 
   constructor(private readonly configService: ConfigService<AllConfigType>) {
     this.apiKey = this.configService.get('mail.sendgridApiKey', { infer: true });
     this.enabled =
       this.configService.get('mail.sendgridEnabled', { infer: true }) ?? true;
 
-    if (this.isConfigured()) {
-      sgMail.setApiKey(this.apiKey!);
-      this.initialized = true;
+    if (this.isConfigured() && this.apiKey) {
+      sgMail.setApiKey(this.apiKey);
+      this.lastAppliedApiKey = this.apiKey;
       this.logger.log('SendGrid client configured as primary mail transport');
     }
   }
@@ -42,9 +42,18 @@ export class SendgridClient {
     return Boolean(this.enabled && this.apiKey?.trim());
   }
 
-  async send(payload: SendgridMailPayload): Promise<void> {
-    if (!this.isConfigured() || !this.initialized) {
+  async send(
+    payload: SendgridMailPayload,
+    apiKeyOverride?: string,
+  ): Promise<void> {
+    const effectiveKey = apiKeyOverride?.trim() || (this.enabled ? this.apiKey?.trim() : '');
+    if (!effectiveKey) {
       throw new Error('SendGrid is not configured');
+    }
+
+    if (effectiveKey !== this.lastAppliedApiKey) {
+      sgMail.setApiKey(effectiveKey);
+      this.lastAppliedApiKey = effectiveKey;
     }
 
     if (!payload.html && !payload.text) {

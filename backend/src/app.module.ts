@@ -52,6 +52,7 @@ import kekaConfig from './integrations/keka/config/keka.config';
 import fxConfig from './fx/config/fx.config';
 import { FxModule } from './fx/fx.module';
 import { MeetingsModule } from './meetings/meetings.module';
+import { SetupModule } from './setup/setup.module';
 
 @Module({
   imports: [
@@ -163,6 +164,7 @@ import { MeetingsModule } from './meetings/meetings.module';
     ReportsModule,
     MeetingsModule,
     BrandingModule,
+    SetupModule,
     ScheduleModule.forRoot(),
   ],
   providers: [

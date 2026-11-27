@@ -31,17 +31,24 @@ class EnvironmentVariablesValidator {
   AUTH_CONFIRM_EMAIL_TOKEN_EXPIRES_IN: string;
 
   @IsString()
+  @IsOptional()
   ENTRA_TENANT_ID: string;
 
   @IsString()
+  @IsOptional()
   ENTRA_CLIENT_ID: string;
 
   @IsString()
+  @IsOptional()
   ENTRA_CLIENT_SECRET: string;
 
   @IsString()
   @IsOptional()
   ENTRA_REDIRECT_URI: string;
+
+  @IsString()
+  @IsOptional()
+  SETUP_WIZARD_SECRET: string;
 }
 
 export default registerAs<AuthConfig>('auth', () => {
@@ -61,6 +68,7 @@ export default registerAs<AuthConfig>('auth', () => {
     entraClientId: process.env.ENTRA_CLIENT_ID,
     entraClientSecret: process.env.ENTRA_CLIENT_SECRET,
     entraRedirectUri: process.env.ENTRA_REDIRECT_URI,
+    setupWizardSecret: process.env.SETUP_WIZARD_SECRET,
   };
 });
 

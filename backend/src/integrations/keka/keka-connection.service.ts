@@ -108,7 +108,7 @@ export class KekaConnectionService {
 
   async updateConnection(
     dto: UpdateKekaConnectionDto,
-    actorId: string,
+    actorId: string | null,
   ): Promise<KekaConnectionResponseDto> {
     const existing = await this.prisma.kekaConnectionSettings.findUnique({
       where: { id: SETTINGS_ID },
@@ -179,7 +179,7 @@ export class KekaConnectionService {
   }
 
   async testConnection(
-    actorId: string,
+    actorId: string | null,
     dto?: UpdateKekaConnectionDto,
   ): Promise<KekaConnectionTestResultDto> {
     // Persist draft first when body provided so test uses the same effective config.
